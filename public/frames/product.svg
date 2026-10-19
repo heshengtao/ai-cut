@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+  <defs>
+    <radialGradient id="bg" cx=".5" cy=".38" r=".72">
+      <stop offset="0" stop-color="#3a2c22"/>
+      <stop offset=".55" stop-color="#221a17"/>
+      <stop offset="1" stop-color="#100d0c"/>
+    </radialGradient>
+    <radialGradient id="spot" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffe6bd" stop-opacity=".38"/>
+      <stop offset="1" stop-color="#ffe6bd" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f0cf9a"/>
+      <stop offset=".45" stop-color="#9c6b3f"/>
+      <stop offset="1" stop-color="#5a3a22"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a211b"/>
+      <stop offset="1" stop-color="#0d0a09"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+  <ellipse cx="960" cy="470" rx="760" ry="560" fill="url(#spot)"/>
+
+  <!-- 台面 -->
+  <rect x="0" y="880" width="1920" height="200" fill="url(#floor)"/>
+  <rect x="0" y="876" width="1920" height="4" fill="#4a382a" opacity=".7"/>
+
+  <!-- 产品主体：香水瓶 -->
+  <g>
+    <!-- 倒影 -->
+    <g opacity=".22" transform="translate(0,1756) scale(1,-1)">
+      <rect x="820" y="880" width="280" height="330" rx="26" fill="url(#glass)"/>
+    </g>
+    <!-- 瓶身 -->
+    <rect x="820" y="330" width="280" height="550" rx="26" fill="url(#glass)"/>
+    <!-- 瓶身高光 -->
+    <rect x="848" y="360" width="52" height="494" rx="26" fill="#fff3d6" opacity=".3"/>
+    <rect x="1010" y="360" width="18" height="494" rx="9" fill="#fff3d6" opacity=".16"/>
+    <!-- 瓶颈 -->
+    <rect x="912" y="250" width="96" height="88" rx="10" fill="#6b4626"/>
+    <!-- 瓶盖 -->
+    <rect x="884" y="176" width="152" height="86" rx="14" fill="#c9a15e"/>
+    <rect x="884" y="196" width="152" height="18" fill="#8a6836" opacity=".7"/>
+    <rect x="898" y="186" width="30" height="70" rx="14" fill="#ffe9c0" opacity=".45"/>
+    <!-- 标签 -->
+    <rect x="820" y="560" width="280" height="150" fill="#1a120c" opacity=".62"/>
+    <g fill="#f0cf9a">
+      <rect x="884" y="600" width="152" height="7" rx="3" opacity=".9"/>
+      <rect x="908" y="630" width="104" height="5" rx="2" opacity=".55"/>
+      <rect x="924" y="654" width="72" height="5" rx="2" opacity=".4"/>
+    </g>
+    <!-- 液体 -->
+    <path d="M846 720v128a26 26 0 0 0 26 26h176a26 26 0 0 0 26-26V720z" fill="#d9a05f" opacity=".55"/>
+  </g>
+
+  <!-- 点缀光斑 -->
+  <g fill="#ffd9a1">
+    <circle cx="1520" cy="300" r="9" opacity=".8"/>
+    <circle cx="1560" cy="392" r="6" opacity=".6"/>
+    <circle cx="1488" cy="420" r="4" opacity=".5"/>
+    <circle cx="1620" cy="330" r="5" opacity=".55"/>
+    <circle cx="380" cy="360" r="7" opacity=".7"/>
+    <circle cx="330" cy="452" r="5" opacity=".5"/>
+  </g>
+
+  <!-- 底部压暗 -->
+  <rect x="0" y="980" width="1920" height="100" fill="#000" opacity=".28"/>
+</svg>

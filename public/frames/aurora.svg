@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#04061a"/>
+      <stop offset=".5" stop-color="#0a1733"/>
+      <stop offset="1" stop-color="#123253"/>
+    </linearGradient>
+    <linearGradient id="auroraA" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38e6a8" stop-opacity="0"/>
+      <stop offset=".35" stop-color="#4ff0b4" stop-opacity=".55"/>
+      <stop offset=".7" stop-color="#7ae0ff" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#7ae0ff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="auroraB" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9d7bff" stop-opacity="0"/>
+      <stop offset=".4" stop-color="#a98cff" stop-opacity=".4"/>
+      <stop offset="1" stop-color="#4ff0b4" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="lake" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#123253"/>
+      <stop offset="1" stop-color="#04061a"/>
+    </linearGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+
+  <!-- 星空 -->
+  <g fill="#e8f1ff">
+    <circle cx="140" cy="110" r="2.2" opacity=".9"/>
+    <circle cx="330" cy="220" r="1.6" opacity=".65"/>
+    <circle cx="520" cy="90" r="2.4" opacity=".85"/>
+    <circle cx="700" cy="190" r="1.5" opacity=".55"/>
+    <circle cx="860" cy="70" r="2" opacity=".8"/>
+    <circle cx="1060" cy="200" r="1.7" opacity=".6"/>
+    <circle cx="1240" cy="120" r="2.3" opacity=".85"/>
+    <circle cx="1440" cy="240" r="1.6" opacity=".6"/>
+    <circle cx="1600" cy="140" r="2.1" opacity=".8"/>
+    <circle cx="1780" cy="260" r="1.5" opacity=".55"/>
+    <circle cx="420" cy="330" r="1.4" opacity=".45"/>
+    <circle cx="1620" cy="380" r="1.4" opacity=".5"/>
+  </g>
+
+  <!-- 极光带 -->
+  <g filter="url(#soft)">
+    <path d="M-100 420q380-300 900-120t1220-160v150q-600 120-1220 210T-100 560z" fill="url(#auroraA)"/>
+    <path d="M-100 320q420-220 980-60t1120-120v120q-560 90-1120 160T-100 430z" fill="url(#auroraB)"/>
+  </g>
+  <g opacity=".5">
+    <path d="M-100 470q380-260 900-90t1220-120v60q-600 90-1220 140T-100 540z" fill="url(#auroraA)"/>
+  </g>
+
+  <!-- 远山 -->
+  <path d="M-40 620l420-300 340 240 300-210 940 470v260H-40z" fill="#16233d"/>
+  <!-- 近山与雪顶 -->
+  <path d="M-40 760l520-360 400 260 360-200 720 420v200H-40z" fill="#0b1327"/>
+  <path d="M480 400l140 96-70 30-46-24-56 26z" fill="#dce8f7" opacity=".85"/>
+  <path d="M1260 600l150-92 160 96-72 24-64-14-70 20z" fill="#dce8f7" opacity=".7"/>
+
+  <!-- 湖面与倒影 -->
+  <rect x="0" y="880" width="1920" height="200" fill="url(#lake)"/>
+  <g fill="#4ff0b4" opacity=".16">
+    <path d="M300 900q420-40 860 4t540-6v22q-240 14-540 4T300 922z"/>
+    <path d="M700 950q420-26 820 8v14q-420-30-820-8z"/>
+  </g>
+  <g stroke="#7ae0ff" stroke-opacity=".22" stroke-width="2">
+    <path d="M200 930h420"/>
+    <path d="M980 968h520"/>
+  </g>
+</svg>

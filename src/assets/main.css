@@ -1,0 +1,482 @@
+/**
+ * Material You design tokens + M3 component layer.
+ * Design language adapted from the ai-daw project (MD3 baseline lavender).
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== Material You Design Tokens ===== */
+@layer base {
+  :root {
+    /* Source color — MD3 baseline lavender */
+    --md-source: 103 80 164;
+
+    /* Surfaces */
+    --md-surface:                   254 247 255;
+    --md-surface-container-lowest:  255 255 255;
+    --md-surface-container-low:     247 242 250;
+    --md-surface-container:         243 237 247;
+    --md-surface-container-high:    236 230 240;
+    --md-surface-container-highest: 230 224 233;
+
+    /* On surfaces */
+    --md-on-surface:          28 27 31;
+    --md-on-surface-variant:  73 69 79;
+    --md-on-surface-muted:    121 116 126;
+
+    /* Primary */
+    --md-primary:             103 80 164;
+    --md-on-primary:          255 255 255;
+    --md-primary-container:   234 221 255;
+    --md-on-primary-container: 33 0 93;
+
+    /* Secondary */
+    --md-secondary:           98 91 113;
+    --md-on-secondary:        255 255 255;
+    --md-secondary-container: 232 222 248;
+    --md-on-secondary-container: 29 25 43;
+
+    /* Tertiary */
+    --md-tertiary:            125 82 96;
+    --md-on-tertiary:         255 255 255;
+    --md-tertiary-container:  255 216 228;
+    --md-on-tertiary-container: 49 17 29;
+
+    /* Error */
+    --md-error:               179 38 30;
+    --md-on-error:            255 255 255;
+    --md-error-container:     249 222 220;
+    --md-on-error-container:  65 14 11;
+
+    /* Outlines */
+    --md-outline:             121 116 126;
+    --md-outline-variant:     202 196 208;
+
+    /* 应用层级：页面底 / 卡片 / 卡片内凹槽（亮暗各取合适的一层） */
+    --app-bg:   rgb(var(--md-surface-container));
+    --app-card: rgb(var(--md-surface));
+    --app-inset: rgb(var(--md-surface-container-low));
+
+    /* Shadows / Scrim */
+    --md-scrim: 0 0 0;
+
+    /* Elevation tokens */
+    --md-elevation-1: 0 1px 2px 0 rgba(0 0 0 / 0.05), 0 1px 3px 1px rgba(0 0 0 / 0.05);
+    --md-elevation-2: 0 1px 2px 0 rgba(0 0 0 / 0.08), 0 2px 6px 2px rgba(0 0 0 / 0.05);
+    --md-elevation-3: 0 4px 8px 3px rgba(0 0 0 / 0.08), 0 1px 3px 0 rgba(0 0 0 / 0.1);
+
+    /* Shape */
+    --md-shape-corner-xs: 4px;
+    --md-shape-corner-sm: 8px;
+    --md-shape-corner-md: 12px;
+    --md-shape-corner-lg: 16px;
+    --md-shape-corner-xl: 24px;
+    --md-shape-corner-full: 999px;
+
+    /* State layers */
+    --md-state-hover-alpha: 0.08;
+    --md-state-focus-alpha: 0.12;
+    --md-state-press-alpha: 0.12;
+
+    /* Expressive motion — springs (MD3 Expressive) */
+    --md-spring-fast: 340ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    --md-spring-default: 520ms cubic-bezier(0.34, 1.42, 0.5, 1);
+    --md-spring-slow: 720ms cubic-bezier(0.22, 1.28, 0.36, 1);
+    --md-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+    --md-ease-emphasized-decel: cubic-bezier(0.05, 0.7, 0.1, 1);
+    --md-ease-emphasized-accel: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+    color-scheme: light;
+  }
+
+  /* ===== Dark Theme ===== */
+  .dark {
+    --md-surface:              28 27 31;
+    --md-surface-container-lowest: 15 13 19;
+    --md-surface-container-low:    29 27 32;
+    --md-surface-container:    33 31 38;
+    --md-surface-container-high: 43 41 48;
+    --md-surface-container-highest: 54 52 59;
+
+    --md-on-surface:          230 224 233;
+    --md-on-surface-variant:   202 196 208;
+    --md-on-surface-muted:     147 143 153;
+
+    --md-primary:             208 188 255;
+    --md-on-primary:           56 30 114;
+    --md-primary-container:    79 55 139;
+    --md-on-primary-container: 234 221 255;
+
+    --md-secondary:           204 194 220;
+    --md-on-secondary:        51 45 65;
+    --md-secondary-container:  74 68 88;
+    --md-on-secondary-container: 232 222 248;
+
+    --md-tertiary:            239 184 200;
+    --md-on-tertiary:         73 37 50;
+    --md-tertiary-container:   99 59 72;
+    --md-on-tertiary-container: 255 216 228;
+
+    --md-error:               242 184 181;
+    --md-on-error:            96 20 16;
+    --md-error-container:     140 29 24;
+    --md-on-error-container:  249 222 220;
+
+    --md-outline:             147 143 153;
+    --md-outline-variant:     73 69 79;
+
+    /* 深色：页面最暗，卡片更亮，凹槽介于两者之间 */
+    --app-bg:   rgb(var(--md-surface));
+    --app-card: rgb(var(--md-surface-container-high));
+    --app-inset: rgb(var(--md-surface-container));
+
+    --md-elevation-1: 0 1px 2px 0 rgba(0 0 0 / 0.3), 0 1px 3px 1px rgba(0 0 0 / 0.15);
+    --md-elevation-2: 0 1px 2px 0 rgba(0 0 0 / 0.3), 0 2px 6px 2px rgba(0 0 0 / 0.15);
+    --md-elevation-3: 0 4px 8px 3px rgba(0 0 0 / 0.3), 0 1px 3px 0 rgba(0 0 0 / 0.15);
+
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    @apply m-0 font-sans antialiased;
+    background-color: rgb(var(--md-surface));
+    color: rgb(var(--md-on-surface));
+    overflow: hidden;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font-family: inherit;
+  }
+
+  button {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* 细滚动条：与 MD3 面板的低对比度一致 */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--md-outline-variant) / 0.6);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--md-outline) / 0.8);
+  }
+}
+
+/* ===== Material You Components ===== */
+@layer components {
+  /* ---- Buttons ---- */
+
+  .btn-filled {
+    @apply relative inline-flex items-center justify-center gap-2 px-5 h-10
+           bg-[rgb(var(--md-primary))] text-[rgb(var(--md-on-primary))]
+           font-medium text-sm leading-none rounded-full
+           disabled:opacity-40 disabled:pointer-events-none
+           select-none cursor-pointer;
+    box-shadow: var(--md-elevation-1);
+    letter-spacing: 0.1px;
+    transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+  }
+  .btn-filled:active {
+    transform: scale(0.97);
+  }
+  .btn-filled:hover {
+    background-image: linear-gradient(
+      rgba(var(--md-on-primary) / var(--md-state-hover-alpha)),
+      rgba(var(--md-on-primary) / var(--md-state-hover-alpha))
+    );
+  }
+  .btn-filled:focus-visible {
+    outline: 2px solid rgb(var(--md-primary));
+    outline-offset: 2px;
+  }
+
+  .btn-tonal {
+    @apply relative inline-flex items-center justify-center gap-2 px-5 h-10
+           bg-[rgb(var(--md-secondary-container))] text-[rgb(var(--md-on-secondary-container))]
+           font-medium text-sm leading-none rounded-full
+           disabled:opacity-40 disabled:pointer-events-none
+           select-none cursor-pointer;
+    letter-spacing: 0.1px;
+    transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+  }
+  .btn-tonal:active {
+    transform: scale(0.97);
+  }
+  .btn-tonal:hover {
+    background-image: linear-gradient(
+      rgba(var(--md-on-secondary-container) / var(--md-state-hover-alpha)),
+      rgba(var(--md-on-secondary-container) / var(--md-state-hover-alpha))
+    );
+  }
+  .btn-tonal:focus-visible {
+    outline: 2px solid rgb(var(--md-primary));
+    outline-offset: 2px;
+  }
+
+  .btn-text {
+    @apply relative inline-flex items-center justify-center gap-2 px-4 h-9
+           text-[rgb(var(--md-primary))] font-medium text-sm leading-none rounded-full
+           disabled:opacity-40 disabled:pointer-events-none
+           select-none cursor-pointer;
+    letter-spacing: 0.1px;
+    transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+  }
+  .btn-text:active {
+    transform: scale(0.96);
+  }
+  .btn-text:hover {
+    background-color: rgba(var(--md-primary) / var(--md-state-hover-alpha));
+  }
+
+  /* ---- Cards ---- */
+
+  .card-filled {
+    @apply bg-[rgb(var(--md-surface-container-high))];
+    border-radius: 20px;
+    transition: background-color 0.3s ease;
+  }
+
+  .card-outlined {
+    border: 1px solid rgb(var(--md-outline-variant) / 0.6);
+    background: rgb(var(--md-surface-container-low));
+    border-radius: 20px;
+  }
+
+  /* ---- Input Fields ---- */
+
+  .md3-field {
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid rgb(var(--md-outline) / 0.55);
+    border-radius: 999px;
+    background-color: rgb(var(--md-surface-container-high));
+    color: rgb(var(--md-on-surface));
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .md3-field::placeholder {
+    color: rgb(var(--md-on-surface-muted));
+  }
+  .md3-field:focus {
+    border-color: rgb(var(--md-primary));
+    box-shadow: 0 0 0 2px rgb(var(--md-primary) / 0.22);
+  }
+
+  /* ---- Typography ---- */
+
+  .text-display-sm {
+    @apply font-display text-2xl leading-[1.2] tracking-normal;
+  }
+
+  .text-headline-sm {
+    @apply text-2xl leading-[1.3] tracking-normal font-normal;
+  }
+
+  .text-title-lg {
+    @apply text-[1.375rem] leading-[1.3] tracking-normal font-medium;
+  }
+  .text-title-md {
+    @apply text-base leading-[1.35] tracking-[0.15px] font-medium;
+  }
+  .text-title-sm {
+    @apply text-sm leading-[1.4] tracking-[0.1px] font-medium;
+  }
+
+  .text-body-lg {
+    @apply text-base leading-[1.5] tracking-[0.5px] font-normal;
+  }
+  .text-body-md {
+    @apply text-sm leading-[1.5] tracking-[0.25px] font-normal;
+  }
+  .text-body-sm {
+    @apply text-xs leading-[1.45] tracking-[0.4px] font-normal;
+  }
+
+  .text-label-lg {
+    @apply text-sm leading-[1.4] tracking-[0.1px] font-medium;
+  }
+  .text-label-md {
+    @apply text-xs leading-[1.35] tracking-[0.5px] font-medium;
+  }
+  .text-label-sm {
+    @apply text-[11px] leading-[1.3] tracking-[0.5px] font-semibold;
+  }
+
+  /* ---- Divider ---- */
+
+  .divider {
+    @apply w-full;
+    height: 1px;
+    background-color: rgb(var(--md-outline-variant) / 0.5);
+  }
+
+  /* ---- 面板通用骨架 ---- */
+
+  .pane {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .pane-head {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 16px 16px 12px;
+  }
+  .pane-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.1px;
+    color: rgb(var(--md-on-surface));
+  }
+  .pane-sub {
+    margin: 3px 0 0;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: rgb(var(--md-on-surface-variant));
+  }
+  .pane-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 16px 18px;
+  }
+
+  .icon-btn {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: rgb(var(--md-on-surface-variant));
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  }
+  .icon-btn:hover {
+    background-color: rgb(var(--md-on-surface-variant) / var(--md-state-hover-alpha));
+    color: rgb(var(--md-on-surface));
+  }
+  .icon-btn:active {
+    transform: scale(0.93);
+  }
+  .icon-btn:focus-visible {
+    outline: 2px solid rgb(var(--md-primary));
+    outline-offset: 1px;
+  }
+  .icon-btn.on {
+    background-color: rgb(var(--md-secondary-container));
+    color: rgb(var(--md-on-secondary-container));
+  }
+
+  .section-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    color: rgb(var(--md-on-surface-muted));
+    margin: 16px 0 8px;
+  }
+
+  .prop-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 0;
+    font-size: 12px;
+    color: rgb(var(--md-on-surface-variant));
+  }
+  .prop-value {
+    padding: 2px 8px;
+    border-radius: 8px;
+    background-color: rgb(var(--md-surface-container-high));
+    color: rgb(var(--md-on-surface));
+    font-size: 11px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* MD3 风格滑杆：细轨 + 圆形手柄 */
+  .md3-range {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 18px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .md3-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: rgb(var(--md-primary) / 0.22);
+  }
+  .md3-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: 999px;
+    background: rgb(var(--md-primary));
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform 0.15s ease;
+  }
+  .md3-range:hover::-webkit-slider-thumb {
+    transform: scale(1.12);
+  }
+
+  /* ---- Tooltip ---- */
+
+  .tooltip {
+    @apply px-2 py-1 text-label-sm rounded-lg;
+    background-color: rgb(var(--md-inverse-surface, 28 27 31));
+    color: rgb(var(--md-inverse-on-surface, 242 240 247));
+  }
+}
+
+/* 数字等宽：时间码 / 标尺刻度不随数字宽度跳动 */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}

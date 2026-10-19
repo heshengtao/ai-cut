@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#241a44"/>
+      <stop offset=".32" stop-color="#4d2a5e"/>
+      <stop offset=".56" stop-color="#9a4a6b"/>
+      <stop offset=".74" stop-color="#d97f6c"/>
+      <stop offset=".88" stop-color="#f0b183"/>
+    </linearGradient>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8c4666"/>
+      <stop offset=".42" stop-color="#4e2b52"/>
+      <stop offset="1" stop-color="#241632"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffc48c" stop-opacity=".55"/>
+      <stop offset=".45" stop-color="#ffa078" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#ffa078" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="sun" cx=".4" cy=".38" r=".62">
+      <stop offset="0" stop-color="#fff3d6"/>
+      <stop offset=".55" stop-color="#ffd9a1"/>
+      <stop offset="1" stop-color="#ffb877"/>
+    </radialGradient>
+    <linearGradient id="refl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd9a1" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#ffd9a1" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="vig" cx=".5" cy=".47" r=".62">
+      <stop offset=".42" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity=".45"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+
+  <!-- 细高层云 -->
+  <g fill="#ffd9b8" opacity=".16">
+    <rect x="160" y="150" width="620" height="9" rx="4"/>
+    <rect x="1080" y="230" width="520" height="7" rx="3"/>
+    <rect x="520" y="332" width="760" height="8" rx="4"/>
+  </g>
+
+  <!-- 落日光晕与太阳 -->
+  <ellipse cx="1152" cy="512" rx="700" ry="520" fill="url(#glow)"/>
+  <circle cx="1152" cy="512" r="60" fill="url(#sun)"/>
+
+  <!-- 海面 -->
+  <rect x="0" y="700" width="1920" height="380" fill="url(#sea)"/>
+  <!-- 海面反光带 -->
+  <rect x="1122" y="700" width="60" height="380" fill="url(#refl)"/>
+  <g fill="#ffd9a1" opacity=".3">
+    <rect x="1140" y="742" width="220" height="4" rx="2"/>
+    <rect x="1180" y="792" width="160" height="4" rx="2"/>
+    <rect x="1128" y="846" width="260" height="4" rx="2"/>
+  </g>
+  <!-- 远处浪线 -->
+  <g stroke="#ffd6ac" stroke-opacity=".35" stroke-width="3" stroke-linecap="round">
+    <path d="M96 760h250"/>
+    <path d="M1500 748h300"/>
+    <path d="M520 830h200"/>
+  </g>
+
+  <!-- 黄昏海滩 -->
+  <path d="M0 1000q420-70 860 6t1060-22v96H0z" fill="#2a1a2e" opacity=".9"/>
+  <path d="M0 1046q560-52 1080 16t840-10v28H0z" fill="#1a1020"/>
+
+  <!-- 山体剪影 -->
+  <path d="M-60 706q250-190 470-24l122 24H-60z" fill="#1b1229"/>
+  <path d="M1490 706q300-150 500 22v-22H1490z" fill="#1b1229" opacity=".9"/>
+
+  <rect width="1920" height="1080" fill="url(#vig)"/>
+</svg>

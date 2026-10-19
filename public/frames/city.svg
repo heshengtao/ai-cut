@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#080c1a"/>
+      <stop offset=".55" stop-color="#101c38"/>
+      <stop offset="1" stop-color="#243a5e"/>
+    </linearGradient>
+    <linearGradient id="haze" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6fa8c9" stop-opacity=".42"/>
+      <stop offset="1" stop-color="#6fa8c9" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="moon" cx=".38" cy=".35" r=".65">
+      <stop offset="0" stop-color="#fdfbf4"/>
+      <stop offset=".7" stop-color="#e8ecf6"/>
+      <stop offset="1" stop-color="#b9c4dc"/>
+    </radialGradient>
+    <radialGradient id="bokeh" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffd9a1" stop-opacity=".85"/>
+      <stop offset=".65" stop-color="#ffd9a1" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#ffd9a1" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b2c48"/>
+      <stop offset="1" stop-color="#0a1120"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+
+  <!-- 星空 -->
+  <g fill="#dfe7f8">
+    <circle cx="180" cy="120" r="2.4" opacity=".9"/>
+    <circle cx="420" cy="210" r="1.7" opacity=".7"/>
+    <circle cx="640" cy="96" r="2.1" opacity=".8"/>
+    <circle cx="900" cy="180" r="1.5" opacity=".6"/>
+    <circle cx="1180" cy="110" r="2.3" opacity=".85"/>
+    <circle cx="1420" cy="220" r="1.8" opacity=".7"/>
+    <circle cx="1660" cy="130" r="2.2" opacity=".8"/>
+    <circle cx="1780" cy="300" r="1.6" opacity=".55"/>
+    <circle cx="300" cy="330" r="1.6" opacity=".5"/>
+    <circle cx="1540" cy="60" r="1.5" opacity=".6"/>
+  </g>
+
+  <!-- 月亮 -->
+  <circle cx="1580" cy="180" r="52" fill="url(#moon)"/>
+  <circle cx="1580" cy="180" r="130" fill="#dfe7f8" opacity=".07"/>
+
+  <!-- 城市光晕 -->
+  <rect x="0" y="520" width="1920" height="240" fill="url(#haze)"/>
+
+  <!-- 楼群（远→近） -->
+  <g fill="#1a2740">
+    <rect x="60" y="560" width="150" height="300"/>
+    <rect x="240" y="520" width="120" height="340"/>
+    <rect x="392" y="600" width="180" height="260"/>
+    <rect x="604" y="480" width="140" height="380"/>
+    <rect x="776" y="574" width="110" height="286"/>
+    <rect x="918" y="530" width="170" height="330"/>
+    <rect x="1120" y="600" width="130" height="260"/>
+    <rect x="1288" y="500" width="150" height="360"/>
+    <rect x="1470" y="566" width="120" height="294"/>
+    <rect x="1620" y="540" width="200" height="320"/>
+  </g>
+  <g fill="#0d1526">
+    <rect x="140" y="620" width="120" height="240"/>
+    <rect x="330" y="588" width="150" height="272"/>
+    <rect x="520" y="646" width="130" height="214"/>
+    <rect x="700" y="604" width="170" height="256"/>
+    <rect x="900" y="640" width="140" height="220"/>
+    <rect x="1080" y="596" width="160" height="264"/>
+    <rect x="1290" y="644" width="130" height="216"/>
+    <rect x="1470" y="612" width="180" height="248"/>
+    <rect x="1690" y="638" width="150" height="222"/>
+  </g>
+
+  <!-- 亮着的窗 -->
+  <g fill="#ffd9a1">
+    <g opacity=".9">
+      <rect x="156" y="646" width="9" height="12"/><rect x="178" y="646" width="9" height="12"/>
+      <rect x="200" y="646" width="9" height="12"/><rect x="156" y="686" width="9" height="12"/>
+      <rect x="200" y="726" width="9" height="12"/><rect x="178" y="766" width="9" height="12"/>
+    </g>
+    <g opacity=".75">
+      <rect x="620" y="510" width="9" height="12"/><rect x="646" y="510" width="9" height="12"/>
+      <rect x="696" y="510" width="9" height="12"/><rect x="646" y="552" width="9" height="12"/>
+      <rect x="620" y="594" width="9" height="12"/><rect x="670" y="636" width="9" height="12"/>
+    </g>
+    <g opacity=".85">
+      <rect x="1340" y="530" width="9" height="12"/><rect x="1372" y="530" width="9" height="12"/>
+      <rect x="1404" y="530" width="9" height="12"/><rect x="1372" y="574" width="9" height="12"/>
+      <rect x="1340" y="618" width="9" height="12"/><rect x="1404" y="662" width="9" height="12"/>
+    </g>
+    <g opacity=".6">
+      <rect x="956" y="560" width="9" height="12"/><rect x="990" y="604" width="9" height="12"/>
+      <rect x="1036" y="648" width="9" height="12"/><rect x="440" y="626" width="9" height="12"/>
+      <rect x="1136" y="630" width="9" height="12"/><rect x="1750" y="668" width="9" height="12"/>
+    </g>
+  </g>
+
+  <!-- 水面与倒影 -->
+  <rect x="0" y="860" width="1920" height="220" fill="url(#sea)"/>
+  <g fill="#ffd9a1" opacity=".28">
+    <rect x="330" y="880" width="150" height="5" rx="2"/>
+    <rect x="620" y="920" width="170" height="5" rx="2"/>
+    <rect x="1340" y="900" width="150" height="5" rx="2"/>
+    <rect x="1470" y="950" width="180" height="5" rx="2"/>
+    <rect x="956" y="990" width="140" height="5" rx="2"/>
+  </g>
+
+  <!-- 前景虚化光斑 -->
+  <g>
+    <circle cx="250" cy="930" r="70" fill="url(#bokeh)"/>
+    <circle cx="520" cy="1010" r="52" fill="url(#bokeh)" opacity=".7"/>
+    <circle cx="1420" cy="960" r="62" fill="url(#bokeh)" opacity=".75"/>
+    <circle cx="1700" cy="1030" r="80" fill="url(#bokeh)" opacity=".55"/>
+  </g>
+
+  <radialGradient id="vig" cx=".5" cy=".5" r=".65">
+    <stop offset=".5" stop-color="#000" stop-opacity="0"/>
+    <stop offset="1" stop-color="#000" stop-opacity=".5"/>
+  </radialGradient>
+  <rect width="1920" height="1080" fill="url(#vig)"/>
+</svg>

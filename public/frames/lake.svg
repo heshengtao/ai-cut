@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b8d8ee"/>
+      <stop offset=".45" stop-color="#dfe9f0"/>
+      <stop offset="1" stop-color="#f6e7d4"/>
+    </linearGradient>
+    <linearGradient id="far" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7f92ab"/>
+      <stop offset="1" stop-color="#5d6f88"/>
+    </linearGradient>
+    <linearGradient id="mid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f5570"/>
+      <stop offset="1" stop-color="#2b3c56"/>
+    </linearGradient>
+    <linearGradient id="lake" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5d7f9c"/>
+      <stop offset="1" stop-color="#2c4258"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+
+  <!-- 云 -->
+  <g fill="#ffffff" opacity=".72">
+    <ellipse cx="380" cy="180" rx="260" ry="42"/>
+    <ellipse cx="520" cy="150" rx="180" ry="30"/>
+    <ellipse cx="1420" cy="240" rx="300" ry="38"/>
+    <ellipse cx="1280" cy="210" rx="170" ry="26"/>
+  </g>
+
+  <!-- 远山 -->
+  <path d="M-40 560l360-210 300 150 280-130 340 170 420-90v210H-40z" fill="url(#far)"/>
+  <!-- 雪顶 -->
+  <path d="M320 350l130 78-58 22-44-16-52 20z" fill="#ffffff" opacity=".9"/>
+
+  <!-- 中景山 -->
+  <path d="M-40 640l420-260 360 210 320-160 460 250 400-70v260H-40z" fill="url(#mid)"/>
+  <path d="M380 380l150 88-66 22-52-14-56 16z" fill="#ffffff" opacity=".8"/>
+
+  <!-- 针叶林 -->
+  <g fill="#16273a">
+    <path d="M120 700l40-100 40 100z"/>
+    <path d="M220 712l34-86 34 86z"/>
+    <path d="M1660 706l44-108 44 108z"/>
+    <path d="M1760 720l32-80 32 80z"/>
+    <path d="M1560 716l30-74 30 74z"/>
+    <path d="M300 720l28-70 28 70z"/>
+  </g>
+
+  <!-- 湖面 -->
+  <rect x="0" y="740" width="1920" height="340" fill="url(#lake)"/>
+  <!-- 山影倒影 -->
+  <g opacity=".22" fill="#0f1c2e">
+    <path d="M380 380l150 88-66 22-52-14-56 16 24 260H380z"/>
+    <path d="M-40 640l420-140 360 150 320-110 460 190 400-40v70H-40z"/>
+  </g>
+  <!-- 波光 -->
+  <g stroke="#ffffff" stroke-opacity=".4" stroke-width="3" stroke-linecap="round">
+    <path d="M220 800h180"/>
+    <path d="M620 836h240"/>
+    <path d="M1080 796h200"/>
+    <path d="M1360 846h200"/>
+    <path d="M420 900h180"/>
+    <path d="M900 940h260"/>
+    <path d="M1500 986h220"/>
+  </g>
+  <!-- 小船 -->
+  <g fill="#101c2a">
+    <path d="M980 900h120l-20 26h-80z"/>
+    <rect x="1032" y="846" width="6" height="54"/>
+    <path d="M1038 852l44 40h-44z"/>
+  </g>
+</svg>
