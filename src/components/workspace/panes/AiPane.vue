@@ -2,17 +2,24 @@
 /** AI 助手面板：对话式剪辑入口（原型占位，不接后端）。 */
 import { ref } from "vue";
 import { PaperAirplaneIcon, SparklesIcon } from "@heroicons/vue/24/outline";
+import { useI18n } from "@/i18n";
 
 const draft = ref("");
-const suggestions = ["自动粗剪", "去除静音", "生成字幕", "配一段音乐"];
+const i18n = useI18n();
+const suggestionKeys = [
+  "ai.suggestion.auto",
+  "ai.suggestion.silence",
+  "ai.suggestion.captions",
+  "ai.suggestion.music",
+];
 </script>
 
 <template>
   <div class="pane">
     <header class="pane-head">
       <div>
-        <h2 class="pane-title">AI 助手</h2>
-        <p class="pane-sub">描述你想要的成片，我来动手剪</p>
+        <h2 class="pane-title">{{ i18n.t("ai.title") }}</h2>
+        <p class="pane-sub">{{ i18n.t("ai.sub") }}</p>
       </div>
       <span class="beta">BETA</span>
     </header>
@@ -22,25 +29,25 @@ const suggestions = ["自动粗剪", "去除静音", "生成字幕", "配一段�
         <div class="avatar"><SparklesIcon class="w-4 h-4" /></div>
         <div class="bubble">
           <p>
-            告诉我你想剪成什么样。比如：<span class="em">把「海边日落」放在开头，配一段轻快的音乐，总长控制在 30 秒。</span>
+            {{ i18n.t("ai.intro1") }}<span class="em">{{ i18n.t("ai.introExample") }}</span>
           </p>
-          <p>我会先给出粗剪方案，再按你的反馈调整节奏与转场。</p>
+          <p>{{ i18n.t("ai.intro2") }}</p>
         </div>
       </div>
 
       <div class="suggestions">
-        <button v-for="s in suggestions" :key="s" class="suggestion">{{ s }}</button>
+        <button v-for="key in suggestionKeys" :key="key" class="suggestion">{{ i18n.t(key) }}</button>
       </div>
 
       <div class="hint">
         <span class="dot" />
-        原型阶段：对话与剪辑能力尚未接入
+        {{ i18n.t("ai.hint") }}
       </div>
     </div>
 
     <div class="composer">
-      <input v-model="draft" class="composer-field" placeholder="描述你想要的剪辑…" />
-      <button class="send" :disabled="!draft.trim()" aria-label="发送">
+      <input v-model="draft" class="composer-field" :placeholder="i18n.t('ai.placeholder')" />
+      <button class="send" :disabled="!draft.trim()" :aria-label="i18n.t('ai.send')">
         <PaperAirplaneIcon class="w-[17px] h-[17px]" />
       </button>
     </div>

@@ -138,6 +138,163 @@
     color-scheme: dark;
   }
 
+  /* ===== Material You Accent Color Palettes ===== */
+  [data-accent="green"] {
+    --md-source: 46 125 79;
+    --md-primary: 46 125 79;
+    --md-on-primary: 255 255 255;
+    --md-primary-container: 198 246 213;
+    --md-on-primary-container: 0 33 13;
+    --md-secondary: 82 99 85;
+    --md-on-secondary: 255 255 255;
+    --md-secondary-container: 213 233 216;
+    --md-on-secondary-container: 16 31 19;
+    --md-tertiary: 56 101 106;
+    --md-on-tertiary: 255 255 255;
+    --md-tertiary-container: 188 235 241;
+    --md-on-tertiary-container: 0 32 35;
+  }
+  .dark[data-accent="green"],
+  [data-accent="green"].dark {
+    --md-primary: 160 216 177;
+    --md-on-primary: 0 57 26;
+    --md-primary-container: 24 81 44;
+    --md-on-primary-container: 198 246 213;
+    --md-secondary: 185 204 188;
+    --md-on-secondary: 38 53 41;
+    --md-secondary-container: 58 75 62;
+    --md-on-secondary-container: 213 233 216;
+    --md-tertiary: 160 207 213;
+    --md-on-tertiary: 0 54 59;
+    --md-tertiary-container: 30 77 82;
+    --md-on-tertiary-container: 188 235 241;
+  }
+
+  [data-accent="coral"] {
+    --md-source: 224 86 66;
+    --md-primary: 224 86 66;
+    --md-on-primary: 255 255 255;
+    --md-primary-container: 255 218 214;
+    --md-on-primary-container: 65 11 4;
+    --md-secondary: 119 86 82;
+    --md-on-secondary: 255 255 255;
+    --md-secondary-container: 255 218 214;
+    --md-on-secondary-container: 44 21 19;
+    --md-tertiary: 114 89 50;
+    --md-on-tertiary: 255 255 255;
+    --md-tertiary-container: 255 222 170;
+    --md-on-tertiary-container: 40 24 0;
+  }
+  .dark[data-accent="coral"],
+  [data-accent="coral"].dark {
+    --md-primary: 255 180 169;
+    --md-on-primary: 96 21 14;
+    --md-primary-container: 134 52 40;
+    --md-on-primary-container: 255 218 214;
+    --md-secondary: 231 190 185;
+    --md-on-secondary: 68 41 38;
+    --md-secondary-container: 92 63 60;
+    --md-on-secondary-container: 255 218 214;
+    --md-tertiary: 225 194 144;
+    --md-on-tertiary: 64 44 8;
+    --md-tertiary-container: 88 66 28;
+    --md-on-tertiary-container: 255 222 170;
+  }
+
+  /* 默认强调色（薰衣草紫），与基线取值一致。 */
+  [data-accent="lavender"] {
+    --md-source: 103 80 164;
+    --md-primary: 103 80 164;
+    --md-on-primary: 255 255 255;
+    --md-primary-container: 234 221 255;
+    --md-on-primary-container: 33 0 93;
+    --md-secondary: 98 91 113;
+    --md-on-secondary: 255 255 255;
+    --md-secondary-container: 232 222 248;
+    --md-on-secondary-container: 29 25 43;
+    --md-tertiary: 125 82 96;
+    --md-on-tertiary: 255 255 255;
+    --md-tertiary-container: 255 216 228;
+    --md-on-tertiary-container: 49 17 29;
+  }
+  .dark[data-accent="lavender"],
+  [data-accent="lavender"].dark {
+    --md-primary: 208 188 255;
+    --md-on-primary: 56 30 114;
+    --md-primary-container: 79 55 139;
+    --md-on-primary-container: 234 221 255;
+    --md-secondary: 204 194 220;
+    --md-on-secondary: 51 45 65;
+    --md-secondary-container: 74 68 88;
+    --md-on-secondary-container: 232 222 248;
+    --md-tertiary: 239 184 200;
+    --md-on-tertiary: 73 37 50;
+    --md-tertiary-container: 99 59 72;
+    --md-on-tertiary-container: 255 216 228;
+  }
+
+  [data-accent="blue"] {
+    --md-source: 26 108 255;
+    --md-primary: 26 108 255;
+    --md-on-primary: 255 255 255;
+    --md-primary-container: 219 225 255;
+    --md-on-primary-container: 0 26 65;
+    --md-secondary: 87 95 113;
+    --md-on-secondary: 255 255 255;
+    --md-secondary-container: 219 227 249;
+    --md-on-secondary-container: 19 28 44;
+    --md-tertiary: 113 82 114;
+    --md-on-tertiary: 255 255 255;
+    --md-tertiary-container: 251 211 249;
+    --md-on-tertiary-container: 42 16 44;
+  }
+  .dark[data-accent="blue"],
+  [data-accent="blue"].dark {
+    --md-primary: 171 199 255;
+    --md-on-primary: 0 26 65;
+    --md-primary-container: 0 67 144;
+    --md-on-primary-container: 219 225 255;
+    --md-secondary: 191 199 221;
+    --md-on-secondary: 41 49 67;
+    --md-secondary-container: 63 71 89;
+    --md-on-secondary-container: 219 227 249;
+    --md-tertiary: 223 184 221;
+    --md-on-tertiary: 65 38 68;
+    --md-tertiary-container: 88 58 90;
+    --md-on-tertiary-container: 251 211 249;
+  }
+
+  [data-accent="amber"] {
+    --md-source: 189 137 0;
+    --md-primary: 189 137 0;
+    --md-on-primary: 255 255 255;
+    --md-primary-container: 255 223 160;
+    --md-on-primary-container: 41 27 0;
+    --md-secondary: 104 94 65;
+    --md-on-secondary: 255 255 255;
+    --md-secondary-container: 240 226 191;
+    --md-on-secondary-container: 35 27 3;
+    --md-tertiary: 72 102 70;
+    --md-on-tertiary: 255 255 255;
+    --md-tertiary-container: 202 233 197;
+    --md-on-tertiary-container: 7 33 8;
+  }
+  .dark[data-accent="amber"],
+  [data-accent="amber"].dark {
+    --md-primary: 235 194 77;
+    --md-on-primary: 58 41 0;
+    --md-primary-container: 86 61 0;
+    --md-on-primary-container: 255 223 160;
+    --md-secondary: 211 198 164;
+    --md-on-secondary: 56 47 21;
+    --md-secondary-container: 80 71 43;
+    --md-on-secondary-container: 240 226 191;
+    --md-tertiary: 174 205 169;
+    --md-on-tertiary: 27 54 26;
+    --md-tertiary-container: 48 78 47;
+    --md-on-tertiary-container: 202 233 197;
+  }
+
   * {
     box-sizing: border-box;
   }

@@ -2,24 +2,58 @@
 /**
  * 标题栏（MD3）：去掉原生标题栏后，应用自己的顶栏。
  *
- * 左：应用标识 + 工程名；右：右侧面板的标签栏（与下方面板同宽、同一行）+ 面板开关。
- * 标签栏横跨到窗口最右端，因此开关按钮位置固定，展开/收起时鼠标不用移动。
- * macOS 用 Overlay 标题栏（保留红绿灯），左侧留出安全区；Windows / Linux 完全无边框。
+ * 横屏：工程按钮组 → 标签栏（与右侧面板同宽）→ 面板开关（永远贴窗口最右）。
+ * 竖屏：标题 → 标签栏（居中）→ 工程按钮组 → 面板开关（永远贴窗口最右）。
  */
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { PencilSquareIcon } from "@heroicons/vue/24/outline";
 import Logo from "@/components/common/Logo.vue";
 import PanelIcon from "@/components/common/PanelIcon.vue";
 import Tooltip from "@/components/common/Tooltip.vue";
+import ProjectDialog from "@/components/common/ProjectDialog.vue";
 import PanelTabs from "@/components/workspace/PanelTabs.vue";
-import SettingsMenu from "./SettingsMenu.vue";
+import BarActions from "./BarActions.vue";
 import { useLayoutStore } from "@/stores/layout";
+import { useProjectStore } from "@/stores/project";
+import { useProjectActions } from "@/composables/useProjectActions";
+import { displayProjectName, isUntitled } from "@/utils/projectName";
+import { useI18n } from "@/i18n";
 import { isMacOS, isTauri } from "@/utils/platform";
 
 const layout = useLayoutStore();
+const project = useProjectStore();
+const actions = useProjectActions();
+const i18n = useI18n();
+
+const projectDialogOpen = ref(false);
+
+/** 显示用工程名：未命名工程按当前语言显示。 */
+const projectName = computed(() => displayProjectName(project.doc.name));
+
+const isPortrait = computed(() => layout.layoutMode === "portrait");
+const panelTabsVisible = computed(() => !layout.settingsOpen && layout.showPanel);
+
+/**
+ * 竖屏：标题区宽度与左侧预览一致，标签栏正好从预览分隔线开始。
+ * 拖动预览分隔线时 `previewRatio` 变化，标签栏会跟着移动。
+ */
+const portraitLeadStyle = computed(() =>
+  isPortrait.value && !layout.settingsOpen
+    ? { width: `calc(${layout.previewRatio * 100}% + 1px)` }
+    : undefined,
+);
 
 /** macOS 的 Overlay 标题栏下，红绿灯压在内容上：顶栏左侧要给它让位。 */
 const padMac = computed(() => isTauri() && isMacOS());
+
+function openRename(): void {
+  projectDialogOpen.value = true;
+}
+
+function onRenameSubmit(name: string): void {
+  actions.renameProject(name);
+}
 
 /** 顶栏空白处拖动窗口；双击最大化。按钮/输入框上不抢事件。 */
 function onMouseDown(e: MouseEvent): void {
@@ -38,41 +72,49 @@ function onMouseDown(e: MouseEvent): void {
 
 <template>
   <header class="top-bar" :class="{ 'pad-mac': padMac }" @mousedown="onMouseDown">
-    <!-- 左：应用标识 + 工程名 -->
-    <div class="bar-main">
+    <!-- 左：应用标识 + 工程名（横屏时动作按钮也在这里） -->
+    <div
+      class="bar-main"
+      :class="{ 'bar-main-portrait': isPortrait && !layout.settingsOpen }"
+      :style="portraitLeadStyle"
+    >
       <Logo :size="26" class="brand-mark" />
       <span class="brand-name">AI Cut</span>
 
       <span class="bar-sep" />
 
       <div class="name-block">
-        <span class="name-strong">未命名项目</span>
-        <span class="name-dirty" title="有未保存的改动" aria-hidden="true" />
+        <span class="name-strong" @dblclick="openRename">{{ projectName }}</span>
+        <span v-if="project.dirty" class="name-dirty" :title="i18n.t('topbar.unsaved')" aria-hidden="true" />
       </div>
-      <span class="name-meta">草稿</span>
+      <Tooltip :text="i18n.t('topbar.rename')">
+        <button class="bar-btn name-edit" :aria-label="i18n.t('topbar.renameLabel')" @click="openRename">
+          <PencilSquareIcon class="bar-icon" />
+        </button>
+      </Tooltip>
 
       <div class="flex-1" />
+      <BarActions v-if="!isPortrait" />
     </div>
 
-    <!-- 右：右侧面板的标签栏（与下方面板同宽、同一行）+ 设置 + 面板开关 -->
-    <div
-      class="bar-tabs"
-      :class="{ 'has-panel': layout.showPanel }"
-      :style="layout.showPanel ? { width: `${layout.panelWidth}px` } : undefined"
-    >
-      <PanelTabs v-if="layout.showPanel" />
-
-      <div class="tabs-actions">
-        <SettingsMenu />
-
+    <!-- 横屏：标签栏与右侧面板同宽，面板开关贴在窗口最右 -->
+    <template v-if="!isPortrait">
+      <div
+        class="bar-right"
+        :style="panelTabsVisible ? { width: `${layout.panelWidth}px` } : undefined"
+      >
+        <div v-if="panelTabsVisible" class="bar-tabs">
+          <PanelTabs />
+        </div>
         <Tooltip
-          :text="layout.showPanel ? '收起右侧边栏' : '展开右侧边栏'"
+          v-if="!layout.settingsOpen"
+          :text="layout.showPanel ? i18n.t('topbar.hidePanel') : i18n.t('topbar.showPanel')"
           align="end"
         >
           <button
-            class="bar-btn"
+            class="bar-btn tabs-toggle"
             :class="{ on: layout.showPanel }"
-            :aria-label="layout.showPanel ? '收起右侧边栏' : '展开右侧边栏'"
+            :aria-label="layout.showPanel ? i18n.t('topbar.hidePanel') : i18n.t('topbar.showPanel')"
             :aria-expanded="layout.showPanel"
             @click="layout.showPanel = !layout.showPanel"
           >
@@ -80,8 +122,37 @@ function onMouseDown(e: MouseEvent): void {
           </button>
         </Tooltip>
       </div>
-    </div>
+    </template>
+
+    <!-- 竖屏：标题 → 标签栏 → 动作按钮 → 面板开关 -->
+    <template v-else>
+      <div v-if="!layout.settingsOpen" class="bar-tabs portrait-tabs">
+        <PanelTabs v-if="layout.showPanel" />
+      </div>
+      <BarActions />
+      <Tooltip
+        v-if="!layout.settingsOpen"
+        :text="layout.showPanel ? i18n.t('topbar.hidePanel') : i18n.t('topbar.showPanel')"
+        align="end"
+      >
+        <button
+          class="bar-btn tabs-toggle portrait-toggle"
+          :class="{ on: layout.showPanel }"
+          :aria-label="layout.showPanel ? i18n.t('topbar.hidePanel') : i18n.t('topbar.showPanel')"
+          :aria-expanded="layout.showPanel"
+          @click="layout.showPanel = !layout.showPanel"
+        >
+          <PanelIcon side="right" :filled="layout.showPanel" class="bar-icon" />
+        </button>
+      </Tooltip>
+    </template>
   </header>
+
+  <ProjectDialog
+    v-model:open="projectDialogOpen"
+    :initial-name="isUntitled(project.doc.name) ? '' : project.doc.name"
+    @submit="onRenameSubmit"
+  />
 </template>
 
 <style scoped>
@@ -104,6 +175,11 @@ function onMouseDown(e: MouseEvent): void {
   align-items: center;
   gap: 8px;
   padding: 0 10px 0 12px;
+}
+/* 竖屏：标题区宽度与左侧预览一致（宽度由内联 previewRatio 控制） */
+.bar-main.bar-main-portrait {
+  flex: 0 0 auto;
+  overflow: hidden;
 }
 /* macOS Overlay 标题栏：红绿灯占位 */
 .top-bar.pad-mac .bar-main {
@@ -145,6 +221,7 @@ function onMouseDown(e: MouseEvent): void {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: text;
 }
 /* 未保存标记：紧贴工程名的小圆点 */
 .name-dirty {
@@ -154,42 +231,39 @@ function onMouseDown(e: MouseEvent): void {
   border-radius: 999px;
   background-color: rgb(var(--md-primary));
 }
-.name-meta {
-  padding: 2px 7px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-surface-container-high));
-  color: rgb(var(--md-on-surface-muted));
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.3px;
-  white-space: nowrap;
+
+/* ---- 右侧区域：宽度跟随面板，按钮固定在最右 ---- */
+.bar-right {
   flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding-right: calc(12px + var(--win-reserve));
 }
 
 /* ---- 右侧面板的标签区 ---- */
 .bar-tabs {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 4px;
-  min-width: 0;
-  /* 顶栏右端始终是窗口右端：右内边距恒为 12px + 窗口按钮预留 */
-  padding-right: calc(12px + var(--win-reserve));
-}
-.bar-tabs.has-panel {
   padding-left: 8px;
   border-left: 1px solid rgb(var(--md-outline-variant) / 0.4);
 }
-/* 设置 + 开关永远贴在这一段的最右 */
-.tabs-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
+/* 竖屏：标签栏从预览分隔线开始，向左对齐；分隔线继续延伸到顶栏 */
+.portrait-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
+  padding-left: 0;
+  border-left: 1px solid rgb(var(--md-outline-variant) / 0.4);
+}
+.portrait-toggle {
+  margin-right: calc(12px + var(--win-reserve));
 }
 
-/* MD3 图标按钮：圆形，无原生外观 */
+/* 重命名按钮比普通图标按钮稍小，紧跟在工程名后面 */
 .bar-btn {
   width: 34px;
   height: 34px;
@@ -208,6 +282,14 @@ function onMouseDown(e: MouseEvent): void {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
+}
+.bar-btn.name-edit {
+  width: 28px;
+  height: 28px;
+}
+.bar-btn.name-edit .bar-icon {
+  width: 16px;
+  height: 16px;
 }
 .bar-btn:hover {
   background-color: rgb(var(--md-on-surface-variant) / var(--md-state-hover-alpha));

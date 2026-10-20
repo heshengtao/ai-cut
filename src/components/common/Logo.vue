@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 应用标识：MD3 圆角方块 + 播放三角 + 剪切线。 */
+/** 应用标识：紫色圆角方块 + 左侧圆角长条 + 圆角播放三角。 */
 withDefaults(defineProps<{ size?: number }>(), { size: 28 });
 </script>
 
@@ -12,22 +12,11 @@ withDefaults(defineProps<{ size?: number }>(), { size: 28 });
     aria-hidden="true"
     class="logo"
   >
-    <defs>
-      <linearGradient id="ai-cut-mark" x1="2" y1="0" x2="30" y2="32" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stop-color="#8E7CC3" />
-        <stop offset="0.55" stop-color="#A98BD6" />
-        <stop offset="1" stop-color="#E3A1B8" />
-      </linearGradient>
-    </defs>
-    <rect width="32" height="32" rx="9.5" fill="url(#ai-cut-mark)" />
-    <path d="M13.2 10.1 L22.6 16 L13.2 21.9 Z" fill="#fff" fill-opacity="0.96" />
+    <rect width="32" height="32" rx="7.25" fill="#6750A4" />
+    <rect x="6.25" y="7.563" width="3.75" height="16.875" rx="1.875" fill="#fff" />
     <path
-      d="M9.1 9.4 L9.1 22.6"
-      stroke="#fff"
-      stroke-opacity="0.55"
-      stroke-width="1.7"
-      stroke-linecap="round"
-      stroke-dasharray="1.4 3.4"
+      d="M 12.625 10.539 L 12.625 21.461 Q 12.625 24.438 15.129 22.828 L 23.624 17.367 Q 25.75 16 23.624 14.633 L 15.129 9.172 Q 12.625 7.563 12.625 10.539 Z"
+      fill="#fff"
     />
   </svg>
 </template>
@@ -36,6 +25,6 @@ withDefaults(defineProps<{ size?: number }>(), { size: 28 });
 .logo {
   display: block;
   flex: 0 0 auto;
-  filter: drop-shadow(0 2px 5px rgba(103, 80, 164, 0.28));
+  filter: drop-shadow(0 2px 5px rgba(103, 80, 164, 0.24));
 }
 </style>

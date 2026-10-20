@@ -10,12 +10,13 @@ import {
   RectangleStackIcon,
   AdjustmentsHorizontalIcon,
   SparklesIcon,
-  ArrowUpTrayIcon,
 } from "@heroicons/vue/24/outline";
 import Tooltip from "@/components/common/Tooltip.vue";
 import { PANES, useLayoutStore, type PaneId } from "@/stores/layout";
+import { useI18n } from "@/i18n";
 
 const layout = useLayoutStore();
+const i18n = useI18n();
 const pickerOpen = ref(false);
 const pickerRoot = ref<HTMLElement | null>(null);
 const tabsEl = ref<HTMLElement | null>(null);
@@ -43,11 +44,11 @@ const ICONS: Record<PaneId, unknown> = {
   media: RectangleStackIcon,
   inspector: AdjustmentsHorizontalIcon,
   ai: SparklesIcon,
-  export: ArrowUpTrayIcon,
 };
 
 function labelOf(id: PaneId): string {
-  return PANES.find((p) => p.id === id)?.label ?? id;
+  const pane = PANES.find((p) => p.id === id);
+  return pane ? i18n.t(pane.labelKey) : id;
 }
 
 function isOpen(id: PaneId): boolean {
@@ -91,7 +92,7 @@ onUnmounted(() => {
     >
       <component :is="ICONS[id]" class="tab-icon" />
       <span class="tab-label">{{ labelOf(id) }}</span>
-      <button class="tab-close" :aria-label="`关闭${labelOf(id)}`" @click.stop="layout.closeTab(id)">
+      <button class="tab-close" :aria-label="i18n.t('panel.closeTab', { name: labelOf(id) })" @click.stop="layout.closeTab(id)">
         <XMarkIcon class="close-icon" />
       </button>
     </div>
@@ -99,12 +100,12 @@ onUnmounted(() => {
 
   <!-- 「+」紧跟最后一个标签，符合浏览器习惯 -->
   <div ref="pickerRoot" class="picker-root">
-    <Tooltip text="新建标签页" align="end" :disabled="pickerOpen">
+    <Tooltip :text="i18n.t('panel.newTab')" align="end" :disabled="pickerOpen">
       <button
         class="tab-add"
         :class="{ on: pickerOpen }"
         :aria-expanded="pickerOpen"
-        aria-label="新建标签页"
+        :aria-label="i18n.t('panel.newTab')"
         @click="pickerOpen = !pickerOpen"
       >
         <PlusIcon class="add-icon" />
@@ -113,7 +114,7 @@ onUnmounted(() => {
 
     <transition name="pop">
       <div v-if="pickerOpen" class="picker" role="menu">
-        <div class="picker-title">面板</div>
+        <div class="picker-title">{{ i18n.t("panel.pickerTitle") }}</div>
         <button
           v-for="p in PANES"
           :key="p.id"
@@ -124,10 +125,10 @@ onUnmounted(() => {
         >
           <component :is="ICONS[p.id]" class="picker-icon" />
           <span class="picker-text">
-            <span class="picker-label">{{ p.label }}</span>
-            <span class="picker-hint">{{ p.hint }}</span>
+            <span class="picker-label">{{ i18n.t(p.labelKey) }}</span>
+            <span class="picker-hint">{{ i18n.t(p.hintKey) }}</span>
           </span>
-          <span v-if="isOpen(p.id)" class="picker-badge">已打开</span>
+          <span v-if="isOpen(p.id)" class="picker-badge">{{ i18n.t("panel.opened") }}</span>
         </button>
       </div>
     </transition>

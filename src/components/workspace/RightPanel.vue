@@ -8,21 +8,20 @@ import {
   RectangleStackIcon,
   AdjustmentsHorizontalIcon,
   SparklesIcon,
-  ArrowUpTrayIcon,
 } from "@heroicons/vue/24/outline";
 import MediaPane from "./panes/MediaPane.vue";
 import InspectorPane from "./panes/InspectorPane.vue";
 import AiPane from "./panes/AiPane.vue";
-import ExportPane from "./panes/ExportPane.vue";
 import { PANES, useLayoutStore, type PaneId } from "@/stores/layout";
+import { useI18n } from "@/i18n";
 
 const layout = useLayoutStore();
+const i18n = useI18n();
 
 const ICONS: Record<PaneId, unknown> = {
   media: RectangleStackIcon,
   inspector: AdjustmentsHorizontalIcon,
   ai: SparklesIcon,
-  export: ArrowUpTrayIcon,
 };
 
 const panes = computed(() => PANES);
@@ -33,15 +32,15 @@ const panes = computed(() => PANES);
     <div class="pane-body">
       <!-- 没有标签时：列出所有可以打开的面板 -->
       <div v-if="layout.tabs.length === 0" class="empty">
-        <p class="empty-title">还没有打开的面板</p>
-        <p class="empty-sub">从下面挑一个，或者用标题栏的「+」</p>
+        <p class="empty-title">{{ i18n.t("panel.emptyTitle") }}</p>
+        <p class="empty-sub">{{ i18n.t("panel.emptySub") }}</p>
         <ul class="empty-list">
           <li v-for="p in panes" :key="p.id">
             <button class="empty-item" @click="layout.openTab(p.id)">
               <component :is="ICONS[p.id]" class="empty-icon" />
               <span class="empty-text">
-                <span class="empty-label">{{ p.label }}</span>
-                <span class="empty-hint">{{ p.hint }}</span>
+                <span class="empty-label">{{ i18n.t(p.labelKey) }}</span>
+                <span class="empty-hint">{{ i18n.t(p.hintKey) }}</span>
               </span>
             </button>
           </li>
@@ -51,7 +50,6 @@ const panes = computed(() => PANES);
       <MediaPane v-else-if="layout.activeTab === 'media'" />
       <InspectorPane v-else-if="layout.activeTab === 'inspector'" />
       <AiPane v-else-if="layout.activeTab === 'ai'" />
-      <ExportPane v-else-if="layout.activeTab === 'export'" />
     </div>
   </aside>
 </template>

@@ -2,6 +2,7 @@ import { createApp } from "vue";
 import { createPinia } from "pinia";
 import App from "./App.vue";
 import { initTheme } from "./composables/useTheme";
+import "./i18n";
 import "./assets/main.css";
 import "./assets/fonts.css";
 

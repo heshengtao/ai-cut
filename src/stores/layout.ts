@@ -6,14 +6,46 @@ import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 
 /** 右侧面板可打开的窗口类型；后续新增面板只需在此登记。 */
-export type PaneId = "media" | "inspector" | "ai" | "export";
+export type PaneId = "media" | "inspector" | "ai";
+
+/** 预览画布比例。`project` 跟随工程分辨率。 */
+export type PreviewAspect =
+  | "project"
+  | "16:9"
+  | "1.85:1"
+  | "2:1"
+  | "2.35:1"
+  | "4:3"
+  | "1:1"
+  | "3:4"
+  | "9:16"
+  | "1:2";
+
+/** 预览画质（界面选项；低画质时关闭平滑缩放）。 */
+export type PreviewQuality = "auto" | "high" | "medium" | "low";
+
+/** 工作区布局：横屏 = 预览上 / 时间线下；竖屏 = 预览左 / 时间线右。 */
+export type LayoutMode = "landscape" | "portrait";
+
+const PREVIEW_ASPECTS: PreviewAspect[] = [
+  "project",
+  "16:9",
+  "1.85:1",
+  "2:1",
+  "2.35:1",
+  "4:3",
+  "1:1",
+  "3:4",
+  "9:16",
+  "1:2",
+];
+const PREVIEW_QUALITIES: PreviewQuality[] = ["auto", "high", "medium", "low"];
 
 /** 全部可用面板的元数据（供「新建标签」选择器展示）。 */
-export const PANES: { id: PaneId; label: string; hint: string }[] = [
-  { id: "media", label: "媒体库", hint: "素材、音乐与字幕文件" },
-  { id: "inspector", label: "属性", hint: "变换、音频与合成参数" },
-  { id: "ai", label: "AI 助手", hint: "用一句话剪出成片" },
-  { id: "export", label: "导出", hint: "预设、分辨率与码率" },
+export const PANES: { id: PaneId; labelKey: string; hintKey: string }[] = [
+  { id: "media", labelKey: "panel.media", hintKey: "panel.mediaHint" },
+  { id: "inspector", labelKey: "panel.inspector", hintKey: "panel.inspectorHint" },
+  { id: "ai", labelKey: "panel.ai", hintKey: "panel.aiHint" },
 ];
 
 /** 右侧面板宽度下限（px）：标签栏与属性行需要的最小呼吸空间。 */
@@ -25,12 +57,21 @@ export const MAX_PANEL_WIDTH = 520;
 export const MIN_TIMELINE_HEIGHT = 180;
 export const MAX_TIMELINE_HEIGHT = 520;
 
+/** 竖屏模式预览宽度占比：左栏约占三分之一，可拖动。 */
+export const MIN_PREVIEW_RATIO = 0.2;
+export const MAX_PREVIEW_RATIO = 0.6;
+
 interface Persisted {
   showPanel: boolean;
+  showTimeline: boolean;
   panelWidth: number;
   tabs: PaneId[];
   activeTab: PaneId;
   timelineHeight: number;
+  previewAspect: PreviewAspect;
+  previewQuality: PreviewQuality;
+  layoutMode: LayoutMode;
+  previewRatio: number;
 }
 
 const KEY = "ai-cut-layout";
@@ -59,6 +100,7 @@ export const useLayoutStore = defineStore("layout", () => {
   const saved = load();
 
   const showPanel = ref(saved.showPanel ?? true);
+  const showTimeline = ref(saved.showTimeline ?? true);
   const panelWidth = ref(clamp(saved.panelWidth ?? 360, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH));
   const tabs = ref<PaneId[]>(sanitizeTabs(saved.tabs));
   const activeTab = ref<PaneId>(
@@ -69,6 +111,24 @@ export const useLayoutStore = defineStore("layout", () => {
   const timelineHeight = ref(
     clamp(saved.timelineHeight ?? 300, MIN_TIMELINE_HEIGHT, MAX_TIMELINE_HEIGHT),
   );
+  const previewAspect = ref<PreviewAspect>(
+    saved.previewAspect && PREVIEW_ASPECTS.includes(saved.previewAspect)
+      ? saved.previewAspect
+      : "project",
+  );
+  const previewQuality = ref<PreviewQuality>(
+    saved.previewQuality && PREVIEW_QUALITIES.includes(saved.previewQuality)
+      ? saved.previewQuality
+      : "auto",
+  );
+  const layoutMode = ref<LayoutMode>(
+    saved.layoutMode === "portrait" ? "portrait" : "landscape",
+  );
+  const previewRatio = ref(
+    clamp(saved.previewRatio ?? 0.34, MIN_PREVIEW_RATIO, MAX_PREVIEW_RATIO),
+  );
+  /** 全屏设置页是否开启（不持久化：下次启动回到工作区）。 */
+  const settingsOpen = ref(false);
 
   const hasTabs = computed(() => tabs.value.length > 0);
 
@@ -103,6 +163,21 @@ export const useLayoutStore = defineStore("layout", () => {
     );
   }
 
+  /** 竖屏模式拖拽预览栏右边界：往右拖预览变宽。 */
+  function resizePreview(delta: number): void {
+    const width = typeof window === "undefined" ? 1440 : window.innerWidth;
+    previewRatio.value = clamp(
+      previewRatio.value + delta / Math.max(1, width),
+      MIN_PREVIEW_RATIO,
+      MAX_PREVIEW_RATIO,
+    );
+  }
+
+  /** 切换横屏 / 竖屏布局。 */
+  function setLayoutMode(mode: LayoutMode): void {
+    layoutMode.value = mode;
+  }
+
   /** 窗口尺寸变化后重新夹紧（窄窗口下别让面板吃掉整个画面）。 */
   function clampPanes(): void {
     const maxByWindow = Math.max(MIN_PANEL_WIDTH, Math.round(window.innerWidth * 0.55));
@@ -116,20 +191,47 @@ export const useLayoutStore = defineStore("layout", () => {
       MIN_TIMELINE_HEIGHT,
       Math.min(MAX_TIMELINE_HEIGHT, maxTimeline),
     );
+    previewRatio.value = clamp(previewRatio.value, MIN_PREVIEW_RATIO, MAX_PREVIEW_RATIO);
+  }
+
+  /** 打开全屏设置页。 */
+  function openSettings(): void {
+    settingsOpen.value = true;
+  }
+
+  /** 返回工作区。 */
+  function closeSettings(): void {
+    settingsOpen.value = false;
   }
 
   watch(
-    [showPanel, panelWidth, tabs, activeTab, timelineHeight],
+    [
+      showPanel,
+      showTimeline,
+      panelWidth,
+      tabs,
+      activeTab,
+      timelineHeight,
+      previewAspect,
+      previewQuality,
+      layoutMode,
+      previewRatio,
+    ],
     () => {
       try {
         localStorage.setItem(
           KEY,
           JSON.stringify({
             showPanel: showPanel.value,
+            showTimeline: showTimeline.value,
             panelWidth: panelWidth.value,
             tabs: tabs.value,
             activeTab: activeTab.value,
             timelineHeight: timelineHeight.value,
+            previewAspect: previewAspect.value,
+            previewQuality: previewQuality.value,
+            layoutMode: layoutMode.value,
+            previewRatio: previewRatio.value,
           } satisfies Persisted),
         );
       } catch {
@@ -141,15 +243,25 @@ export const useLayoutStore = defineStore("layout", () => {
 
   return {
     showPanel,
+    showTimeline,
     panelWidth,
     tabs,
     activeTab,
     timelineHeight,
+    previewAspect,
+    previewQuality,
+    layoutMode,
+    previewRatio,
+    settingsOpen,
     hasTabs,
     openTab,
     closeTab,
     resizePanel,
     resizeTimeline,
+    resizePreview,
+    setLayoutMode,
     clampPanes,
+    openSettings,
+    closeSettings,
   };
 });

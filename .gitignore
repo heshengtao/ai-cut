@@ -15,6 +15,9 @@ target
 src-tauri/target
 src-tauri/gen/schemas
 
+# Bundled ffmpeg sidecars (fetched via scripts/fetch-sidecars.sh)
+src-tauri/binaries/
+
 # Editor / OS
 .DS_Store
 .idea

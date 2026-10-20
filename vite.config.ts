@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import vue from "@vitejs/plugin-vue";
 import { fileURLToPath, URL } from "node:url";
 
@@ -20,4 +20,8 @@ export default defineConfig({
     watch: { ignored: ["**/src-tauri/**"] },
   },
   envPrefix: ["VITE_", "TAURI_"],
+  test: {
+    environment: "node",
+    include: ["src/**/__tests__/**/*.test.ts"],
+  },
 });

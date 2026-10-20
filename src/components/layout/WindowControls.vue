@@ -2,7 +2,9 @@
 /** 窗口按钮：Windows / Linux 无边框窗口自绘的最小化 / 最大化 / 关闭。 */
 import { ref, onMounted, onUnmounted } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useI18n } from "@/i18n";
 
+const i18n = useI18n();
 const isMaximized = ref(false);
 const appWindow = getCurrentWindow();
 
@@ -22,14 +24,14 @@ onUnmounted(() => {
 
 <template>
   <div class="flex items-center">
-    <button class="window-control-btn" title="最小化" @click="appWindow.minimize()">
+    <button class="window-control-btn" :title="i18n.t('window.minimize')" @click="appWindow.minimize()">
       <svg width="11" height="11" viewBox="0 0 11 11">
         <rect x="0.5" y="5" width="10" height="1" fill="currentColor" rx="0.5" />
       </svg>
     </button>
     <button
       class="window-control-btn"
-      :title="isMaximized ? '还原' : '最大化'"
+      :title="isMaximized ? i18n.t('window.restore') : i18n.t('window.maximize')"
       @click="appWindow.toggleMaximize()"
     >
       <svg v-if="isMaximized" width="11" height="11" viewBox="0 0 11 11">
@@ -49,7 +51,7 @@ onUnmounted(() => {
         <rect x="1" y="1" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2" />
       </svg>
     </button>
-    <button class="window-control-btn window-control-close" title="关闭" @click="appWindow.close()">
+    <button class="window-control-btn window-control-close" :title="i18n.t('window.close')" @click="appWindow.close()">
       <svg width="11" height="11" viewBox="0 0 11 11">
         <path d="M1 1l9 9M10 1L1 10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
       </svg>
