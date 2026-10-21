@@ -176,6 +176,16 @@ pub async fn export_video<R: Runtime>(
     }
     state.cancelled.store(false, Ordering::SeqCst);
 
+    // 输出目录可能还不存在（例如 render_storyboard 新建的目录）。
+    if let Some(output) = job.output_args.last() {
+        if let Some(parent) = std::path::Path::new(output).parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("创建输出目录失败：{e}"))?;
+            }
+        }
+    }
+
     let mode = resolve_filter_mode(&app, state.inner()).await;
 
     let script_path = if mode == FilterMode::Inline {

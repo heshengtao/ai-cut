@@ -37,9 +37,10 @@ const PREROLL_AHEAD = 4;
 const VIDEO_DRIFT_TOLERANCE = 0.5;
 const VIDEO_CHECK_INTERVAL_MS = 1000;
 
-/** 时间线时间 → 素材内时间。 */
+/** 时间线时间 → 素材内时间（考虑变速）。 */
 export function mediaTimeFor(clip: Clip, timelineTime: number): number {
-  return clip.in + (timelineTime - clip.start);
+  const speed = clamp(clip.speed ?? 1, 0.1, 4);
+  return clip.in + (timelineTime - clip.start) * speed;
 }
 
 /** 增益 dB → 线性音量（0..4，即最多 +12 dB 放大）。 */
@@ -441,15 +442,14 @@ export class PlaybackEngine {
     const clipEnd = clip.start + clip.duration;
     if (clipEnd <= nowTimeline) return;
 
+    const speed = clamp(clip.speed ?? 1, 0.1, 4);
     const startTimeline = Math.max(nowTimeline, clip.start);
-    const offset = clip.in + (startTimeline - clip.start);
+    const offset = clip.in + (startTimeline - clip.start) * speed;
     if (offset >= buffer.duration) return;
 
-    const duration = Math.min(
-      clipEnd - startTimeline,
-      buffer.duration - offset,
-      clip.duration,
-    );
+    // `start(..., duration)` 的 duration 以素材时间为单位，播放速度只影响墙上时长。
+    const timelineDuration = Math.min(clipEnd - startTimeline, clip.duration);
+    const duration = Math.min(timelineDuration * speed, buffer.duration - offset);
     if (duration <= 0) return;
 
     // 未来片段按时间差排期；已在播放的片段立刻开始。
@@ -458,7 +458,7 @@ export class PlaybackEngine {
 
     const source = context.createBufferSource();
     source.buffer = buffer;
-    source.playbackRate.value = 1;
+    source.playbackRate.value = speed;
     const pitch = clamp(clip.pitch ?? 0, -12, 12);
     if (pitch !== 0 && source.detune) source.detune.value = pitch * 100;
 
@@ -466,7 +466,7 @@ export class PlaybackEngine {
     scheduleGainEnvelope(gain.gain, {
       when,
       elapsed: Math.max(0, startTimeline - clip.start),
-      playDuration: duration,
+      playDuration: duration / speed,
       clipDuration: clip.duration,
       volume: gainToVolume(clip.gain),
       fadeIn: clip.fadeIn ?? 0,
@@ -601,6 +601,7 @@ export class PlaybackEngine {
           clip.start,
           clip.duration,
           clip.in,
+          clip.speed ?? 1,
         ]),
       })),
       assets: doc.assets.map((asset) => [asset.id, asset.src, asset.kind, asset.offline ?? false]),
@@ -618,6 +619,7 @@ export class PlaybackEngine {
           clip.start,
           clip.duration,
           clip.in,
+          clip.speed ?? 1,
           clip.gain ?? 0,
           clip.fadeIn ?? 0,
           clip.fadeOut ?? 0,
@@ -687,6 +689,8 @@ export class PlaybackEngine {
 
     this.videoClipId = clip.id;
     this.video.muted = true;
+    const rate = clamp(clip.speed ?? 1, 0.1, 4);
+    if (this.video.playbackRate !== rate) this.video.playbackRate = rate;
 
     if (this.video.getAttribute("src")) {
       this.video.style.visibility = "visible";

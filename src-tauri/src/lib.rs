@@ -97,6 +97,7 @@ pub fn run() {
             agent::agent_set_head,
             agent::agent_send,
             agent::agent_cancel,
+            agent::agent_running,
             cli::cli_status,
             cli::install_cli,
             cli::uninstall_cli,

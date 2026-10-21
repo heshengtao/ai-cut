@@ -169,6 +169,10 @@ pub fn agent_session(state: State<'_, Arc<AgentState>>, id: String) -> Result<Se
 
 #[tauri::command]
 pub fn agent_delete_session(state: State<'_, Arc<AgentState>>, id: String) -> Result<(), String> {
+    // 回合进行中删除会被下一次整份 save 写回来；直接拒绝，交给用户先停止。
+    if state.running.load(Ordering::SeqCst) {
+        return Err("智能体正在运行，请先停止".into());
+    }
     state.store.delete(&id);
     Ok(())
 }
@@ -179,6 +183,10 @@ pub fn agent_set_head(
     id: String,
     node_id: String,
 ) -> Result<Session, String> {
+    // 回合进行中切分支会被下一次 save 静默覆盖回旧 head。
+    if state.running.load(Ordering::SeqCst) {
+        return Err("智能体正在运行，请先停止".into());
+    }
     let mut session = state
         .store
         .load(&id)
@@ -209,15 +217,27 @@ pub fn agent_send(
         return Err("智能体正在运行".into());
     }
 
-    let id = session_id.unwrap_or_else(new_id);
-    let mut session = state.store.load(&id).unwrap_or_else(|| Session {
-        id: id.clone(),
-        title: String::new(),
-        created_at: now_millis(),
-        updated_at: now_millis(),
-        nodes: Vec::new(),
-        head: None,
-    });
+    let (id, mut session) = match session_id {
+        Some(id) => {
+            let session = state
+                .store
+                .load(&id)
+                .ok_or_else(|| format!("会话不存在：{id}"))?;
+            (id, session)
+        }
+        None => {
+            let id = new_id();
+            let session = Session {
+                id: id.clone(),
+                title: String::new(),
+                created_at: now_millis(),
+                updated_at: now_millis(),
+                nodes: Vec::new(),
+                head: None,
+            };
+            (id, session)
+        }
+    };
 
     let parent = parent_id.or_else(|| session.head.clone());
     let user_node = Node {
@@ -263,13 +283,20 @@ pub fn agent_send(
 }
 
 #[tauri::command]
-pub fn agent_cancel(state: State<'_, Arc<AgentState>>) -> Result<(), String> {
+pub fn agent_cancel(state: State<'_, Arc<AgentState>>) -> bool {
+    let was_running = state.running.load(Ordering::SeqCst);
     if let Ok(slot) = state.cancel.lock() {
         if let Some(token) = slot.as_ref() {
             token.cancel();
         }
     }
-    Ok(())
+    was_running
+}
+
+/// 当前是否有回合在跑。webview 重载后前端用它跟后端对齐状态。
+#[tauri::command]
+pub fn agent_running(state: State<'_, Arc<AgentState>>) -> bool {
+    state.running.load(Ordering::SeqCst)
 }
 
 async fn run_turn(state: Arc<AgentState>, session_id: String, cancel: CancellationToken) {
@@ -296,8 +323,10 @@ async fn run_turn_inner(
     let client = state.network.client()?;
     let tool_defs = tool_defs_json();
     let mut stopped = false;
+    let mut exhausted = false;
+    const MAX_ROUNDS: usize = 24;
 
-    for _round in 0..24 {
+    for round in 0..MAX_ROUNDS {
         if cancel.is_cancelled() {
             stopped = true;
             break;
@@ -338,7 +367,15 @@ async fn run_turn_inner(
             }
         };
 
-        let node = assistant_node(assistant_id.clone(), session.head.clone(), &outcome);
+        // 用户中途停止时，流里可能只攒到半个工具调用：别把它当成一次真实调用
+        // 落盘（否则下一条消息会带着没有结果的 tool_calls，被端点拒绝）。
+        let keep_calls = !outcome.stopped && !cancel.is_cancelled();
+        let node = assistant_node(
+            assistant_id.clone(),
+            session.head.clone(),
+            &outcome,
+            keep_calls,
+        );
         session.nodes.push(node.clone());
         session.head = Some(node.id.clone());
         session.updated_at = now_millis();
@@ -351,6 +388,9 @@ async fn run_turn_inner(
         }
         if outcome.tool_calls.is_empty() {
             break;
+        }
+        if round + 1 == MAX_ROUNDS {
+            exhausted = true;
         }
 
         for call in outcome.tool_calls {
@@ -366,7 +406,23 @@ async fn run_turn_inner(
                 args: args.clone(),
             });
 
-            let result = tools::dispatch(&state.app, &state.bridge, "chat", &call.name, args).await;
+            // 工具在后台跑的时候也要能停止：AI job 会被 cancel 令牌中止，
+            // 其它工具（import_asset 等）则直接放弃等待，未回答的 tool_call
+            // 会在 build_messages 里按分支配对规则丢弃。
+            let result = tokio::select! {
+                _ = cancel.cancelled() => {
+                    stopped = true;
+                    break;
+                }
+                result = tools::dispatch_with_cancel(
+                    &state.app,
+                    &state.bridge,
+                    "chat",
+                    &call.name,
+                    args,
+                    Some(cancel),
+                ) => result,
+            };
             let (ok, output) = match result {
                 Ok(value) => (
                     true,
@@ -383,7 +439,9 @@ async fn run_turn_inner(
 
             let tool_node = Node {
                 id: new_id(),
-                parent: Some(assistant_id.clone()),
+                // 挂在当前 head 上而不是统一的 assistant 节点上：一次回复可能有多个
+                // 工具调用，链式相连才能让每个结果都出现在 head → parent 路径里。
+                parent: session.head.clone(),
                 role: "tool".into(),
                 content: truncate(&output, 20_000),
                 reasoning: None,
@@ -407,6 +465,13 @@ async fn run_turn_inner(
 
     let head = session.head.clone().unwrap_or_default();
     state.store.save(&session)?;
+    if exhausted && !stopped {
+        state.emit(AgentEvent::Error {
+            message: format!(
+                "已达到 {MAX_ROUNDS} 轮工具调用上限，任务可能还没完成；继续发一条消息即可接着做。"
+            ),
+        });
+    }
     state.emit(AgentEvent::TurnFinished {
         session_id: session_id.to_string(),
         head,
@@ -425,7 +490,12 @@ fn truncate(text: &str, limit: usize) -> String {
     out
 }
 
-fn assistant_node(id: String, parent: Option<String>, outcome: &ChatOutcome) -> Node {
+fn assistant_node(
+    id: String,
+    parent: Option<String>,
+    outcome: &ChatOutcome,
+    keep_calls: bool,
+) -> Node {
     Node {
         id,
         parent,
@@ -436,15 +506,19 @@ fn assistant_node(id: String, parent: Option<String>, outcome: &ChatOutcome) -> 
         } else {
             Some(outcome.reasoning.clone())
         },
-        tool_calls: outcome
-            .tool_calls
-            .iter()
-            .map(|call| ToolCallRef {
-                id: call.id.clone(),
-                name: call.name.clone(),
-                arguments: call.arguments.clone(),
-            })
-            .collect(),
+        tool_calls: if keep_calls {
+            outcome
+                .tool_calls
+                .iter()
+                .map(|call| ToolCallRef {
+                    id: call.id.clone(),
+                    name: call.name.clone(),
+                    arguments: call.arguments.clone(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        },
         tool_call_id: None,
         name: None,
         created_at: now_millis(),
@@ -479,12 +553,20 @@ fn build_messages(session: &Session) -> Vec<Value> {
     }
     path.reverse();
 
-    let result_ids: std::collections::HashSet<String> = session
-        .nodes
+    // 只认「有调用、也有结果」的工具对，而且必须在**当前分支**上成对。
+    // 取消 / 中断可能在助手节点里留下半截调用（没有对应的 tool 消息），原样发给
+    // 模型会被 OpenAI 兼容端点判成非法消息。
+    let called: std::collections::HashSet<&str> = path
+        .iter()
+        .filter(|node| node.role == "assistant")
+        .flat_map(|node| node.tool_calls.iter().map(|call| call.id.as_str()))
+        .collect();
+    let answered: std::collections::HashSet<&str> = path
         .iter()
         .filter(|node| node.role == "tool")
-        .filter_map(|node| node.tool_call_id.clone())
+        .filter_map(|node| node.tool_call_id.as_deref())
         .collect();
+    let paired = |id: &str| called.contains(id) && answered.contains(id);
 
     let mut messages = vec![json!({
         "role": "system",
@@ -501,7 +583,7 @@ fn build_messages(session: &Session) -> Vec<Value> {
                 let calls: Vec<Value> = node
                     .tool_calls
                     .iter()
-                    .filter(|call| result_ids.contains(&call.id))
+                    .filter(|call| paired(&call.id))
                     .map(|call| {
                         json!({
                             "id": call.id,
@@ -513,28 +595,39 @@ fn build_messages(session: &Session) -> Vec<Value> {
                         })
                     })
                     .collect();
-                if node.content.trim().is_empty() && calls.is_empty() {
+                if calls.is_empty() {
+                    // 没有可用工具调用的节点退化成普通助手消息；连正文都没有就跳过。
+                    if !node.content.trim().is_empty() {
+                        messages.push(json!({
+                            "role": "assistant",
+                            "content": node.content
+                        }));
+                    }
                     continue;
                 }
-                let mut message = json!({
+                let content = if node.content.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(node.content.clone())
+                };
+                messages.push(json!({
                     "role": "assistant",
-                    "content": node.content
-                });
-                if !calls.is_empty() {
-                    message["tool_calls"] = Value::Array(calls);
-                }
-                messages.push(message);
+                    "content": content,
+                    "tool_calls": calls
+                }));
             }
             "tool" => {
-                let mut message = json!({
-                    "role": "tool",
-                    "tool_call_id": node.tool_call_id,
-                    "content": node.content
-                });
-                if let Some(name) = &node.name {
-                    message["name"] = json!(name);
+                let Some(id) = node.tool_call_id.as_deref() else {
+                    continue;
+                };
+                if !paired(id) {
+                    continue;
                 }
-                messages.push(message);
+                messages.push(json!({
+                    "role": "tool",
+                    "tool_call_id": id,
+                    "content": node.content
+                }));
             }
             _ => {}
         }
@@ -565,8 +658,145 @@ fn system_prompt() -> String {
         .map(|(_, text)| *text)
         .unwrap_or("");
     format!(
-        "你是 AI Cut 的剪辑智能体。你通过工具直接操作正在运行的剪辑器：读取工程、导入素材、增删轨道与片段、调整属性。\
-所有写操作都会进入撤销历史，界面会实时更新。先调用 get_project 拿 revision 和 id，再 apply_command；\
+        "你是 AI Cut 的剪辑智能体。你通过工具直接操作正在运行的剪辑器：读取工程、导入素材、增删轨道与片段、调整属性，\
+也可以直接调用本地 AI：语音转写、音源分离、降噪、响度、翻译、配音、视频超分/补帧/重构、导出。\
+所有写操作都会进入撤销历史，界面会实时更新。写命令的 baseRevision 可以用 get_project 返回的值，也可以用上一条命令或 AI 工具返回的 revision。\
+读取要渐进：get_project 只给概览（规格、轨道摘要、素材数量）。按关注点再取：get_context 看播放头与选中片段，get_track 分页读某轨，find_clips 按时间/素材/文字检索，get_clip 读单片段，get_assets 读素材。不要要求整份工程。\
+批量修改用 apply_commands：一次 revision、一个撤销步、失败整批回滚。追加片段用 append_clip，波纹删除用 ripple_delete，复制用 duplicate_clips。分离视频音轨用 extract_audio，不要手工拼 track.add + clip.add。\
+字幕文件用 import_subtitles / export_subtitles；标记用 get_markers / add_marker / update_marker / remove_marker，不要把标记当片段。合成原语用 set_clip_color / set_clip_mask / set_clip_transition / set_clip_keyframes；转场是片段入/出动画，不支持重叠式交叉淡化。需要看画面时用 render_frame 或 render_storyboard 导出 PNG 自检。\
+AI 工具默认同步：调用后会等到任务结束；缺模型时先用 list_ai_models 查看、download_model 下载。长任务可用 job_start 立即拿 jobId，再用 job_status 轮询、job_cancel 取消。\
 一次只做一件清晰的事。需要细则时调用 aicut_help 取对应能力域文档。\n\n--- 技能索引 ---\n{index}"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use store::ToolCallRef;
+
+    fn node(id: &str, parent: Option<&str>, role: &str) -> Node {
+        Node {
+            id: id.into(),
+            parent: parent.map(str::to_owned),
+            role: role.into(),
+            content: String::new(),
+            reasoning: None,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            name: None,
+            created_at: 0,
+            error: None,
+        }
+    }
+
+    fn call(id: &str) -> ToolCallRef {
+        ToolCallRef {
+            id: id.into(),
+            name: "get_project".into(),
+            arguments: "{}".into(),
+        }
+    }
+
+    fn session(nodes: Vec<Node>, head: &str) -> Session {
+        Session {
+            id: "s".into(),
+            title: "t".into(),
+            created_at: 0,
+            updated_at: 0,
+            nodes,
+            head: Some(head.into()),
+        }
+    }
+
+    #[test]
+    fn build_messages_drops_tool_calls_without_results() {
+        let mut asst = node("a", Some("u"), "assistant");
+        asst.content = "先读工程。".into();
+        asst.tool_calls = vec![call("c1"), call("c2")];
+        let mut tool = node("t", Some("a"), "tool");
+        tool.tool_call_id = Some("c1".into());
+        tool.content = "ok".into();
+        let s = session(vec![node("u", None, "user"), asst, tool], "t");
+
+        let msgs = build_messages(&s);
+        assert_eq!(msgs.len(), 4, "{msgs:#?}");
+        let calls = msgs[2]["tool_calls"].as_array().expect("tool_calls");
+        assert_eq!(calls.len(), 1, "orphan call must be dropped: {msgs:#?}");
+        assert_eq!(calls[0]["id"], "c1");
+        assert_eq!(msgs[3]["tool_call_id"], "c1");
+    }
+
+    #[test]
+    fn build_messages_keeps_parallel_tool_results() {
+        // 一次回复里两个工具调用，结果节点链式挂在 head 上（修复后的落盘形态）。
+        let mut asst = node("a", Some("u"), "assistant");
+        asst.tool_calls = vec![call("c1"), call("c2")];
+        let mut first = node("t1", Some("a"), "tool");
+        first.tool_call_id = Some("c1".into());
+        first.content = "one".into();
+        let mut second = node("t2", Some("t1"), "tool");
+        second.tool_call_id = Some("c2".into());
+        second.content = "two".into();
+        let s = session(vec![node("u", None, "user"), asst, first, second], "t2");
+
+        let msgs = build_messages(&s);
+        // system + user + assistant + tool + tool
+        assert_eq!(msgs.len(), 5, "{msgs:#?}");
+        assert!(msgs[2]["content"].is_null());
+        let calls = msgs[2]["tool_calls"].as_array().expect("tool_calls");
+        assert_eq!(calls.len(), 2, "{msgs:#?}");
+        assert_eq!(msgs[3]["tool_call_id"], "c1");
+        assert_eq!(msgs[4]["tool_call_id"], "c2");
+    }
+
+    #[test]
+    fn build_messages_skips_tool_results_from_other_branches() {
+        // 旧数据：多个结果节点都挂在同一个助手节点下，只有最后一个在 head 链上。
+        // 不在链上的结果和它的调用必须一起丢掉，否则会发出无结果的 tool_calls。
+        let mut asst = node("a", Some("u"), "assistant");
+        asst.tool_calls = vec![call("c1"), call("c2")];
+        let mut first = node("t1", Some("a"), "tool");
+        first.tool_call_id = Some("c1".into());
+        let mut second = node("t2", Some("a"), "tool");
+        second.tool_call_id = Some("c2".into());
+        let s = session(vec![node("u", None, "user"), asst, first, second], "t2");
+
+        let msgs = build_messages(&s);
+        assert_eq!(msgs.len(), 4, "{msgs:#?}");
+        let calls = msgs[2]["tool_calls"].as_array().expect("tool_calls");
+        assert_eq!(calls.len(), 1, "{msgs:#?}");
+        assert_eq!(calls[0]["id"], "c2");
+        assert_eq!(msgs[3]["tool_call_id"], "c2");
+    }
+
+    #[test]
+    fn build_messages_drops_empty_assistant_without_calls() {
+        let mut asst = node("a", Some("u"), "assistant");
+        asst.tool_calls = vec![call("c1")];
+        let s = session(vec![node("u", None, "user"), asst], "a");
+
+        let msgs = build_messages(&s);
+        assert_eq!(
+            msgs.len(),
+            2,
+            "empty assistant step should disappear: {msgs:#?}"
+        );
+    }
+
+    #[test]
+    fn assistant_node_discards_partial_calls_when_stopped() {
+        let outcome = ChatOutcome {
+            content: "半个回答".into(),
+            reasoning: String::new(),
+            tool_calls: vec![openai::ToolCall {
+                id: "c1".into(),
+                name: "get_project".into(),
+                arguments: "{}".into(),
+            }],
+            stopped: true,
+        };
+        let kept = assistant_node("a".into(), None, &outcome, false);
+        assert!(kept.tool_calls.is_empty());
+        assert_eq!(kept.content, "半个回答");
+    }
 }

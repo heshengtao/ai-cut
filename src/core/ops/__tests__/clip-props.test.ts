@@ -12,6 +12,7 @@ import {
   setClipPan,
   setClipPitch,
   setClipShadow,
+  setClipSpeed,
   setClipStroke,
   setClipText,
   setClipTextStyle,
@@ -41,6 +42,36 @@ function find(doc: ReturnType<typeof newProject>, id: string) {
   }
   throw new Error("not found");
 }
+
+describe("setClipSpeed", () => {
+  it("keeps the source span and changes timeline duration", () => {
+    const { doc, id } = withClip();
+    const next = setClipSpeed(doc, id, 2);
+    const clip = find(next, id);
+    expect(clip.speed).toBe(2);
+    expect(clip.duration).toBeCloseTo(2);
+  });
+
+  it("does not overlap the next clip", () => {
+    const base = addTrack(newProject());
+    const trackId = base.tracks[0].id;
+    const target = createClip({ assetId: "a1", trackId, start: 0, duration: 4 });
+    const next = createClip({ assetId: "a1", trackId, start: 4, duration: 2 });
+    let doc = addClip(base, trackId, target);
+    doc = addClip(doc, trackId, next);
+
+    const result = setClipSpeed(doc, target.id, 0.5);
+    expect(result).toBe(doc);
+  });
+
+  it("ignores text clips", () => {
+    const base = addTrack(newProject());
+    const trackId = base.tracks[0].id;
+    const text = createClip({ assetId: "", trackId, start: 0, duration: 2, text: "x" });
+    const doc = addClip(base, trackId, text);
+    expect(setClipSpeed(doc, text.id, 2)).toBe(doc);
+  });
+});
 
 describe("addTextClip", () => {
   it("creates a text clip with an empty assetId", () => {

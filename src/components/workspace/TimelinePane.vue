@@ -4,6 +4,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   ArrowUturnLeftIcon,
   ArrowUturnRightIcon,
+  BackspaceIcon,
+  DocumentDuplicateIcon,
+  FlagIcon,
   MagnifyingGlassMinusIcon,
   MagnifyingGlassPlusIcon,
   TrashIcon,
@@ -14,6 +17,7 @@ import TimelineRuler from "./TimelineRuler.vue";
 import TrackHeader from "./TrackHeader.vue";
 import TimelineClip from "./TimelineClip.vue";
 import Tooltip from "@/components/common/Tooltip.vue";
+import ProjectDialog from "@/components/common/ProjectDialog.vue";
 import CutIcon from "@/components/common/CutIcon.vue";
 import { useProjectStore } from "@/stores/project";
 import { MAX_ZOOM, MIN_ZOOM, usePlaybackStore } from "@/stores/playback";
@@ -28,9 +32,12 @@ import {
   moveClips,
   moveTrack,
   removeClips,
+  removeMarker,
   removeTrack,
+  renameTrack,
   setTrackFlag,
   trimClip,
+  updateMarker,
 } from "@/core/ops";
 import { createClip } from "@/core/factory";
 import { snapEdge, snapMove } from "@/core/snapping";
@@ -42,7 +49,7 @@ import { baseName } from "@/core/media";
 import { clearDragPayload, getDragPayload } from "@/core/dragPayload";
 import { useTextPresetsStore } from "@/stores/textPresets";
 import { TEXT_PRESET_SECONDS } from "@/core/textPresets";
-import type { Clip, ClipTextStyle, MediaAsset, Project } from "@/types/project";
+import type { Clip, ClipTextStyle, Marker, MediaAsset, Project } from "@/types/project";
 import { useI18n } from "@/i18n";
 
 const project = useProjectStore();
@@ -52,6 +59,14 @@ const layout = useLayoutStore();
 const actions = useTimelineActions();
 const textPresets = useTextPresetsStore();
 const i18n = useI18n();
+
+const markerDialog = ref<Marker | null>(null);
+const markerDialogOpen = computed({
+  get: () => markerDialog.value !== null,
+  set: (open: boolean) => {
+    if (!open) markerDialog.value = null;
+  },
+});
 
 /** 横向滚动容器：缩放锚点与滚动位置都以它为准。 */
 const scrollEl = ref<HTMLElement | null>(null);
@@ -387,6 +402,45 @@ function onToggleFlag(trackId: string, flag: "muted" | "visible" | "locked"): vo
   const track = project.doc.tracks.find((t) => t.id === trackId);
   if (!track) return;
   project.dispatch((doc) => setTrackFlag(doc, trackId, flag, !track[flag]));
+}
+
+function onRenameTrack(trackId: string, name: string): void {
+  project.dispatch((doc) => renameTrack(doc, trackId, name), {
+    kind: "track.update",
+    payload: { trackId, patch: { name } },
+    label: i18n.t("track.renameLabel"),
+  });
+}
+
+function onMarkerRename(marker: Marker): void {
+  markerDialog.value = marker;
+}
+
+function submitMarkerRename(name: string): void {
+  const marker = markerDialog.value;
+  if (!marker) return;
+  project.dispatch((doc) => updateMarker(doc, marker.id, { name }), {
+    kind: "marker.update",
+    payload: { markerId: marker.id, patch: { name } },
+    label: i18n.t("marker.renameLabel"),
+  });
+  markerDialog.value = null;
+}
+
+async function onMarkerRemove(marker: Marker): Promise<void> {
+  const ok = await confirm({
+    title: i18n.t("marker.deleteTitle"),
+    message: i18n.t("marker.deleteMessage", { name: marker.name }),
+    confirmText: i18n.t("confirm.delete"),
+    cancelText: i18n.t("confirm.cancel"),
+    destructive: true,
+  });
+  if (!ok) return;
+  project.dispatch((doc) => removeMarker(doc, marker.id), {
+    kind: "marker.remove",
+    payload: { markerId: marker.id },
+    label: i18n.t("marker.deleteLabel"),
+  });
 }
 
 /** 点击轨道头：一键选中该轨道上的所有片段。 */
@@ -807,6 +861,16 @@ function onLaneDrop(event: DragEvent): void {
             <CutIcon mode="right" class="w-[16px] h-[16px]" />
           </button>
         </Tooltip>
+        <Tooltip :text="i18n.t('timeline.duplicate')">
+          <button
+            class="icon-btn"
+            :disabled="!actions.canDuplicate"
+            :aria-label="i18n.t('timeline.duplicateLabel')"
+            @click="actions.duplicateSelected"
+          >
+            <DocumentDuplicateIcon class="w-[16px] h-[16px]" />
+          </button>
+        </Tooltip>
         <Tooltip :text="i18n.t('timeline.delete')">
           <button
             class="icon-btn"
@@ -817,9 +881,28 @@ function onLaneDrop(event: DragEvent): void {
             <TrashIcon class="w-[16px] h-[16px]" />
           </button>
         </Tooltip>
+        <Tooltip :text="i18n.t('timeline.rippleDelete')">
+          <button
+            class="icon-btn"
+            :disabled="!actions.canDelete"
+            :aria-label="i18n.t('timeline.rippleDeleteLabel')"
+            @click="actions.rippleDeleteSelected"
+          >
+            <BackspaceIcon class="w-[16px] h-[16px]" />
+          </button>
+        </Tooltip>
         <Tooltip :text="i18n.t('timeline.addText')">
           <button class="icon-btn" :aria-label="i18n.t('timeline.addTextLabel')" @click="addTextAtPlayhead">
             <DocumentTextIcon class="w-[16px] h-[16px]" />
+          </button>
+        </Tooltip>
+        <Tooltip :text="i18n.t('marker.add')">
+          <button
+            class="icon-btn"
+            :aria-label="i18n.t('marker.addLabel')"
+            @click="actions.addMarkerAtPlayhead"
+          >
+            <FlagIcon class="w-[16px] h-[16px]" />
           </button>
         </Tooltip>
       </div>
@@ -862,6 +945,7 @@ function onLaneDrop(event: DragEvent): void {
             @toggle-flag="onToggleFlag"
             @select="onSelectTrack"
             @remove="onRemoveTrack"
+            @rename="onRenameTrack"
             @reorder="onTrackReorderStart"
           />
         </div>
@@ -879,7 +963,10 @@ function onLaneDrop(event: DragEvent): void {
             :px-per-second="playback.zoom"
             :fps="project.doc.fps"
             :playhead-x="playheadX"
+            :markers="project.doc.markers"
             @seek="playback.setPlayhead"
+            @rename-marker="onMarkerRename"
+            @remove-marker="onMarkerRemove"
           />
 
           <div
@@ -948,6 +1035,15 @@ function onLaneDrop(event: DragEvent): void {
         </div>
       </div>
     </div>
+
+    <ProjectDialog
+      v-model:open="markerDialogOpen"
+      :initial-name="markerDialog?.name ?? ''"
+      :title="i18n.t('marker.renameTitle')"
+      :label="i18n.t('marker.nameLabel')"
+      :placeholder="i18n.t('marker.namePlaceholder')"
+      @submit="submitMarkerRename"
+    />
   </section>
 </template>
 

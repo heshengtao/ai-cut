@@ -15,7 +15,11 @@
 
 ## 查询
 
-`get_project` 的 `project.assets` 是素材表：`id` / `name` / `kind` / `src` / `duration` / `width` / `height` / `fps` / `hasAudio`。
+`get_project` 只给素材数量与类型分布。素材明细用 `get_assets` 分页读取，支持 `kind` / `name` / `offline` 过滤；返回 `id` / `name` / `kind` / `src` / `duration` / `width` / `height` / `fps` / `hasAudio`。
+
+## 字幕文件
+
+字幕不是素材：用 `import_subtitles({path})` 读 SRT/VTT 并生成文字轨，用 `export_subtitles({outputPath})` 从文字片段导出。字幕文件不会进入素材库。
 
 ## 更新与删除
 
@@ -30,4 +34,7 @@
 
 ```json
 {"kind":"clip.add","baseRevision":7,"payload":{"trackId":"...","clip":{"assetId":"<asset id>","start":0,"duration":5,"in":0}}}
+{"kind":"clip.append","baseRevision":8,"payload":{"assetId":"<asset id>","trackId":1}}
 ```
+
+需要“导入后直接接到轨道末尾”时用 `append_clip`：省略 `start` 会接在轨尾，省略 `duration` 会用素材时长（图片默认 5 秒）。

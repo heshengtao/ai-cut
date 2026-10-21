@@ -17,6 +17,7 @@ import {
   writeExportTextImage,
 } from "@/core/export/api";
 import { dataUrlToBase64, renderTextLayerPng, textLayerName } from "@/core/export/textLayer";
+import { maskLayerName, renderMaskLayerPng } from "@/core/export/maskLayer";
 import { pathExists, pickExportPath } from "@/core/media";
 import { isVisible, projectDuration } from "@/core/playback/activeClips";
 import { useProjectStore } from "@/stores/project";
@@ -33,8 +34,15 @@ export const useExportStore = defineStore("export", () => {
   const options = reactive<ExportOptions>({
     format: "mp4",
     resolution: "project",
+    width: null,
+    height: null,
     fps: null,
     quality: "standard",
+    fit: "contain",
+    fitAnchor: "center",
+    gifColors: 256,
+    gifDither: "sierra2_4a",
+    gifLoop: 0,
   });
   const progress = ref(0);
   const seconds = ref(0);
@@ -57,8 +65,9 @@ export const useExportStore = defineStore("export", () => {
     });
   }
 
-  async function start(): Promise<void> {
-    if (status.value === "exporting") return;
+  /** `targetPath` 由智能体/MCP 显式给出时跳过原生保存对话框。 */
+  async function start(targetPath?: string): Promise<string | null> {
+    if (status.value === "exporting") return null;
     errorMessage.value = "";
     warnings.value = [];
 
@@ -79,12 +88,14 @@ export const useExportStore = defineStore("export", () => {
       }
 
       const meta = EXPORT_FORMATS[options.format];
-      const path = await pickExportPath(
-        safeFileName(doc.name),
-        meta.extension,
-        t(meta.labelKey),
-      );
-      if (!path) return;
+      const path =
+        targetPath ??
+        (await pickExportPath(
+          safeFileName(doc.name),
+          meta.extension,
+          t(meta.labelKey),
+        ));
+      if (!path) return null;
 
       // 文字片段先用 Canvas 渲染成透明 PNG，导出时作为叠层使用。
       const spec = outputSpec.value;
@@ -104,7 +115,22 @@ export const useExportStore = defineStore("export", () => {
         }
       }
 
-      const plan = buildExportPlan(doc, { ...options }, textImages, path);
+      const maskImages = new Map<string, string>();
+      for (const track of doc.tracks) {
+        if (!isVisible(track)) continue;
+        for (const clip of track.clips) {
+          if (!clip.mask) continue;
+          const dataUrl = renderMaskLayerPng(clip, spec.width, spec.height);
+          if (!dataUrl) continue;
+          const imagePath = await writeExportTextImage(
+            maskLayerName(clip.id),
+            dataUrlToBase64(dataUrl),
+          );
+          maskImages.set(clip.id, imagePath);
+        }
+      }
+
+      const plan = buildExportPlan(doc, { ...options }, textImages, path, maskImages);
       warnings.value = plan.warnings;
 
       duration.value = plan.duration;
@@ -126,6 +152,7 @@ export const useExportStore = defineStore("export", () => {
       seconds.value = plan.duration;
       status.value = "done";
       toast(t("toast.exported", { path }));
+      return path;
     } catch (error) {
       if (cancelRequested) {
         status.value = "idle";
@@ -138,6 +165,7 @@ export const useExportStore = defineStore("export", () => {
         errorMessage.value = message;
         toast(t("export.failed", { error: message }), "error");
       }
+      return null;
     } finally {
       cancelRequested = false;
     }

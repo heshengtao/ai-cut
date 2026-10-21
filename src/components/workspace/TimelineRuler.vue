@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 时间线标尺：按缩放生成刻度，点击/拖动定位播放头。 */
 import { computed } from "vue";
+import type { Marker } from "@/types/project";
 import { formatTimecode } from "@/core/time";
 
 const props = defineProps<{
@@ -9,8 +10,13 @@ const props = defineProps<{
   fps: number;
   /** 播放头在内容坐标系里的 X（px）；用标尺自带的播放头帽保证纵向滚动时它不被卷走。 */
   playheadX?: number;
+  markers?: Marker[];
 }>();
-const emit = defineEmits<{ (e: "seek", seconds: number): void }>();
+const emit = defineEmits<{
+  (e: "seek", seconds: number): void;
+  (e: "rename-marker", marker: Marker): void;
+  (e: "remove-marker", marker: Marker): void;
+}>();
 
 /** 刻度间隔：随缩放自适应，取 1/2/5/10/30/60 秒里最合适的一档。 */
 const step = computed(() => {
@@ -39,6 +45,24 @@ function seekFromEvent(event: PointerEvent): void {
     <div v-for="tick in ticks" :key="tick.seconds" class="tick" :style="{ left: `${tick.x}px` }">
       <span class="tick-label tabular">{{ tick.label }}</span>
     </div>
+    <button
+      v-for="marker in markers ?? []"
+      :key="marker.id"
+      class="marker"
+      :style="{ left: `${marker.time * pxPerSecond}px` }"
+      :title="marker.name"
+      :aria-label="marker.name"
+      @pointerdown.stop
+      @click.stop="emit('seek', marker.time)"
+      @dblclick.stop="emit('rename-marker', marker)"
+      @contextmenu.prevent.stop="emit('remove-marker', marker)"
+    >
+      <span
+        class="marker-pin"
+        :style="marker.color ? { backgroundColor: marker.color } : undefined"
+      />
+      <span class="marker-name">{{ marker.name }}</span>
+    </button>
     <span
       v-if="playheadX !== undefined && playheadX >= 0"
       class="ph-cap"
@@ -76,6 +100,47 @@ function seekFromEvent(event: PointerEvent): void {
   font-weight: 500;
   color: rgb(var(--md-on-surface-muted));
   white-space: nowrap;
+}
+.marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  z-index: 3;
+}
+.marker-pin {
+  position: absolute;
+  top: 0;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px 2px 6px 6px;
+  background-color: rgb(var(--md-primary));
+  box-shadow: 0 0 0 1px rgb(var(--md-surface-container-low));
+}
+.marker-name {
+  position: absolute;
+  top: 10px;
+  left: 4px;
+  display: none;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 3px;
+  border-radius: 3px;
+  background-color: rgb(var(--md-surface-container-highest) / 0.95);
+  color: rgb(var(--md-on-surface));
+  font-size: 9px;
+  font-weight: 500;
+}
+.marker:hover .marker-name,
+.marker:focus-visible .marker-name {
+  display: block;
 }
 /* 播放头帽：属于标尺，纵向滚动时和刻度一起保持可见。 */
 .ph-cap {

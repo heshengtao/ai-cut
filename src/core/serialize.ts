@@ -45,7 +45,7 @@ function assertProjectShape(value: unknown): asserts value is Project {
   }
 }
 
-/** 兼容旧工程：缺省 visible 视为 true，旧的 solo 字段丢弃。 */
+/** 兼容旧工程：缺省 visible 视为 true，旧的 solo 字段丢弃，缺省 markers 为空。 */
 function normalizeProject(project: Project): Project {
   const tracks = project.tracks.map((track) => {
     const record = { ...(track as unknown as Record<string, unknown>) };
@@ -53,7 +53,17 @@ function normalizeProject(project: Project): Project {
     delete record.solo;
     return { ...(record as unknown as Track), visible };
   });
-  return { ...project, tracks };
+  const markers = Array.isArray(project.markers)
+    ? project.markers
+        .filter((marker) => isObject(marker) && isNumber(marker.time))
+        .map((marker) => ({
+          id: typeof marker.id === "string" && marker.id ? marker.id : crypto.randomUUID(),
+          time: Math.max(0, marker.time),
+          name: typeof marker.name === "string" ? marker.name : "",
+          ...(typeof marker.color === "string" ? { color: marker.color } : {}),
+        }))
+    : [];
+  return { ...project, tracks, markers };
 }
 
 export function parseProject(json: string): Project {

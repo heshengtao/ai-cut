@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0-1A6CFF?style=flat-square" alt="版本 0.1.0">
+  <img src="https://img.shields.io/badge/version-0.2.0-1A6CFF?style=flat-square" alt="版本 0.2.0">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-1A6CFF?style=flat-square" alt="许可：Apache-2.0"></a>
   <img src="https://img.shields.io/badge/platforms-Windows%20/%20macOS%20/%20Linux-1A6CFF?style=flat-square" alt="平台：Windows、macOS、Linux">
 </p>
@@ -119,7 +119,7 @@ aicut call get_project
 剪好了就渲染。选一个交付格式，AI Cut 在后台写出可发布的文件，你可以继续干活。已安装的应用会检查 GitHub Releases 上的签名更新，新版本一键即达。
 
 - **格式** —— MP4 / H.264、ProRes 422、GIF
-- **输出控制** —— 分辨率、帧率与质量
+- **输出控制** —— 预设或自定义宽高、contain/cover 画面适配、帧率与质量；GIF 颜色数、抖动与循环
 - **后台导出** —— 实时进度与取消
 - **签名自动更新** —— 启动时静默检查、手动检查、下载、安装、重启
 - **更新包校验** —— 公钥内置于应用，私钥只存在于发布环境

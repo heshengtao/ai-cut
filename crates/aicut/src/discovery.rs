@@ -16,7 +16,7 @@ pub fn config_dir() -> Option<PathBuf> {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
     }?;
-    Some(base.join("com.aicut.app"))
+    Some(base.join("com.aicut.editor"))
 }
 
 pub fn candidates() -> Vec<String> {

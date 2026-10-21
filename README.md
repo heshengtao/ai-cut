@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0-1A6CFF?style=flat-square" alt="Version 0.1.0">
+  <img src="https://img.shields.io/badge/version-0.2.0-1A6CFF?style=flat-square" alt="Version 0.2.0">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-1A6CFF?style=flat-square" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/platforms-Windows%20/%20macOS%20/%20Linux-1A6CFF?style=flat-square" alt="Platforms: Windows, macOS, Linux">
 </p>
@@ -119,7 +119,7 @@ Flip one switch and your project becomes something an AI assistant can operate. 
 When the cut is right, render it. Pick a delivery format and AI Cut writes a release-ready file in the background while you keep working. Installed apps check GitHub Releases for signed updates, so a new version is one click away.
 
 - **Formats** — MP4 / H.264, ProRes 422, GIF
-- **Output controls** — resolution, frame rate, and quality
+- **Output controls** — presets or custom width/height, contain/cover fit, frame rate, quality; GIF palette, dither, and loop
 - **Background export** — live progress and cancellation
 - **Signed auto-update** — startup check, manual check, download, install, restart
 - **Verified bundles** — the updater public key is embedded; the private key lives only in the release environment

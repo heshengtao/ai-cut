@@ -17,42 +17,61 @@ license: Apache-2.0
 
 **先判断任务属于哪条线。** 用户说「帮我做一条视频」时，不要直接开始 `clip.add`；先走生产流程的 Gate 0，把 brief 和交付规格定下来。用户说「把这段往后挪 2 秒」时，直接走执行线的 `get_project` → `apply_command`。
 
-## 最重要的边界
+## 工具面
 
-MCP 只暴露 6 个工具：`get_project` / `apply_command` / `import_asset` / `undo` / `redo` / `aicut_help`。
+智能体可以读工程、改时间线，也可以直接调用本地 AI 与导出：
 
-以下能力**不在 MCP 工具面**，必须在 AI Cut 应用界面里由人触发：
+| 类别 | 工具 |
+| --- | --- |
+| 读取 | `get_project`（概览）、`get_context`（播放头/选中）、`get_track`（分页读轨）、`get_clip`（单片段）、`find_clips`（按时间/素材/文字检索）、`get_assets`（素材分页）、`get_markers`、`list_ai_models`、`aicut_help` |
+| 剪辑 | `apply_command`、`apply_commands`（批量原子）、`append_clip`、`set_clip_speed`、`set_clip_color`、`set_clip_mask`、`set_clip_transition`、`set_clip_keyframes`、`duplicate_clips`、`ripple_delete`、`extract_audio`、`import_asset`、`undo`、`redo` |
+| 字幕 | `import_subtitles`、`export_subtitles` |
+| 标记 | `add_marker`、`update_marker`、`remove_marker` |
+| 工程 | `new_project`、`open_project`、`save_project` |
+| 音频 AI | `transcribe`、`translate_audio`、`synthesize_voiceover`、`separate_stems`、`denoise_audio`、`process_audio`、`measure_loudness` |
+| 视频 AI | `upscale_video`、`interpolate_video`、`reframe_video`、`process_video` |
+| 产出 | `export_video`、`render_frame`、`render_storyboard`、`download_model`、`cancel_ai` |
+| 异步任务 | `job_start`、`job_status`、`job_cancel` |
 
-- 一键生成字幕（本地 ASR）
-- 字幕翻译 / 译制配音
-- AI 朗读（本地 TTS / 云端 TTS）
-- 音频 AI：降噪、人声分离、响度测量、DSP
-- 视频 AI：超分、补帧、智能重构；视频稳定/去噪/去闪烁/动态模糊
-- 最终导出
+AI 工具默认是同步的：调用后会等到任务结束，期间可以用 `cancel_ai` 或停止按钮中止。模型缺失时先 `list_ai_models` 查 id，再 `download_model`。
 
-智能体能做的是：准备素材与文字片段、搭好轨道、给出精确的界面操作清单、等人操作后重新 `get_project` 继续剪。**不要假装自己能直接生成字幕或导出。**
+需要不阻塞（长导出、转写、视频 AI）时用 `job_start`：立即返回 `jobId`，再用 `job_status` 轮询；`job_cancel` 可取消。当前同一时间只允许一个 AI 任务。
+
+### 渐进式读取（重要）
+
+不要一次读完整个工程。按关注点逐层取：
+
+1. `get_project`：工程规格、轨道摘要、素材数量、`revision`。
+2. 用户说“这里 / 选中的片段” → `get_context`：播放头、选中片段、活跃轨道。
+3. 要动某条轨 → `get_track(trackId, offset, limit)`；要找一个片段 → `find_clips`（按轨道/素材/文字/时间区间/类型）。
+4. 要改一个片段 → `get_clip(clipId)` 拿完整属性与前后邻居。
+5. 要选素材 → `get_assets(kind?, name?, offset?, limit?)`；要看章节/批注 → `get_markers`。
+6. `apply_command` 写一条；多条用 `apply_commands`。
+
+只读你下一步真正要用的数据。读工程不是越全越好，返回体积会直接挤占上下文。
 
 ## 前提
 
 - AI Cut 需要在运行。走 CLI 时先 `aicut status`，没开就 `aicut start`。
 - 所有写操作都走与界面同一条命令总线：进入撤销历史，界面实时更新。
-- 先 `get_project` 拿 `revision` 和 id，再 `apply_command`；`baseRevision` 过期会被拒绝。
+- 先 `get_project` 拿 `revision` 和轨道摘要，按需再取片段 / 素材；`baseRevision` 过期会被拒绝。上一条命令、批量命令或 AI 工具的返回值里也有新 `revision`，可以直接接着用，不必每步重读概览。
+- `get_project` 永远只返回概览，不返回片段与素材明细；细节用 `get_track` / `find_clips` / `get_clip` / `get_assets` 按需取。
 
 ## 三条入口
 
-1. **逐个 MCP 工具**：`get_project` / `apply_command` / `import_asset` / `undo` / `redo` / `aicut_help`。
-2. **网关**：`apply_command` 用「命令 + JSON payload」执行所有剪辑操作；`aicut_help(topic)` 按域取文档。
+1. **逐个 MCP 工具**：时间线命令走 `apply_command`，确定性与 AI 动作走各自的工具（见上方工具面）。
+2. **网关**：`apply_command` 执行一条「命令 + JSON payload」，`apply_commands` 原子批量执行；`aicut_help(topic)` 按域取文档。
 3. **命令行**：`aicut` 是 MCP 的薄客户端，命令面 = 工具面。
 
 ### 定位 App 与 CLI（不用搜索）
 
-Bundle id 是 **`com.aicut.app`**，配置目录由它推导：
+Bundle id 是 **`com.aicut.editor`**，配置目录由它推导：
 
 | 平台 | 配置目录 |
 | --- | --- |
-| macOS | `~/Library/Application Support/com.aicut.app/` |
-| Linux | `~/.config/com.aicut.app/` |
-| Windows | `%APPDATA%\com.aicut.app\` |
+| macOS | `~/Library/Application Support/com.aicut.editor/` |
+| Linux | `~/.config/com.aicut.editor/` |
+| Windows | `%APPDATA%\com.aicut.editor\` |
 
 目录里有两个运行时文件（App 每次启动重写）：
 
@@ -75,10 +94,46 @@ aicut tools
 
 | 工具 | 参数 | 说明 |
 | --- | --- | --- |
-| `get_project` | — | 返回 `{revision, project}`；先读它拿 id 和 revision |
+| `get_project` | — | 概览：`revision`、规格、轨道摘要、素材数量 |
+| `get_context` | — | 播放头、播放状态、选中片段、活跃轨道 |
+| `get_track` | `trackId`, `offset?`, `limit?` | 分页读一条轨道的片段 |
+| `get_clip` | `clipId` | 单片段完整属性、素材与前后邻居 |
+| `find_clips` | `trackId?`, `assetId?`, `text?`, `kind?`, `from?`, `to?`, `offset?`, `limit?` | 按关注点检索片段 |
+| `get_assets` | `kind?`, `name?`, `offline?`, `offset?`, `limit?` | 分页读素材库 |
+| `get_markers` | `from?`, `to?` | 读时间线标记 |
+| `import_subtitles` | `path`, `trackName?`, `offset?` | 导入 SRT/VTT 到置顶文字轨 |
+| `export_subtitles` | `outputPath`, `trackId?`, `format?` | 从文字片段导出 SRT/VTT |
+| `add_marker` | `time`, `name?`, `color?` | 添加标记 |
+| `update_marker` | `markerId`, `time?`, `name?`, `color?` | 修改标记 |
+| `remove_marker` | `markerId` | 删除标记 |
 | `apply_command` | `command` | 执行一条可序列化命令，见下 |
+| `apply_commands` | `commands`, `baseRevision?`, `label?` | 原子批量执行；一次 revision、一个撤销步 |
+| `append_clip` | `assetId`, `trackId?`, `start?`, `duration?`, `in?` | 追加到轨道末尾，自动建轨/接尾 |
+| `duplicate_clips` | `clipIds`, `offset?`, `targetTrackId?` | 复制并偏移；重叠会被拒绝 |
+| `ripple_delete` | `clipIds` | 波纹删除并左移同轨后续片段 |
+| `new_project` | `name?`, `width?`, `height?`, `fps?` | 新建工程（当前工程进入历史） |
+| `open_project` | `path` | 打开工程文件（当前工程进入历史） |
+| `save_project` | `path?` | 保存工程；省略路径时存回原路径 |
+| `extract_audio` | `clipId`, `trackName?` | 把视频音轨拆到新轨道并静音原片段 |
 | `import_asset` | `path`, `name?` | 探测媒体并加入素材库 |
 | `undo` / `redo` | — | 撤销 / 重做 |
+| `transcribe` | `clipId`/`assetId`, `modelId?`, `language?` | 转写并写入字幕轨 |
+| `translate_audio` | `clipId`, `target`, `dub?` | 译文字幕，可选译制配音 |
+| `synthesize_voiceover` | `clipIds`/`text`, `modelId?`/`providerId?` | 合成朗读并放回时间线 |
+| `separate_stems` | `clipId`, `modelId?` | 人声/音源分离 |
+| `denoise_audio` | `clipId`, `modelId?` | LocalVQE 降噪 |
+| `process_audio` | `clipId`, `effect`, `preset` | 无模型降噪 / 美化 |
+| `measure_loudness` | `clipId`, `targetLufs?`, `apply?` | 测量响度，可写回 gain |
+| `upscale_video` / `interpolate_video` / `reframe_video` | `clipId`, … | 超分 / 补帧 / 重构 |
+| `process_video` | `clipId`, `options` | 稳定/去噪/去闪烁/动态模糊/放大 |
+| `export_video` | `outputPath`, `format?`, `resolution?`, `width?`, `height?`, `fit?`, `fitAnchor?`, `fps?`, `quality?`, `gif?` | 导出到指定路径；支持任意尺寸与裁切 |
+| `render_frame` | `time`, `outputPath`, `resolution?`, `width?`, `height?`, `fit?`, `fitAnchor?`, `fps?` | 渲染时间线某一帧到 PNG |
+| `render_storyboard` | `times[]`, `outputDir`, `prefix?`, `width?`, `height?`, `fit?`, `fitAnchor?` | 按多个时间点连续输出 PNG |
+| `list_ai_models` / `download_model` | `feature?` / `id` | 查模型 / 下载模型 |
+| `cancel_ai` | — | 取消当前同步 AI 任务 |
+| `job_start` | `kind`, `params?` | 异步启动 AI 任务，立即返回 `jobId` |
+| `job_status` | `jobId` | 查询异步任务状态、进度与结果 |
+| `job_cancel` | `jobId?` | 取消异步任务；省略时取消当前任务 |
 | `aicut_help` | `topic?` | 取能力域文档；留空给索引 |
 
 ## 命令
@@ -107,20 +162,34 @@ aicut tools
 | `asset.remove` | `{ assetId }` |
 | `asset.update` | `{ assetId, patch }` |
 | `clip.add` | `{ trackId, clip: { assetId, start, duration, in? } }` |
-| `clip.update` | `{ clipId, patch }` |
+| `clip.update` | `{ clipId, patch }`（不允许改 `id` / `trackId`） |
 | `clip.remove` | `{ clipIds }` |
 | `clip.move` | `{ clipIds, delta, targetTrackId? }` |
 | `clip.trim` | `{ clipId, edge: "start"\|"end", time }` |
 | `clip.split` | `{ clipIds, at }` |
+| `clip.append` | `{ assetId, trackId?, trackName?, start?, duration?, in? }` |
+| `clip.speed` | `{ clipId, speed }`（0.1–4） |
+| `clip.color` | `{ clipId, patch: { brightness?, contrast?, saturation?, temperature?, tint? } }` |
+| `clip.mask` | `{ clipId, mask: { shape, x, y, width, height, feather?, angle? } \| null }` |
+| `clip.transition` | `{ clipId, edge: "in"\|"out", transition: { type, duration, direction? } \| null }` |
+| `clip.keyframes` | `{ clipId, property, keyframes: [{ time, value }] \| null }` |
+| `clip.duplicate` | `{ clipIds, offset?, targetTrackId? }` |
+| `clip.ripple_delete` | `{ clipIds }` |
+| `subtitle.import` | `{ entries: [{ start, end, text }], trackName?, offset? }` |
+| `marker.add` | `{ time, name?, color? }` |
+| `marker.update` | `{ markerId, patch: { time?, name?, color? } }` |
+| `marker.remove` | `{ markerId }` |
 
 约束：
 
 - 时间单位是秒；片段不能在同轨重叠。
-- `clip.add` 的 `id` 可省略，会自动生成；`trackId` 必须存在。
+- `trackId` / `targetTrackId` 都可以传轨道 id 或 **1 起始 index**。
+- `clip.add` 会校验素材存在、`in + duration` 不越过素材范围、时长大于 0；文字片段（`assetId:""`）不受素材范围限制。
+- `clip.update` 是整片段校验：改 `start` / `duration` / `in` 时同样不能重叠、不能越界。
 - 文本片段的 `assetId` 是空字符串 `""`，用 `clip.update` 的 `patch.text` 改文案。
-- 轨道名由 App 自动生成，MCP 建轨不能指定名字；**用 `get_project` 返回的 1 起始 `index` 定位轨道**，不要依赖名字。
+- `track.add` 可以传 `name`；`get_project` 的轨道摘要也包含 `name`。仍然推荐用 1 起始 `index` 定位。
 - `track.add` 的 `index` 是 **0 基插入位**（0 = 插到最上层），`get_project` 的 `index` 是 **1 基展示号**，两者相差 1。
-- 一次命令 = 一个撤销步骤；批量修改请拆成清晰的命令。
+- 一次 `apply_command` = 一个撤销步骤；一组相关修改用 `apply_commands` 合成一个撤销步。
 
 ## 全流程速查
 
@@ -155,12 +224,17 @@ aicut tools
 
 ## 约定与坑
 
-- **先读后写**：`get_project` 的 id 才是真相；写完再读一次确认。
-- **不要猜 revision**：每次写操作都用最近一次 `get_project` 的 revision。失败就重读，不要重试旧命令。
-- **同轨不重叠**：插入前先看已有片段，必要时顺延或换轨。
-- **宁可多条小命令**：一条命令一个撤销步，人更容易审阅。
+- **按需读，不要全量读**：`get_project` 只给概览；片段、素材用 `get_track` / `find_clips` / `get_clip` / `get_assets` 逐片取。
+- **先读后写**：id 与轨道现状以读取结果为准；写完再读对应片段确认，不要重读整份工程。
+- **不要猜 revision**：用 `get_project` 或上一条命令返回的 revision。失败就重读，不要重试旧命令。
+- **同轨不重叠**：插入前先看已有片段，必要时顺延或换轨；`clip.append` 会自动接在轨尾。
+- **批量优先**：一组相关修改用 `apply_commands`，一次 revision、一个撤销步，失败整批回滚。
 - **轨道顺序**：`index 0` 是最上层。建多层画面时从底层往上建，每加一层用 `index: 0`；音轨顺序不影响混音。
-- **字幕与转场尚未建模**：字幕 = 文字片段轨道；转场只能用淡入淡出、叠加与变换近似。不要承诺不存在的字幕文件或转场类型。
-- **AI 功能是界面能力**：字幕、翻译、朗读、音频/视频 AI、导出都需要人在 App 里点。智能体负责准备与验收。
+- **字幕可以交换，但仍是文字片段**：用 `import_subtitles` / `export_subtitles` 读写 SRT/VTT；时间线里仍是文字片段，样式与普通文字一致。
+- **标记是工程级对象**：用 `get_markers` 读，`add_marker` / `update_marker` / `remove_marker` 写；不要把它当成片段。
+- **合成原语**：调色、静态蒙版、片段入/出转场、关键帧都走命令总线；预览是近似，最终以导出为准。
+- **转场是片段入/出动画**：支持 `fade` / `slide`；不支持相邻片段重叠式交叉淡化，不要承诺。
+- **关键帧属性**：`opacity` / `x` / `y` / `scale` / `rotation`；时间相对片段起点。
+- **AI 任务会真的跑模型**：字幕、翻译、朗读、音频/视频 AI、导出都可能耗时数分钟；调用前确认用户意图，缺模型先下载，并在 Gate 处等人确认。
 - **版权与许可证**：生成模型、素材库、字体、音乐、Remotion 商用许可都有条款；在 `research.md` / `manifest.json` 里记录来源与许可证。
 - **不要凭搜索结果编造 API**：框架能力以官方仓库/文档为准；版本与可用性会变，执行前先核对。

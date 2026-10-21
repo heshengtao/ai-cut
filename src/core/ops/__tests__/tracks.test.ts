@@ -5,6 +5,7 @@ import {
   addTrackAt,
   moveTrack,
   removeTrack,
+  renameTrack,
   setTrackFlag,
 } from "@/core/ops/tracks";
 
@@ -60,6 +61,17 @@ describe("removeTrack", () => {
   it("returns the same reference for an unknown id", () => {
     const doc = addTrack(newProject());
     expect(removeTrack(doc, "missing")).toBe(doc);
+  });
+});
+
+describe("renameTrack", () => {
+  it("renames a track and trims the input", () => {
+    const doc = addTrack(newProject());
+    const id = doc.tracks[0].id;
+    const next = renameTrack(doc, id, "  字幕  ");
+    expect(next.tracks[0].name).toBe("字幕");
+    expect(renameTrack(doc, id, "   ")).toBe(doc);
+    expect(renameTrack(doc, "missing", "字幕")).toBe(doc);
   });
 });
 

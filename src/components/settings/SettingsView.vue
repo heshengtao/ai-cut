@@ -120,7 +120,7 @@ const MODEL_SOURCE_PREFS: { id: ModelSourcePreference; labelKey: string }[] = [
   { id: "international", labelKey: "settings.store.sourceIntl" },
 ];
 
-const APP_VERSION = "0.1.0";
+const APP_VERSION = "0.2.0";
 
 const i18n = useI18n();
 const layout = useLayoutStore();

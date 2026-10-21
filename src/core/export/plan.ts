@@ -9,30 +9,109 @@
 import type { Clip, ClipTransform, MediaAsset, Project } from "@/types/project";
 import { isAudible, isVisible, projectDuration } from "@/core/playback/activeClips";
 import { isDefaultTransform, resolveTransform } from "@/core/transform";
-import type { ExportOptions, ExportPlan } from "@/types/export";
+import { clipColorFilters } from "@/core/clipColor";
+import { clipFadeFilters } from "@/core/clipTransition";
+import { keyframeExpression } from "@/core/keyframes";
+import { evenDimension, normalizeFps } from "@/core/projectOutput";
+import { GIF_DITHERS } from "@/types/export";
+import type { ExportAnchor, ExportOptions, ExportPlan } from "@/types/export";
 import { t } from "@/i18n";
 import { formatSeconds } from "./escape";
 
-/** 宽高取偶数，最小 2。 */
-function even(value: number): number {
-  return Math.max(2, Math.round(value / 2) * 2);
+function clipSpeed(clip: Clip): number {
+  return Math.min(4, Math.max(0.1, clip.speed ?? 1));
 }
 
-/** 按工程比例解析输出尺寸与帧率；GIF 最高 720p、固定 15fps。 */
+/** ffmpeg 的 atempo 单次只支持 0.5–2，超出范围时拆成多级。 */
+function atempoFilters(speed: number): string[] {
+  if (Math.abs(speed - 1) < 1e-6) return [];
+  const out: string[] = [];
+  let value = speed;
+  while (value > 2) {
+    out.push("atempo=2");
+    value /= 2;
+  }
+  while (value < 0.5) {
+    out.push("atempo=0.5");
+    value /= 0.5;
+  }
+  if (Math.abs(value - 1) >= 1e-6) out.push(`atempo=${value.toFixed(6)}`);
+  return out;
+}
+
+/** 按预设或自定义尺寸解析输出规格；缺一边时按工程比例补全。GIF 默认 15fps。 */
 export function resolveDimensions(
   project: Project,
   options: ExportOptions,
 ): { width: number; height: number; fps: number } {
   const aspect = project.width / project.height;
-  let height =
-    options.resolution === "720p" ? 720 : options.resolution === "1080p" ? 1080 : project.height;
-  let width = options.resolution === "project" ? project.width : Math.round(height * aspect);
-  if (options.format === "gif" && height > 720) {
-    height = 720;
-    width = Math.round(height * aspect);
+  let width: number;
+  let height: number;
+
+  if (options.resolution === "custom") {
+    const customWidth = options.width && options.width > 0 ? options.width : null;
+    const customHeight = options.height && options.height > 0 ? options.height : null;
+    if (customWidth !== null && customHeight !== null) {
+      width = customWidth;
+      height = customHeight;
+    } else if (customWidth !== null) {
+      width = customWidth;
+      height = Math.round(customWidth / aspect);
+    } else if (customHeight !== null) {
+      height = customHeight;
+      width = Math.round(customHeight * aspect);
+    } else {
+      width = project.width;
+      height = project.height;
+    }
+  } else {
+    height =
+      options.resolution === "720p" ? 720 : options.resolution === "1080p" ? 1080 : project.height;
+    width = options.resolution === "project" ? project.width : Math.round(height * aspect);
   }
-  const fps = options.format === "gif" ? 15 : Math.max(1, options.fps ?? project.fps);
-  return { width: even(width), height: even(height), fps };
+
+  const fps =
+    options.format === "gif"
+      ? Math.min(120, Math.max(1, Math.round(options.fps ?? 15)))
+      : normalizeFps(options.fps ?? project.fps);
+  return { width: evenDimension(width), height: evenDimension(height), fps };
+}
+
+/** cover 裁切窗口在缩放后画面中的归一化位置。 */
+const ANCHOR_OFFSETS: Record<ExportAnchor, [number, number]> = {
+  "top-left": [0, 0],
+  top: [0.5, 0],
+  "top-right": [1, 0],
+  left: [0, 0.5],
+  center: [0.5, 0.5],
+  right: [1, 0.5],
+  "bottom-left": [0, 1],
+  bottom: [0.5, 1],
+  "bottom-right": [1, 1],
+};
+
+/** 把素材缩放/裁切到输出画布；contain 加透明边，cover 按锚点裁切。 */
+function fitFilters(
+  width: number,
+  height: number,
+  fit: ExportOptions["fit"],
+  anchor: ExportAnchor,
+): string[] {
+  if (fit === "cover") {
+    const [x, y] = ANCHOR_OFFSETS[anchor] ?? ANCHOR_OFFSETS.center;
+    const crop =
+      x === 0.5 && y === 0.5
+        ? `crop=${width}:${height}`
+        : `crop=${width}:${height}:(iw-ow)*${x}:(ih-oh)*${y}`;
+    return [
+      `scale=${width}:${height}:force_original_aspect_ratio=increase`,
+      crop,
+    ];
+  }
+  return [
+    `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
+    `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
+  ];
 }
 
 /** 所有会被导出使用的素材（画面取可见轨，声音取发声轨）。 */
@@ -88,12 +167,22 @@ function crfOf(quality: ExportOptions["quality"]): string {
 }
 
 /** 缩放 / 旋转对应的 ffmpeg 滤镜（默认变换返回空数组）。 */
-function transformFilters(transform: ClipTransform): string[] {
+function transformFilters(clip: Clip, transform: ClipTransform): string[] {
   const filters: string[] = [];
-  if (transform.scale !== 1) {
+  const scaleExpr = keyframeExpression(clip.keyframes?.scale, "t");
+  if (scaleExpr) {
+    filters.push(
+      `scale=w='iw*(${scaleExpr})':h='ih*(${scaleExpr})':eval=frame`,
+    );
+  } else if (transform.scale !== 1) {
     filters.push(`scale=iw*${transform.scale}:ih*${transform.scale}`);
   }
-  if (transform.rotation !== 0) {
+  const rotationExpr = keyframeExpression(clip.keyframes?.rotation, "t");
+  if (rotationExpr) {
+    filters.push(
+      `rotate=angle='(${rotationExpr})*PI/180':ow=iw:oh=ih:c=none`,
+    );
+  } else if (transform.rotation !== 0) {
     const angle = `${transform.rotation}*PI/180`;
     filters.push(
       `rotate=${angle}:ow=rotw(${angle}):oh=roth(${angle}):c=none`,
@@ -102,12 +191,53 @@ function transformFilters(transform: ClipTransform): string[] {
   return filters;
 }
 
-/** 有位置偏移时，把叠层放在画布中心 + 偏移处。 */
-function overlayPosition(transform: ClipTransform): string {
-  if (isDefaultTransform(transform)) return "";
+/** 不透明度：有关键帧时用 geq 逐帧计算 alpha。 */
+function opacityFilters(clip: Clip, opacity: number): string[] {
+  const expression = keyframeExpression(clip.keyframes?.opacity, "T");
+  if (!expression) {
+    return Math.abs(opacity - 1) < 1e-6
+      ? []
+      : [`colorchannelmixer=aa=${opacity}`];
+  }
+  return [
+    "format=rgba",
+    `geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(${expression})'`,
+    "format=yuva420p",
+  ];
+}
+
+function slideExpr(clip: Clip, edge: "in" | "out"): { x: string; y: string } {
+  const transition = edge === "in" ? clip.transitionIn : clip.transitionOut;
+  if (transition?.type !== "slide") return { x: "0", y: "0" };
+  const duration = formatSeconds(transition.duration);
+  const start = formatSeconds(clip.start);
+  const end = formatSeconds(clip.start + clip.duration);
+  const direction = transition.direction ?? "left";
+  const sign = direction === "right" || direction === "down" ? 1 : -1;
+  const expr =
+    edge === "in"
+      ? `if(between(t,${start},${start}+${duration}),${sign * 100}*(1-(t-${start})/${duration}),0)`
+      : `if(between(t,${end}-${duration},${end}),${sign * 100}*(1-(${end}-t)/${duration}),0)`;
+  return direction === "up" || direction === "down"
+    ? { x: "0", y: expr }
+    : { x: expr, y: "0" };
+}
+
+/** 有位置偏移或滑动转场时，把叠层放在画布中心 + 偏移处。 */
+function overlayPosition(clip: Clip, transform: ClipTransform): string {
+  const enter = slideExpr(clip, "in");
+  const exit = slideExpr(clip, "out");
+  const xKey = keyframeExpression(clip.keyframes?.x, "t", clip.start);
+  const yKey = keyframeExpression(clip.keyframes?.y, "t", clip.start);
+  const hasMotion = xKey !== null || yKey !== null;
+  const hasSlide =
+    enter.x !== "0" || enter.y !== "0" || exit.x !== "0" || exit.y !== "0";
+  if (!hasMotion && !hasSlide && isDefaultTransform(transform)) return "";
+  const x = `${xKey ?? transform.x}+${enter.x}+${exit.x}`;
+  const y = `${yKey ?? transform.y}+${enter.y}+${exit.y}`;
   return (
-    `:x=(main_w-overlay_w)/2+${transform.x}*main_w/100` +
-    `:y=(main_h-overlay_h)/2+${transform.y}*main_h/100`
+    `:x='(main_w-overlay_w)/2+(${x})*main_w/100'` +
+    `:y='(main_h-overlay_h)/2+(${y})*main_h/100'`
   );
 }
 
@@ -116,6 +246,7 @@ export function buildExportPlan(
   options: ExportOptions,
   textImages: ReadonlyMap<string, string>,
   outputPath: string,
+  maskImages: ReadonlyMap<string, string> = new Map(),
 ): ExportPlan {
   const duration = projectDuration(project);
   if (!(duration > 0)) throw new Error(t("export.emptyTimeline"));
@@ -155,6 +286,7 @@ export function buildExportPlan(
     inputIndex: number;
     kind: "video" | "text";
     trackIndex: number;
+    maskInputIndex?: number;
   }
 
   const visualLayers: VisualLayer[] = [];
@@ -182,13 +314,24 @@ export function buildExportPlan(
               "-ss",
               formatSeconds(clip.in),
               "-t",
-              formatSeconds(clip.duration),
+              formatSeconds(clip.duration * clipSpeed(clip)),
               "-i",
               asset.src,
             ];
       const inputIndex = pushInput(args);
+      const maskPath = maskImages.get(clip.id);
+      const maskInputIndex = maskPath
+        ? pushInput([
+            "-loop",
+            "1",
+            "-t",
+            formatSeconds(clip.duration),
+            "-i",
+            maskPath,
+          ])
+        : undefined;
       preparedVideo.push({ clip, asset, inputIndex });
-      visualLayers.push({ clip, inputIndex, kind: "video", trackIndex });
+      visualLayers.push({ clip, inputIndex, kind: "video", trackIndex, maskInputIndex });
     }
   }
 
@@ -231,21 +374,49 @@ export function buildExportPlan(
     const opacity = Math.min(1, Math.max(0, clip.opacity ?? 1));
 
     if (layer.kind === "video") {
-      filters.push(
-        [
-          `[${inputIndex}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease`,
-          "format=yuva420p",
-          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`,
-          "setsar=1",
-          `fps=${fps}`,
-          ...transformFilters(transform),
-          `colorchannelmixer=aa=${opacity}`,
-          `setpts=PTS-STARTPTS+${start}/TB[v${videoCount}]`,
-        ].join(","),
+      const speed = clipSpeed(clip);
+      const tail = [
+        ...transformFilters(clip, transform),
+        ...clipColorFilters(clip),
+        ...opacityFilters(clip, opacity),
+        ...clipFadeFilters(clip),
+        `setpts=PTS-STARTPTS+${start}/TB[v${videoCount}]`,
+      ];
+      const [scaleFilter, ...fitTail] = fitFilters(
+        width,
+        height,
+        options.fit,
+        options.fitAnchor,
       );
+      const base = [
+        `[${inputIndex}:v]${scaleFilter}`,
+        ...fitTail,
+        "setsar=1",
+        ...(speed === 1 ? [] : [`setpts=(PTS-STARTPTS)/${speed}`]),
+        `fps=${fps}`,
+      ];
+
+      if (layer.maskInputIndex !== undefined) {
+        filters.push(`${base.slice(0, 1).join(",")},format=rgba,${base.slice(1).join(",")}[vbase${videoCount}]`);
+        filters.push(
+          `[${layer.maskInputIndex}:v]scale=${width}:${height},format=rgba[mask${videoCount}]`,
+        );
+        filters.push(
+          `[vbase${videoCount}][mask${videoCount}]alphamerge,format=yuva420p,${tail.join(",")}`,
+        );
+      } else {
+        filters.push(
+          [
+            base[0],
+            "format=yuva420p",
+            ...base.slice(1),
+            ...tail,
+          ].join(","),
+        );
+      }
       filters.push(
         `${videoLabel}[v${videoCount}]overlay=eof_action=pass:enable='between(t,${start},${end})'` +
-          `${overlayPosition(transform)}[vout${videoCount}]`,
+          `${overlayPosition(clip, transform)}[vout${videoCount}]`,
       );
       videoLabel = `[vout${videoCount}]`;
       videoCount += 1;
@@ -256,14 +427,16 @@ export function buildExportPlan(
       [
         `[${inputIndex}:v]format=yuva420p`,
         `fps=${fps}`,
-        ...transformFilters(transform),
-        ...(opacity !== 1 ? [`colorchannelmixer=aa=${opacity}`] : []),
+        ...transformFilters(clip, transform),
+        ...clipColorFilters(clip),
+        ...opacityFilters(clip, opacity),
+        ...clipFadeFilters(clip),
         `setpts=PTS-STARTPTS+${start}/TB[t${textCount}]`,
       ].join(","),
     );
     filters.push(
       `${videoLabel}[t${textCount}]overlay=eof_action=pass:enable='between(t,${start},${end})'` +
-        `${overlayPosition(transform)}[vtext${textCount}]`,
+        `${overlayPosition(clip, transform)}[vtext${textCount}]`,
     );
     videoLabel = `[vtext${textCount}]`;
     textCount += 1;
@@ -292,7 +465,7 @@ export function buildExportPlan(
                 "-ss",
                 formatSeconds(clip.in),
                 "-t",
-                formatSeconds(clip.duration),
+                formatSeconds(clip.duration * clipSpeed(clip)),
                 "-i",
                 asset.src,
               ]);
@@ -311,9 +484,11 @@ export function buildExportPlan(
     );
     const pitch = Math.min(12, Math.max(-12, clip.pitch ?? 0));
     const pan = Math.min(1, Math.max(-1, clip.pan ?? 0));
+    const speed = clipSpeed(clip);
+    const sourceDuration = clip.duration * speed;
 
     const chain: string[] = [
-      `[${inputIndex}:a]atrim=duration=${formatSeconds(clip.duration)}`,
+      `[${inputIndex}:a]atrim=duration=${formatSeconds(sourceDuration)}`,
       "asetpts=PTS-STARTPTS",
       "aresample=48000",
       "aformat=sample_fmts=fltp:channel_layouts=stereo",
@@ -327,6 +502,7 @@ export function buildExportPlan(
         `atempo=${(1 / ratio).toFixed(6)}`,
       );
     }
+    chain.push(...atempoFilters(speed));
     if (gain !== 0) chain.push(`volume=${gain}dB`);
     if (pan !== 0) {
       const left = pan > 0 ? 1 - pan : 1;
@@ -363,11 +539,15 @@ export function buildExportPlan(
 
   // ---- 输出 ----
   let finalVideoLabel = videoLabel;
+  let gifLoop = 0;
   if (options.format === "gif") {
+    const colors = Math.min(256, Math.max(2, Math.round(options.gifColors ?? 256)));
+    const dither = GIF_DITHERS.includes(options.gifDither) ? options.gifDither : "sierra2_4a";
+    gifLoop = Number.isFinite(options.gifLoop) ? Math.max(-1, Math.round(options.gifLoop)) : 0;
     filters.push(
       `${videoLabel}split[g0][g1]`,
-      `[g0]palettegen=max_colors=256:stats_mode=diff[pal]`,
-      `[g1][pal]paletteuse=dither=sierra2_4a[gifout]`,
+      `[g0]palettegen=max_colors=${colors}:stats_mode=diff[pal]`,
+      `[g1][pal]paletteuse=dither=${dither}[gifout]`,
     );
     finalVideoLabel = "[gifout]";
   }
@@ -418,7 +598,7 @@ export function buildExportPlan(
             "48000",
             ...tail,
           ]
-        : ["-map", finalVideoLabel, "-loop", "0", "-an", ...tail];
+        : ["-map", finalVideoLabel, "-loop", String(gifLoop), "-an", ...tail];
 
   return {
     format: options.format,

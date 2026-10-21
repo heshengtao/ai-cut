@@ -17,6 +17,7 @@ import {
 import {
   ArrowsPointingInIcon,
   ArrowsPointingOutIcon,
+  CameraIcon,
   MagnifyingGlassMinusIcon,
   MagnifyingGlassPlusIcon,
   PauseIcon,
@@ -25,9 +26,16 @@ import {
 import type { Clip, ClipTransform, MediaAsset, Project } from "@/types/project";
 import { activeClipsAt, isVisible, projectDuration } from "@/core/playback/activeClips";
 import { PlaybackEngine } from "@/core/playback/engine";
-import { fileUrl } from "@/core/media";
+import { fileUrl, pickExportPath } from "@/core/media";
+import { renderFrame } from "@/core/export/frame";
+import { safeFileName } from "@/core/export/escape";
+import { toast } from "@/composables/useToast";
 import { formatTimecode } from "@/core/time";
-import { containSize, resolveTransform } from "@/core/transform";
+import { containSize } from "@/core/transform";
+import { clipColorCss } from "@/core/clipColor";
+import { clipMaskCss } from "@/core/clipMask";
+import { transitionState } from "@/core/clipTransition";
+import { opacityAt, resolveTransformAt } from "@/core/keyframes";
 import {
   fontStackOf,
   hexToRgba,
@@ -59,6 +67,36 @@ const playback = usePlaybackStore();
 const selection = useSelectionStore();
 const layout = useLayoutStore();
 const i18n = useI18n();
+const frameBusy = ref(false);
+
+async function exportFrame(): Promise<void> {
+  if (frameBusy.value) return;
+  const stamp = formatTimecode(playback.playhead, project.doc.fps).replace(/[^0-9]/g, "-");
+  const path = await pickExportPath(
+    `${safeFileName(project.doc.name)}-${stamp}`,
+    "png",
+    i18n.t("preview.frameFilter"),
+  );
+  if (!path) return;
+
+  frameBusy.value = true;
+  try {
+    const result = await renderFrame(project.doc, {
+      time: playback.playhead,
+      outputPath: path,
+    });
+    toast(i18n.t("preview.frameExported", { path: result.path }));
+  } catch (error) {
+    toast(
+      i18n.t("preview.frameFailed", {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      "error",
+    );
+  } finally {
+    frameBusy.value = false;
+  }
+}
 
 const previewEl = ref<HTMLElement | null>(null);
 const viewportEl = ref<HTMLElement | null>(null);
@@ -595,17 +633,25 @@ function baseBox(item: VisualItem): { width: number; height: number } {
   return { width: frameW, height: frameH };
 }
 
+function transformAt(clip: Clip): ClipTransform {
+  return resolveTransformAt(clip, playback.playhead - clip.start);
+}
+
 function elementStyle(item: VisualItem): Record<string, string | number> {
-  const transform = resolveTransform(item.clip);
-  const offsetX = (transform.x / 100) * stageSize.value.width;
-  const offsetY = (transform.y / 100) * stageSize.value.height;
+  const localTime = playback.playhead - item.clip.start;
+  const transform = transformAt(item.clip);
+  const transition = transitionState(item.clip, localTime);
+  const offsetX = ((transform.x + transition.offsetX) / 100) * stageSize.value.width;
+  const offsetY = ((transform.y + transition.offsetY) / 100) * stageSize.value.height;
   return {
     transform:
       `translate(-50%, -50%) translate(${offsetX}px, ${offsetY}px) ` +
       `rotate(${transform.rotation}deg) scale(${transform.scale})`,
-    opacity: item.clip.opacity ?? 1,
+    opacity: opacityAt(item.clip, localTime) * transition.opacity,
     zIndex: item.layer,
     mixBlendMode: resolveBlendMode(item.clip),
+    filter: clipColorCss(item.clip) ?? "none",
+    ...clipMaskCss(item.clip),
   };
 }
 
@@ -699,21 +745,26 @@ const videoLayerStyle = computed<Record<string, string | number>>(() => {
       opacity: 1,
       transform: "none",
       mixBlendMode: "normal",
+      filter: "none",
       borderRadius: "0%",
       boxShadow: "none",
     };
     return empty;
   }
-  const transform = resolveTransform(item.clip);
-  const offsetX = (transform.x / 100) * stageSize.value.width;
-  const offsetY = (transform.y / 100) * stageSize.value.height;
+  const localTime = playback.playhead - item.clip.start;
+  const transform = transformAt(item.clip);
+  const transition = transitionState(item.clip, localTime);
+  const offsetX = ((transform.x + transition.offsetX) / 100) * stageSize.value.width;
+  const offsetY = ((transform.y + transition.offsetY) / 100) * stageSize.value.height;
   const style: Record<string, string | number> = {
     zIndex: item.layer,
-    opacity: item.clip.opacity ?? 1,
+    opacity: opacityAt(item.clip, localTime) * transition.opacity,
     transform:
       `translate(${offsetX}px, ${offsetY}px) ` +
       `rotate(${transform.rotation}deg) scale(${transform.scale})`,
     mixBlendMode: resolveBlendMode(item.clip),
+    filter: clipColorCss(item.clip) ?? "none",
+    ...clipMaskCss(item.clip),
     ...mediaEffectStyle(item),
   };
   return style;
@@ -754,7 +805,7 @@ const selectionGeometry = computed<SelectionGeometry | null>(() => {
   const frameH = stageSize.value.height;
   if (frameW <= 0 || frameH <= 0) return null;
 
-  const transform = resolveTransform(item.clip);
+  const transform = transformAt(item.clip);
   const box = baseBox(item);
   const centerX = frameW / 2 + (transform.x / 100) * frameW;
   const centerY = frameH / 2 + (transform.y / 100) * frameH;
@@ -809,7 +860,7 @@ interface Aabb {
 function itemAabb(item: VisualItem): Aabb {
   const frameW = stageSize.value.width;
   const frameH = stageSize.value.height;
-  const transform = resolveTransform(item.clip);
+  const transform = transformAt(item.clip);
   const box = baseBox(item);
   const angle = (transform.rotation * Math.PI) / 180;
   const cos = Math.abs(Math.cos(angle));
@@ -938,7 +989,7 @@ function onElementPointerDown(item: VisualItem, event: PointerEvent): void {
   clearSnapGuides();
   if (isClipLocked(item.clip.id)) return;
 
-  const transform = resolveTransform(item.clip);
+  const transform = transformAt(item.clip);
   interaction = {
     mode: "move",
     clipId: item.clip.id,
@@ -961,7 +1012,7 @@ function onResizeStart(event: PointerEvent): void {
   if (!geometry) return;
   if (isClipLocked(geometry.item.clip.id)) return;
 
-  const transform = resolveTransform(geometry.item.clip);
+  const transform = transformAt(geometry.item.clip);
   const point = canvasPoint(event);
   const distance = Math.hypot(
     point.x - geometry.center.x,
@@ -990,7 +1041,7 @@ function onRotateStart(event: PointerEvent): void {
   if (!geometry) return;
   if (isClipLocked(geometry.item.clip.id)) return;
 
-  const transform = resolveTransform(geometry.item.clip);
+  const transform = transformAt(geometry.item.clip);
   const point = canvasPoint(event);
   const angle = (Math.atan2(
     point.y - geometry.center.y,
@@ -1080,7 +1131,7 @@ function onInteractionMove(event: PointerEvent): void {
     let scale = proposed;
     const item = visualItems.value.find((candidate) => candidate.clip.id === state.clipId);
     if (item) {
-      const target = resolveTransform(item.clip);
+      const target = transformAt(item.clip);
       const box = baseBox(item);
       const angle = (target.rotation * Math.PI) / 180;
       const cos = Math.abs(Math.cos(angle));
@@ -1408,6 +1459,17 @@ watch(
           :label="i18n.t('preview.aspect')"
           @update:model-value="setAspect"
         />
+
+        <Tooltip :text="i18n.t('preview.exportFrame')" align="end">
+          <button
+            class="icon-btn"
+            :disabled="frameBusy"
+            :aria-label="i18n.t('preview.exportFrame')"
+            @click="exportFrame"
+          >
+            <CameraIcon class="w-[17px] h-[17px]" />
+          </button>
+        </Tooltip>
 
         <Tooltip
           :text="isFullscreen ? i18n.t('preview.exitFullscreen') : i18n.t('preview.fullscreen')"

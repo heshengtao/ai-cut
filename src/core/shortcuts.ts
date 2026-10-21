@@ -63,6 +63,11 @@ export function installShortcuts(): () => void {
       else project.undo();
       return;
     }
+    if (mod && event.key.toLowerCase() === "d") {
+      event.preventDefault();
+      actions.duplicateSelected();
+      return;
+    }
     if (mod && event.key.toLowerCase() === "\\") {
       event.preventDefault();
       layout.showPanel = !layout.showPanel;
@@ -81,10 +86,16 @@ export function installShortcuts(): () => void {
         event.preventDefault();
         actions.splitAtPlayhead();
         break;
+      case "m":
+      case "M":
+        event.preventDefault();
+        actions.addMarkerAtPlayhead();
+        break;
       case "Delete":
       case "Backspace":
         event.preventDefault();
-        actions.deleteSelected();
+        if (event.shiftKey) actions.rippleDeleteSelected();
+        else actions.deleteSelected();
         break;
       case "ArrowLeft":
         event.preventDefault();

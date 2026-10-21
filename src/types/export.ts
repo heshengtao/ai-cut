@@ -2,15 +2,60 @@
 import type { MediaAsset } from "@/types/project";
 
 export type ExportFormat = "mp4" | "prores" | "gif";
-export type ExportResolution = "project" | "1080p" | "720p";
+export type ExportResolution = "project" | "1080p" | "720p" | "custom";
 export type ExportQuality = "high" | "standard" | "small";
+/** 素材比例与输出比例不一致时的适配方式。 */
+export type ExportFit = "contain" | "cover";
+/** cover 裁切时保留画面中的哪个区域。 */
+export type ExportAnchor =
+  | "top-left"
+  | "top"
+  | "top-right"
+  | "left"
+  | "center"
+  | "right"
+  | "bottom-left"
+  | "bottom"
+  | "bottom-right";
+export type GifDither = "sierra2_4a" | "bayer" | "floyd_steinberg" | "none";
+
+export const EXPORT_ANCHORS: ExportAnchor[] = [
+  "top-left",
+  "top",
+  "top-right",
+  "left",
+  "center",
+  "right",
+  "bottom-left",
+  "bottom",
+  "bottom-right",
+];
+
+export const GIF_DITHERS: GifDither[] = [
+  "sierra2_4a",
+  "bayer",
+  "floyd_steinberg",
+  "none",
+];
 
 export interface ExportOptions {
   format: ExportFormat;
   resolution: ExportResolution;
-  /** null = 跟随工程 fps；GIF 固定 15。 */
+  /** resolution = custom 时的目标尺寸；只给一边时另一边按工程比例推导。 */
+  width: number | null;
+  height: number | null;
+  /** null = 跟随工程 fps；GIF 默认 15。 */
   fps: number | null;
   quality: ExportQuality;
+  /** contain 加边（默认），cover 裁切填满。 */
+  fit: ExportFit;
+  /** cover 时保留的区域，默认 center。 */
+  fitAnchor: ExportAnchor;
+  /** GIF 调色板颜色数，2–256。 */
+  gifColors: number;
+  gifDither: GifDither;
+  /** GIF 循环次数：0 = 无限，-1 = 不循环。 */
+  gifLoop: number;
 }
 
 export interface ExportPlan {

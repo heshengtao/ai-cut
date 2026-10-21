@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 检查器面板：显示选中片段的真实属性，并把不透明度/音量/文字写回文档。 */
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   Bars3BottomLeftIcon,
   Bars3BottomRightIcon,
@@ -13,19 +13,24 @@ import {
   addAsset,
   relinkAsset,
   setClipBlendMode,
+  setClipColor,
   setClipCornerRadius,
   setClipFadeIn,
   setClipFadeOut,
   setClipGain,
+  setClipKeyframes,
+  setClipMask,
   setClipMuted,
   setClipOpacity,
   setClipPan,
   setClipPitch,
   setClipShadow,
+  setClipSpeed,
   setClipStroke,
   setClipText,
   setClipTextStyle,
   setClipTransform,
+  setClipTransition,
 } from "@/core/ops";
 import { fileUrl, importAssetAt, pickMediaFiles } from "@/core/media";
 import {
@@ -41,6 +46,21 @@ import { replaceClipVideo } from "@/core/videoEdit";
 import { formatTimecode } from "@/core/time";
 import { resolveTransform } from "@/core/transform";
 import {
+  DEFAULT_CLIP_COLOR,
+  resolveClipColor,
+  type ResolvedClipColor,
+} from "@/core/clipColor";
+import { DEFAULT_CLIP_MASK } from "@/core/clipMask";
+import {
+  applyClipAttributes,
+  copyClipAttributes,
+  resetClipAttributes,
+  type ClipAttributes,
+} from "@/core/clipAttributes";
+import { DEFAULT_TRANSITION_DURATION } from "@/core/clipTransition";
+import { currentKeyframeValue, KEYFRAME_PROPERTIES } from "@/core/keyframes";
+import { usePlaybackStore } from "@/stores/playback";
+import {
   BLEND_MODES,
   FONT_FAMILIES,
   TEXT_ALIGNS,
@@ -53,10 +73,13 @@ import {
 import type {
   BlendMode,
   Clip,
+  ClipMask,
   ClipShadow,
   ClipStroke,
   ClipTextStyle,
   ClipTransform,
+  ClipTransition,
+  KeyframeProperty,
   MediaAsset,
   Project,
   TextAlign,
@@ -66,6 +89,7 @@ import { useSelectionStore } from "@/stores/selection";
 import { useTextPresetsStore } from "@/stores/textPresets";
 import { useAudioAiStore } from "@/stores/audioAi";
 import { useVideoDspStore } from "@/stores/videoDsp";
+import { useTimelineActions } from "@/composables/useTimelineActions";
 import { toast } from "@/composables/useToast";
 import NumberField from "@/components/common/NumberField.vue";
 import ColorField from "@/components/common/ColorField.vue";
@@ -75,20 +99,115 @@ import ProjectDialog from "@/components/common/ProjectDialog.vue";
 import { useI18n } from "@/i18n";
 
 const project = useProjectStore();
+const playback = usePlaybackStore();
 const selection = useSelectionStore();
 const textPresets = useTextPresetsStore();
 const audioAi = useAudioAiStore();
 const videoDsp = useVideoDspStore();
 const i18n = useI18n();
+const timelineActions = useTimelineActions();
 
-const clip = computed(() => {
-  const ids = new Set(selection.selectedClipIds);
-  for (const track of project.doc.tracks) {
-    const found = track.clips.find((c) => ids.has(c.id));
-    if (found) return found;
+/** 标题栏「更多」菜单：Teleport 到 body，避免被右侧面板裁切。 */
+const moreOpen = ref(false);
+const moreButtonEl = ref<HTMLElement | null>(null);
+const moreMenuEl = ref<HTMLElement | null>(null);
+const moreMenuStyle = ref<Record<string, string>>({});
+const attrClipboard = ref<ClipAttributes | null>(null);
+
+function placeMoreMenu(): void {
+  const el = moreButtonEl.value;
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const width = 188;
+  moreMenuStyle.value = {
+    left: `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`,
+    top: `${rect.bottom + 6}px`,
+    width: `${width}px`,
+  };
+}
+
+function toggleMore(): void {
+  moreOpen.value = !moreOpen.value;
+  if (moreOpen.value) void nextTick(placeMoreMenu);
+}
+
+function closeMore(): void {
+  moreOpen.value = false;
+}
+
+/** 点菜单项先收起菜单，再执行动作（动作可能打开对话框）。 */
+function runMore(action: () => void): void {
+  closeMore();
+  action();
+}
+
+function onMorePointer(event: PointerEvent): void {
+  if (!moreOpen.value) return;
+  const target = event.target as Node;
+  if (moreButtonEl.value?.contains(target) || moreMenuEl.value?.contains(target)) return;
+  closeMore();
+}
+
+function onMoreKey(event: KeyboardEvent): void {
+  if (event.key === "Escape" && moreOpen.value) {
+    event.stopPropagation();
+    closeMore();
   }
-  return null;
+}
+
+function onMoreViewportChange(): void {
+  if (moreOpen.value) placeMoreMenu();
+}
+
+onMounted(() => {
+  window.addEventListener("pointerdown", onMorePointer, true);
+  window.addEventListener("keydown", onMoreKey);
+  window.addEventListener("resize", onMoreViewportChange);
+  window.addEventListener("scroll", onMoreViewportChange, true);
 });
+onUnmounted(() => {
+  window.removeEventListener("pointerdown", onMorePointer, true);
+  window.removeEventListener("keydown", onMoreKey);
+  window.removeEventListener("resize", onMoreViewportChange);
+  window.removeEventListener("scroll", onMoreViewportChange, true);
+});
+
+function copyAttributes(): void {
+  const target = clip.value;
+  if (!target) return;
+  attrClipboard.value = copyClipAttributes(target);
+  toast(i18n.t("inspector.attributesCopied"));
+}
+
+function pasteAttributes(): void {
+  const attrs = attrClipboard.value;
+  if (!attrs) return;
+  applySelected((doc, target) => applyClipAttributes(doc, target.id, attrs));
+  toast(i18n.t("inspector.attributesPasted"));
+}
+
+function resetAttributes(): void {
+  applySelected((doc, target) => resetClipAttributes(doc, target.id));
+  toast(i18n.t("inspector.attributesReset"));
+}
+
+function deleteSelectedClips(): void {
+  timelineActions.deleteSelected();
+}
+
+const selectedClips = computed<Clip[]>(() => {
+  const ids = new Set(selection.selectedClipIds);
+  if (ids.size === 0) return [];
+  const found: Clip[] = [];
+  for (const track of project.doc.tracks) {
+    for (const item of track.clips) {
+      if (ids.has(item.id)) found.push(item);
+    }
+  }
+  return found;
+});
+const clip = computed(() => selectedClips.value[0] ?? null);
+const selectedCount = computed(() => selectedClips.value.length);
 
 const asset = computed(() =>
   clip.value && clip.value.assetId !== ""
@@ -111,6 +230,29 @@ const isVideo = computed(
     (clip.value?.duration ?? 0) > 0,
 );
 const opacityPercent = computed(() => Math.round((clip.value?.opacity ?? 1) * 100));
+const speed = computed(() => clip.value?.speed ?? 1);
+const color = computed<ResolvedClipColor>(() =>
+  clip.value ? resolveClipColor(clip.value) : DEFAULT_CLIP_COLOR,
+);
+const mask = computed(() => clip.value?.mask ?? null);
+const transitionIn = computed(() => clip.value?.transitionIn ?? null);
+const transitionOut = computed(() => clip.value?.transitionOut ?? null);
+const keyframeProperty = ref<KeyframeProperty>("opacity");
+const keyframeLocalTime = computed(() =>
+  clip.value
+    ? Math.max(0, Math.min(clip.value.duration, playback.playhead - clip.value.start))
+    : 0,
+);
+const keyframesForProperty = computed(() =>
+  (clip.value?.keyframes?.[keyframeProperty.value] ?? [])
+    .slice()
+    .sort((a, b) => a.time - b.time),
+);
+const keyframeCurrentValue = computed(() =>
+  clip.value
+    ? currentKeyframeValue(clip.value, keyframeProperty.value, keyframeLocalTime.value)
+    : 0,
+);
 const transform = computed(() => (clip.value ? resolveTransform(clip.value) : null));
 const scalePercent = computed(() => Math.round((transform.value?.scale ?? 1) * 100));
 
@@ -517,89 +659,191 @@ const ALIGN_ICONS: Record<TextAlign, unknown> = {
   right: Bars3BottomRightIcon,
 };
 
+/** 把属性写入所有选中片段：一次手势 = 一个撤销步。 */
+function applySelected(
+  mutate: (doc: Project, target: Clip) => Project,
+  coalesceKey?: string,
+): void {
+  const targets = selectedClips.value;
+  if (targets.length === 0) return;
+  const apply = (doc: Project) => {
+    let next = doc;
+    for (const target of targets) next = mutate(next, target);
+    return next;
+  };
+  if (coalesceKey) {
+    project.dispatchCoalesced(
+      apply,
+      `${coalesceKey}:${targets.map((target) => target.id).join(",")}`,
+    );
+  } else {
+    project.dispatch(apply);
+  }
+}
+
 function onOpacityInput(value: number): void {
-  const target = clip.value;
-  if (!target) return;
-  project.dispatch((doc) => setClipOpacity(doc, target.id, value / 100));
+  applySelected((doc, target) => setClipOpacity(doc, target.id, value / 100));
+}
+
+function onSpeedInput(value: number): void {
+  applySelected((doc, target) => setClipSpeed(doc, target.id, value));
+}
+
+function onColorInput(patch: Partial<ResolvedClipColor>): void {
+  applySelected((doc, target) => setClipColor(doc, target.id, patch));
+}
+
+function onMaskToggle(enabled: boolean): void {
+  applySelected((doc, target) =>
+    setClipMask(doc, target.id, enabled ? { ...DEFAULT_CLIP_MASK } : null),
+  );
+}
+
+function onMaskInput(patch: Partial<ClipMask>): void {
+  applySelected((doc, target) => setClipMask(doc, target.id, patch));
+}
+
+function onMaskShape(value: string): void {
+  if (value === "rect" || value === "ellipse" || value === "linear") {
+    onMaskInput({ shape: value });
+  }
+}
+
+const maskShapeOptions = computed<SelectOption[]>(() => [
+  { id: "rect", label: i18n.t("mask.rect") },
+  { id: "ellipse", label: i18n.t("mask.ellipse") },
+  { id: "linear", label: i18n.t("mask.linear") },
+]);
+
+const transitionTypeOptions = computed<SelectOption[]>(() => [
+  { id: "none", label: i18n.t("transition.none") },
+  { id: "fade", label: i18n.t("transition.fade") },
+  { id: "slide", label: i18n.t("transition.slide") },
+]);
+
+const transitionDirectionOptions = computed<SelectOption[]>(() => [
+  { id: "left", label: i18n.t("transition.left") },
+  { id: "right", label: i18n.t("transition.right") },
+  { id: "up", label: i18n.t("transition.up") },
+  { id: "down", label: i18n.t("transition.down") },
+]);
+
+function onTransition(
+  edge: "in" | "out",
+  patch: Partial<ClipTransition> | null,
+): void {
+  applySelected((doc, target) => setClipTransition(doc, target.id, edge, patch));
+}
+
+function onTransitionType(edge: "in" | "out", value: string): void {
+  if (value === "none") {
+    onTransition(edge, null);
+    return;
+  }
+  if (value === "fade" || value === "slide") {
+    onTransition(edge, { type: value, duration: DEFAULT_TRANSITION_DURATION });
+  }
+}
+
+function onTransitionDirection(edge: "in" | "out", value: string): void {
+  if (value === "left" || value === "right" || value === "up" || value === "down") {
+    onTransition(edge, { direction: value });
+  }
+}
+
+const keyframeOptions = computed<SelectOption[]>(() =>
+  KEYFRAME_PROPERTIES.map((property) => ({
+    id: property,
+    label: i18n.t(`keyframe.property.${property}`),
+  })),
+);
+
+function onKeyframeProperty(value: string): void {
+  if (KEYFRAME_PROPERTIES.includes(value as KeyframeProperty)) {
+    keyframeProperty.value = value as KeyframeProperty;
+  }
+}
+
+function addKeyframe(): void {
+  const property = keyframeProperty.value;
+  applySelected((doc, target) => {
+    const time = Math.max(0, Math.min(target.duration, playback.playhead - target.start));
+    const existing = target.keyframes?.[property] ?? [];
+    const value = currentKeyframeValue(target, property, time);
+    const next = [
+      ...existing.filter((frame) => Math.abs(frame.time - time) > 1e-4),
+      { time, value },
+    ].sort((a, b) => a.time - b.time);
+    return setClipKeyframes(doc, target.id, property, next);
+  });
+}
+
+function removeKeyframe(time: number): void {
+  const property = keyframeProperty.value;
+  applySelected((doc, target) => {
+    const existing = target.keyframes?.[property] ?? [];
+    const next = existing.filter((frame) => Math.abs(frame.time - time) > 1e-4);
+    return setClipKeyframes(doc, target.id, property, next.length > 0 ? next : null);
+  });
 }
 
 function onBlendMode(value: BlendMode | string): void {
-  const target = clip.value;
-  if (!target) return;
-  project.dispatch((doc) => setClipBlendMode(doc, target.id, value));
+  applySelected((doc, target) => setClipBlendMode(doc, target.id, value));
 }
 
 function onTextStyle(patch: Partial<ClipTextStyle>, coalesce = false): void {
-  const target = clip.value;
-  if (!target) return;
-  const mutate = (doc: Project) => setClipTextStyle(doc, target.id, patch);
-  if (coalesce) project.dispatchCoalesced(mutate, `text-style:${target.id}`);
-  else project.dispatch(mutate);
-  if (clip.value) textPresets.rememberStyle(resolveTextStyle(clip.value));
+  applySelected(
+    (doc, target) => setClipTextStyle(doc, target.id, patch),
+    coalesce ? "text-style" : undefined,
+  );
+  const primary = clip.value;
+  if (primary) textPresets.rememberStyle(resolveTextStyle(primary));
 }
 
 function onStroke(patch: Partial<ClipStroke>, coalesce = false): void {
-  const target = clip.value;
-  if (!target) return;
-  const mutate = (doc: Project) => setClipStroke(doc, target.id, patch);
-  if (coalesce) project.dispatchCoalesced(mutate, `stroke:${target.id}`);
-  else project.dispatch(mutate);
+  applySelected(
+    (doc, target) => setClipStroke(doc, target.id, patch),
+    coalesce ? "stroke" : undefined,
+  );
 }
 
 function onShadow(patch: Partial<ClipShadow>, coalesce = false): void {
-  const target = clip.value;
-  if (!target) return;
-  const mutate = (doc: Project) => setClipShadow(doc, target.id, patch);
-  if (coalesce) project.dispatchCoalesced(mutate, `shadow:${target.id}`);
-  else project.dispatch(mutate);
+  applySelected(
+    (doc, target) => setClipShadow(doc, target.id, patch),
+    coalesce ? "shadow" : undefined,
+  );
 }
 
 function onRadius(value: number): void {
-  const target = clip.value;
-  if (!target) return;
-  project.dispatch((doc) => setClipCornerRadius(doc, target.id, value));
+  applySelected((doc, target) => setClipCornerRadius(doc, target.id, value));
 }
 
 function onTransformInput(patch: Partial<ClipTransform>): void {
-  const target = clip.value;
-  if (!target) return;
-  project.dispatch((doc) => setClipTransform(doc, target.id, patch));
+  applySelected((doc, target) => setClipTransform(doc, target.id, patch));
 }
 
 function onGainInput(value: number): void {
-  const target = clip.value;
-  if (!target) return;
-  project.dispatch((doc) => setClipGain(doc, target.id, value));
+  applySelected((doc, target) => setClipGain(doc, target.id, value));
 }
 
 function onFadeInInput(value: number): void {
-  const target = clip.value;
-  if (!target) return;
-  project.dispatch((doc) => setClipFadeIn(doc, target.id, value));
+  applySelected((doc, target) => setClipFadeIn(doc, target.id, value));
 }
 
 function onFadeOutInput(value: number): void {
-  const target = clip.value;
-  if (!target) return;
-  project.dispatch((doc) => setClipFadeOut(doc, target.id, value));
+  applySelected((doc, target) => setClipFadeOut(doc, target.id, value));
 }
 
 function onPitchInput(value: number): void {
-  const target = clip.value;
-  if (!target) return;
-  project.dispatch((doc) => setClipPitch(doc, target.id, value));
+  applySelected((doc, target) => setClipPitch(doc, target.id, value));
 }
 
 function onPanInput(value: number): void {
-  const target = clip.value;
-  if (!target) return;
-  project.dispatch((doc) => setClipPan(doc, target.id, value / 100));
+  applySelected((doc, target) => setClipPan(doc, target.id, value / 100));
 }
 
 function onMutedInput(value: boolean): void {
-  const target = clip.value;
-  if (!target) return;
-  project.dispatch((doc) => setClipMuted(doc, target.id, value));
+  applySelected((doc, target) => setClipMuted(doc, target.id, value));
 }
 
 /** 把当前文字片段的样式保存成媒体库预设（只存样式，不存文案与时长）。 */
@@ -639,16 +883,72 @@ async function relink(): Promise<void> {
         <p class="pane-sub">
           {{
             clip
-              ? isText
-                ? i18n.t("inspector.textSelected")
-                : i18n.t("inspector.mediaSelected")
+              ? selectedCount > 1
+                ? i18n.t("inspector.multiSelected", { count: selectedCount })
+                : isText
+                  ? i18n.t("inspector.textSelected")
+                  : i18n.t("inspector.mediaSelected")
               : i18n.t("inspector.nothingSelected")
           }}
         </p>
       </div>
-      <button class="icon-btn" :aria-label="i18n.t('inspector.more')">
+      <button
+        ref="moreButtonEl"
+        class="icon-btn"
+        :class="{ on: moreOpen }"
+        :aria-label="i18n.t('inspector.more')"
+        aria-haspopup="menu"
+        :aria-expanded="moreOpen"
+        @click="toggleMore"
+      >
         <EllipsisHorizontalIcon class="w-[18px] h-[18px]" />
       </button>
+      <Teleport to="body">
+        <transition name="drop">
+          <div
+            v-if="moreOpen"
+            ref="moreMenuEl"
+            class="inspector-menu"
+            role="menu"
+            :aria-label="i18n.t('inspector.more')"
+            :style="moreMenuStyle"
+          >
+            <button
+              class="menu-item"
+              role="menuitem"
+              :disabled="!clip"
+              @click="runMore(copyAttributes)"
+            >
+              {{ i18n.t("inspector.copyAttributes") }}
+            </button>
+            <button
+              class="menu-item"
+              role="menuitem"
+              :disabled="!clip || !attrClipboard"
+              @click="runMore(pasteAttributes)"
+            >
+              {{ i18n.t("inspector.pasteAttributes") }}
+            </button>
+            <div class="menu-sep" role="separator" />
+            <button
+              class="menu-item"
+              role="menuitem"
+              :disabled="!clip"
+              @click="runMore(resetAttributes)"
+            >
+              {{ i18n.t("inspector.resetAttributes") }}
+            </button>
+            <button
+              class="menu-item danger"
+              role="menuitem"
+              :disabled="!clip"
+              @click="runMore(deleteSelectedClips)"
+            >
+              {{ i18n.t("inspector.deleteClip") }}
+            </button>
+          </div>
+        </transition>
+      </Teleport>
     </header>
 
     <div class="pane-scroll">
@@ -895,6 +1195,29 @@ async function relink(): Promise<void> {
           </div>
         </div>
 
+        <template v-if="!isText && asset?.kind !== 'image'">
+          <div class="section-label">{{ i18n.t("inspector.timing") }}</div>
+          <div class="group">
+            <div class="prop-row">
+              <span>{{ i18n.t("inspector.speed") }}</span>
+              <NumberField
+                :model-value="speed"
+                :min="0.1"
+                :max="4"
+                :step="0.05"
+                :decimals="2"
+                :sr-label="i18n.t('inspector.speed')"
+                input-width="44px"
+                @update:model-value="onSpeedInput"
+              />
+            </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("inspector.duration") }}</span>
+              <span class="prop-value tabular">{{ formatTimecode(clip.duration, project.doc.fps) }}</span>
+            </div>
+          </div>
+        </template>
+
         <div class="section-label">{{ i18n.t("inspector.compositing") }}</div>
         <div class="group">
           <div class="prop-row">
@@ -920,6 +1243,304 @@ async function relink(): Promise<void> {
             />
           </div>
         </div>
+
+        <template v-if="isVisual">
+          <div class="section-label">{{ i18n.t("inspector.colorGrade") }}</div>
+          <div class="group">
+            <div class="prop-row">
+              <span>{{ i18n.t("inspector.brightness") }}</span>
+              <NumberField
+                :model-value="Math.round(color.brightness * 100)"
+                :min="-100"
+                :max="100"
+                :step="1"
+                :sr-label="i18n.t('inspector.brightness')"
+                input-width="44px"
+                @update:model-value="onColorInput({ brightness: $event / 100 })"
+              />
+            </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("inspector.contrast") }}</span>
+              <NumberField
+                :model-value="Math.round(color.contrast * 100)"
+                :min="0"
+                :max="200"
+                :step="1"
+                :sr-label="i18n.t('inspector.contrast')"
+                input-width="44px"
+                @update:model-value="onColorInput({ contrast: $event / 100 })"
+              />
+            </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("inspector.saturation") }}</span>
+              <NumberField
+                :model-value="Math.round(color.saturation * 100)"
+                :min="0"
+                :max="300"
+                :step="1"
+                :sr-label="i18n.t('inspector.saturation')"
+                input-width="44px"
+                @update:model-value="onColorInput({ saturation: $event / 100 })"
+              />
+            </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("inspector.temperature") }}</span>
+              <NumberField
+                :model-value="Math.round(color.temperature * 100)"
+                :min="-100"
+                :max="100"
+                :step="1"
+                :sr-label="i18n.t('inspector.temperature')"
+                input-width="44px"
+                @update:model-value="onColorInput({ temperature: $event / 100 })"
+              />
+            </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("inspector.tint") }}</span>
+              <NumberField
+                :model-value="Math.round(color.tint * 100)"
+                :min="-100"
+                :max="100"
+                :step="1"
+                :sr-label="i18n.t('inspector.tint')"
+                input-width="44px"
+                @update:model-value="onColorInput({ tint: $event / 100 })"
+              />
+            </div>
+            <button
+              class="btn-text"
+              type="button"
+              @click="onColorInput({ ...DEFAULT_CLIP_COLOR })"
+            >
+              {{ i18n.t("inspector.reset") }}
+            </button>
+          </div>
+        </template>
+
+        <template v-if="!isText && (asset?.kind === 'video' || asset?.kind === 'image')">
+          <div class="section-label">{{ i18n.t("inspector.mask") }}</div>
+          <div class="group">
+            <div class="prop-row">
+              <span>{{ i18n.t("inspector.maskEnabled") }}</span>
+              <ToggleSwitch
+                :model-value="!!mask"
+                :label="i18n.t('inspector.maskEnabled')"
+                @update:model-value="onMaskToggle"
+              />
+            </div>
+            <template v-if="mask">
+              <div class="prop-row">
+                <span>{{ i18n.t("inspector.maskShape") }}</span>
+                <Md3Select
+                  class="prop-select"
+                  :model-value="mask.shape"
+                  :options="maskShapeOptions"
+                  :label="i18n.t('inspector.maskShape')"
+                  @update:model-value="onMaskShape"
+                />
+              </div>
+              <div class="prop-row">
+                <span>{{ i18n.t("inspector.maskX") }}</span>
+                <NumberField
+                  :model-value="Math.round(mask.x * 100)"
+                  :min="0"
+                  :max="100"
+                  :step="1"
+                  :sr-label="i18n.t('inspector.maskX')"
+                  input-width="44px"
+                  @update:model-value="onMaskInput({ x: $event / 100 })"
+                />
+              </div>
+              <div class="prop-row">
+                <span>{{ i18n.t("inspector.maskY") }}</span>
+                <NumberField
+                  :model-value="Math.round(mask.y * 100)"
+                  :min="0"
+                  :max="100"
+                  :step="1"
+                  :sr-label="i18n.t('inspector.maskY')"
+                  input-width="44px"
+                  @update:model-value="onMaskInput({ y: $event / 100 })"
+                />
+              </div>
+              <div class="prop-row">
+                <span>{{ i18n.t("inspector.maskWidth") }}</span>
+                <NumberField
+                  :model-value="Math.round(mask.width * 100)"
+                  :min="1"
+                  :max="100"
+                  :step="1"
+                  :sr-label="i18n.t('inspector.maskWidth')"
+                  input-width="44px"
+                  @update:model-value="onMaskInput({ width: $event / 100 })"
+                />
+              </div>
+              <div class="prop-row">
+                <span>{{ i18n.t("inspector.maskHeight") }}</span>
+                <NumberField
+                  :model-value="Math.round(mask.height * 100)"
+                  :min="1"
+                  :max="100"
+                  :step="1"
+                  :sr-label="i18n.t('inspector.maskHeight')"
+                  input-width="44px"
+                  @update:model-value="onMaskInput({ height: $event / 100 })"
+                />
+              </div>
+              <div class="prop-row">
+                <span>{{ i18n.t("inspector.maskFeather") }}</span>
+                <NumberField
+                  :model-value="Math.round((mask.feather ?? 0) * 100)"
+                  :min="0"
+                  :max="50"
+                  :step="1"
+                  :sr-label="i18n.t('inspector.maskFeather')"
+                  input-width="44px"
+                  @update:model-value="onMaskInput({ feather: $event / 100 })"
+                />
+              </div>
+              <div v-if="mask.shape === 'linear'" class="prop-row">
+                <span>{{ i18n.t("inspector.maskAngle") }}</span>
+                <NumberField
+                  :model-value="Math.round(mask.angle ?? 0)"
+                  :min="0"
+                  :max="360"
+                  :step="1"
+                  :sr-label="i18n.t('inspector.maskAngle')"
+                  input-width="44px"
+                  @update:model-value="onMaskInput({ angle: $event })"
+                />
+              </div>
+              <button
+                class="btn-text"
+                type="button"
+                @click="onMaskInput({ ...DEFAULT_CLIP_MASK })"
+              >
+                {{ i18n.t("inspector.reset") }}
+              </button>
+            </template>
+          </div>
+        </template>
+
+        <template v-if="isVisual">
+          <div class="section-label">{{ i18n.t("inspector.transition") }}</div>
+          <div class="group">
+            <div class="prop-row">
+              <span>{{ i18n.t("transition.in") }}</span>
+              <Md3Select
+                class="prop-select"
+                :model-value="transitionIn?.type ?? 'none'"
+                :options="transitionTypeOptions"
+                :label="i18n.t('transition.in')"
+                @update:model-value="onTransitionType('in', $event)"
+              />
+            </div>
+            <template v-if="transitionIn">
+              <div class="prop-row">
+                <span>{{ i18n.t("transition.duration") }}</span>
+                <NumberField
+                  :model-value="transitionIn.duration"
+                  :min="0"
+                  :max="clip.duration"
+                  :step="0.1"
+                  :decimals="2"
+                  :sr-label="i18n.t('transition.duration')"
+                  input-width="44px"
+                  @update:model-value="onTransition('in', { duration: $event })"
+                />
+              </div>
+              <div v-if="transitionIn.type === 'slide'" class="prop-row">
+                <span>{{ i18n.t("transition.direction") }}</span>
+                <Md3Select
+                  class="prop-select"
+                  :model-value="transitionIn.direction ?? 'left'"
+                  :options="transitionDirectionOptions"
+                  :label="i18n.t('transition.direction')"
+                  @update:model-value="onTransitionDirection('in', $event)"
+                />
+              </div>
+            </template>
+
+            <div class="prop-row">
+              <span>{{ i18n.t("transition.out") }}</span>
+              <Md3Select
+                class="prop-select"
+                :model-value="transitionOut?.type ?? 'none'"
+                :options="transitionTypeOptions"
+                :label="i18n.t('transition.out')"
+                @update:model-value="onTransitionType('out', $event)"
+              />
+            </div>
+            <template v-if="transitionOut">
+              <div class="prop-row">
+                <span>{{ i18n.t("transition.duration") }}</span>
+                <NumberField
+                  :model-value="transitionOut.duration"
+                  :min="0"
+                  :max="clip.duration"
+                  :step="0.1"
+                  :decimals="2"
+                  :sr-label="i18n.t('transition.duration')"
+                  input-width="44px"
+                  @update:model-value="onTransition('out', { duration: $event })"
+                />
+              </div>
+              <div v-if="transitionOut.type === 'slide'" class="prop-row">
+                <span>{{ i18n.t("transition.direction") }}</span>
+                <Md3Select
+                  class="prop-select"
+                  :model-value="transitionOut.direction ?? 'left'"
+                  :options="transitionDirectionOptions"
+                  :label="i18n.t('transition.direction')"
+                  @update:model-value="onTransitionDirection('out', $event)"
+                />
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <template v-if="isVisual">
+          <div class="section-label">{{ i18n.t("inspector.keyframes") }}</div>
+          <div class="group">
+            <div class="prop-row">
+              <span>{{ i18n.t("keyframe.property") }}</span>
+              <Md3Select
+                class="prop-select"
+                :model-value="keyframeProperty"
+                :options="keyframeOptions"
+                :label="i18n.t('keyframe.property')"
+                @update:model-value="onKeyframeProperty"
+              />
+            </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("keyframe.time") }}</span>
+              <span class="prop-value tabular">{{ keyframeLocalTime.toFixed(2) }}s</span>
+            </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("keyframe.value") }}</span>
+              <span class="prop-value tabular">{{ keyframeCurrentValue.toFixed(2) }}</span>
+            </div>
+            <button class="btn-text" type="button" @click="addKeyframe">
+              {{ i18n.t("keyframe.add") }}
+            </button>
+            <div
+              v-for="frame in keyframesForProperty"
+              :key="frame.time"
+              class="keyframe-row"
+            >
+              <span class="tabular">{{ frame.time.toFixed(2) }}s</span>
+              <span class="tabular">{{ frame.value.toFixed(2) }}</span>
+              <button
+                class="keyframe-remove"
+                type="button"
+                :aria-label="i18n.t('keyframe.remove')"
+                @click="removeKeyframe(frame.time)"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        </template>
 
         <div class="section-label">{{ i18n.t("inspector.stroke") }}</div>
         <div class="group">
@@ -1447,6 +2068,36 @@ async function relink(): Promise<void> {
   width: 172px;
   flex: 0 0 auto;
 }
+.prop-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgb(var(--md-on-surface));
+}
+.keyframe-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 10.5px;
+  color: rgb(var(--md-on-surface-variant));
+  border-top: 1px solid rgb(var(--md-outline-variant) / 0.3);
+}
+.keyframe-remove {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgb(var(--md-on-surface-muted));
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.keyframe-remove:hover {
+  background-color: rgb(var(--md-error) / 0.12);
+  color: rgb(var(--md-error));
+}
 .align-group {
   display: inline-flex;
   gap: 2px;
@@ -1546,3 +2197,47 @@ async function relink(): Promise<void> {
   transition: width 120ms linear;
 }
 </style>
+
+<style>
+/* 菜单 Teleport 到 body，因此不能写在 scoped 里 */
+.inspector-menu {
+  position: fixed;
+  z-index: 320;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 16px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.5);
+  background-color: rgb(var(--md-surface-container-high));
+  box-shadow: var(--md-elevation-3);
+}
+.inspector-menu .menu-item {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: rgb(var(--md-on-surface));
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.14s ease;
+}
+.inspector-menu .menu-item:hover:not(:disabled) {
+  background-color: rgb(var(--md-on-surface) / var(--md-state-hover-alpha));
+}
+.inspector-menu .menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.inspector-menu .menu-item.danger {
+  color: rgb(var(--md-error));
+}
+.inspector-menu .menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background-color: rgb(var(--md-outline-variant) / 0.5);
+}
+</style>
+

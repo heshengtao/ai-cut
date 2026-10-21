@@ -11,8 +11,15 @@ import { useExportStore } from "@/stores/export";
 import { useProjectStore } from "@/stores/project";
 import { projectDuration } from "@/core/playback/activeClips";
 import { formatTimecode } from "@/core/time";
-import { EXPORT_FORMATS } from "@/types/export";
-import type { ExportFormat, ExportQuality, ExportResolution } from "@/types/export";
+import { EXPORT_ANCHORS, EXPORT_FORMATS, GIF_DITHERS } from "@/types/export";
+import type {
+  ExportAnchor,
+  ExportFit,
+  ExportFormat,
+  ExportQuality,
+  ExportResolution,
+  GifDither,
+} from "@/types/export";
 import { useI18n } from "@/i18n";
 
 const store = useExportStore();
@@ -27,13 +34,50 @@ const resolutions: { id: ExportResolution; labelKey: string }[] = [
   { id: "project", labelKey: "export.resolution.project" },
   { id: "1080p", labelKey: "export.resolution.1080p" },
   { id: "720p", labelKey: "export.resolution.720p" },
+  { id: "custom", labelKey: "export.resolution.custom" },
 ];
+
+const fits: { id: ExportFit; labelKey: string }[] = [
+  { id: "contain", labelKey: "export.fit.contain" },
+  { id: "cover", labelKey: "export.fit.cover" },
+];
+
+const anchors: { id: ExportAnchor; labelKey: string }[] = EXPORT_ANCHORS.map((id) => ({
+  id,
+  labelKey: `export.anchor.${id}`,
+}));
 
 const fpsOptions: { value: number | null; label: string }[] = [
   { value: null, label: "" },
   { value: 24, label: "24" },
   { value: 30, label: "30" },
   { value: 60, label: "60" },
+];
+
+const gifFpsOptions: { value: number | null; label: string }[] = [
+  { value: null, label: "" },
+  { value: 10, label: "10" },
+  { value: 12, label: "12" },
+  { value: 24, label: "24" },
+  { value: 30, label: "30" },
+];
+
+const gifColorOptions = [64, 128, 256];
+
+const ditherLabelKeys: Record<GifDither, string> = {
+  sierra2_4a: "export.gifDither.sierra2_4a",
+  bayer: "export.gifDither.bayer",
+  floyd_steinberg: "export.gifDither.floyd_steinberg",
+  none: "export.gifDither.none",
+};
+
+const gifDithers = GIF_DITHERS.map((id) => ({ id, labelKey: ditherLabelKeys[id] }));
+
+const gifLoopOptions = [
+  { value: 0, label: "∞" },
+  { value: 1, label: "1×" },
+  { value: 2, label: "2×" },
+  { value: 3, label: "3×" },
 ];
 
 const qualities: { id: ExportQuality; labelKey: string }[] = [
@@ -47,6 +91,8 @@ const exporting = computed(() => store.status === "exporting");
 const percent = computed(() => Math.round(store.progress * 100));
 const spec = computed(() => store.outputSpec);
 const isGif = computed(() => store.options.format === "gif");
+const activeFpsOptions = computed(() => (isGif.value ? gifFpsOptions : fpsOptions));
+const fitLabel = computed(() => i18n.t(`export.fit.${store.options.fit}`));
 
 function formatMeta(id: ExportFormat): string {
   const meta = EXPORT_FORMATS[id];
@@ -54,7 +100,27 @@ function formatMeta(id: ExportFormat): string {
 }
 
 function fpsLabel(value: number | null): string {
-  return value === null ? i18n.t("export.fps.project") : String(value);
+  if (value !== null) return String(value);
+  return isGif.value ? "15" : i18n.t("export.fps.project");
+}
+
+function chooseFormat(id: ExportFormat): void {
+  store.options.format = id;
+  if (id === "gif" && (store.options.fps ?? 0) > 30) {
+    store.options.fps = null;
+  }
+}
+
+function chooseResolution(id: ExportResolution): void {
+  store.options.resolution = id;
+  if (id !== "custom") return;
+  if (store.options.width == null) store.options.width = project.doc.width;
+  if (store.options.height == null) store.options.height = project.doc.height;
+}
+
+function setDimension(axis: "width" | "height", event: Event): void {
+  const value = Number((event.target as HTMLInputElement).value);
+  store.options[axis] = Number.isFinite(value) && value > 0 ? Math.round(value) : null;
 }
 
 function close(): void {
@@ -123,7 +189,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
                   :class="{ on: store.options.format === id }"
                   :aria-pressed="store.options.format === id"
                   :disabled="exporting"
-                  @click="store.options.format = id"
+                  @click="chooseFormat(id)"
                 >
                   <span class="preset-radio">
                     <CheckIcon v-if="store.options.format === id" class="w-3 h-3" />
@@ -149,19 +215,45 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
                       class="chip"
                       :class="{ on: store.options.resolution === r.id }"
                       :disabled="exporting"
-                      @click="store.options.resolution = r.id"
+                      @click="chooseResolution(r.id)"
                     >
                       {{ i18n.t(r.labelKey) }}
                     </button>
                   </span>
                 </div>
 
+                <div v-if="store.options.resolution === 'custom'" class="prop-row">
+                  <span>{{ i18n.t("export.size") }}</span>
+                  <span class="size-inputs">
+                    <input
+                      class="size-input tabular"
+                      type="number"
+                      min="16"
+                      max="8192"
+                      step="2"
+                      :value="store.options.width ?? project.doc.width"
+                      :disabled="exporting"
+                      @input="setDimension('width', $event)"
+                    />
+                    <span class="size-times">×</span>
+                    <input
+                      class="size-input tabular"
+                      type="number"
+                      min="16"
+                      max="8192"
+                      step="2"
+                      :value="store.options.height ?? project.doc.height"
+                      :disabled="exporting"
+                      @input="setDimension('height', $event)"
+                    />
+                  </span>
+                </div>
+
                 <div class="prop-row">
                   <span>{{ i18n.t("export.fps") }}</span>
-                  <span v-if="isGif" class="prop-value">{{ i18n.t("export.gifFps") }}</span>
-                  <span v-else class="chips">
+                  <span class="chips">
                     <button
-                      v-for="f in fpsOptions"
+                      v-for="f in activeFpsOptions"
                       :key="String(f.value)"
                       class="chip"
                       :class="{ on: store.options.fps === f.value }"
@@ -169,6 +261,41 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
                       @click="store.options.fps = f.value"
                     >
                       {{ f.label || fpsLabel(f.value) }}
+                    </button>
+                  </span>
+                </div>
+
+                <div class="prop-row">
+                  <span>{{ i18n.t("export.fit") }}</span>
+                  <span class="chips">
+                    <button
+                      v-for="f in fits"
+                      :key="f.id"
+                      class="chip"
+                      :class="{ on: store.options.fit === f.id }"
+                      :disabled="exporting"
+                      @click="store.options.fit = f.id"
+                    >
+                      {{ i18n.t(f.labelKey) }}
+                    </button>
+                  </span>
+                </div>
+
+                <div v-if="store.options.fit === 'cover'" class="prop-row">
+                  <span>{{ i18n.t("export.anchor") }}</span>
+                  <span class="anchor-grid" role="group" :aria-label="i18n.t('export.anchor')">
+                    <button
+                      v-for="anchor in anchors"
+                      :key="anchor.id"
+                      class="anchor-btn"
+                      :class="{ on: store.options.fitAnchor === anchor.id }"
+                      :disabled="exporting"
+                      :title="i18n.t(anchor.labelKey)"
+                      :aria-label="i18n.t(anchor.labelKey)"
+                      :aria-pressed="store.options.fitAnchor === anchor.id"
+                      @click="store.options.fitAnchor = anchor.id"
+                    >
+                      <span class="anchor-dot" />
                     </button>
                   </span>
                 </div>
@@ -189,6 +316,56 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
                   </span>
                 </div>
 
+                <template v-if="isGif">
+                  <div class="prop-row">
+                    <span>{{ i18n.t("export.gifColors") }}</span>
+                    <span class="chips">
+                      <button
+                        v-for="colors in gifColorOptions"
+                        :key="colors"
+                        class="chip"
+                        :class="{ on: store.options.gifColors === colors }"
+                        :disabled="exporting"
+                        @click="store.options.gifColors = colors"
+                      >
+                        {{ colors }}
+                      </button>
+                    </span>
+                  </div>
+
+                  <div class="prop-row">
+                    <span>{{ i18n.t("export.gifDither") }}</span>
+                    <span class="chips">
+                      <button
+                        v-for="d in gifDithers"
+                        :key="d.id"
+                        class="chip"
+                        :class="{ on: store.options.gifDither === d.id }"
+                        :disabled="exporting"
+                        @click="store.options.gifDither = d.id"
+                      >
+                        {{ i18n.t(d.labelKey) }}
+                      </button>
+                    </span>
+                  </div>
+
+                  <div class="prop-row">
+                    <span>{{ i18n.t("export.gifLoop") }}</span>
+                    <span class="chips">
+                      <button
+                        v-for="loop in gifLoopOptions"
+                        :key="loop.value"
+                        class="chip"
+                        :class="{ on: store.options.gifLoop === loop.value }"
+                        :disabled="exporting"
+                        @click="store.options.gifLoop = loop.value"
+                      >
+                        {{ loop.label }}
+                      </button>
+                    </span>
+                  </div>
+                </template>
+
                 <div class="prop-row">
                   <span>{{ i18n.t("export.audio") }}</span>
                   <span class="prop-value">
@@ -201,7 +378,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
             <div class="estimate">
               <span>{{ i18n.t("export.outputSpec") }}</span>
               <span class="estimate-value tabular">
-                {{ spec.width }} × {{ spec.height }} · {{ spec.fps }} fps
+                {{ spec.width }} × {{ spec.height }} · {{ spec.fps }} fps · {{ fitLabel }}
               </span>
             </div>
 
@@ -432,6 +609,74 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
   color: rgb(var(--md-on-surface));
   font-size: 11.5px;
   font-weight: 500;
+}
+.size-inputs {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.size-input {
+  width: 64px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.8);
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(var(--md-on-surface));
+  font-size: 11px;
+  text-align: center;
+}
+.size-input:focus-visible {
+  outline: 2px solid rgb(var(--md-primary));
+  outline-offset: 1px;
+}
+.size-input:disabled {
+  opacity: 0.5;
+}
+.size-times {
+  color: rgb(var(--md-on-surface-muted));
+  font-size: 11px;
+}
+.anchor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 20px);
+  gap: 4px;
+}
+.anchor-btn {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.8);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+.anchor-btn:hover:not(:disabled) {
+  background-color: rgb(var(--md-on-surface-variant) / var(--md-state-hover-alpha));
+}
+.anchor-btn.on {
+  border-color: rgb(var(--md-primary));
+  background-color: rgb(var(--md-primary) / 0.12);
+}
+.anchor-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.anchor-btn:focus-visible {
+  outline: 2px solid rgb(var(--md-primary));
+  outline-offset: 1px;
+}
+.anchor-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background-color: rgb(var(--md-on-surface-muted));
+}
+.anchor-btn.on .anchor-dot {
+  background-color: rgb(var(--md-primary));
 }
 .chips {
   display: inline-flex;

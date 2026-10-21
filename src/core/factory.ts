@@ -1,5 +1,5 @@
 /** 领域对象构造器：统一 id 生成与默认值。 */
-import type { Clip, ClipTextStyle, MediaAsset, Project, Track } from "@/types/project";
+import type { Clip, ClipTextStyle, Marker, MediaAsset, Project, Track } from "@/types/project";
 import { PROJECT_VERSION } from "@/types/project";
 import { t } from "@/i18n";
 
@@ -29,6 +29,7 @@ export function createClip(input: {
   start: number;
   duration: number;
   in?: number;
+  speed?: number;
   text?: string;
   textStyle?: ClipTextStyle;
 }): Clip {
@@ -39,8 +40,22 @@ export function createClip(input: {
     start: input.start,
     duration: input.duration,
     in: input.in ?? 0,
+    ...(input.speed !== undefined && input.speed !== 1 ? { speed: input.speed } : {}),
     ...(input.text !== undefined ? { text: input.text } : {}),
     ...(input.textStyle !== undefined ? { textStyle: input.textStyle } : {}),
+  };
+}
+
+export function createMarker(input: {
+  time: number;
+  name?: string;
+  color?: string;
+}): Marker {
+  return {
+    id: newId(),
+    time: Math.max(0, input.time),
+    name: input.name?.trim() ?? "",
+    ...(input.color ? { color: input.color } : {}),
   };
 }
 
@@ -64,5 +79,6 @@ export function newProject(name = "untitled"): Project {
     height: 1080,
     assets: [],
     tracks: [],
+    markers: [],
   };
 }

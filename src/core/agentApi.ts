@@ -94,8 +94,12 @@ export function agentSend(
   return call("agent_send", { sessionId, parentId, text }, sessionId ?? "");
 }
 
-export function agentCancel(): Promise<void> {
-  return call("agent_cancel", {}, undefined);
+export function agentCancel(): Promise<boolean> {
+  return call("agent_cancel", {}, false);
+}
+
+export function agentRunning(): Promise<boolean> {
+  return call("agent_running", {}, false);
 }
 
 export function onAgentEvent(handler: (event: AgentEvent) => void): Promise<UnlistenFn> {

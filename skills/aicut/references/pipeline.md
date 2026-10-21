@@ -182,7 +182,7 @@
 
 ```bash
 aicut status                 # App 没开就 aicut start
-aicut call get_project       # 拿 revision / tracks / assets
+aicut call get_project       # 拿 revision / 轨道摘要 / 素材数量（不含明细）
 ```
 
 设置输出规格（画幅与 fps 必须先定）：
@@ -218,7 +218,7 @@ aicut call get_project       # 拿 revision / tracks / assets
 
 > **两套编号别混：** `track.add` 的 `index` 是 0 基插入位（0 = 最上层）；`get_project` 返回的 `index` 是 1 基展示号。上面写的是层号（0 基）。
 >
-> 轨道名由 App 自动生成，MCP 建轨不能命名。用 `get_project` 的 `index` 定位；不要写死名字。
+> `track.add` 现在可以传 `name`，`get_project` 也会返回轨道名；但仍推荐用 1 起始 `index` 定位，名字只作语义提示。
 
 ### 7.4 铺主叙事
 
@@ -233,7 +233,7 @@ aicut call get_project       # 拿 revision / tracks / assets
 
 ### 7.5 验证
 
-重新 `get_project`，检查：
+只回读受影响的轨道：`get_track(trackId)`，检查：
 
 - 片段数量与顺序
 - 起止时间是否落在预期
@@ -293,7 +293,7 @@ aicut call get_project       # 拿 revision / tracks / assets
    - **Paraformer 中文 Small / 三语**：中文/粤语/英语。
 3. 首次使用需下载模型 + Silero VAD；按提示确认。
 4. 点「生成字幕」。App 会新建一条置顶文字轨，把词级/句级结果映射到时间线。
-5. 智能体重新 `get_project`，读取新轨道的文字片段。
+5. 智能体用 `get_project` 找到新文字轨，再用 `get_track` 读取文字片段。
 
 **校对**
 
@@ -350,7 +350,7 @@ aicut call get_project       # 拿 revision / tracks / assets
 | 补帧（RIFE） | 24→30/60、慢动作 | 运动复杂处会有果冻 |
 | 智能重构（YOLOX/YuNet） | 16:9 → 9:16，人脸/人物/自动/中心 | 主体跟踪会跳；长镜头分段处理 |
 
-这些都在 App 里选片段后触发；处理结果会替换片段视频或新增素材。完成后智能体重新 `get_project` 确认时长与引用没变。
+这些都在 App 里选片段后触发；处理结果会替换片段视频或新增素材。完成后智能体用 `get_clip` 确认时长与引用没变。
 
 **Gate G7**：技术 QC：无黑帧、无爆音、无错位、无糊脸、无水印。
 
@@ -391,9 +391,12 @@ aicut call get_project       # 拿 revision / tracks / assets
 | 选项 | 取值 | 用途 |
 | --- | --- | --- |
 | 格式 | MP4 / ProRes / GIF | MP4 交付；ProRes 母版；GIF 无音频短循环 |
-| 分辨率 | project / 1080p / 720p | 以工程画幅为准；GIF 最高 720p |
-| 帧率 | 跟随工程或指定 | 全链路一致 |
+| 分辨率 | project / 1080p / 720p / custom | 自定义时用 `width` / `height`，只给一边会按工程比例补另一边 |
+| 画面适配 | contain / cover | contain 加边；cover 裁切填满（不会改工程画布） |
+| 裁切位置 | `fitAnchor`: center / top / bottom / left / right / 四角 | cover 时保留哪块画面，竖构图取景常用 |
+| 帧率 | 跟随工程或指定 | GIF 省略时默认 15fps，可显式指定 |
 | 质量 | high / standard / small | MP4 CRF 18/23/28 |
+| GIF 调色板 | `gif.colors` / `gif.dither` / `gif.loop` | 颜色数 2–256；抖动 sierra2_4a / bayer / floyd_steinberg / none；循环 0 = 无限 |
 
 **导出前检查**
 
@@ -403,6 +406,8 @@ aicut call get_project       # 拿 revision / tracks / assets
 - [ ] 输出画幅与平台一致
 - [ ] 字幕在安全区
 - [ ] 音频不削波
+
+`export_video` 的返回值里带实际 `width / height / fps / format`，可以直接和平台规格比对。
 
 **导出后校验**
 
@@ -453,14 +458,14 @@ ffprobe -v error -show_entries format=duration,size,bit_rate \
 ## 14. 变更管理
 
 - Gate 之后改 brief：记录变更原因，重开受影响的阶段（通常 3、4、5）。
-- 改画幅：全部分镜与素材要重排，不能只改 `project.output`。
+- 改画幅：全部分镜与素材要重排，不能只改 `project.output`。只是换交付尺寸/裁切时，用导出参数 `width` / `height` + `fit: "cover"`，不要改工程画布。
 - 改旁白：重跑 TTS，重新对字幕，检查长度。
 - 改音乐：重新卡点，检查旁白 ducking。
 - 任何「顺手改一下」都要能回答：**它影响哪个 Gate 的验收？**
 
 ## 15. 附录：端到端命令骨架
 
-以下只是形状，`<rev>` / id / 路径都要换成真实值；**每一步之后重新 `get_project` 拿最新 revision**。
+以下只是形状，`<rev>` / id / 路径都要换成真实值；**上一条命令的返回值里有新 revision，可以直接接着用；需要核对结果时只回读受影响的片段（`get_track` / `get_clip`）**。
 
 ```bash
 # 0. 连接
@@ -475,9 +480,8 @@ aicut call import_asset --json '{"path":"/abs/path/s01_hook_v3.mp4","name":"S01 
 aicut call import_asset --json '{"path":"/abs/path/vo_s01.wav","name":"S01 旁白"}'
 
 # 3. 建上层轨道（从底层往上；0 = 最上层）
-#    label 只是撤销历史里的步骤名，不会给轨道命名。
-aicut call apply_command --json '{"command":{"kind":"track.add","baseRevision":<rev>,"payload":{"index":0},"label":"新增 B-roll 层"}}'
-aicut call apply_command --json '{"command":{"kind":"track.add","baseRevision":<rev>,"payload":{"index":0},"label":"新增包装层"}}'
+#    多条命令用 apply_commands：一次 revision、一个撤销步；name 会写进轨道摘要。
+aicut call apply_commands --json '{"baseRevision":<rev>,"label":"建立轨道结构","commands":[{"kind":"track.add","payload":{"index":0,"name":"B-roll"}},{"kind":"track.add","payload":{"index":0,"name":"包装"}}]}'
 
 # 4. 铺 A-roll（主叙事）
 aicut call apply_command --json '{"command":{"kind":"clip.add","baseRevision":<rev>,"payload":{"trackId":"<A-roll-id>","clip":{"assetId":"<asset-id>","start":0,"duration":6.2,"in":0.4}},"label":"S01 主镜头"}}'
@@ -489,8 +493,8 @@ aicut call apply_command --json '{"command":{"kind":"clip.update","baseRevision"
 # 6. 加标题文字片段
 aicut call apply_command --json '{"command":{"kind":"clip.add","baseRevision":<rev>,"payload":{"trackId":"<text-id>","clip":{"assetId":"","start":0.5,"duration":2.5,"text":"一句话说清价值"}},"label":"标题"}}'
 
-# 7. 验证
-aicut call get_project
+# 7. 验证（只读受影响的轨道/片段）
+aicut call get_track --json '{"trackId":<track-index>}'
 ```
 
 之后：

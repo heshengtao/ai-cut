@@ -29,6 +29,14 @@ export function moveTrack(doc: Project, trackId: string, toIndex: number): Proje
   return withTouch(doc, { tracks });
 }
 
+/** 重命名轨道；空白名字视为无变化。 */
+export function renameTrack(doc: Project, trackId: string, name: string): Project {
+  const track = doc.tracks.find((candidate) => candidate.id === trackId);
+  const next = name.trim();
+  if (!track || !next || track.name === next) return doc;
+  return replaceTrack(doc, trackId, { ...track, name: next });
+}
+
 /** 删除轨道；允许删到一条不剩。 */
 export function removeTrack(doc: Project, trackId: string): Project {
   const tracks = doc.tracks.filter((t) => t.id !== trackId);

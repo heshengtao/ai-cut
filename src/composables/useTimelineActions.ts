@@ -1,6 +1,15 @@
 /** 时间线上的「动词」：分割、裁剪与删除。工具栏与快捷键共用。 */
 import { computed, reactive } from "vue";
-import { removeClips, splitClips, trimClip } from "@/core/ops";
+import {
+  addMarker,
+  duplicateClips,
+  removeClips,
+  rippleDeleteClips,
+  splitClips,
+  trimClip,
+} from "@/core/ops";
+import { createMarker } from "@/core/factory";
+import { snapToFrame } from "@/core/time";
 import { covers } from "@/core/playback/activeClips";
 import { usePlaybackStore } from "@/stores/playback";
 import { useProjectStore } from "@/stores/project";
@@ -35,6 +44,7 @@ export function useTimelineActions() {
   const canSplit = computed(() => splittableIds.value.length > 0);
   const canTrim = computed(() => trimmableIds.value.length > 0);
   const canDelete = computed(() => selection.selectedClipIds.length > 0);
+  const canDuplicate = computed(() => selection.selectedClipIds.length > 0);
 
   function splitAtPlayhead(): void {
     const ids = splittableIds.value;
@@ -69,13 +79,76 @@ export function useTimelineActions() {
     selection.clear();
   }
 
+  /** 复制选中片段，默认落到当前选区之后；位置冲突时保持原文档不变。 */
+  function duplicateSelected(): void {
+    const ids = [...selection.selectedClipIds];
+    if (ids.length === 0) return;
+    const clips = allClips.value.filter((clip) => ids.includes(clip.id));
+    if (clips.length === 0) return;
+
+    const start = Math.min(...clips.map((clip) => clip.start));
+    const end = Math.max(...clips.map((clip) => clip.start + clip.duration));
+    const offset = Math.max(1 / project.doc.fps, end - start);
+    const before = new Set(allClips.value.map((clip) => clip.id));
+
+    try {
+      project.dispatch((doc) => duplicateClips(doc, ids, offset), {
+        kind: "clip.duplicate",
+        payload: { clipIds: ids, offset },
+        label: t("timeline.duplicateLabel"),
+      });
+    } catch (error) {
+      toast(error instanceof Error ? error.message : t("timeline.duplicateLabel"));
+      return;
+    }
+
+    const created = allClips.value
+      .filter((clip) => !before.has(clip.id))
+      .map((clip) => clip.id);
+    if (created.length > 0) selection.selectMany(created);
+  }
+
+  function rippleDeleteSelected(): void {
+    const ids = [...selection.selectedClipIds];
+    if (ids.length === 0) return;
+    project.dispatch((doc) => rippleDeleteClips(doc, ids), {
+      kind: "clip.ripple_delete",
+      payload: { clipIds: ids },
+      label: t("timeline.rippleDeleteLabel"),
+    });
+    selection.clear();
+  }
+
+  function addMarkerAtPlayhead(): void {
+    const time = Math.max(0, snapToFrame(playback.playhead, project.doc.fps));
+    project.dispatch(
+      (doc) =>
+        addMarker(
+          doc,
+          createMarker({
+            time,
+            name: t("marker.defaultName", { n: doc.markers.length + 1 }),
+          }),
+        ),
+      {
+        kind: "marker.add",
+        payload: { time },
+        label: t("marker.addLabel"),
+      },
+    );
+  }
+
   // `reactive` 会自动解包 computed，模板里直接写 `actions.canSplit` 即可。
   return reactive({
     splitAtPlayhead,
     trimToPlayhead,
     deleteSelected,
+    duplicateSelected,
+    rippleDeleteSelected,
+    addMarkerAtPlayhead,
     canSplit,
     canTrim,
     canDelete,
+    canDuplicate,
   });
 }

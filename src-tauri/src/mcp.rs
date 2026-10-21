@@ -330,10 +330,21 @@ async fn handle_mcp(
                 .unwrap_or("2025-06-18"),
             "capabilities": { "tools": {} },
             "serverInfo": { "name": "aicut", "version": env!("CARGO_PKG_VERSION") },
-            "instructions": "AI Cut 的剪辑工具面。写操作会进入撤销历史；先 get_project 拿 revision，再 apply_command。"
+            "instructions": "AI Cut 的剪辑工具面：读写时间线、字幕/标记、调色/蒙版/转场/关键帧、调用本地 AI 与导出。读取是渐进的：get_project 只给概览，按关注点再用 get_context / get_track / find_clips / get_clip / get_assets / get_markers。写操作进入撤销历史；单条用 apply_command，多条用 apply_commands。合成原语用 set_clip_color / set_clip_mask / set_clip_transition / set_clip_keyframes；看画面用 render_frame / render_storyboard；长任务用 job_start 再用 job_status 轮询。"
         })),
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": tools::definitions() })),
+        // MCP 规范要求参数 schema 放在 `inputSchema`；`ToolDef` 的内部字段名是
+        // `parameters`，直接序列化会让严格客户端拿到无 schema 的工具。
+        "tools/list" => Ok(json!({
+            "tools": tools::definitions()
+                .into_iter()
+                .map(|tool| json!({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "inputSchema": tool.parameters,
+                }))
+                .collect::<Vec<_>>()
+        })),
         "tools/call" => call_tool(&state, body.get("params").cloned().unwrap_or(Value::Null)).await,
         other => Err(json!({ "code": -32601, "message": format!("未知方法：{other}") })),
     };

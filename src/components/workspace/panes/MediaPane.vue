@@ -11,9 +11,22 @@ import {
   ExclamationTriangleIcon,
   PaintBrushIcon,
   TrashIcon,
+  LanguageIcon,
+  ArrowDownTrayIcon,
 } from "@heroicons/vue/24/outline";
 import type { AssetKind, Clip, ClipTextStyle, MediaAsset } from "@/types/project";
-import { fileUrl, importAssetAt, pickMediaFiles } from "@/core/media";
+import {
+  fileUrl,
+  importAssetAt,
+  pickMediaFiles,
+  pickSubtitleFile,
+  pickSubtitleSavePath,
+} from "@/core/media";
+import {
+  collectSubtitleEntries,
+  exportSubtitlesToFile,
+  importSubtitlesFromFile,
+} from "@/core/subtitleActions";
 import { addAsset, addClip, addTrack, removeAsset, setClipTextStyle } from "@/core/ops";
 import { createClip } from "@/core/factory";
 import { snapToFrame } from "@/core/time";
@@ -251,6 +264,81 @@ async function importMedia(): Promise<void> {
   if (added > 0) toast(i18n.t("media.imported", { count: added }));
 }
 
+const subtitleBusy = ref(false);
+
+async function importSubtitles(): Promise<void> {
+  if (subtitleBusy.value) return;
+  const path = await pickSubtitleFile();
+  if (!path) return;
+
+  subtitleBusy.value = true;
+  try {
+    const result = await importSubtitlesFromFile({ path, actor: "human" });
+    toast(i18n.t("subtitle.imported", { count: result.cueCount }));
+    if (result.trackIds[0]) selection.setActiveTrack(result.trackIds[0]);
+  } catch (error) {
+    toast(
+      i18n.t("subtitle.importFailedDetail", {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      "error",
+    );
+  } finally {
+    subtitleBusy.value = false;
+  }
+}
+
+/** 导出范围：活跃文字轨 → 唯一选中的文字轨 → 全部文字片段。 */
+function subtitleExportTrack(): string | undefined {
+  const active = selection.activeTrackId;
+  if (active) {
+    const track = project.doc.tracks.find((item) => item.id === active);
+    if (track?.clips.some((clip) => clip.assetId === "" && (clip.text ?? "").trim())) {
+      return active;
+    }
+  }
+
+  const selected = new Set(selection.selectedClipIds);
+  const matching = new Set<string>();
+  for (const track of project.doc.tracks) {
+    if (
+      track.clips.some(
+        (clip) => selected.has(clip.id) && clip.assetId === "" && (clip.text ?? "").trim(),
+      )
+    ) {
+      matching.add(track.id);
+    }
+  }
+  return matching.size === 1 ? [...matching][0] : undefined;
+}
+
+async function exportSubtitles(): Promise<void> {
+  if (subtitleBusy.value) return;
+  const entries = collectSubtitleEntries(project.doc, subtitleExportTrack());
+  if (entries.length === 0) {
+    toast(i18n.t("subtitle.none"), "error");
+    return;
+  }
+
+  const path = await pickSubtitleSavePath(project.doc.name);
+  if (!path) return;
+
+  subtitleBusy.value = true;
+  try {
+    const result = await exportSubtitlesToFile(path, entries);
+    toast(i18n.t("subtitle.exported", { count: result.count, path: result.path }));
+  } catch (error) {
+    toast(
+      i18n.t("subtitle.exportFailed", {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      "error",
+    );
+  } finally {
+    subtitleBusy.value = false;
+  }
+}
+
 function onDragStart(event: DragEvent, asset: MediaAsset): void {
   setDragPayload({ kind: "asset", id: asset.id });
   event.dataTransfer?.setData("application/x-ai-cut-asset", asset.id);
@@ -322,15 +410,35 @@ async function onDeletePreset(preset: TextPreset): Promise<void> {
           }}
         </p>
       </div>
-      <button
-        class="import-pill"
-        :disabled="importing"
-        :aria-label="i18n.t('media.import')"
-        @click="importMedia"
-      >
-        <PlusIcon class="w-[15px] h-[15px]" />
-        <span>{{ importing ? i18n.t("media.importing") : i18n.t("media.import") }}</span>
-      </button>
+      <div class="head-actions">
+        <button
+          class="icon-btn"
+          :disabled="subtitleBusy"
+          :title="i18n.t('subtitle.import')"
+          :aria-label="i18n.t('subtitle.import')"
+          @click="importSubtitles"
+        >
+          <LanguageIcon class="w-[16px] h-[16px]" />
+        </button>
+        <button
+          class="icon-btn"
+          :disabled="subtitleBusy"
+          :title="i18n.t('subtitle.export')"
+          :aria-label="i18n.t('subtitle.export')"
+          @click="exportSubtitles"
+        >
+          <ArrowDownTrayIcon class="w-[16px] h-[16px]" />
+        </button>
+        <button
+          class="import-pill"
+          :disabled="importing"
+          :aria-label="i18n.t('media.import')"
+          @click="importMedia"
+        >
+          <PlusIcon class="w-[15px] h-[15px]" />
+          <span>{{ importing ? i18n.t("media.importing") : i18n.t("media.import") }}</span>
+        </button>
+      </div>
     </header>
 
     <div class="search-row">
@@ -451,6 +559,11 @@ async function onDeletePreset(preset: TextPreset): Promise<void> {
 </template>
 
 <style scoped>
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .search-row {
   padding: 0 16px 10px;
 }

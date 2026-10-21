@@ -9,6 +9,19 @@ describe("mediaTimeFor", () => {
     expect(mediaTimeFor(clip, 12)).toBeCloseTo(4);
     expect(mediaTimeFor(clip, 13.5)).toBeCloseTo(5.5);
   });
+
+  it("multiplies elapsed timeline time by speed", () => {
+    const clip = createClip({
+      assetId: "a1",
+      trackId: "t1",
+      start: 10,
+      duration: 4,
+      in: 2,
+      speed: 2,
+    });
+    expect(mediaTimeFor(clip, 10)).toBeCloseTo(2);
+    expect(mediaTimeFor(clip, 12)).toBeCloseTo(6);
+  });
 });
 
 describe("gainToVolume", () => {

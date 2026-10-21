@@ -1,172 +1,217 @@
-# AI Cut — AI 协作路线图
+# AI Cut — 路线图
 
-> 更新时间：2026-10-20
-> 当前阶段：**A — 剪辑智能体 + MCP + CLI/Skills 基础设施**
+> 更新时间：2026-10-21
+> 当前阶段：**收尾验收**（P0–P5 已完成）
 > 本文是产品与架构路线图，不替代 `docs/superpowers/specs/` 与 `docs/superpowers/plans/` 里的具体实现文档。
 
 ## 0. 一句话定位
 
 **AI 剪，人审片。**
 
-AI Cut 是一个本地优先、轻量的剪辑工作台：AI 通过 MCP 工具或 `aicut` 命令行驱动时间线，人在应用里实时看到结果、随时接管；内置的「剪辑智能体」提供对话式入口，但不是唯一的 AI 入口。
+AI Cut 是一个本地优先、轻量的剪辑工作台：AI 通过 MCP 工具或 `aicut` 命令行驱动时间线，人在应用里实时看到结果、随时接管；内置「剪辑智能体」提供对话式入口，但不是唯一的 AI 入口。
 
-## 1. 产品结构
+## 1. 当前状态
 
-AI 视频链路拆成三层：
-
-| 层 | 谁在做 | AI Cut 的位置 |
-| --- | --- | --- |
-| 生成层：模型、浏览器、HTML/Canvas 场景、素材 | 外部 Harness / 各家模型 | 交给外部 Harness |
-| 执行层：时间线、剪辑、合成、导出 | CapCut / Resolve / Premiere | 保留轻量、可数据化的核心原语 |
-| **交接层：AI 操作 → 人看见 → 人判断 → AI 继续** | 几乎没有成熟方案 | **主战场** |
-
-AI Cut 提供三个面：
-
-1. **剪辑智能体**：应用内对话式剪辑，流式回答、工具调用、会话树与分支。
-2. **AI 功能**：MCP 服务器、CLI/Skills 入口，以及后续 AI 能力的统一列表。
-3. **设置**：AI 与 MCP、网络代理、命令行挂载。
-
-## 2. 当前架构
-
-### 2.1 唯一写入口：命令总线
+### 1.1 唯一写入口：命令总线
 
 ```
 界面操作 ─┐
-MCP 工具 ─┼─▶ apply_command / project.apply ─▶ 纯函数 ops ─▶ Project
+MCP 工具 ─┼─▶ apply_command / apply_commands ─▶ 纯函数 ops ─▶ Project
 内置智能体 ┘                                      │
-                                                  └─▶ OpEvent / 撤销历史
+                                                 └─▶ OpEvent / 撤销历史
 ```
 
-- `src/core/commands/`：可序列化命令注册表（素材、片段、轨道、改名）。
-- `src/stores/project.ts`：`revision`、`applyCommand`、`opLog`、按命令撤销。
-- 所有写操作都进入同一套撤销历史；MCP 和智能体与鼠标操作不可区分。
+- `src/core/commands/`：可序列化命令注册表（素材、片段、轨道、标记、工程）。
+- `src/stores/project.ts`：`revision`、单条 / 批量命令、`opLog`、快照撤销。
+- 批量命令在草稿上顺序执行，全部成功才提交一次 `revision` / 一个撤销步；失败整批回滚。
 - 过期 `baseRevision` 会被拒绝，保证单写者语义。
 
-### 2.2 Rust ↔ webview 桥接
+### 1.2 Rust ↔ webview 桥接
 
 - `src-tauri/src/bridge.rs`：`ProjectBridge` 发 `project-request`，前端执行后 `bridge_respond`。
-- `src/core/mcpBridge.ts`：前端桥接，处理 `project.get` / `project.apply` / `project.undo` / `project.redo`。
+- `src/core/mcpBridge.ts`：前端桥接，按方法返回概览、轨道页、单片段、检索结果或写入结果。
+- 读取是渐进的：桥接只回传当前关注的那一片，不再把整份工程送到 Rust 再截断。
 
-### 2.3 MCP 服务器
+### 1.3 MCP 服务器与工具面
 
 - `src-tauri/src/mcp.rs`：本地 Streamable HTTP / JSON-RPC，绑定 `127.0.0.1`。
 - 配置 `mcp.json`（`enabled` / `port`，默认 50563）；运行时把实际地址写入 `mcp-url`。
 - 工具面与内置智能体共用 `src-tauri/src/tools.rs`。
-
-### 2.4 剪辑智能体
-
-- `src-tauri/src/agent/`：OpenAI 兼容 Chat Completions、SSE 流式、工具调用、会话树持久化。
-- `src/stores/agent.ts`：流式正文 / 思考 / 工具卡片、分支、历史。
-- `src/components/workspace/agent/`：`ClipAgentPanel`、`AgentTurn`、`AgentComposer`、工具卡片等。
-- 会话落盘为 `agent/sessions/<id>.json`；配置落盘为 `ai.json`。
-
-### 2.5 CLI 与 Skills
-
 - `crates/aicut`：薄 MCP 客户端，子命令 `tools` / `call` / `status` / `start`。
-- `aicut` 按名转发 MCP 工具；新增工具不需要改 CLI。
-- 发现顺序：`AICUT_MCP_URL` → `<配置目录>/mcp-url` → 默认端口。
-- `cli-path` 每次启动写入包内二进制全路径；设置页可控是否挂载到 PATH。
-- `skills/aicut/SKILL.md` + `references/*.md` 通过 `include_str!` 嵌入，`aicut_help` 按域取用。
+- `skills/aicut/`：`SKILL.md` + `references/*.md`，通过 `include_str!` 嵌入，`aicut_help` 按域取用。
 
-### 2.6 网络
+### 1.4 已完成能力
 
-- `src-tauri/src/network.rs`：直连 / 系统代理 / 手动代理，落在 `network.json`。
-- 代理应用到剪辑智能体的 HTTP 客户端；系统代理优先读环境变量，macOS 额外读取 `scutil --proxy`。
-- 设置页可测试代理连通性，测试不写盘。
+**地基**
 
-## 3. 当前阶段已完成
+- [x] 可序列化命令、revision、事件日志、快照撤销。
+- [x] 人类 UI 走 `dispatch`，MCP / 智能体走 `applyCommand`。
+- [x] 过期命令拒绝、同轨重叠校验、片段范围 / 素材存在 / 时长校验。
+- [x] 批量事务 `apply_commands`。
+- [x] 轨道名、`trackId` 支持 id 或 1 起始 index。
 
-### A0 — 命令与事件地基
+**自动化剪辑**
 
-- [x] 可序列化命令、revision、事件日志、按命令撤销。
-- [x] 人类 UI 走 `dispatch` 兼容路径，MCP / 智能体走 `applyCommand`。
-- [x] 过期命令拒绝、同轨重叠校验、命令参数校验。
-- [x] 单元测试覆盖命令、revision、撤销分组、日志上限。
+- [x] 确定性宏：`append_clip`、`duplicate_clips`、`ripple_delete`、`extract_audio`。
+- [x] 工程生命周期：`new_project`、`open_project`、`save_project`。
+- [x] 渐进式读取：`get_project` 概览、`get_context`、`get_track`、`get_clip`、`find_clips`、`get_assets`。
+- [x] AI 工具：转写、翻译配音、朗读、分离、降噪、响度、超分、补帧、重构、视频 DSP、导出、模型管理。
 
-### A1 — 剪辑智能体
+**界面能力**
 
-- [x] OpenAI 兼容配置（base URL / API key / model）、模型列表、连通性测试。
-- [x] SSE 流式正文与思考、工具调用、工具结果卡片。
-- [x] 会话树、分支切换、历史列表、编辑后重答。
-- [x] 工具面与 MCP 共用：`get_project` / `apply_command` / `import_asset` / `undo` / `redo` / `aicut_help`。
+- [x] 轨道重命名；轨道头显示真实名称。
+- [x] 片段复制（⌘D / 工具栏）。
+- [x] 波纹删除（Shift+Delete / 工具栏）。
+- [x] 多选批量编辑常见属性（不透明度、混合模式、变换、文字样式、描边、阴影、圆角、增益、淡入淡出、变调、声像、静音）。
+- [x] 变速（0.1–4x），预览、导出、裁剪、分割保持一致。
+- [x] SRT / VTT 导入导出；时间线标记（增删改、双击重命名、右键删除）。
+- [x] 静帧渲染：`render_frame` + 预览面板“导出当前帧”。
+- [x] 分割、左右裁剪、普通删除、吸附、拖动排序、文本预设。
 
-### A2 — MCP 服务器
+### 1.5 当前工具面
 
-- [x] 设置页启用 / 端口 / 状态 / 端点复制。
-- [x] `mcp.json` 持久化、`mcp-url` 运行时发现、端口占用自动回退。
-- [x] JSON 与 SSE 两种响应，兼容外部 MCP 客户端与 `aicut`。
-- [x] 仅监听回环地址。
-
-### A3 — CLI / Skills / 设置
-
-- [x] `aicut` 薄客户端与构建脚本；Tauri `externalBin` 打包。
-- [x] 命令行设置：挂载开关、状态、命令、全路径、手工命令。
-- [x] Skills 文档、`aicut_help` 渐进式披露、智能体系统提示注入索引。
-- [x] 网络代理设置与代理测试。
-
-### 验证
-
-- `npm run build` 通过。
-- `npx vitest run` 通过（165 个测试）。
-- `cargo check`、`cargo test --lib` 通过。
-- 真实实例验证：`aicut status`、`aicut tools`、`get_project`、`apply_command`、`aicut_help`。
-- 浏览器渲染检查：剪辑智能体、AI 功能、AI 与 MCP / 网络 / 命令行设置。
-
-## 4. 工具面
-
-| 工具 | 用途 |
+| 类别 | 工具 |
 | --- | --- |
-| `get_project` | 读取工程、revision、轨道/片段/素材 id |
-| `apply_command` | 执行可序列化命令（track / clip / asset / project） |
-| `import_asset` | ffprobe 探测并加入素材库 |
-| `undo` / `redo` | 撤销 / 重做 |
-| `aicut_help` | 按域取技能文档；留空给索引 |
+| 读取 | `get_project`、`get_context`、`get_track`、`get_clip`、`find_clips`、`get_assets`、`get_markers`、`list_ai_models`、`aicut_help` |
+| 剪辑 | `apply_command`、`apply_commands`、`append_clip`、`set_clip_speed`、`set_clip_color`、`set_clip_mask`、`set_clip_transition`、`set_clip_keyframes`、`duplicate_clips`、`ripple_delete`、`extract_audio`、`import_asset`、`undo`、`redo` |
+| 字幕 | `import_subtitles`、`export_subtitles` |
+| 标记 | `add_marker`、`update_marker`、`remove_marker` |
+| 工程 | `new_project`、`open_project`、`save_project` |
+| 音频 AI | `transcribe`、`translate_audio`、`synthesize_voiceover`、`separate_stems`、`denoise_audio`、`process_audio`、`measure_loudness` |
+| 视频 AI | `upscale_video`、`interpolate_video`、`reframe_video`、`process_video` |
+| 产出 | `export_video`、`render_frame`、`render_storyboard`、`download_model`、`cancel_ai` |
+| 异步 | `job_start`、`job_status`、`job_cancel` |
 
-命令 kind：`project.rename`、`project.output`、`track.add/update/remove/move`、`asset.add/remove/update`、`clip.add/update/remove/move/trim/split`。
+### 1.6 已知边界
 
-## 5. 后续阶段
+- 预览只保证时间线可见与当前属性一致；复杂合成以导出结果为准。
+- 字幕可以 SRT/VTT 交换，但时间线里仍是文字片段，不是独立实体。
+- 长任务可以用 `job_start` 异步跑；同一时间只允许一个 AI 任务，没有并行队列。
+- 转场是片段入场/出场动画，不是相邻片段重叠式交叉淡化。
+- 调色与蒙版在预览中是近似效果，最终以导出结果为准。
+- 单轨片段不允许重叠；插入冲突需要顺延或换轨。
 
-| 阶段 | 主题 | 依赖 |
-| --- | --- | --- |
-| R | 审阅、提案与接管：变更集、时间线 diff、逐条批准、评论 | A 的命令总线 |
-| S | 字幕与转写校对：词级时间戳、置信度、SRT/VTT、烧录 | A + R |
-| M | 多视频层与合成原语：video pool、变速、静态蒙版、转场素材 | A |
-| H | HTML 场景素材：sandbox iframe、确定性 seek、烘焙导入 | A、M |
-| K | Skills 扩展：更多能力域、项目约定、可复用 playbook | A 的工具面 |
+## 2. 路线图
 
-## 6. 风险与约束
+### P0 — 能力对齐（已完成）
 
-| 风险 | 应对 |
-| --- | --- |
-| 端口/多实例冲突 | `mcp-url` 记录实际地址；端口占用自动回退；建议单实例运行 |
-| 本机进程可连 MCP | 仅回环 + 设置页安全提示；只运行可信 Harness |
-| 模型端点不稳定/不支持工具 | 设置页测试连通性；智能体错误进入事件流与通知 |
-| 智能体一次改太多 | 一条命令一个撤销步；Skills 明确要求拆小步 |
-| 预览/导出保真度差异 | 本期只保证时间线可见；渲染统一放到后续阶段 |
-| 会话事件在切面板时丢失 | 事件订阅放在根组件，面板切换不取消 |
+目标：让界面具备 agent 已经能做的操作，避免“AI 能改、人看不见/改不了”。
 
-## 7. 文件地图
+- [x] 轨道名显示与双击重命名。
+- [x] `track.update` 支持 `name`。
+- [x] 片段复制：⌘D、工具栏、复制后自动选中新片段。
+- [x] 波纹删除：Shift+Delete、工具栏。
+- [x] Inspector 多选批量编辑常见属性。
+- [x] 单元测试覆盖重命名、复制、波纹删除、批量事务。
+
+### P1 — 字幕与标记（已完成）
+
+目标：把字幕从“文字片段”升级为可交换的数据，并给时间线加可定位的标记。
+
+- [x] SRT / VTT 解析与序列化纯函数。
+- [x] 字幕导入：选择 `.srt` / `.vtt`，在置顶文字轨生成片段。
+- [x] 字幕导出：从文字轨导出 SRT / VTT。
+- [x] MCP：`import_subtitles` / `export_subtitles`。
+- [x] 标记模型：`Marker { id, time, name, color }`。
+- [x] 标记命令：`marker.add` / `marker.update` / `marker.remove`。
+- [x] 标记 UI：标尺显示标记、点击定位、双击重命名、右键删除；`M` 在播放头添加。
+- [x] MCP：`get_markers` / `add_marker` / `update_marker` / `remove_marker`。
+- [x] 测试：字幕往返、时间映射、标记增删改。
+
+### P2 — 时间重映射（已完成）
+
+目标：支持变速 / 慢动作，并保证预览与导出一致。
+
+- [x] `Clip.speed`（默认 1，范围 0.1–4）。
+- [x] 时间线时长与素材区间解耦：`duration * speed <= asset.duration - in`。
+- [x] 播放引擎：视频 `playbackRate`、音频 `playbackRate` 与调度偏移。
+- [x] 导出滤镜：视频 `setpts`、音频 `atempo` 多级拆分。
+- [x] Inspector 变速控件；`clip.speed` 命令与 `set_clip_speed` 工具。
+- [x] 裁剪 / 分割在变速下的边界。
+- [x] 测试：模型、裁剪、分割、播放映射、导出计划。
+
+### P3 — 画面自检（已完成）
+
+目标：让 agent 能“看一眼”时间线，而不是只读 JSON。
+
+- [x] 复用导出滤镜链路实现 `render_frame`（指定时间、分辨率、输出路径）。
+- [x] 复用现有 `export_video` Tauri 命令输出单帧 PNG，不新增重复的 ffmpeg 执行器。
+- [x] MCP 工具 `render_frame`。
+- [x] 预览面板“导出当前帧”按钮。
+- [x] 测试：单片段、时间边界、输出参数。
+- [x] `render_storyboard`：按多个时间点连续输出 PNG 自检。
+
+### P4 — 合成原语（已完成）
+
+目标：补齐真正需要渲染模型的功能。
+
+- [x] 调色：亮度 / 对比度 / 饱和度 / 色温 / 色调；预览用 CSS filter，导出用 `eq` / `colorbalance`。
+- [x] 转场：片段入/出转场（淡化、滑动），预览与导出共用同一套时间曲线。
+- [x] 关键帧：不透明度与变换（x/y/scale/rotation）；预览插值，导出用 ffmpeg 表达式与 `geq`。
+- [x] 蒙版：矩形 / 椭圆 / 线性渐变，静态蒙版；导出用 Canvas 生成蒙版 PNG + `alphamerge`。
+- [x] 每个原语都走命令总线，并提供 MCP 工具与 Inspector UI 入口。
+- [x] 测试：调色/蒙版/转场/关键帧的归一化、命令与导出计划。
+- [ ] 重叠式交叉淡化（需要允许受控片段重叠）留到后续；当前转场是片段的入场/出场动画。
+- [ ] 关键帧不透明度导出使用 `geq`，大项目性能需要实测；必要时改为分段烘焙。
+
+### P5 — 异步任务 API（已完成，单任务）
+
+目标：长任务不再阻塞 MCP 客户端。
+
+- [x] `job_start` / `job_status` / `job_cancel` 工具。
+- [x] 复用前端现有 AI job 系统与进度，不在 Rust 重复维护任务表。
+- [ ] 并行排队：当前同一时间只允许一个 AI 任务，后续需要拆开各 AI store 的单例状态。
+- [x] Skills 文档说明何时用同步工具、何时用异步任务。
+
+## 3. 非目标
+
+以下方向明确不在当前路线图内，相关文档和入口应逐步移除或标注为不实现：
+
+- HTML / iframe 场景素材与 HyperFrames 集成。
+- 云端协作、账号体系、多人实时编辑。
+- 移动端 / Web 版编辑器。
+- 插件市场与第三方 UI 扩展。
+- 提案 / 变更集审阅面板（当前用撤销历史 + 事件流替代）。
+- 内置转场素材库、字幕烧录模板市场。
+
+## 4. 验证基线
+
+每次阶段完成至少跑：
+
+- `pnpm test`：前端单元测试。
+- `pnpm exec vue-tsc --noEmit -p tsconfig.json`：类型检查。
+- `pnpm build`：生产构建。
+- `cargo test --manifest-path src-tauri/Cargo.toml tools:: --no-fail-fast`：工具层测试。
+- 真实实例：`scripts/mcp-smoke.sh`、`aicut status` / `aicut tools`。
+
+## 5. 文件地图
 
 **前端**
 
-- `src/types/events.ts`、`src/types/agent.ts`
-- `src/core/commands/`、`src/core/mcpBridge.ts`、`src/core/agentApi.ts`
-- `src/stores/project.ts`、`src/stores/agent.ts`
-- `src/components/workspace/agent/`（智能体面板与消息组件）
-- `src/components/workspace/panes/AiPane.vue`（AI 功能）
-- `src/components/settings/SettingsView.vue`（AI/MCP、网络、命令行）
-- `src/components/workspace/PanelTabs.vue`、`RightPanel.vue`
+- `src/types/`：工程、事件、AI、导出类型。
+- `src/core/ops/`：不可变领域操作。
+- `src/core/commands/`：可序列化命令注册表。
+- `src/core/projectView.ts`：渐进式读取视图。
+- `src/core/mcpBridge.ts`：MCP / 智能体 ↔ webview 桥接。
+- `src/stores/project.ts`：revision、批量事务、撤销、事件流。
+- `src/components/workspace/`：时间线、检查器、预览、AI 面板。
+- `src/components/settings/`：AI / MCP、网络、命令行。
+- `src/i18n/`：中英文文案。
 
 **Rust**
 
 - `src-tauri/src/bridge.rs`、`tools.rs`、`mcp.rs`
 - `src-tauri/src/agent/{mod,config,store,openai}.rs`
+- `src-tauri/src/export.rs`、`media.rs`
 - `src-tauri/src/network.rs`、`cli.rs`
 - `crates/aicut/`（薄客户端）
 - `skills/aicut/`（技能文档）
 
-## 8. 下一步
+## 6. 收尾验收
 
-1. 在真实窗口里做一次深/浅色、1440×900 与最小尺寸的目视验收。
-2. 配置一个支持工具调用的 OpenAI 兼容端点，跑一次「读工程 → 加轨 → 插片段」闭环。
-3. 进入 R / S / M / H 前确定优先级；R（审阅/提案）最贴近「人审片」的定位。
+- 在真实窗口里做一次深/浅色、1440×900 与最小尺寸的目视验收。
+- 跑一次同时包含调色、蒙版、转场、关键帧与变速的完整导出，检查预览与成片差异。
+- 用 `render_frame` / `render_storyboard` 对比关键帧中间帧。
+- 实测关键帧不透明度的 `geq` 导出耗时；大项目若过慢，改为分段烘焙。
+- 后续若要真正的相邻片段交叉淡化，需要先引入受控重叠模型。
+- P5 的并行 AI 队列需要拆开各 AI store 的单例状态，当前仍是单任务。

@@ -2,13 +2,27 @@
 import type {
   BlendMode,
   Clip,
+  ClipColor,
+  ClipMask,
   ClipShadow,
   ClipStroke,
   ClipTextStyle,
   ClipTransform,
+  ClipTransition,
+  ClipKeyframes,
+  Keyframe,
+  KeyframeProperty,
   Project,
 } from "@/types/project";
 import { createClip } from "@/core/factory";
+import {
+  isDefaultClipColor,
+  normalizeClipColor,
+  resolveClipColor,
+} from "@/core/clipColor";
+import { DEFAULT_CLIP_MASK, normalizeClipMask } from "@/core/clipMask";
+import { normalizeClipTransition } from "@/core/clipTransition";
+import { normalizeKeyframes } from "@/core/keyframes";
 import {
   normalizeBlendMode,
   normalizeShadow,
@@ -27,6 +41,11 @@ import {
   sameTransform,
 } from "@/core/transform";
 import { findClip, mapTrack, mapTrackClips, sortClips, withTouch, clamp } from "./internal";
+
+/** 片段播放速度，夹到 0.1–4。 */
+export function clipSpeed(clip: Clip): number {
+  return clamp(clip.speed ?? 1, 0.1, 4);
+}
 
 export function addClip(doc: Project, trackId: string, clip: Clip): Project {
   const track = doc.tracks.find((t) => t.id === trackId);
@@ -174,6 +193,7 @@ export function trimClip(
   const { track, clip } = found;
   const asset = doc.assets.find((a) => a.id === clip.assetId);
   const unbounded = hasUnboundedSource(asset, clip);
+  const speed = clipSpeed(clip);
   const minDuration = 1 / doc.fps;
   const snapped = Math.round(newTimeSec * doc.fps) / doc.fps;
   const { prevEnd, nextStart } = neighbourBounds(track, clip);
@@ -182,7 +202,7 @@ export function trimClip(
   let next: Clip;
   if (edge === "start") {
     // 音视频最多回退到素材入点 0；图片 / 文字可以继续向左延长。
-    const sourceStartLimit = unbounded ? 0 : clip.start - clip.in;
+    const sourceStartLimit = unbounded ? 0 : clip.start - clip.in / speed;
     const minStart = Math.max(0, prevEnd, sourceStartLimit);
     const maxStart = clipEnd - minDuration;
     // minStart > maxStart 时（极短片段 / 素材已耗尽）优先保证不产生负时长。
@@ -194,13 +214,13 @@ export function trimClip(
       start,
       duration: clip.duration - delta,
       // 无限素材向左延长时不搬动入点（入点保持 0）。
-      in: unbounded ? clip.in : clip.in + delta,
+      in: unbounded ? clip.in : clip.in + delta * speed,
     };
   } else {
     // 音视频最多延长到素材结尾；图片 / 文字没有上限。
     const sourceLimit = unbounded
       ? Infinity
-      : clip.start + Math.max(0, (asset?.duration ?? 0) - clip.in);
+      : clip.start + Math.max(0, (asset?.duration ?? 0) - clip.in) / speed;
     const maxEnd = Math.min(sourceLimit, nextStart);
     const minEnd = clip.start + minDuration;
     const end = maxEnd <= minEnd ? Math.max(clip.start, maxEnd) : Math.min(Math.max(snapped, minEnd), maxEnd);
@@ -243,9 +263,99 @@ export function splitClips(doc: Project, clipIds: string[], atSec: number): Proj
         id: crypto.randomUUID(),
         start: at,
         duration: clip.duration - leftDuration,
-        in: clip.in + leftDuration,
+        in: clip.in + leftDuration * clipSpeed(clip),
       });
     }
+    return { ...track, clips: sortClips(clips) };
+  });
+
+  return changed ? withTouch(doc, { tracks }) : doc;
+}
+
+/**
+ * 复制片段。`offsetSec` 为时间偏移；未指定 `targetTrackId` 时留在原轨道。
+ * 复制结果与目标轨道已有片段重叠时抛错，避免产生非法时间线。
+ */
+export function duplicateClips(
+  doc: Project,
+  clipIds: string[],
+  offsetSec = 0,
+  targetTrackId?: string,
+): Project {
+  const ids = [...new Set(clipIds)];
+  if (ids.length === 0) return doc;
+  if (targetTrackId && !doc.tracks.some((track) => track.id === targetTrackId)) {
+    throw new Error(`未知轨道：${targetTrackId}`);
+  }
+
+  const sources: Clip[] = [];
+  for (const id of ids) {
+    const found = findClip(doc, id);
+    if (!found) throw new Error(`片段不存在：${id}`);
+    sources.push(found.clip);
+  }
+
+  const placed = new Map<string, Clip[]>();
+  for (const track of doc.tracks) placed.set(track.id, [...track.clips]);
+
+  for (const source of sources) {
+    const trackId = targetTrackId ?? source.trackId;
+    const start = Math.max(0, source.start + offsetSec);
+    const next: Clip = {
+      ...source,
+      id: crypto.randomUUID(),
+      trackId,
+      start,
+    };
+    const list = placed.get(trackId) ?? [];
+    const clash = list.find(
+      (other) => start < other.start + other.duration && other.start < start + next.duration,
+    );
+    if (clash) {
+      const index = doc.tracks.findIndex((track) => track.id === trackId) + 1;
+      throw new Error(
+        `复制后的片段会与第 ${index} 轨的现有片段重叠，请增大 offset 或换一条轨道`,
+      );
+    }
+    list.push(next);
+    placed.set(trackId, list);
+  }
+
+  const tracks = doc.tracks.map((track) => {
+    const clips = placed.get(track.id);
+    return clips ? { ...track, clips: sortClips(clips) } : track;
+  });
+  return withTouch(doc, { tracks });
+}
+
+/**
+ * 波纹删除：删除片段，并把同一轨道上位于删除区间之后的片段整体左移，
+ * 补上被删片段留下的空隙。其他轨道不受影响。
+ */
+export function rippleDeleteClips(doc: Project, clipIds: string[]): Project {
+  const ids = new Set(clipIds);
+  if (ids.size === 0) return doc;
+
+  let changed = false;
+  const tracks = doc.tracks.map((track) => {
+    const removed = track.clips.filter((clip) => ids.has(clip.id));
+    if (removed.length === 0) return track;
+    changed = true;
+
+    const gaps = removed
+      .map((clip) => ({ start: clip.start, end: clip.start + clip.duration }))
+      .sort((a, b) => a.start - b.start);
+
+    const clips = track.clips
+      .filter((clip) => !ids.has(clip.id))
+      .map((clip) => {
+        let shift = 0;
+        for (const gap of gaps) {
+          if (gap.end <= clip.start + 1e-9) shift += gap.end - gap.start;
+        }
+        return shift > 0 ? { ...clip, start: Math.max(0, clip.start - shift) } : clip;
+      });
+
     return { ...track, clips: sortClips(clips) };
   });
 
@@ -296,6 +406,152 @@ export function setClipFadeOut(doc: Project, clipId: string, seconds: number): P
   const value = clamp(seconds, 0, max);
   if ((found.clip.fadeOut ?? 0) === value) return doc;
   return updateClip(doc, clipId, { fadeOut: value });
+}
+
+/**
+ * 变速：保持素材区间不变，改变时间线时长。
+ * 结果会被同轨下一个片段和素材剩余范围夹紧。
+ */
+export function setClipSpeed(doc: Project, clipId: string, value: number): Project {
+  const found = findClip(doc, clipId);
+  if (!found) return doc;
+  const { track, clip } = found;
+  if (clip.assetId === "") return doc;
+  const asset = doc.assets.find((candidate) => candidate.id === clip.assetId);
+  const current = clipSpeed(clip);
+  const speed = clamp(value, 0.1, 4);
+  if (Math.abs(speed - current) < 1e-6) return doc;
+
+  const sourceSpan = clip.duration * current;
+  if (!(sourceSpan > 0)) return doc;
+
+  const minDuration = 1 / doc.fps;
+  const position = track.clips.findIndex((candidate) => candidate.id === clipId);
+  const nextClip = position >= 0 ? track.clips[position + 1] : null;
+  let maxDuration = nextClip ? nextClip.start - clip.start : Number.POSITIVE_INFINITY;
+  if (asset && asset.kind !== "image") {
+    maxDuration = Math.min(
+      maxDuration,
+      Math.max(minDuration, (asset.duration - clip.in) / speed),
+    );
+  }
+  if (!(maxDuration >= minDuration)) return doc;
+
+  let nextSpeed = speed;
+  const natural = sourceSpan / nextSpeed;
+  if (natural < minDuration) nextSpeed = sourceSpan / minDuration;
+  else if (natural > maxDuration) nextSpeed = sourceSpan / maxDuration;
+  nextSpeed = clamp(nextSpeed, 0.1, 4);
+
+  const duration = Math.max(minDuration, sourceSpan / nextSpeed);
+  if (!(duration >= minDuration) || duration > maxDuration + 1e-6) return doc;
+  if (Math.abs(nextSpeed - current) < 1e-6 && Math.abs(duration - clip.duration) < 1e-9) {
+    return doc;
+  }
+  return updateClip(doc, clipId, { speed: nextSpeed, duration });
+}
+
+/** 调色：合并 patch；全部回到默认值时删除 color 字段。 */
+export function setClipColor(
+  doc: Project,
+  clipId: string,
+  patch: Partial<ClipColor>,
+): Project {
+  const found = findClip(doc, clipId);
+  if (!found) return doc;
+  const current = resolveClipColor(found.clip);
+  const next = normalizeClipColor({ ...current, ...patch });
+  if (isDefaultClipColor(next)) {
+    return found.clip.color === undefined ? doc : updateClip(doc, clipId, { color: undefined });
+  }
+  if (
+    found.clip.color !== undefined &&
+    next.brightness === current.brightness &&
+    next.contrast === current.contrast &&
+    next.saturation === current.saturation &&
+    next.temperature === current.temperature &&
+    next.tint === current.tint
+  ) {
+    return doc;
+  }
+  return updateClip(doc, clipId, { color: next });
+}
+
+/** 静态蒙版：传 null 移除；只对视频/图片生效。 */
+export function setClipMask(
+  doc: Project,
+  clipId: string,
+  patch: Partial<ClipMask> | null,
+): Project {
+  const found = findClip(doc, clipId);
+  if (!found) return doc;
+  const asset = doc.assets.find((candidate) => candidate.id === found.clip.assetId);
+  if (!asset || (asset.kind !== "video" && asset.kind !== "image")) {
+    return patch === null ? (found.clip.mask === undefined ? doc : updateClip(doc, clipId, { mask: undefined })) : doc;
+  }
+  if (patch === null) {
+    return found.clip.mask === undefined ? doc : updateClip(doc, clipId, { mask: undefined });
+  }
+  const next = normalizeClipMask({ ...(found.clip.mask ?? DEFAULT_CLIP_MASK), ...patch });
+  return updateClip(doc, clipId, { mask: next });
+}
+
+/** 设置/移除片段入或出转场。 */
+export function setClipTransition(
+  doc: Project,
+  clipId: string,
+  edge: "in" | "out",
+  patch: Partial<ClipTransition> | null,
+): Project {
+  const found = findClip(doc, clipId);
+  if (!found) return doc;
+  const current = edge === "in" ? found.clip.transitionIn : found.clip.transitionOut;
+  const next =
+    patch === null
+      ? null
+      : normalizeClipTransition({ ...(current ?? {}), ...patch }, found.clip.duration);
+  if (!next) {
+    if (current === undefined) return doc;
+    return edge === "in"
+      ? updateClip(doc, clipId, { transitionIn: undefined })
+      : updateClip(doc, clipId, { transitionOut: undefined });
+  }
+  if (
+    current &&
+    current.type === next.type &&
+    current.duration === next.duration &&
+    current.direction === next.direction
+  ) {
+    return doc;
+  }
+  return edge === "in"
+    ? updateClip(doc, clipId, { transitionIn: next })
+    : updateClip(doc, clipId, { transitionOut: next });
+}
+
+/** 设置/清空某个属性的关键帧。 */
+export function setClipKeyframes(
+  doc: Project,
+  clipId: string,
+  property: KeyframeProperty,
+  keyframes: Keyframe[] | null,
+): Project {
+  const found = findClip(doc, clipId);
+  if (!found) return doc;
+  const current: ClipKeyframes = { ...(found.clip.keyframes ?? {}) };
+  const normalized =
+    keyframes === null
+      ? []
+      : normalizeKeyframes(keyframes, found.clip.duration, property);
+  if (normalized.length === 0) delete current[property];
+  else current[property] = normalized;
+
+  if (Object.keys(current).length === 0) {
+    return found.clip.keyframes === undefined
+      ? doc
+      : updateClip(doc, clipId, { keyframes: undefined });
+  }
+  return updateClip(doc, clipId, { keyframes: current });
 }
 
 /** 变调（半音），范围 -12..12。 */

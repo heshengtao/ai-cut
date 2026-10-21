@@ -1,6 +1,13 @@
 # 域：AI 能力（ai-features）
 
-这些是 AI Cut 应用内的 AI 能力。**除 `get_project` / `apply_command` / `import_asset` / `undo` / `redo` 外，MCP 不暴露以下功能；它们必须由人在界面触发。** 智能体负责准备输入、给操作清单、读回结果并继续。
+这些是 AI Cut 应用内的 AI 能力。内置智能体与 MCP 可以直接调用它们（见第 8 节），界面入口仍然保留给人工操作。AI 任务会真的跑模型，调用前确认用户意图；缺模型时先查 `list_ai_models`、再 `download_model`。
+
+## 同步与异步
+
+- 同步工具（`transcribe` / `export_video` / 视频 AI …）会一直等到任务结束，适合单步、需要立刻拿结果的场景。
+- 异步入口 `job_start({kind, params})` 立即返回 `{jobId}`；用 `job_status({jobId})` 轮询 `status / progress / result / error`，用 `job_cancel({jobId})` 取消。
+- `kind` 与同步工具同名：`transcribe` / `separate` / `denoise` / `process_audio` / `loudness` / `translate` / `voiceover` / `upscale` / `interpolate` / `reframe` / `process_video` / `export` / `download_model`。
+- 当前同一时间只允许一个 AI 任务；`job_start` 在已有任务运行时会报错，先 `job_status` 或 `job_cancel`。
 
 ## 0. 能力总表
 
@@ -43,7 +50,7 @@
 4. 点「生成字幕」。
 5. 后端抽音、VAD 切段、识别；返回 `SubtitleCue[] {start,end,text}`。
 6. 前端把 cue 映射到时间线（考虑片段的 `start` / `in` / `duration`），新建置顶文字轨。
-7. 智能体重新 `get_project`，找到新文字轨和片段，逐条校对。
+7. 智能体用 `get_project` 找到新文字轨，再用 `find_clips` / `get_track` 取文字片段，逐条校对。
 
 ### 映射规则（重要）
 
@@ -132,6 +139,7 @@
 - **纯音频片段**：替换素材引用，`in=0`，时长取 `min(原时长, 新素材时长)`。
 - **视频片段**：原画面保留并静音；处理后的音频放到下面一条新轨。
 - **音源分离**：源片段静音，按分轨新建多条轨道（如「分离 · vocals」），起点对齐源片段。
+- **分离视频音轨**：不是模型任务，用 `extract_audio` 一步完成；等价于原片段静音 + 新轨 `audioOnly` 片段。
 
 ### 响度目标
 
@@ -181,35 +189,42 @@
 | --- | --- | --- | --- |
 | MP4 | H.264 + AAC 192k，`yuv420p`，faststart | 有 | 平台交付 |
 | ProRes | ProRes 422（profile 2），PCM 48k | 有 | 母版/后期 |
-| GIF | 调色板，最高 720p，15fps | 无 | 短循环/贴图 |
+| GIF | palettegen + paletteuse，可配颜色数 / 抖动 / 循环 | 无 | 短循环/贴图 |
 
-- 分辨率：project / 1080p / 720p。
+- 分辨率：project / 1080p / 720p / custom；custom 用 `width` / `height`，只给一边时按工程比例补全。
+- 画面适配：`fit: "contain" | "cover"`；cover 裁切填满，不需要改工程画布。`fitAnchor` 可选 center / top / bottom / left / right / 四角，决定保留哪块画面。
 - 质量：high（CRF 18）/ standard（23）/ small（28）。
-- 帧率：跟随工程或指定；GIF 固定 15。
+- 帧率：跟随工程或指定；GIF 省略时默认 15fps。
+- GIF：`gif: { colors: 2–256, dither: "sierra2_4a" | "bayer" | "floyd_steinberg" | "none", loop: 0 }`；`loop` 0 = 无限，-1 = 不循环。
 - **文字片段会被 Canvas 预渲染成 PNG 并烧录**；字幕不是独立 SRT/VTT 文件。
 - 音频混音：所有发声轨按 `gain` / `start` / `fadeIn` / `fadeOut` / `pitch` / `pan` 混合；单轨时直通，多轨 `amix`。
 - 导出前检查离线素材；缺失会报错。
+- `export_video` 返回 `path / duration / warnings / format / width / height / fps / fit / fitAnchor`，智能体可以直接核对交付规格，不必再猜。
 - 当前没有内置转场、蒙版轨或字幕文件导出。需要这些请用外部工具预处理/后处理。
 
-## 8. 智能体协作边界
+## 8. 智能体工具
 
-**智能体可以：**
+| 工具 | 作用 | 主要参数 |
+| --- | --- | --- |
+| `transcribe` | ASR 转写并写入字幕轨 | `clipId`/`assetId`, `modelId?`, `language?`, `insertSubtitles?` |
+| `translate_audio` | 转写 + 翻译 + 可选译制配音 | `clipId`, `target`, `dub?`, `ttsModelId?` |
+| `synthesize_voiceover` | 文字片段或一段文字合成朗读 | `clipIds`/`text`, `modelId?`/`providerId?`, `voiceId?` |
+| `separate_stems` | UVR / HTDemucs 分轨 | `clipId`, `modelId?` |
+| `denoise_audio` | LocalVQE 降噪 | `clipId`, `modelId?` |
+| `process_audio` | 无模型降噪 / 美化 | `clipId`, `effect`, `preset` |
+| `measure_loudness` | 响度与真峰值 | `clipId`, `targetLufs?`, `apply?` |
+| `upscale_video` / `interpolate_video` / `reframe_video` | 超分 / 补帧 / 重构 | `clipId`, `modelId?` 或 `subject`/`aspect` |
+| `process_video` | 稳定/去噪/去闪烁/动态模糊/放大 | `clipId`, `options` |
+| `export_video` | 导出到显式路径 | `outputPath`, `format?`, `resolution?`, `width?`, `height?`, `fit?`, `fitAnchor?`, `fps?`, `quality?`, `gif?` |
+| `list_ai_models` / `download_model` / `cancel_ai` | 模型与任务管理 | `feature?` / `id` / — |
+| `extract_audio` | 分离视频音轨（确定性，不跑模型） | `clipId`, `trackName?` |
 
-- 用 `import_asset` 把 TTS 生成的音频、分离出的分轨、处理后的视频导入。
-- 建文字轨/字幕占位、调整文字与时间。
-- 读回 AI 操作后的工程，继续校对与精剪。
-- 用 `undo` 回退人误操作。
+行为约定：
 
-**智能体不可以（除非外部 harness 提供额外工具）：**
-
-- 触发 App 内的 ASR/TTS/翻译/音频 AI/视频 AI。
-- 触发导出。
-- 读取模型文件或 API 密钥。
-- 直接把字幕写成 SRT/VTT 文件（当前产品没有这个导出面）。
-
-**正确的协作话术：**
-
-> 字幕文字片段已按镜头排好。请在 AI 功能 → 文本里选择 SenseVoice，确认 VAD 已下载，选中 S01 片段后点「生成字幕」。完成后告诉我，我会重读工程并校对时间与断句。
+- 工具是同步的：调用后等到任务结束；停止按钮或 `cancel_ai` 会取消当前 job。
+- 产出物（分轨、降噪音频、朗读、超分视频）会自动导入素材库并落回时间线，整个回填是一步撤销。
+- 模型缺失会直接报错并列出可下载的 id，不会静默降级。
+- 仍然不支持：把字幕写成 SRT/VTT 文件、内置转场、蒙版轨。不要承诺这些。
 
 ## 9. 故障排查
 

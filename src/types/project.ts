@@ -119,6 +119,15 @@ export interface Clip {
   duration: number;
   /** 素材入点（秒）。 */
   in: number;
+  /** 播放速度，默认 1；0.1–4。时间线时长 × 速度 = 素材消耗量。 */
+  speed?: number;
+  /** 调色参数。 */
+  color?: ClipColor;
+  /** 静态蒙版。 */
+  mask?: ClipMask;
+  transitionIn?: ClipTransition;
+  transitionOut?: ClipTransition;
+  keyframes?: ClipKeyframes;
   /** 文字片段的文案。 */
   text?: string;
   /** 文字样式；缺省时使用默认样式。 */
@@ -165,6 +174,71 @@ export interface Track {
   clips: Clip[];
 }
 
+export type KeyframeProperty = "opacity" | "x" | "y" | "scale" | "rotation";
+
+/** 关键帧时间相对片段起点（秒）。 */
+export interface Keyframe {
+  time: number;
+  value: number;
+}
+
+export interface ClipKeyframes {
+  opacity?: Keyframe[];
+  x?: Keyframe[];
+  y?: Keyframe[];
+  scale?: Keyframe[];
+  rotation?: Keyframe[];
+}
+
+export type ClipTransitionType = "fade" | "slide";
+export type ClipTransitionDirection = "left" | "right" | "up" | "down";
+
+/** 片段入/出转场；duration 以时间线秒为单位。 */
+export interface ClipTransition {
+  type: ClipTransitionType;
+  duration: number;
+  direction?: ClipTransitionDirection;
+}
+
+export type ClipMaskShape = "rect" | "ellipse" | "linear";
+
+/** 静态蒙版：坐标与尺寸按片段画面归一化到 0..1。 */
+export interface ClipMask {
+  shape: ClipMaskShape;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** 羽化，按蒙版短边的比例，0..0.5。 */
+  feather?: number;
+  /** 线性蒙版角度（度），0 = 从左到右。 */
+  angle?: number;
+}
+
+/** 片段调色；缺省值分别是 0 / 1 / 1 / 0 / 0。 */
+export interface ClipColor {
+  /** -1..1，0 为原始亮度。 */
+  brightness?: number;
+  /** 0..2，1 为原始对比度。 */
+  contrast?: number;
+  /** 0..3，1 为原始饱和度。 */
+  saturation?: number;
+  /** -1..1，负值偏冷、正值偏暖。 */
+  temperature?: number;
+  /** -1..1，负值偏绿、正值偏洋红。 */
+  tint?: number;
+}
+
+/** 时间线标记：用于定位、章节与审片批注。 */
+export interface Marker {
+  id: string;
+  /** 时间线时间（秒）。 */
+  time: number;
+  name: string;
+  /** 可选颜色（#rrggbb）。 */
+  color?: string;
+}
+
 /** 工程文档，可直接序列化为 .json。 */
 export interface Project {
   version: number;
@@ -176,6 +250,7 @@ export interface Project {
   height: number;
   assets: MediaAsset[];
   tracks: Track[];
+  markers: Marker[];
 }
 
 /** 当前工程文档版本。 */

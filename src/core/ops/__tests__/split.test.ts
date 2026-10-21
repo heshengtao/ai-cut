@@ -55,6 +55,24 @@ describe("splitClips", () => {
     expect(clips.filter((c) => c.assetId === "a1")).toHaveLength(2);
   });
 
+  it("advances the right clip's in-point by speed", () => {
+    const base = addTrack(newProject());
+    const v = base.tracks[0].id;
+    const clip = createClip({
+      assetId: "a1",
+      trackId: v,
+      start: 0,
+      duration: 4,
+      in: 1,
+      speed: 2,
+    });
+    const doc = addClip(base, v, clip);
+    const next = splitClips(doc, [clip.id], 2);
+    const clips = next.tracks[0].clips;
+    expect(clips[0].in).toBeCloseTo(1);
+    expect(clips[1].in).toBeCloseTo(1 + 2 * 2);
+  });
+
   it("returns the same reference for an unknown clip id", () => {
     const { doc } = fixture();
     expect(splitClips(doc, ["nope"], 3)).toBe(doc);

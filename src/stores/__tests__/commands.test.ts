@@ -11,12 +11,19 @@ vi.mock("@/core/media", () => ({
 
 import type { Command, CommandKind } from "@/types/events";
 import { EVENT_LOG_LIMIT, useProjectStore } from "@/stores/project";
-import { createClip, newProject } from "@/core/factory";
-import { addClip, addTrack, setClipOpacity } from "@/core/ops";
+import { createAsset, createClip, newProject } from "@/core/factory";
+import { addAsset, addClip, addTrack, setClipOpacity } from "@/core/ops";
 
 beforeEach(() => {
   setActivePinia(createPinia());
-  useProjectStore().reset(addTrack(newProject()), null);
+  const asset = createAsset({
+    id: "a1",
+    name: "a.mp4",
+    kind: "video",
+    src: "/tmp/a.mp4",
+    duration: 20,
+  });
+  useProjectStore().reset(addAsset(addTrack(newProject()), asset), null);
 });
 
 function command(
@@ -74,6 +81,44 @@ describe("applyCommand", () => {
     expect(store.revision).toBe(revision);
     expect(store.doc.tracks[0].clips).toHaveLength(1);
     expect(store.opLog.at(-1)?.error).toBeTruthy();
+  });
+
+  it("applies a batch atomically with one revision and one undo step", () => {
+    const store = useProjectStore();
+    const trackId = store.doc.tracks[0].id;
+    const first = createClip({ assetId: "a1", trackId, start: 0, duration: 1 });
+    const second = createClip({ assetId: "a1", trackId, start: 2, duration: 1 });
+
+    const result = store.applyCommands([
+      command(store.revision, "clip.add", { trackId, clip: first }),
+      command(store.revision, "clip.add", { trackId, clip: second }),
+    ]);
+
+    expect(result.ok).toBe(true);
+    expect(result.changed).toBe(true);
+    expect(result.revision).toBe(1);
+    expect(store.revision).toBe(1);
+    expect(store.doc.tracks[0].clips).toHaveLength(2);
+
+    store.undo();
+    expect(store.doc.tracks[0].clips).toHaveLength(0);
+  });
+
+  it("rolls back a batch when one command fails", () => {
+    const store = useProjectStore();
+    const trackId = store.doc.tracks[0].id;
+    const good = createClip({ assetId: "a1", trackId, start: 0, duration: 1 });
+    const bad = createClip({ assetId: "missing", trackId, start: 2, duration: 1 });
+
+    const result = store.applyCommands([
+      command(store.revision, "clip.add", { trackId, clip: good }),
+      command(store.revision, "clip.add", { trackId, clip: bad }),
+    ]);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeTruthy();
+    expect(store.revision).toBe(0);
+    expect(store.doc.tracks[0].clips).toHaveLength(0);
   });
 
   it("notifies subscribers and stops after unsubscribe", () => {

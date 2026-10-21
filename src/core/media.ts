@@ -138,6 +138,16 @@ export function writeProjectFile(path: string, json: string): Promise<void> {
   return invoke<void>("write_project", { path, json });
 }
 
+/** 读取任意文本文件（字幕等）；复用工程的 fs 命令。 */
+export function readTextFile(path: string): Promise<string> {
+  return invoke<string>("read_project", { path });
+}
+
+/** 写入任意文本文件（字幕等）；复用工程的 fs 命令。 */
+export function writeTextFile(path: string, text: string): Promise<void> {
+  return invoke<void>("write_project", { path, json: text });
+}
+
 export function pathExists(path: string): Promise<boolean> {
   return invoke<boolean>("path_exists", { path });
 }
@@ -270,6 +280,28 @@ export async function pickExportPath(
   });
   if (!picked) return null;
   return picked.toLowerCase().endsWith(`.${extension}`) ? picked : `${picked}.${extension}`;
+}
+
+/** 原生文件框：选择字幕文件（.srt / .vtt）。 */
+export async function pickSubtitleFile(): Promise<string | null> {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({
+    multiple: false,
+    filters: [{ name: t("subtitle.fileFilter"), extensions: ["srt", "vtt"] }],
+  });
+  return typeof picked === "string" ? picked : null;
+}
+
+/** 原生文件框：选择字幕导出路径；扩展名决定 SRT / VTT。 */
+export async function pickSubtitleSavePath(defaultName: string): Promise<string | null> {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const picked = await save({
+    defaultPath: `${defaultName}.srt`,
+    filters: [{ name: t("subtitle.fileFilter"), extensions: ["srt", "vtt"] }],
+  });
+  if (!picked) return null;
+  const lower = picked.toLowerCase();
+  return lower.endsWith(".srt") || lower.endsWith(".vtt") ? picked : `${picked}.srt`;
 }
 
 /** 自动保存/恢复草稿的路径（应用数据目录下 recovery/autosave.json）。 */

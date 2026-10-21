@@ -16,10 +16,22 @@ export type CommandKind =
   | "clip.split"
   | "clip.trim"
   | "clip.move"
+  | "clip.append"
+  | "clip.speed"
+  | "clip.color"
+  | "clip.mask"
+  | "clip.transition"
+  | "clip.keyframes"
+  | "clip.duplicate"
+  | "clip.ripple_delete"
   | "track.add"
   | "track.update"
   | "track.remove"
   | "track.move"
+  | "subtitle.import"
+  | "marker.add"
+  | "marker.update"
+  | "marker.remove"
   | "project.rename"
   | "project.output"
   | "project.reset"
@@ -136,24 +148,90 @@ export interface CommandPayloads {
   "asset.add": { asset: MediaAsset };
   "asset.remove": { assetId: string };
   "asset.update": { assetId: string; patch: Partial<MediaAsset> };
-  "clip.add": { trackId: string; clip: Clip };
+  "clip.add": { trackId: string | number; clip: Clip };
   "clip.update": { clipId: string; patch: Partial<Clip> };
   "clip.remove": { clipIds: string[] };
   "clip.split": { clipIds: string[]; at: number };
   "clip.trim": { clipId: string; edge: "start" | "end"; time: number };
-  "clip.move": { clipIds: string[]; delta: number; targetTrackId?: string };
-  "track.add": { index?: number };
-  "track.update": {
-    trackId: string;
-    patch: Partial<Pick<Track, "muted" | "visible" | "locked">>;
+  "clip.move": {
+    clipIds: string[];
+    delta: number;
+    targetTrackId?: string | number;
   };
-  "track.remove": { trackId: string };
-  "track.move": { trackId: string; toIndex: number };
+  "clip.append": {
+    assetId: string;
+    trackId?: string | number;
+    trackName?: string;
+    start?: number;
+    duration?: number;
+    in?: number;
+  };
+  "clip.speed": { clipId: string; speed: number };
+  "clip.color": {
+    clipId: string;
+    patch: {
+      brightness?: number;
+      contrast?: number;
+      saturation?: number;
+      temperature?: number;
+      tint?: number;
+    };
+  };
+  "clip.transition": {
+    clipId: string;
+    edge: "in" | "out";
+    transition: {
+      type?: "fade" | "slide";
+      duration?: number;
+      direction?: "left" | "right" | "up" | "down";
+    } | null;
+  };
+  "clip.keyframes": {
+    clipId: string;
+    property: "opacity" | "x" | "y" | "scale" | "rotation";
+    keyframes: { time: number; value: number }[] | null;
+  };
+  "clip.mask": {
+    clipId: string;
+    mask: {
+      shape?: "rect" | "ellipse" | "linear";
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      feather?: number;
+      angle?: number;
+    } | null;
+  };
+  "clip.duplicate": {
+    clipIds: string[];
+    offset?: number;
+    targetTrackId?: string | number;
+  };
+  "clip.ripple_delete": { clipIds: string[] };
+  "track.add": { index?: number; name?: string };
+  "track.update": {
+    trackId: string | number;
+    patch: Partial<Pick<Track, "name" | "muted" | "visible" | "locked">>;
+  };
+  "track.remove": { trackId: string | number };
+  "track.move": { trackId: string | number; toIndex: number };
+  "subtitle.import": {
+    entries: { start: number; end: number; text: string }[];
+    trackName?: string;
+    offset?: number;
+  };
+  "marker.add": { time: number; name?: string; color?: string };
+  "marker.update": {
+    markerId: string;
+    patch: { time?: number; name?: string; color?: string };
+  };
+  "marker.remove": { markerId: string };
   "project.rename": { name: string };
   "project.output": { width?: number; height?: number; fps?: number };
 }
 
-/** 工程快照（MCP project.get 的返回）。 */
+/** 工程快照（内部完整读取；MCP 默认只取概览）。 */
 export interface ProjectSnapshot {
   revision: number;
   project: Project;
@@ -170,10 +248,22 @@ export const COMMAND_KINDS: readonly CommandKind[] = [
   "clip.split",
   "clip.trim",
   "clip.move",
+  "clip.append",
+  "clip.speed",
+  "clip.color",
+  "clip.mask",
+  "clip.transition",
+  "clip.keyframes",
+  "clip.duplicate",
+  "clip.ripple_delete",
   "track.add",
   "track.update",
   "track.remove",
   "track.move",
+  "subtitle.import",
+  "marker.add",
+  "marker.update",
+  "marker.remove",
   "project.rename",
   "project.output",
   "project.reset",

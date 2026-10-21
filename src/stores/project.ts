@@ -12,7 +12,7 @@ import type { Affected, Command, CommandResult, DispatchMeta, OpEvent } from "@/
 import type { Project } from "@/types/project";
 import { newProject as makeProject } from "@/core/factory";
 import { parseProject, serializeProject } from "@/core/serialize";
-import { applyCommandToDoc, diffAffected } from "@/core/commands";
+import { applyCommandToDoc, applyCommandsToDoc, diffAffected } from "@/core/commands";
 import { recordProjectHistory, getProjectHistory, flushHistoryRecords } from "@/core/history";
 import { updateAsset } from "@/core/ops";
 import { renameProject } from "@/core/ops/project";
@@ -287,6 +287,102 @@ export const useProjectStore = defineStore("project", () => {
     }
   }
 
+  /**
+   * 批量命令入口：整批在草稿上执行，全部成功才提交一次 revision / 一个撤销步。
+   * 任意一条失败都不会改动当前文档。
+   */
+  function applyCommands(commands: Command[]): CommandResult {
+    flushCoalesce();
+
+    if (commands.length === 0) {
+      return {
+        ok: false,
+        revision: revision.value,
+        affected: EMPTY_AFFECTED,
+        changed: false,
+        error: "至少需要一条命令",
+      };
+    }
+
+    const expected = revision.value;
+    for (const command of commands) {
+      if (command.baseRevision !== expected) {
+        const error = t("error.command.stale", {
+          expected,
+          actual: command.baseRevision,
+        });
+        emitEvent({
+          revision: expected,
+          command,
+          affected: EMPTY_AFFECTED,
+          durationMs: 0,
+          error,
+        });
+        return {
+          ok: false,
+          revision: expected,
+          affected: EMPTY_AFFECTED,
+          changed: false,
+          error,
+        };
+      }
+    }
+
+    const before = doc.value;
+    const startedAt = Date.now();
+
+    try {
+      const result = applyCommandsToDoc(before, commands);
+      if (result.doc === before) {
+        return {
+          ok: true,
+          revision: revision.value,
+          affected: result.affected,
+          changed: false,
+        };
+      }
+
+      commitBefore(result.doc, before);
+      const label =
+        commands.length === 1
+          ? commands[0].label
+          : `${commands[0].label} 等 ${commands.length} 项`;
+      emitEvent({
+        revision: revision.value,
+        command: {
+          ...commands[0],
+          kind: "ui.dispatch",
+          payload: { count: commands.length },
+          label,
+        },
+        affected: result.affected,
+        durationMs: Date.now() - startedAt,
+      });
+      return {
+        ok: true,
+        revision: revision.value,
+        affected: result.affected,
+        changed: true,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      emitEvent({
+        revision: revision.value,
+        command: commands[0],
+        affected: EMPTY_AFFECTED,
+        durationMs: Date.now() - startedAt,
+        error: message,
+      });
+      return {
+        ok: false,
+        revision: revision.value,
+        affected: EMPTY_AFFECTED,
+        changed: false,
+        error: message,
+      };
+    }
+  }
+
   function undo(): void {
     flushCoalesce();
     const stack = undoStack.value.slice();
@@ -484,6 +580,7 @@ export const useProjectStore = defineStore("project", () => {
     dispatchCoalesced,
     endCoalesce,
     applyCommand,
+    applyCommands,
     setAssetWaveform,
     undo,
     redo,

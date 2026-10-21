@@ -93,7 +93,7 @@ fn run(command: Commands) -> Result<(), String> {
 fn launch() -> Result<(), String> {
     if cfg!(target_os = "macos") {
         let status = ProcessCommand::new("open")
-            .args(["-b", "com.aicut.app"])
+            .args(["-b", "com.aicut.editor"])
             .status();
         if matches!(status, Ok(status) if status.success()) {
             return Ok(());

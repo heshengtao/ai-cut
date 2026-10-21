@@ -114,6 +114,7 @@ onMounted(async () => {
   await store.loadConfig();
   await store.loadSessions();
   await store.start();
+  await store.syncRunning();
   scrollToBottom();
 });
 

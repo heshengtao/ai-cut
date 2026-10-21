@@ -27,6 +27,49 @@ function clipById(doc: ReturnType<typeof newProject>, id: string) {
   throw new Error("clip not found");
 }
 
+describe("trimClip — speed", () => {
+  function speedFixture() {
+    const base = addTrack(newProject());
+    const v = base.tracks[0].id;
+    const asset = createAsset({ name: "a.mp4", kind: "video", src: "/a.mp4", duration: 10 });
+    const target = createClip({
+      assetId: asset.id,
+      trackId: v,
+      start: 2,
+      duration: 4,
+      in: 1,
+      speed: 2,
+    });
+    let doc = addAsset(base, asset);
+    doc = addClip(doc, v, target);
+    return { doc, target: target.id };
+  }
+
+  it("advances the in-point by delta × speed on start trim", () => {
+    const { doc, target } = speedFixture();
+    const next = trimClip(doc, target, "start", 3);
+    const c = clipById(next, target);
+    expect(c.start).toBeCloseTo(3);
+    expect(c.duration).toBeCloseTo(3);
+    expect(c.in).toBeCloseTo(3);
+  });
+
+  it("limits the start by the remaining source at the given speed", () => {
+    const { doc, target } = speedFixture();
+    const next = trimClip(doc, target, "start", 0);
+    const c = clipById(next, target);
+    expect(c.start).toBeCloseTo(1.5);
+    expect(c.in).toBeCloseTo(0);
+  });
+
+  it("limits the end by the remaining source at the given speed", () => {
+    const { doc, target } = speedFixture();
+    const next = trimClip(doc, target, "end", 99);
+    const c = clipById(next, target);
+    expect(c.start + c.duration).toBeCloseTo(6.5);
+  });
+});
+
 describe("trimClip — start edge", () => {
   it("moves the start later, shortening duration and advancing in-point", () => {
     const { doc, target } = fixture();

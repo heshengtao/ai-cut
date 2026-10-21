@@ -1,6 +1,6 @@
 <script setup lang="ts">
-/** 轨道头：静音/显示/锁定 + 删除（轨道只用序号标识，不显示名称）。 */
-import { computed } from "vue";
+/** 轨道头：名称（双击重命名）、静音/显示/锁定 + 删除。 */
+import { computed, nextTick, ref } from "vue";
 import {
   TrashIcon,
   QueueListIcon,
@@ -18,12 +18,37 @@ const props = defineProps<{ track: Track; index: number; dragging?: boolean }>()
 const emit = defineEmits<{
   (e: "toggle-flag", trackId: string, flag: "muted" | "visible" | "locked"): void;
   (e: "remove", trackId: string): void;
+  (e: "rename", trackId: string, name: string): void;
   (e: "reorder", trackId: string, event: PointerEvent): void;
   (e: "select", trackId: string): void;
 }>();
 
 const i18n = useI18n();
 const label = computed(() => i18n.t("track.label", { n: props.index + 1 }));
+const displayName = computed(() => props.track.name.trim() || label.value);
+const editing = ref(false);
+const draft = ref("");
+const nameInput = ref<HTMLInputElement | null>(null);
+
+async function startRename(): Promise<void> {
+  draft.value = props.track.name.trim() || displayName.value;
+  editing.value = true;
+  await nextTick();
+  nameInput.value?.focus();
+  nameInput.value?.select();
+}
+
+function commitRename(): void {
+  if (!editing.value) return;
+  editing.value = false;
+  const name = draft.value.trim();
+  if (name && name !== props.track.name) emit("rename", props.track.id, name);
+}
+
+function cancelRename(): void {
+  editing.value = false;
+  draft.value = "";
+}
 
 /** 点击轨道头空白处：一键选中该轨道上的所有片段。 */
 function onHeadClick(event: MouseEvent): void {
@@ -44,6 +69,26 @@ function onHeadClick(event: MouseEvent): void {
       >
         <QueueListIcon class="th-icon" />
       </button>
+      <input
+        v-if="editing"
+        ref="nameInput"
+        v-model="draft"
+        class="th-name-input"
+        :aria-label="i18n.t('track.rename')"
+        @click.stop
+        @pointerdown.stop
+        @keydown.enter.prevent="commitRename"
+        @keydown.esc.prevent="cancelRename"
+        @blur="commitRename"
+      />
+      <span
+        v-else
+        class="th-name"
+        :title="i18n.t('track.renameHint')"
+        @dblclick.stop="startRename"
+      >
+        {{ displayName }}
+      </span>
     </div>
     <div class="th-btns">
       <button
@@ -112,6 +157,33 @@ function onHeadClick(event: MouseEvent): void {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.th-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgb(var(--md-on-surface-muted));
+  cursor: text;
+}
+.th-name:hover {
+  color: rgb(var(--md-on-surface));
+}
+.th-name-input {
+  min-width: 0;
+  width: 100%;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid rgb(var(--md-primary) / 0.6);
+  border-radius: 5px;
+  background-color: rgb(var(--md-surface-container-highest));
+  color: rgb(var(--md-on-surface));
+  font-size: 10px;
+  outline: none;
 }
 .th-icon {
   width: 14px;

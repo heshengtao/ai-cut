@@ -19,6 +19,7 @@ import {
   agentConfig,
   agentDeleteSession,
   agentModels,
+  agentRunning,
   agentSend,
   agentSession,
   agentSessions,
@@ -180,14 +181,28 @@ export const useAgentStore = defineStore("agent", () => {
 
   async function removeSession(id: string): Promise<void> {
     if (running.value) return;
-    await agentDeleteSession(id);
+    try {
+      await agentDeleteSession(id);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), "error");
+      return;
+    }
     if (session.value?.id === id) session.value = null;
     await loadSessions();
   }
 
   async function setHead(nodeId: string): Promise<void> {
     if (!session.value || running.value) return;
-    session.value = await agentSetHead(session.value.id, nodeId);
+    try {
+      session.value = await agentSetHead(session.value.id, nodeId);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
+  /** webview 重载后，用后端的单飞标志找回"这一轮还在跑"的事实。 */
+  async function syncRunning(): Promise<void> {
+    running.value = await agentRunning().catch(() => false);
   }
 
   function resetStreaming(): void {
@@ -227,7 +242,8 @@ export const useAgentStore = defineStore("agent", () => {
   }
 
   async function stop(): Promise<void> {
-    await agentCancel().catch(() => undefined);
+    const wasRunning = await agentCancel().catch(() => false);
+    if (!wasRunning) running.value = false;
   }
 
   function handleEvent(event: AgentEvent): void {
@@ -353,6 +369,7 @@ export const useAgentStore = defineStore("agent", () => {
     newSession,
     removeSession,
     setHead,
+    syncRunning,
     send,
     editAndResend,
     stop,

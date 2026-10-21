@@ -15,8 +15,15 @@ import { dataUrlToBase64, textLayerName } from "@/core/export/textLayer";
 const MP4: ExportOptions = {
   format: "mp4",
   resolution: "project",
+  width: null,
+  height: null,
   fps: null,
   quality: "standard",
+  fit: "contain",
+  fitAnchor: "center",
+  gifColors: 256,
+  gifDither: "sierra2_4a",
+  gifLoop: 0,
 };
 
 const NO_TEXT = new Map<string, string>();
@@ -129,6 +136,93 @@ function fixture() {
   };
 }
 
+describe("color grading", () => {
+  it("adds eq and colorbalance filters to the clip layer", () => {
+    const { doc, topClip } = fixture();
+    const graded = updateClip(doc, topClip.id, {
+      color: { brightness: 0.1, contrast: 1.2, saturation: 0.7, temperature: 0.4, tint: -0.1 },
+    });
+    const plan = buildExportPlan(graded, MP4, NO_TEXT);
+
+    expect(plan.filterGraph).toContain("eq=brightness=0.1000:contrast=1.2000:saturation=0.7000");
+    expect(plan.filterGraph).toContain("colorbalance=");
+  });
+});
+
+describe("masks", () => {
+  it("adds a mask input and alphamerge filter", () => {
+    const { doc, topClip } = fixture();
+    const plan = buildExportPlan(
+      doc,
+      MP4,
+      NO_TEXT,
+      "/tmp/out.mp4",
+      new Map([[topClip.id, "/tmp/mask.png"]]),
+    );
+
+    expect(plan.inputs).toContain("/tmp/mask.png");
+    expect(plan.filterGraph).toContain("alphamerge");
+    expect(plan.filterGraph).toMatch(/\[mask\d+\]/);
+  });
+});
+
+describe("transitions", () => {
+  it("adds alpha fades and slide expressions", () => {
+    const { doc, topClip } = fixture();
+    const transitioned = updateClip(doc, topClip.id, {
+      transitionIn: { type: "fade", duration: 0.5 },
+      transitionOut: { type: "slide", duration: 0.5, direction: "left" },
+    });
+    const plan = buildExportPlan(transitioned, MP4, NO_TEXT);
+
+    expect(plan.filterGraph).toContain("fade=t=in:st=0:d=0.5:alpha=1");
+    expect(plan.filterGraph).toContain("if(between(t,");
+    expect(plan.filterGraph).toContain("-100*");
+  });
+});
+
+describe("keyframes", () => {
+  it("emits animated overlay, scale and alpha expressions", () => {
+    const { doc, topClip } = fixture();
+    const keyed = updateClip(doc, topClip.id, {
+      keyframes: {
+        x: [
+          { time: 0, value: 0 },
+          { time: 2, value: 20 },
+        ],
+        scale: [
+          { time: 0, value: 1 },
+          { time: 2, value: 1.2 },
+        ],
+        opacity: [
+          { time: 0, value: 0.2 },
+          { time: 2, value: 1 },
+        ],
+      },
+    });
+    const plan = buildExportPlan(keyed, MP4, NO_TEXT);
+
+    expect(plan.filterGraph).toContain("if(lt(t,");
+    expect(plan.filterGraph).toContain("scale=w='iw*(");
+    expect(plan.filterGraph).toContain("geq=");
+    expect(plan.filterGraph).toContain("alpha(X,Y)");
+  });
+});
+
+describe("speed", () => {
+  it("retimes video and audio with setpts / atempo", () => {
+    const { doc, topClip } = fixture();
+    const retimed = updateClip(doc, topClip.id, { speed: 2, duration: 1.5 });
+    const plan = buildExportPlan(retimed, MP4, NO_TEXT);
+
+    expect(plan.filterGraph).toContain("setpts=(PTS-STARTPTS)/2");
+    expect(plan.filterGraph).toContain("atempo=2");
+
+    const index = plan.inputs.indexOf("/media/top.mp4");
+    expect(plan.inputs.slice(index - 5, index - 1)).toEqual(["-ss", "1", "-t", "3"]);
+  });
+});
+
 describe("formatSeconds / safeFileName", () => {
   it("formats seconds with up to 6 decimals and no trailing zeros", () => {
     expect(formatSeconds(2)).toBe("2");
@@ -169,13 +263,37 @@ describe("resolveDimensions", () => {
     });
   });
 
-  it("caps GIF at 720p and 15fps", () => {
+  it("keeps the project size for GIF and defaults to 15fps", () => {
     const { doc } = fixture();
     expect(resolveDimensions(doc, { ...MP4, format: "gif" })).toEqual({
-      width: 1280,
-      height: 720,
+      width: 1920,
+      height: 1080,
       fps: 15,
     });
+  });
+
+  it("supports custom dimensions and derives the missing side", () => {
+    const { doc } = fixture();
+    expect(
+      resolveDimensions(doc, { ...MP4, resolution: "custom", width: 240, height: 240 }),
+    ).toEqual({ width: 240, height: 240, fps: 30 });
+    expect(
+      resolveDimensions(doc, { ...MP4, resolution: "custom", width: 240, height: null }),
+    ).toEqual({ width: 240, height: 136, fps: 30 });
+  });
+
+  it("lets GIF override the default 15fps", () => {
+    const { doc } = fixture();
+    expect(
+      resolveDimensions(doc, {
+        ...MP4,
+        format: "gif",
+        resolution: "custom",
+        width: 240,
+        height: 240,
+        fps: 24,
+      }),
+    ).toEqual({ width: 240, height: 240, fps: 24 });
   });
 });
 
@@ -405,6 +523,65 @@ describe("buildExportPlan — output profiles", () => {
     );
     expect(plan.fps).toBe(15);
     expect(plan.outputArgs.at(-1)).toBe("/tmp/out.gif");
+  });
+
+  it("honors GIF colors, dither, fps and loop", () => {
+    const { doc } = fixture();
+    const plan = buildExportPlan(
+      doc,
+      {
+        ...MP4,
+        format: "gif",
+        resolution: "custom",
+        width: 240,
+        height: 240,
+        fps: 24,
+        gifColors: 128,
+        gifDither: "bayer",
+        gifLoop: 2,
+      },
+      NO_TEXT,
+      "/tmp/out.gif",
+    );
+
+    expect(plan.fps).toBe(24);
+    expect(plan.filterGraph).toContain("palettegen=max_colors=128:stats_mode=diff[pal]");
+    expect(plan.filterGraph).toContain("paletteuse=dither=bayer[gifout]");
+    expect(plan.filterGraph).toContain("color=c=black:s=240x240:r=24");
+    expect(plan.outputArgs).toEqual(expect.arrayContaining(["-loop", "2", "-an"]));
+  });
+
+  it("uses cover crop instead of padding when fit is cover", () => {
+    const { doc } = fixture();
+    const plan = buildExportPlan(
+      doc,
+      { ...MP4, resolution: "custom", width: 240, height: 240, fit: "cover" },
+      NO_TEXT,
+      "/tmp/out.mp4",
+    );
+
+    expect(plan.filterGraph).toContain("scale=240:240:force_original_aspect_ratio=increase");
+    expect(plan.filterGraph).toContain("crop=240:240");
+    expect(plan.filterGraph).not.toContain("pad=240:240");
+  });
+
+  it("moves the cover crop window with fitAnchor", () => {
+    const { doc } = fixture();
+    const plan = buildExportPlan(
+      doc,
+      {
+        ...MP4,
+        resolution: "custom",
+        width: 240,
+        height: 240,
+        fit: "cover",
+        fitAnchor: "bottom",
+      },
+      NO_TEXT,
+      "/tmp/out.mp4",
+    );
+
+    expect(plan.filterGraph).toContain("crop=240:240:(iw-ow)*0.5:(ih-oh)*1");
   });
 });
 
