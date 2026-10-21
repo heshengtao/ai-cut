@@ -43,5 +43,5 @@ for bin in ffmpeg ffprobe; do
   rm -f "$DEST/$bin-$TRIPLE$EXE"
   cp -L "$src" "$DEST/$bin-$TRIPLE$EXE"
   chmod +x "$DEST/$bin-$TRIPLE$EXE"
-  echo "已放置 $DEST/$bin-$TRIPLE$EXE（来自 $src）"
+  echo "已放置 $DEST/${bin}-${TRIPLE}${EXE}（来自 $src）"
 done
