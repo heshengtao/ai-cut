@@ -37,11 +37,11 @@ for bin in ffmpeg ffprobe; do
     src="$(command -v "$bin" || true)"
   fi
   if [ -z "$src" ] || [ ! -f "$src" ]; then
-    echo "缺少 $bin：请先 pnpm install（静态构建），或安装系统 ffmpeg" >&2
+    echo "缺少 ${bin}：请先 pnpm install（静态构建），或安装系统 ffmpeg" >&2
     exit 1
   fi
   rm -f "$DEST/$bin-$TRIPLE$EXE"
   cp -L "$src" "$DEST/$bin-$TRIPLE$EXE"
   chmod +x "$DEST/$bin-$TRIPLE$EXE"
-  echo "已放置 $DEST/${bin}-${TRIPLE}${EXE}（来自 $src）"
+  echo "已放置 $DEST/${bin}-${TRIPLE}${EXE}（来自 ${src}）"
 done

@@ -7,7 +7,7 @@ set -euo pipefail
 
 DISCOVERY="${HOME}/.ai-cut/mcp.json"
 if [[ ! -f "$DISCOVERY" ]]; then
-  echo "未找到 MCP 发现文件：$DISCOVERY（先启动 AI Cut）" >&2
+  echo "未找到 MCP 发现文件：${DISCOVERY}（先启动 AI Cut）" >&2
   exit 1
 fi
 
