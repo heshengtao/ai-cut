@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="1200" height="420" role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">AI Cut</title>
+  <desc id="hero-desc">AI Cut — a local-first, agent-operable video editing workspace, with a miniature timeline showing video, subtitle and audio tracks under an amber playhead.</desc>
+  <defs>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7F67BE" />
+      <stop offset="1" stop-color="#4F378B" />
+    </linearGradient>
+    <radialGradient id="glow" cx="0.1" cy="0.5" r="0.85">
+      <stop offset="0" stop-color="#6750A4" stop-opacity="0.38" />
+      <stop offset="0.55" stop-color="#6750A4" stop-opacity="0.07" />
+      <stop offset="1" stop-color="#6750A4" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="panelFade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#232227" stop-opacity="0" />
+      <stop offset="0.12" stop-color="#232227" stop-opacity="1" />
+      <stop offset="1" stop-color="#232227" stop-opacity="1" />
+    </linearGradient>
+    <clipPath id="frame">
+      <rect width="1200" height="420" rx="24" />
+    </clipPath>
+    <clipPath id="panel">
+      <rect x="816" y="96" width="340" height="228" rx="14" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect width="1200" height="420" fill="#1c1b1f" />
+    <rect width="1200" height="420" fill="url(#glow)" />
+
+    <!-- brand mark (same mark as public/logo.svg) -->
+    <g transform="translate(84 118) scale(0.18)">
+      <rect width="1024" height="1024" rx="232" fill="url(#mark)" />
+      <rect x="200" y="242" width="120" height="540" rx="60" fill="#FFB74D" />
+      <path
+        d="M 404 337.247 L 404 686.753 Q 404 782 484.119 730.495 L 755.958 555.741 Q 824 512 755.958 468.259 L 484.119 293.505 Q 404 242 404 337.247 Z"
+        fill="#FFFFFF"
+      />
+    </g>
+
+    <!-- wordmark + tagline -->
+    <text x="312" y="226" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="86" font-weight="700" letter-spacing="2" fill="#EADDFF">AI CUT</text>
+    <text x="314" y="274" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="23" fill="#CAC4D0">Local-first, agent-operable video editing</text>
+    <text x="314" y="318" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="600" letter-spacing="0.6" fill="#FFB74D">AI cuts. You review.</text>
+
+    <!-- the app's own timeline, in miniature -->
+    <g clip-path="url(#panel)">
+      <rect x="816" y="96" width="340" height="228" fill="#232227" />
+
+      <!-- ruler ticks -->
+      <g stroke="#ffffff" stroke-opacity="0.08">
+        <line x1="832" y1="100" x2="832" y2="108" />
+        <line x1="880" y1="100" x2="880" y2="108" />
+        <line x1="928" y1="100" x2="928" y2="108" />
+        <line x1="976" y1="100" x2="976" y2="108" />
+        <line x1="1024" y1="100" x2="1024" y2="108" />
+        <line x1="1072" y1="100" x2="1072" y2="108" />
+        <line x1="1120" y1="100" x2="1120" y2="108" />
+      </g>
+
+      <!-- lane 1: video (primaryContainer) -->
+      <rect x="826" y="112" width="320" height="60" rx="10" fill="#1A191E" />
+      <rect x="832" y="120" width="148" height="44" rx="8" fill="#4F378B" />
+      <rect x="988" y="120" width="94" height="44" rx="8" fill="#4F378B" opacity="0.72" />
+      <g fill="#D0BCFF">
+        <rect x="840" y="128" width="34" height="28" rx="5" fill="#6750A4" />
+        <path d="M 852 136 L 852 148 L 862 142 Z" fill="#EADDFF" />
+        <rect x="882" y="132" width="86" height="6" rx="3" />
+        <rect x="882" y="144" width="64" height="6" rx="3" opacity="0.62" />
+        <rect x="996" y="132" width="74" height="6" rx="3" />
+        <rect x="996" y="144" width="52" height="6" rx="3" opacity="0.62" />
+      </g>
+
+      <!-- lane 2: subtitles (tertiaryContainer) -->
+      <rect x="826" y="182" width="320" height="60" rx="10" fill="#1A191E" />
+      <rect x="832" y="190" width="104" height="44" rx="8" fill="#633B48" />
+      <rect x="944" y="190" width="104" height="44" rx="8" fill="#633B48" />
+      <rect x="1056" y="190" width="84" height="44" rx="8" fill="#633B48" />
+      <g fill="#EFB8C8">
+        <rect x="840" y="202" width="86" height="6" rx="3" />
+        <rect x="840" y="216" width="58" height="6" rx="3" opacity="0.7" />
+        <rect x="952" y="202" width="86" height="6" rx="3" />
+        <rect x="952" y="216" width="66" height="6" rx="3" opacity="0.7" />
+        <rect x="1064" y="202" width="64" height="6" rx="3" />
+        <rect x="1064" y="216" width="44" height="6" rx="3" opacity="0.7" />
+      </g>
+
+      <!-- lane 3: audio waveform (secondaryContainer) -->
+      <rect x="826" y="252" width="320" height="60" rx="10" fill="#1A191E" />
+      <rect x="832" y="260" width="252" height="44" rx="8" fill="#4A4458" />
+      <path
+        d="M 840 282 L 848 274 L 856 286 L 864 270 L 872 288 L 880 276 L 888 284 L 896 268 L 904 288 L 912 278 L 920 284 L 928 272 L 936 286 L 944 276 L 952 288 L 960 270 L 968 284 L 976 278 L 984 286 L 992 272 L 1000 288 L 1008 276 L 1016 284 L 1024 270 L 1032 286 L 1040 278 L 1048 288 L 1056 274 L 1064 284 L 1072 276"
+        fill="none"
+        stroke="#CCC2DC"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+
+      <!-- playhead + cut mark -->
+      <rect x="900" y="100" width="2" height="228" fill="#FFB74D" fill-opacity="0.82" />
+      <path d="M 896 100 L 906 100 L 901 109 Z" fill="#FFB74D" />
+
+      <!-- left edge fade so the panel melts into the banner -->
+      <rect x="816" y="96" width="60" height="228" fill="url(#panelFade)" />
+    </g>
+
+    <!-- panel outline -->
+    <rect x="816.5" y="96.5" width="339" height="227" rx="14" fill="none" stroke="#49454F" stroke-opacity="0.45" />
+  </g>
+</svg>
