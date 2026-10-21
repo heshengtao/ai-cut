@@ -5,7 +5,6 @@ import {
   addTrackAt,
   moveTrack,
   removeTrack,
-  renameTrack,
   setTrackFlag,
 } from "@/core/ops/tracks";
 
@@ -61,16 +60,6 @@ describe("removeTrack", () => {
   it("returns the same reference for an unknown id", () => {
     const doc = addTrack(newProject());
     expect(removeTrack(doc, "missing")).toBe(doc);
-  });
-});
-
-describe("renameTrack", () => {
-  it("sets the name and is a no-op for the same name", () => {
-    const doc = addTrack(newProject());
-    const id = doc.tracks[0].id;
-    const next = renameTrack(doc, id, "主镜头");
-    expect(next.tracks[0].name).toBe("主镜头");
-    expect(renameTrack(next, id, "主镜头")).toBe(next);
   });
 });
 

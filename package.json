@@ -2,26 +2,40 @@
   "name": "ai-cut",
   "private": true,
   "version": "0.1.0",
+  "description": "AI Cut — a local-first, agent-operable video editing workspace.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heshengtao/ai-cut.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "fetch:sidecars": "bash scripts/fetch-sidecars.sh",
+    "build:aicut": "bash scripts/build-aicut.sh"
   },
   "dependencies": {
     "@heroicons/vue": "^2.2.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.8.3",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.14.0",
+    "dompurify": "^3.4.17",
+    "marked": "^18.1.1",
     "pinia": "^3.0.1",
     "vue": "^3.5.13"
   },
   "devDependencies": {
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "@tauri-apps/cli": "^2",
     "@types/node": "^26.6.5",
     "@vitejs/plugin-vue": "^5.2.1",
     "autoprefixer": "^10.4.20",
+    "ffmpeg-static": "^5.3.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.7.2",

@@ -5,7 +5,11 @@
  * 菜单 Teleport 到 body 并按 fixed 定位：预览底部是滚动/裁切容器，绝对定位会被裁掉。
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { CheckIcon, ChevronDownIcon } from "@heroicons/vue/24/outline";
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  ChevronDownIcon,
+} from "@heroicons/vue/24/outline";
 import { useI18n } from "@/i18n";
 
 export interface SelectOption {
@@ -17,6 +21,8 @@ export interface SelectOption {
   group?: string;
   /** 比例预览（可选），例如 16 / 9。 */
   ratio?: number;
+  /** 操作项：点击只触发 `action`，不会改变当前选中值。 */
+  action?: boolean;
 }
 
 const props = withDefaults(
@@ -36,6 +42,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: "update:modelValue", value: string): void;
   (e: "select", value: string): void;
+  (e: "action", id: string): void;
 }>();
 
 const { t } = useI18n();
@@ -92,11 +99,15 @@ function close(): void {
   open.value = false;
 }
 
-function pick(id: string): void {
+function pick(option: SelectOption): void {
   close();
-  if (id === props.modelValue) return;
-  emit("update:modelValue", id);
-  emit("select", id);
+  if (option.action) {
+    emit("action", option.id);
+    return;
+  }
+  if (option.id === props.modelValue) return;
+  emit("update:modelValue", option.id);
+  emit("select", option.id);
 }
 
 function ratioStyle(ratio: number): Record<string, string> {
@@ -176,10 +187,11 @@ onUnmounted(() => {
               v-for="o in g.items"
               :key="o.id"
               class="item"
+              :class="{ action: o.action }"
               type="button"
               role="option"
               :aria-selected="o.id === modelValue"
-              @click="pick(o.id)"
+              @click="pick(o)"
             >
               <span class="item-main">
                 <span class="item-label">{{ o.label }}</span>
@@ -191,7 +203,8 @@ onUnmounted(() => {
                 :style="ratioStyle(o.ratio)"
                 aria-hidden="true"
               />
-              <CheckIcon v-if="o.id === modelValue" class="item-check" />
+              <ArrowRightIcon v-if="o.action" class="item-arrow" />
+              <CheckIcon v-else-if="o.id === modelValue" class="item-check" />
             </button>
           </template>
         </div>
@@ -314,11 +327,24 @@ onUnmounted(() => {
   line-height: 1.35;
   color: rgb(var(--md-on-surface-variant));
 }
-.md3-select-menu .item-check {
+.md3-select-menu .item-check,
+.md3-select-menu .item-arrow {
   width: 15px;
   height: 15px;
   flex: 0 0 auto;
   color: rgb(var(--md-primary));
+}
+.md3-select-menu .item.action {
+  color: rgb(var(--md-primary));
+}
+.md3-select-menu .item.action .item-label {
+  font-weight: 500;
+}
+.md3-select-menu .item.action + .item:not(.action) {
+  margin-top: 2px;
+  border-top: 1px solid rgb(var(--md-outline-variant) / 0.4);
+  border-radius: 0 0 12px 12px;
+  padding-top: 10px;
 }
 .md3-select-menu .ratio-icon {
   flex: 0 0 auto;

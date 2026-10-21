@@ -1,66 +1,116 @@
 /**
- * 自动保存与崩溃恢复。
+ * 自动保存与重启恢复。
  *
- * 写入的是应用数据目录下的 `recovery/autosave.json`，与用户显式保存的工程文件分开——
- * 草稿永远不覆盖用户的工程文件。
+ * 每次文档变化都把「工程内容 + 文件路径 + dirty」写进应用数据目录的
+ * `recovery/session.json`；下次启动时直接静默载入，不再弹确认框。
+ * 旧版的 `recovery/autosave.json` 仍会作为兜底读取一次。
  */
 import { watch } from "vue";
 import { parseProject, serializeProject } from "@/core/serialize";
-import { recoveryRead, recoveryWrite } from "@/core/media";
+import { recoveryRead, sessionRead, sessionWrite } from "@/core/media";
+import type { Project } from "@/types/project";
+import { flushHistoryRecords, recordProjectHistory } from "@/core/history";
 import { useProjectStore } from "@/stores/project";
-import { toast } from "@/composables/useToast";
-import { confirm } from "@/composables/useConfirm";
-import { t } from "@/i18n";
 
 /** 自动保存的防抖时长（毫秒）。 */
-const AUTOSAVE_DEBOUNCE_MS = 2000;
+const AUTOSAVE_DEBOUNCE_MS = 800;
+
+interface SessionSnapshot {
+  project: string;
+  path: string | null;
+  dirty: boolean;
+  savedAt: number;
+}
+
+interface RestoredSession {
+  project: Project;
+  path: string | null;
+  dirty: boolean;
+}
+
+function parseSession(json: string): RestoredSession | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return null;
+  }
+
+  if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+    const record = raw as Record<string, unknown>;
+    if (typeof record.project === "string") {
+      return {
+        project: parseProject(record.project),
+        path: typeof record.path === "string" ? record.path : null,
+        dirty: record.dirty === true,
+      };
+    }
+  }
+
+  // 旧版草稿就是工程 JSON 本身。
+  return { project: parseProject(json), path: null, dirty: true };
+}
+
+function isBlank(project: Project): boolean {
+  return (
+    project.assets.length === 0 &&
+    project.tracks.every((track) => track.clips.length === 0)
+  );
+}
 
 export function startAutosave(): void {
   const project = useProjectStore();
   let timer: number | undefined;
 
-  watch(
-    () => project.doc,
-    () => {
-      if (!project.dirty) return;
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        void recoveryWrite(serializeProject(project.doc)).catch(() => {
-          // 自动保存失败不打扰用户：写不进去（磁盘满/权限）时静默跳过
-        });
-      }, AUTOSAVE_DEBOUNCE_MS);
-    },
-  );
+  const schedule = (): void => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      void writeSession().catch(() => {
+        // 自动保存失败不打扰用户：写不进去（磁盘满/权限）时静默跳过
+      });
+    }, AUTOSAVE_DEBOUNCE_MS);
+  };
+
+  watch([() => project.doc, () => project.filePath, () => project.dirty], schedule);
 }
 
-/** 启动时检查是否有比当前工程更新的恢复草稿。 */
-export async function checkRecovery(): Promise<void> {
+async function writeSession(): Promise<void> {
   const project = useProjectStore();
+  const snapshot: SessionSnapshot = {
+    project: serializeProject(project.doc),
+    path: project.filePath,
+    dirty: project.dirty,
+    savedAt: Date.now(),
+  };
+  await sessionWrite(JSON.stringify(snapshot));
+}
 
-  if (project.dirty) return; // 已经有未保存的工作，不打断
+let restoreStarted = false;
 
-  let draft: ReturnType<typeof parseProject> | null = null;
+/** 启动时静默载入上次的工程；没有会话或内容为空时什么都不做。 */
+export async function restoreLastSession(): Promise<void> {
+  if (restoreStarted) return;
+  restoreStarted = true;
+
+  const project = useProjectStore();
+  let session: RestoredSession | null = null;
   try {
-    const json = await recoveryRead();
-    if (!json) return;
-    draft = parseProject(json);
+    const json = (await sessionRead()) ?? (await recoveryRead());
+    if (json) session = parseSession(json);
   } catch {
-    return; // 草稿损坏：忽略
+    return;
   }
+  if (!session || isBlank(session.project)) return;
 
-  const newer = project.filePath === null || draft.updatedAt > project.doc.updatedAt;
-  if (!newer || draft.tracks.every((t) => t.clips.length === 0)) return;
+  project.busy = true;
+  try {
+    project.reset(await project.markOfflineAssets(session.project), session.path);
+    project.dirty = session.dirty;
 
-  const when = new Date(draft.updatedAt).toLocaleString();
-  const restore = await confirm({
-    title: t("confirm.recoveryTitle"),
-    message: t("confirm.recoveryMessage", { when }),
-    confirmText: t("confirm.restore"),
-    cancelText: t("confirm.discard"),
-  });
-  if (!restore) return;
-
-  project.reset(draft, project.filePath);
-  project.dirty = true;
-  toast(t("toast.recoveryRestored"));
+    // 当前工程也放进历史列表，重启后不会只剩一份孤零零的自动保存。
+    recordProjectHistory(project.doc, session.path, session.dirty);
+    await Promise.all([flushHistoryRecords(), writeSession().catch(() => undefined)]);
+  } finally {
+    project.busy = false;
+  }
 }

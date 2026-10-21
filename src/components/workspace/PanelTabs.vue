@@ -10,6 +10,8 @@ import {
   RectangleStackIcon,
   AdjustmentsHorizontalIcon,
   SparklesIcon,
+  ChatBubbleLeftRightIcon,
+  CpuChipIcon,
 } from "@heroicons/vue/24/outline";
 import Tooltip from "@/components/common/Tooltip.vue";
 import { PANES, useLayoutStore, type PaneId } from "@/stores/layout";
@@ -43,7 +45,9 @@ watch(
 const ICONS: Record<PaneId, unknown> = {
   media: RectangleStackIcon,
   inspector: AdjustmentsHorizontalIcon,
+  agent: ChatBubbleLeftRightIcon,
   ai: SparklesIcon,
+  models: CpuChipIcon,
 };
 
 function labelOf(id: PaneId): string {

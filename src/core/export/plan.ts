@@ -46,9 +46,10 @@ export function collectUsedAssets(project: Project): MediaAsset[] {
       if (!clip.assetId) continue;
       const asset = assets.get(clip.assetId);
       if (!asset) continue;
-      const visual = visible && (asset.kind === "video" || asset.kind === "image");
+      const visual = visible && !clip.audioOnly && (asset.kind === "video" || asset.kind === "image");
       const audio =
         audible &&
+        !clip.muted &&
         (asset.kind === "audio" || (asset.kind === "video" && asset.hasAudio === true));
       if (visual || audio) ids.add(asset.id);
     }
@@ -162,6 +163,8 @@ export function buildExportPlan(
     const trackIndex = project.tracks.indexOf(track);
     for (const clip of track.clips) {
       if (!(clip.duration > 0)) continue;
+      // 分离出来的纯音频片段只参与混音，不再叠加一次画面。
+      if (clip.audioOnly) continue;
       // 文字片段没有素材，交给下面的文字图层循环处理。
       if (!clip.assetId) continue;
       const asset = assetOf(clip);
@@ -276,6 +279,7 @@ export function buildExportPlan(
       if (!isAudible(track)) continue;
       for (const clip of track.clips) {
         if (!(clip.duration > 0)) continue;
+        if (clip.muted) continue;
         const asset = assetOf(clip);
         if (!asset || !hasAudio(asset)) continue;
         assertOnline(asset);

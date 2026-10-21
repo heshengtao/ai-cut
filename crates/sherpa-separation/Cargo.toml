@@ -1,0 +1,11 @@
+[package]
+name = "sherpa-separation"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+# 只为了把 sherpa-onnx 的静态库链接进来；实际调用走下面的 C API。
+sherpa-onnx = "1.13.8"
+
+[workspace]

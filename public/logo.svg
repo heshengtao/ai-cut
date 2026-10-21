@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="AI Cut">
   <title>AI Cut</title>
   <rect width="1024" height="1024" rx="232" fill="#6750A4" />
-  <rect x="200" y="242" width="120" height="540" rx="60" fill="#FFFFFF" />
+  <rect x="200" y="242" width="120" height="540" rx="60" fill="#FFB74D" />
   <path
     d="M 404 337.247 L 404 686.753 Q 404 782 484.119 730.495 L 755.958 555.741 Q 824 512 755.958 468.259 L 484.119 293.505 Q 404 242 404 337.247 Z"
     fill="#FFFFFF"

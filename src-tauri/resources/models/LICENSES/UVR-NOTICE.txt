@@ -1,0 +1,19 @@
+UVR / MDX-Net weights
+=====================
+
+Files:
+- UVR-MDX-NET-Voc_FT.onnx
+- UVR_MDXNET_9482.onnx
+
+Upstream: https://github.com/TRvlvr/model_repo/releases
+Mirrored by sherpa-onnx:
+https://github.com/k2-fsa/sherpa-onnx/releases/tag/source-separation-models
+
+The upstream model repository does not ship an explicit license file.
+Commercial use must be verified with the upstream authors.
+
+The ONNX files here MUST retain their embedded metadata
+(model_type=UVR, stems, sample_rate, n_fft, center, win_length,
+hop_length, dim_t, dim_f, dim_c, window_type), because sherpa-onnx
+reads these keys when loading the model. Re-exporting without them
+will make the model unusable.

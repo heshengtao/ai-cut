@@ -25,17 +25,22 @@ export function isVisible(track: Track): boolean {
   return track.visible !== false;
 }
 
-/** 素材是否为视频素材。 */
+/** 素材是否为视频素材（分离出来的纯音频片段不算画面）。 */
 function isVideoAsset(doc: Project, assetId: string): boolean {
   if (assetId === "") return false;
   return doc.assets.find((a) => a.id === assetId)?.kind === "video";
+}
+
+function isVisualClip(doc: Project, clip: Clip): boolean {
+  return !clip.audioOnly && isVideoAsset(doc, clip.assetId);
 }
 
 /** 主画面轨：自上而下第一条可见、且带有视频片段的轨道（图片由预览层单独叠加）。 */
 export function mainVideoTrack(doc: Project): Track | null {
   return (
     doc.tracks.find(
-      (track) => isVisible(track) && track.clips.some((clip) => isVideoAsset(doc, clip.assetId)),
+      (track) =>
+        isVisible(track) && track.clips.some((clip) => isVisualClip(doc, clip)),
     ) ?? null
   );
 }
@@ -44,7 +49,7 @@ export function mainVideoTrack(doc: Project): Track | null {
 export function mainVideoClipAt(doc: Project, t: number): { track: Track; clip: Clip } | null {
   for (const track of doc.tracks) {
     if (!isVisible(track)) continue;
-    const clip = track.clips.find((c) => covers(c, t) && isVideoAsset(doc, c.assetId));
+    const clip = track.clips.find((c) => covers(c, t) && isVisualClip(doc, c));
     if (clip) return { track, clip };
   }
   return null;

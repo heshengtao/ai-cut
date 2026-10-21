@@ -190,6 +190,18 @@ describe("collectUsedAssets / hasExportableText", () => {
     expect(ids).not.toContain("music");
     expect(hasExportableText(doc)).toBe(true);
   });
+
+  it("drops clip-level muted audio but keeps the video picture", () => {
+    const { doc, audioTrack, topTrack } = fixture();
+    const audioClip = doc.tracks.find((track) => track.id === audioTrack.id)!.clips[0];
+    const topClip = doc.tracks.find((track) => track.id === topTrack.id)!.clips[0];
+    let next = updateClip(doc, audioClip.id, { muted: true });
+    next = updateClip(next, topClip.id, { muted: true });
+
+    const ids = collectUsedAssets(next).map((asset) => asset.id);
+    expect(ids).not.toContain("music");
+    expect(ids).toContain("top");
+  });
 });
 
 describe("buildExportPlan — video", () => {
@@ -248,6 +260,19 @@ describe("buildExportPlan — audio", () => {
     );
     expect(plan.filterGraph).toContain("[2:a]");
     expect(plan.filterGraph).toContain("[3:a]");
+  });
+
+  it("drops audio from a muted clip but keeps its picture", () => {
+    const { doc, topTrack } = fixture();
+    const clip = doc.tracks.find((track) => track.id === topTrack.id)!.clips[0];
+    const muted = updateClip(doc, clip.id, { muted: true });
+    const plan = buildExportPlan(muted, MP4, NO_TEXT, "/tmp/out.mp4");
+
+    // 画面还在。
+    expect(plan.inputs).toContain("/media/top.mp4");
+    // 只剩音乐一条音频输入，不再需要两路 amix。
+    expect(plan.filterGraph).not.toContain("amix=inputs=2");
+    expect(plan.filterGraph).toContain("[a0]anull[aout]");
   });
 
   it("applies fade in/out, pitch and stereo balance", () => {

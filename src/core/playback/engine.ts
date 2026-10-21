@@ -13,7 +13,13 @@
  */
 import type { Clip, MediaAsset, Project } from "@/types/project";
 import { isAudible, mainVideoClipAt } from "./activeClips";
-import { fileUrl } from "@/core/media";
+import {
+  extractAudioPreview,
+  fileUrl,
+  makeVideoPreview,
+  needsAudioProxy,
+  needsVideoProxy,
+} from "@/core/media";
 
 /** 播放头 UI 更新间隔（毫秒）：30fps 足够，避免每帧触发整棵 Vue 树重绘。 */
 const EMIT_INTERVAL_MS = 32;
@@ -121,6 +127,12 @@ export class PlaybackEngine {
   private videoClipId: string | null = null;
   private lastVideoCheck = 0;
   private lastVideoPlayAttempt = 0;
+  /** 素材 id → 已生成的预览代理路径。 */
+  private readonly videoProxyPaths = new Map<string, string>();
+  private readonly videoProxyPending = new Set<string>();
+  private readonly videoProxyFailed = new Set<string>();
+  /** 当前 `<video>` 的源是不是代理；代理再报错就停止重试。 */
+  private videoProxyInUse = false;
 
   private audioContext: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -165,6 +177,7 @@ export class PlaybackEngine {
     this.video.style.visibility = "hidden";
     this.video.style.pointerEvents = "none";
     this.video.addEventListener("loadedmetadata", () => applyPendingSeek(this.video, this.pendingSeek));
+    this.video.addEventListener("error", () => this.onVideoError());
     this.container.appendChild(this.video);
   }
 
@@ -266,6 +279,7 @@ export class PlaybackEngine {
   /** 用户手势兜底：WebKit 可能拒绝非手势触发的 `<video>.play()`。 */
   retryVideo(): void {
     if (!this.playing || this.videoAssetId === null) return;
+    if (!this.video.getAttribute("src")) return;
     if (this.video.paused) {
       this.lastVideoPlayAttempt = 0;
       playMedia(this.video);
@@ -289,6 +303,8 @@ export class PlaybackEngine {
     this.pause();
     cancelAnimationFrame(this.raf);
     this.stopSources();
+    this.videoAssetId = null;
+    this.videoClipId = null;
     this.video.pause();
     this.video.removeAttribute("src");
     this.video.load();
@@ -397,6 +413,7 @@ export class PlaybackEngine {
         if (clipEnd <= nowTimeline) continue;
         if (clip.start > windowEnd) continue;
         if (this.scheduled.has(clip.id)) continue;
+        if (clip.muted) continue;
 
         const asset = doc.assets.find((a) => a.id === clip.assetId);
         if (!asset || !hasAudio(asset)) continue;
@@ -532,18 +549,45 @@ export class PlaybackEngine {
     if (!context) return Promise.resolve(null);
 
     const promise = (async () => {
-      try {
-        const response = await fetch(fileUrl(asset.src));
-        if (!response.ok) return null;
-        const data = await response.arrayBuffer();
-        return await context.decodeAudioData(data);
-      } catch {
-        return null;
+      // 视频 / 冷门音频：先用 ffmpeg 抽成 AAC——既绕开 MOV(PCM)、WMA 等解码限制，
+      // 也避免把整个视频文件读进内存再 decodeAudioData。
+      const proxyFirst = needsAudioProxy(asset.kind, asset.src);
+      if (proxyFirst) {
+        const buffer = await this.decodeProxy(asset, context);
+        if (buffer) return buffer;
       }
+      const direct = await this.decodeUrl(fileUrl(asset.src), context);
+      if (direct || proxyFirst) return direct;
+      // 「应该能直接解」的格式实际失败时，再走一次转码兜底。
+      return this.decodeProxy(asset, context);
     })();
 
     this.bufferCache.set(key, promise);
     return promise;
+  }
+
+  /** 抽取/复用缓存音轨后再解码。 */
+  private async decodeProxy(
+    asset: MediaAsset,
+    context: AudioContext,
+  ): Promise<AudioBuffer | null> {
+    try {
+      const proxy = await extractAudioPreview(asset.src, asset.id);
+      return await this.decodeUrl(fileUrl(proxy), context);
+    } catch {
+      return null;
+    }
+  }
+
+  private async decodeUrl(url: string, context: AudioContext): Promise<AudioBuffer | null> {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      const data = await response.arrayBuffer();
+      return await context.decodeAudioData(data);
+    } catch {
+      return null;
+    }
   }
 
   /** 与画面有关的文档摘要：轨道可见性、片段位置 / 入点、素材源。 */
@@ -595,33 +639,57 @@ export class PlaybackEngine {
     const asset = main ? doc.assets.find((a) => a.id === main.clip.assetId) : undefined;
     const clip = main && asset && asset.kind === "video" && !asset.offline ? main.clip : null;
 
-    if (clip && asset) {
-      const expected = mediaTimeFor(clip, timelineTime);
-      const freshAsset = this.videoAssetId !== asset.id;
-      const freshClip = this.videoClipId !== clip.id;
-
-      if (freshAsset) {
-        this.videoAssetId = asset.id;
-        this.video.src = fileUrl(asset.src);
+    if (!clip || !asset) {
+      this.videoClipId = null;
+      if (this.videoAssetId !== null) {
+        this.videoAssetId = null;
+        this.videoProxyInUse = false;
+        this.video.pause();
+        this.video.removeAttribute("src");
         this.video.load();
-        seekMedia(this.video, expected, this.pendingSeek);
-      } else if (freshClip || force) {
-        seekMedia(this.video, expected, this.pendingSeek);
+        this.video.style.visibility = "hidden";
+      }
+      return;
+    }
+
+    const expected = mediaTimeFor(clip, timelineTime);
+    const freshAsset = this.videoAssetId !== asset.id;
+    const freshClip = this.videoClipId !== clip.id;
+
+    if (freshAsset) {
+      this.videoAssetId = asset.id;
+      const proxy = this.videoProxyPaths.get(asset.id);
+      if (proxy) {
+        this.applyVideoSource(fileUrl(proxy), expected, true);
+      } else if (needsVideoProxy(asset.src)) {
+        // 容器本身放不了（MKV/AVI…）：先黑场等代理，代理就绪后再换源。
+        this.video.pause();
+        this.video.removeAttribute("src");
+        this.video.load();
+        this.videoProxyInUse = false;
+        this.video.style.visibility = "hidden";
+        this.requestVideoProxy(asset);
       } else {
-        // 正常播放时只做低频漂移检查，绝不每帧 seek。
-        const now = performance.now();
-        if (now - this.lastVideoCheck > VIDEO_CHECK_INTERVAL_MS) {
-          this.lastVideoCheck = now;
-          if (Math.abs(this.video.currentTime - expected) > VIDEO_DRIFT_TOLERANCE) {
-            seekMedia(this.video, expected, this.pendingSeek);
-          }
+        this.applyVideoSource(fileUrl(asset.src), expected, false);
+      }
+    } else if (freshClip || force) {
+      seekMedia(this.video, expected, this.pendingSeek);
+    } else if (this.video.getAttribute("src")) {
+      // 正常播放时只做低频漂移检查，绝不每帧 seek。
+      const now = performance.now();
+      if (now - this.lastVideoCheck > VIDEO_CHECK_INTERVAL_MS) {
+        this.lastVideoCheck = now;
+        if (Math.abs(this.video.currentTime - expected) > VIDEO_DRIFT_TOLERANCE) {
+          seekMedia(this.video, expected, this.pendingSeek);
         }
       }
+    }
 
-      this.videoClipId = clip.id;
-      this.video.muted = true;
+    this.videoClipId = clip.id;
+    this.video.muted = true;
+
+    if (this.video.getAttribute("src")) {
       this.video.style.visibility = "visible";
-
       if (this.playing && this.video.paused) {
         const now = performance.now();
         if (now - this.lastVideoPlayAttempt > VIDEO_CHECK_INTERVAL_MS) {
@@ -629,16 +697,54 @@ export class PlaybackEngine {
           playMedia(this.video);
         }
       }
-    } else {
-      this.videoClipId = null;
-      if (this.videoAssetId !== null) {
-        this.videoAssetId = null;
-        this.video.pause();
-        this.video.removeAttribute("src");
-        this.video.load();
-        this.video.style.visibility = "hidden";
-      }
     }
+  }
+
+  /** 换源并定位；`proxy` 表示这次用的是 ffmpeg 代理。 */
+  private applyVideoSource(src: string, seekTo: number, proxy: boolean): void {
+    this.videoProxyInUse = proxy;
+    this.video.src = src;
+    this.video.load();
+    seekMedia(this.video, seekTo, this.pendingSeek);
+  }
+
+  /** 直接播放失败（编码 / 容器不受支持）：改走代理。 */
+  private onVideoError(): void {
+    if (this.videoProxyInUse) return;
+    const assetId = this.videoAssetId;
+    if (!assetId) return;
+    const asset = this.getDoc().assets.find((a) => a.id === assetId);
+    if (!asset) return;
+    this.requestVideoProxy(asset);
+  }
+
+  /** 生成 H.264/AAC 预览；成功后若仍是当前画面就无缝换源。 */
+  private requestVideoProxy(asset: MediaAsset): void {
+    if (
+      this.videoProxyPaths.has(asset.id) ||
+      this.videoProxyPending.has(asset.id) ||
+      this.videoProxyFailed.has(asset.id)
+    ) {
+      return;
+    }
+    this.videoProxyPending.add(asset.id);
+    void makeVideoPreview(asset.src, asset.id)
+      .then((path) => {
+        this.videoProxyPaths.set(asset.id, path);
+        if (this.videoAssetId !== asset.id) return;
+        const doc = this.getDoc();
+        const main = mainVideoClipAt(doc, this.currentTime);
+        const seekTo = main ? mediaTimeFor(main.clip, this.currentTime) : 0;
+        this.applyVideoSource(fileUrl(path), seekTo, true);
+        this.lastVideoCheck = 0;
+        if (this.playing) playMedia(this.video);
+      })
+      .catch(() => {
+        this.videoProxyFailed.add(asset.id);
+      })
+      .finally(() => {
+        this.videoProxyPending.delete(asset.id);
+      });
   }
 }
 

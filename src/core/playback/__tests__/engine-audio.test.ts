@@ -11,6 +11,10 @@ import type { Project } from "@/types/project";
 
 vi.mock("@/core/media", () => ({
   fileUrl: (path: string) => `file://${path}`,
+  needsAudioProxy: () => false,
+  needsVideoProxy: () => false,
+  extractAudioPreview: async (path: string) => path,
+  makeVideoPreview: async (path: string) => path,
 }));
 
 interface Started {
@@ -117,6 +121,9 @@ class FakeVideo {
     this.listeners.set(type, list);
   }
   load(): void {}
+  getAttribute(name: string): string | null {
+    return name === "src" ? this.src || null : null;
+  }
   removeAttribute(name: string): void {
     if (name === "src") this.src = "";
   }

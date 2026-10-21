@@ -29,7 +29,6 @@ import {
   moveTrack,
   removeClips,
   removeTrack,
-  renameTrack,
   setTrackFlag,
   trimClip,
 } from "@/core/ops";
@@ -42,6 +41,7 @@ import { confirm } from "@/composables/useConfirm";
 import { baseName } from "@/core/media";
 import { clearDragPayload, getDragPayload } from "@/core/dragPayload";
 import { useTextPresetsStore } from "@/stores/textPresets";
+import { TEXT_PRESET_SECONDS } from "@/core/textPresets";
 import type { Clip, ClipTextStyle, MediaAsset, Project } from "@/types/project";
 import { useI18n } from "@/i18n";
 
@@ -57,6 +57,12 @@ const i18n = useI18n();
 const scrollEl = ref<HTMLElement | null>(null);
 /** 可视区宽度：保证时间线内容至少铺满视口，缩放后不会出现没有刻度的空白。 */
 const viewportWidth = ref(0);
+/** 纵向滚动量：轨道头没有自己的滚动条，靠它跟随右侧轨道一起上下移动。 */
+const scrollTop = ref(0);
+
+function onScroll(): void {
+  scrollTop.value = scrollEl.value?.scrollTop ?? 0;
+}
 let resizeObserver: ResizeObserver | null = null;
 
 /**
@@ -383,14 +389,23 @@ function onToggleFlag(trackId: string, flag: "muted" | "visible" | "locked"): vo
   project.dispatch((doc) => setTrackFlag(doc, trackId, flag, !track[flag]));
 }
 
+/** 点击轨道头：一键选中该轨道上的所有片段。 */
+function onSelectTrack(trackId: string): void {
+  const track = shownDoc.value.tracks.find((candidate) => candidate.id === trackId);
+  selection.setActiveTrack(trackId);
+  if (!track || track.clips.length === 0) return;
+  selection.selectMany(track.clips.map((clip) => clip.id));
+}
+
 async function onRemoveTrack(trackId: string): Promise<void> {
   const track = project.doc.tracks.find((t) => t.id === trackId);
   if (!track) return;
   const count = track.clips.length;
   if (count > 0) {
+    const index = project.doc.tracks.findIndex((t) => t.id === trackId);
     const ok = await confirm({
       title: i18n.t("timeline.confirmDeleteTrack"),
-      message: i18n.t("timeline.confirmDeleteTrackMessage", { name: track.name, count }),
+      message: i18n.t("timeline.confirmDeleteTrackMessage", { n: index + 1, count }),
       confirmText: i18n.t("confirm.delete"),
       cancelText: i18n.t("confirm.cancel"),
       destructive: true,
@@ -399,10 +414,6 @@ async function onRemoveTrack(trackId: string): Promise<void> {
   }
   project.dispatch((doc) => removeTrack(doc, trackId));
   selection.clear();
-}
-
-function onRenameTrack(trackId: string, name: string): void {
-  project.dispatch((doc) => renameTrack(doc, trackId, name));
 }
 
 /** 右键删除：若点中的片段在选中集合里，就删除整个选中集合。 */
@@ -605,7 +616,6 @@ function insertTextClip(
 
 /** 在播放头处加一个文字片段：优先复用当前选中文字片段的样式，其次上一次操作的样式。 */
 function addTextAtPlayhead(): void {
-  const preset = textPresets.presets[0];
   const selectedText =
     selection.selectedClipIds.length === 1
       ? shownDoc.value.tracks
@@ -613,7 +623,13 @@ function addTextAtPlayhead(): void {
           .find((clip) => clip.id === selection.selectedClipIds[0] && clip.assetId === "")
       : undefined;
   const style = selectedText ? resolveTextStyle(selectedText) : textPresets.lastStyle;
-  insertTextClip(playback.playhead, preset.text, preset.duration, undefined, style);
+  insertTextClip(
+    playback.playhead,
+    i18n.t("textPreset.default.text"),
+    TEXT_PRESET_SECONDS,
+    undefined,
+    style,
+  );
 }
 
 /** 图片 / 文字拖入的默认时长；音视频按完整源时长插入。 */
@@ -664,8 +680,8 @@ function onLaneDrop(event: DragEvent): void {
     clearDragPayload();
     insertTextClip(
       timeFromClientX(event.clientX),
-      preset.text,
-      preset.duration,
+      i18n.t("textPreset.default.text"),
+      TEXT_PRESET_SECONDS,
       placement,
       preset.textStyle,
     );
@@ -836,29 +852,33 @@ function onLaneDrop(event: DragEvent): void {
         <div class="corner">
           <span>{{ i18n.t("timeline.tracks") }}</span>
         </div>
-        <TrackHeader
-          v-for="track in shownDoc.tracks"
-          :key="track.id"
-          :track="track"
-          :dragging="trackDrag?.trackId === track.id"
-          @toggle-flag="onToggleFlag"
-          @remove="onRemoveTrack"
-          @rename="onRenameTrack"
-          @reorder="onTrackReorderStart"
-        />
+        <div class="header-list" :style="{ transform: `translateY(-${scrollTop}px)` }">
+          <TrackHeader
+            v-for="(track, index) in shownDoc.tracks"
+            :key="track.id"
+            :track="track"
+            :index="index"
+            :dragging="trackDrag?.trackId === track.id"
+            @toggle-flag="onToggleFlag"
+            @select="onSelectTrack"
+            @remove="onRemoveTrack"
+            @reorder="onTrackReorderStart"
+          />
+        </div>
         <div
           v-if="trackDrag"
           class="track-insert"
-          :style="{ top: `${RULER_HEIGHT + trackDrag.index * LANE_HEIGHT}px` }"
+          :style="{ top: `${RULER_HEIGHT + trackDrag.index * LANE_HEIGHT - scrollTop}px` }"
         />
       </div>
 
-      <div ref="scrollEl" class="scroll" @wheel="onWheelZoom">
+      <div ref="scrollEl" class="scroll" @wheel="onWheelZoom" @scroll.passive="onScroll">
         <div class="content" :style="{ width: `${contentWidth}px` }">
           <TimelineRuler
             :duration="rulerDuration"
             :px-per-second="playback.zoom"
             :fps="project.doc.fps"
+            :playhead-x="playheadX"
             @seek="playback.setPlayhead"
           />
 
@@ -915,7 +935,6 @@ function onLaneDrop(event: DragEvent): void {
           </div>
 
           <div class="playhead" :style="{ left: `${playheadX}px` }">
-            <span class="ph-cap" />
             <span class="ph-line" />
           </div>
 
@@ -1017,6 +1036,13 @@ function onLaneDrop(event: DragEvent): void {
   border-right: 1px solid rgb(var(--md-outline-variant) / 0.4);
   background-color: var(--app-card);
   overflow: hidden;
+}
+/* 跟随 .scroll 的 scrollTop 平移，保持左右轨道一一对齐。 */
+.header-list {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
 }
 .track-insert {
   position: absolute;
@@ -1129,17 +1155,6 @@ function onLaneDrop(event: DragEvent): void {
   width: 0;
   z-index: 5;
   pointer-events: none;
-}
-.ph-cap {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 10px;
-  height: 12px;
-  background-color: rgb(var(--md-primary));
-  border-radius: 0 0 3px 3px;
-  clip-path: polygon(0 0, 100% 0, 100% 62%, 50% 100%, 0 62%);
 }
 .ph-line {
   position: absolute;

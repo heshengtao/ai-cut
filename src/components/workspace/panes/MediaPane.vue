@@ -9,14 +9,15 @@ import {
   PhotoIcon,
   DocumentTextIcon,
   ExclamationTriangleIcon,
+  PaintBrushIcon,
   TrashIcon,
 } from "@heroicons/vue/24/outline";
 import type { AssetKind, Clip, ClipTextStyle, MediaAsset } from "@/types/project";
 import { fileUrl, importAssetAt, pickMediaFiles } from "@/core/media";
-import { addAsset, addClip, addTrack, removeAsset } from "@/core/ops";
+import { addAsset, addClip, addTrack, removeAsset, setClipTextStyle } from "@/core/ops";
 import { createClip } from "@/core/factory";
 import { snapToFrame } from "@/core/time";
-import type { TextPreset } from "@/core/textPresets";
+import { TEXT_PRESET_SECONDS, type TextPreset } from "@/core/textPresets";
 import { clearDragPayload, setDragPayload } from "@/core/dragPayload";
 import { useProjectStore } from "@/stores/project";
 import { usePlaybackStore } from "@/stores/playback";
@@ -105,7 +106,37 @@ function onAssetDoubleClick(asset: MediaAsset): void {
 }
 
 function onTextDoubleClick(preset: TextPreset): void {
-  insertAtPlayhead("", preset.duration, preset.text, preset.textStyle);
+  insertAtPlayhead(
+    "",
+    TEXT_PRESET_SECONDS,
+    i18n.t("textPreset.default.text"),
+    preset.textStyle,
+  );
+}
+
+/** 当前选中的文字片段：预设样式只应用到这些片段。 */
+const selectedTextClipIds = computed(() => {
+  const ids = new Set(selection.selectedClipIds);
+  return project.doc.tracks
+    .flatMap((track) => track.clips)
+    .filter((clip) => clip.assetId === "" && ids.has(clip.id))
+    .map((clip) => clip.id);
+});
+
+/** 一键把预设样式应用到所有选中的文字片段（不改变文案与时长）。 */
+function onApplyPreset(preset: TextPreset): void {
+  const ids = selectedTextClipIds.value;
+  if (ids.length === 0) {
+    toast(i18n.t("media.applyPresetEmpty"), "error");
+    return;
+  }
+  project.dispatch((doc) => {
+    let next = doc;
+    for (const id of ids) next = setClipTextStyle(next, id, preset.textStyle);
+    return next;
+  });
+  textPresets.rememberStyle(preset.textStyle);
+  toast(i18n.t("media.applyPresetDone", { count: ids.length }));
 }
 
 type FilterId = "all" | AssetKind | "text";
@@ -143,13 +174,7 @@ const entries = computed<LibraryEntry[]>(() => {
 
   const textEntries: LibraryEntry[] = showText
     ? textPresets.presets
-        .filter((preset) => {
-          if (!keyword) return true;
-          return (
-            preset.name.toLowerCase().includes(keyword) ||
-            preset.text.toLowerCase().includes(keyword)
-          );
-        })
+        .filter((preset) => !keyword || preset.name.toLowerCase().includes(keyword))
         .map((preset) => ({ key: `text-${preset.id}`, type: "text", preset }))
     : [];
 
@@ -195,8 +220,9 @@ function infoLabel(asset: MediaAsset): string {
   return asset.fps ? `${size} · ${Math.round(asset.fps)}fps` : size;
 }
 
-function textDuration(preset: TextPreset): string {
-  const total = Math.round(preset.duration);
+/** 预设不带时长，插入时间线时统一用固定时长。 */
+function textDuration(): string {
+  const total = Math.round(TEXT_PRESET_SECONDS);
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
@@ -383,7 +409,21 @@ async function onDeletePreset(preset: TextPreset): Promise<void> {
             <div class="thumb text-thumb" :style="textThumb">
               <DocumentTextIcon class="thumb-icon" />
               <span class="text-preview">{{ entry.preset.name }}</span>
-              <span class="duration tabular">{{ textDuration(entry.preset) }}</span>
+              <span class="duration tabular">{{ textDuration() }}</span>
+              <button
+                class="apply-btn"
+                type="button"
+                draggable="false"
+                :aria-label="i18n.t('media.applyPresetNamed', { name: entry.preset.name })"
+                :title="
+                  i18n.t('media.applyPresetHint', { count: selectedTextClipIds.length })
+                "
+                @dragstart.stop.prevent
+                @pointerdown.stop
+                @click.stop="onApplyPreset(entry.preset)"
+              >
+                <PaintBrushIcon class="w-3 h-3" />
+              </button>
               <button
                 v-if="!entry.preset.builtin"
                 class="delete-btn"
@@ -400,7 +440,7 @@ async function onDeletePreset(preset: TextPreset): Promise<void> {
             <div class="asset-text">
               <span class="asset-name">{{ entry.preset.name }}</span>
               <span class="asset-info">
-                {{ i18n.t("media.textInfo", { seconds: entry.preset.duration }) }}
+                {{ i18n.t("media.textInfo", { seconds: TEXT_PRESET_SECONDS }) }}
               </span>
             </div>
           </article>
@@ -565,6 +605,37 @@ async function onDeletePreset(preset: TextPreset): Promise<void> {
   transform: scale(0.9);
 }
 .delete-btn:focus-visible {
+  outline: 2px solid rgb(var(--md-primary));
+  outline-offset: 1px;
+}
+.apply-btn {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 0.14s ease, background-color 0.14s ease, transform 0.14s ease;
+}
+.asset:hover .apply-btn,
+.apply-btn:focus-visible {
+  opacity: 1;
+  background: rgb(var(--md-primary) / 0.9);
+}
+.apply-btn:active {
+  transform: scale(0.9);
+}
+.apply-btn:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 1px;
 }

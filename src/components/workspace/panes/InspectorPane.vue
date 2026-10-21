@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 检查器面板：显示选中片段的真实属性，并把不透明度/音量/文字写回文档。 */
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   Bars3BottomLeftIcon,
   Bars3BottomRightIcon,
@@ -10,12 +10,14 @@ import {
   ExclamationTriangleIcon,
 } from "@heroicons/vue/24/outline";
 import {
+  addAsset,
   relinkAsset,
   setClipBlendMode,
   setClipCornerRadius,
   setClipFadeIn,
   setClipFadeOut,
   setClipGain,
+  setClipMuted,
   setClipOpacity,
   setClipPan,
   setClipPitch,
@@ -25,7 +27,17 @@ import {
   setClipTextStyle,
   setClipTransform,
 } from "@/core/ops";
-import { fileUrl, pickMediaFiles } from "@/core/media";
+import { fileUrl, importAssetAt, pickMediaFiles } from "@/core/media";
+import {
+  LOUDNESS_TARGETS,
+  applyProcessedAudio,
+  extractClipAudio,
+  loudnessGain,
+  type LoudnessTarget,
+} from "@/core/audioEdit";
+import type { AudioDspPreset } from "@/types/models";
+import type { VideoDspOptions, VideoStrength } from "@/types/video";
+import { replaceClipVideo } from "@/core/videoEdit";
 import { formatTimecode } from "@/core/time";
 import { resolveTransform } from "@/core/transform";
 import {
@@ -40,16 +52,20 @@ import {
 } from "@/core/clipStyle";
 import type {
   BlendMode,
+  Clip,
   ClipShadow,
   ClipStroke,
   ClipTextStyle,
   ClipTransform,
+  MediaAsset,
   Project,
   TextAlign,
 } from "@/types/project";
 import { useProjectStore } from "@/stores/project";
 import { useSelectionStore } from "@/stores/selection";
 import { useTextPresetsStore } from "@/stores/textPresets";
+import { useAudioAiStore } from "@/stores/audioAi";
+import { useVideoDspStore } from "@/stores/videoDsp";
 import { toast } from "@/composables/useToast";
 import NumberField from "@/components/common/NumberField.vue";
 import ColorField from "@/components/common/ColorField.vue";
@@ -61,6 +77,8 @@ import { useI18n } from "@/i18n";
 const project = useProjectStore();
 const selection = useSelectionStore();
 const textPresets = useTextPresetsStore();
+const audioAi = useAudioAiStore();
+const videoDsp = useVideoDspStore();
 const i18n = useI18n();
 
 const clip = computed(() => {
@@ -78,14 +96,20 @@ const asset = computed(() =>
     : undefined,
 );
 
-const track = computed(() =>
-  clip.value ? project.doc.tracks.find((t) => t.id === clip.value!.trackId) : undefined,
-);
-
 const isText = computed(() => clip.value?.assetId === "");
-const isAudio = computed(() => asset.value?.kind === "audio");
+const isAudio = computed(
+  () => asset.value?.kind === "audio" || clip.value?.audioOnly === true,
+);
 /** 画面类片段（文字 / 图片 / 视频 / 缺失素材）才显示变换与视觉特效。 */
 const isVisual = computed(() => isText.value || !isAudio.value);
+/** 只有真实视频片段才显示视频处理（纯音频片段、图片、文字都不显示）。 */
+const isVideo = computed(
+  () =>
+    asset.value?.kind === "video" &&
+    !asset.value.offline &&
+    clip.value?.audioOnly !== true &&
+    (clip.value?.duration ?? 0) > 0,
+);
 const opacityPercent = computed(() => Math.round((clip.value?.opacity ?? 1) * 100));
 const transform = computed(() => (clip.value ? resolveTransform(clip.value) : null));
 const scalePercent = computed(() => Math.round((transform.value?.scale ?? 1) * 100));
@@ -103,6 +127,371 @@ const fadeIn = computed(() => clip.value?.fadeIn ?? 0);
 const fadeOut = computed(() => clip.value?.fadeOut ?? 0);
 const pitch = computed(() => clip.value?.pitch ?? 0);
 const panPercent = computed(() => Math.round((clip.value?.pan ?? 0) * 100));
+const clipMuted = computed(() => clip.value?.muted ?? false);
+
+/** 当前片段是否真的有音轨可处理（音频素材，或带音轨的视频）。 */
+const hasAudio = computed(() => {
+  const current = asset.value;
+  if (!current || current.offline) return false;
+  return (
+    current.kind === "audio" ||
+    (current.kind === "video" && current.hasAudio !== false)
+  );
+});
+
+// ---- 检查器里的无模型音频处理 ----
+
+const loudnessTarget = ref<LoudnessTarget>("streaming");
+const loudnessInfo = ref<string | null>(null);
+const loudnessRunning = ref(false);
+const denoisePreset = ref<AudioDspPreset>("medium");
+const beautifyPreset = ref<AudioDspPreset>("natural");
+
+watch(
+  () => clip.value?.id,
+  () => {
+    loudnessInfo.value = null;
+  },
+);
+
+const loudnessOptions = computed<SelectOption[]>(() => [
+  { id: "streaming", label: i18n.t("audio.loudness.streaming") },
+  { id: "podcast", label: i18n.t("audio.loudness.podcast") },
+  { id: "broadcast", label: i18n.t("audio.loudness.broadcast") },
+]);
+
+const denoiseOptions = computed<SelectOption[]>(() => [
+  { id: "light", label: i18n.t("audio.denoise.light") },
+  { id: "medium", label: i18n.t("audio.denoise.medium") },
+  { id: "strong", label: i18n.t("audio.denoise.strong") },
+]);
+
+const beautifyOptions = computed<SelectOption[]>(() => [
+  { id: "natural", label: i18n.t("audio.beautify.natural") },
+  { id: "bright", label: i18n.t("audio.beautify.bright") },
+  { id: "warm", label: i18n.t("audio.beautify.warm") },
+]);
+
+function assetOfClip(current: Clip): MediaAsset | null {
+  return project.doc.assets.find((candidate) => candidate.id === current.assetId) ?? null;
+}
+
+function processableAudio(
+  current: Clip,
+  currentAsset: MediaAsset | null,
+): currentAsset is MediaAsset {
+  if (!currentAsset || currentAsset.offline || current.duration <= 0) return false;
+  return (
+    currentAsset.kind === "audio" ||
+    (currentAsset.kind === "video" && currentAsset.hasAudio !== false)
+  );
+}
+
+function audioTarget(): { clip: Clip; asset: MediaAsset } | null {
+  const current = clip.value;
+  if (!current) return null;
+  const currentAsset = asset.value ?? null;
+  if (!processableAudio(current, currentAsset)) return null;
+  return { clip: current, asset: currentAsset };
+}
+
+/** 收集要统一响度的片段：当前选择，或整个工程里的音频 / 带音轨视频。 */
+function collectLoudnessTargets(
+  scope: "selection" | "all",
+): { clip: Clip; asset: MediaAsset }[] {
+  const targets: { clip: Clip; asset: MediaAsset }[] = [];
+  const seen = new Set<string>();
+  const selected = new Set(selection.selectedClipIds);
+
+  for (const track of project.doc.tracks) {
+    // 「全部音频」不碰已静音的轨道；用户明确选中的片段仍然处理。
+    if (scope === "all" && track.muted) continue;
+    for (const current of track.clips) {
+      if (seen.has(current.id)) continue;
+      if (scope === "selection" && !selected.has(current.id)) continue;
+      const currentAsset = assetOfClip(current);
+      if (!processableAudio(current, currentAsset)) continue;
+      seen.add(current.id);
+      targets.push({ clip: current, asset: currentAsset });
+    }
+  }
+  return targets;
+}
+
+const selectedAudioCount = computed(
+  () => collectLoudnessTargets("selection").length,
+);
+
+function handleAudioError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("已取消")) {
+    toast(i18n.t("audio.cancelled"));
+    return;
+  }
+  toast(message, "error");
+}
+
+function onLoudnessTarget(value: string): void {
+  loudnessTarget.value = value as LoudnessTarget;
+}
+
+function onDenoisePreset(value: string): void {
+  denoisePreset.value = value as AudioDspPreset;
+}
+
+function onBeautifyPreset(value: string): void {
+  beautifyPreset.value = value as AudioDspPreset;
+}
+
+/**
+ * 统一响度：默认处理当前选中的全部片段，也可以处理整个工程。
+ *
+ * 每个片段量一次积分响度，算出的增益在**一个事务**里写回，撤销一次即可全部回退。
+ */
+async function normalizeLoudness(scope: "selection" | "all" = "selection"): Promise<void> {
+  if (loudnessRunning.value) return;
+  const targets = collectLoudnessTargets(scope);
+  if (targets.length === 0) {
+    toast(i18n.t("audio.noTargets"), "error");
+    return;
+  }
+
+  loudnessRunning.value = true;
+  try {
+    const gains: { clipId: string; gain: number }[] = [];
+    let skipped = 0;
+    let lastError: string | null = null;
+
+    for (let index = 0; index < targets.length; index += 1) {
+      const target = targets[index];
+      loudnessInfo.value = i18n.t("audio.loudnessProgress", {
+        index: index + 1,
+        total: targets.length,
+      });
+      try {
+        const report = await audioAi.loudness(
+          target.asset.src,
+          target.clip.in ?? 0,
+          target.clip.duration,
+        );
+        const gain = loudnessGain(report, LOUDNESS_TARGETS[loudnessTarget.value]);
+        if (gain === null) {
+          skipped += 1;
+          continue;
+        }
+        gains.push({ clipId: target.clip.id, gain });
+      } catch (error) {
+        skipped += 1;
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    if (gains.length === 0) {
+      loudnessInfo.value = null;
+      toast(lastError ?? i18n.t("audio.noSignal"), "error");
+      return;
+    }
+
+    project.dispatch(
+      (doc) => {
+        let next = doc;
+        for (const item of gains) next = setClipGain(next, item.clipId, item.gain);
+        return next;
+      },
+      { kind: "ui.dispatch", actor: "human", label: i18n.t("audio.loudness") },
+    );
+    loudnessInfo.value = i18n.t("audio.loudnessBatchDone", {
+      count: gains.length,
+    });
+    toast(
+      skipped > 0
+        ? i18n.t("audio.loudnessBatchPartial", {
+            count: gains.length,
+            skipped,
+          })
+        : loudnessInfo.value,
+    );
+  } finally {
+    loudnessRunning.value = false;
+  }
+}
+
+async function applyDsp(
+  effect: "denoise" | "beautify",
+  preset: AudioDspPreset,
+): Promise<void> {
+  const target = audioTarget();
+  if (!target) return;
+  try {
+    const result = await audioAi.dsp(
+      target.asset.src,
+      target.clip.in ?? 0,
+      target.clip.duration,
+      effect,
+      preset,
+    );
+    const generated = await importAssetAt(result.path);
+    project.dispatch(
+      (doc) => {
+        const withAsset = addAsset(doc, generated);
+        return applyProcessedAudio(
+          withAsset,
+          target.clip,
+          generated.id,
+          result.duration,
+          target.asset.kind,
+          i18n.t(`audio.${effect}Track`),
+        );
+      },
+      {
+        kind: "ui.dispatch",
+        actor: "human",
+        label: i18n.t(`audio.${effect}`),
+      },
+    );
+    toast(
+      i18n.t(effect === "denoise" ? "audio.denoiseDone" : "audio.beautifyDone"),
+    );
+  } catch (error) {
+    handleAudioError(error);
+  }
+}
+
+/** 视频片段：把画面和声音快速拆成两条轨道。 */
+function separateAudio(): void {
+  const target = clip.value;
+  const current = asset.value;
+  if (!target || !current || current.kind !== "video" || !hasAudio.value) return;
+
+  const holder: { result: ReturnType<typeof extractClipAudio> | null } = { result: null };
+  project.dispatch(
+    (doc) => {
+      holder.result = extractClipAudio(doc, target, i18n.t("inspector.extractAudioTrack"));
+      return holder.result.doc;
+    },
+    {
+      kind: "ui.dispatch",
+      actor: "human",
+      label: i18n.t("inspector.extractAudio"),
+    },
+  );
+
+  if (!holder.result?.clipId) return;
+  selection.select(holder.result.clipId);
+  selection.setActiveTrack(holder.result.trackId);
+  toast(i18n.t("inspector.extractAudioDone"));
+}
+
+// ---- 检查器里的无模型视频处理 ----
+
+const videoStabilize = ref<"off" | VideoStrength>("off");
+const videoDenoise = ref<"off" | VideoStrength>("off");
+const videoDeflicker = ref<"off" | VideoStrength>("off");
+const videoMotionBlur = ref<"off" | VideoStrength>("off");
+const videoUpscale = ref<"off" | "1.5" | "2">("off");
+
+/** 运动模糊强度 → 帧混合程度。 */
+const MOTION_BLUR_AMOUNT: Record<VideoStrength, number> = {
+  light: 0.3,
+  medium: 0.6,
+  strong: 0.9,
+};
+
+const videoStrengthOptions = computed<SelectOption[]>(() => [
+  { id: "off", label: i18n.t("video.off") },
+  { id: "light", label: i18n.t("video.light") },
+  { id: "medium", label: i18n.t("video.medium") },
+  { id: "strong", label: i18n.t("video.strong") },
+]);
+
+const videoUpscaleOptions = computed<SelectOption[]>(() => [
+  { id: "off", label: i18n.t("video.off") },
+  { id: "1.5", label: i18n.t("video.upscale.1_5") },
+  { id: "2", label: i18n.t("video.upscale.2") },
+]);
+
+function onVideoStabilize(value: string): void {
+  videoStabilize.value = value as "off" | VideoStrength;
+}
+
+function onVideoDenoise(value: string): void {
+  videoDenoise.value = value as "off" | VideoStrength;
+}
+
+function onVideoDeflicker(value: string): void {
+  videoDeflicker.value = value as "off" | VideoStrength;
+}
+
+function onVideoMotionBlur(value: string): void {
+  videoMotionBlur.value = value as "off" | VideoStrength;
+}
+
+function onVideoUpscale(value: string): void {
+  videoUpscale.value = value as "off" | "1.5" | "2";
+}
+
+/** 只把非关闭的处理项交给后端，关闭项完全不出现在滤镜链里。 */
+function buildVideoOptions(): VideoDspOptions {
+  const options: VideoDspOptions = {};
+  if (videoStabilize.value !== "off") options.stabilize = videoStabilize.value;
+  if (videoDenoise.value !== "off") options.denoise = videoDenoise.value;
+  if (videoDeflicker.value !== "off") options.deflicker = videoDeflicker.value;
+  if (videoMotionBlur.value !== "off") {
+    options.motionBlur = MOTION_BLUR_AMOUNT[videoMotionBlur.value];
+  }
+  if (videoUpscale.value !== "off") options.upscale = Number(videoUpscale.value);
+  return options;
+}
+
+function videoTarget(): { clip: Clip; asset: MediaAsset } | null {
+  const current = clip.value;
+  const currentAsset = asset.value ?? null;
+  if (!current || !currentAsset || !isVideo.value) return null;
+  return { clip: current, asset: currentAsset };
+}
+
+async function applyVideoDsp(): Promise<void> {
+  if (videoDsp.running) return;
+  const target = videoTarget();
+  if (!target) {
+    toast(i18n.t("video.selectClip"), "error");
+    return;
+  }
+  const options = buildVideoOptions();
+  if (Object.keys(options).length === 0) {
+    toast(i18n.t("video.noEffects"), "error");
+    return;
+  }
+
+  try {
+    const result = await videoDsp.process(
+      target.asset.src,
+      target.clip.in ?? 0,
+      target.clip.duration,
+      target.asset.fps ?? project.doc.fps,
+      options,
+    );
+    const generated = await importAssetAt(result.path);
+    project.dispatch(
+      (doc) => {
+        const withAsset = addAsset(doc, generated);
+        return replaceClipVideo(
+          withAsset,
+          target.clip.id,
+          generated.id,
+          result.duration,
+          target.clip.duration,
+        );
+      },
+      { kind: "ui.dispatch", actor: "human", label: i18n.t("video.apply") },
+    );
+    toast(i18n.t("video.done"));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("已取消")) toast(i18n.t("video.cancelled"));
+    else toast(message, "error");
+  }
+}
 
 /** 保存文字预设的命名对话框。 */
 const presetDialogOpen = ref(false);
@@ -207,14 +596,18 @@ function onPanInput(value: number): void {
   project.dispatch((doc) => setClipPan(doc, target.id, value / 100));
 }
 
-/** 把当前文字片段的样式保存成媒体库预设。 */
+function onMutedInput(value: boolean): void {
+  const target = clip.value;
+  if (!target) return;
+  project.dispatch((doc) => setClipMuted(doc, target.id, value));
+}
+
+/** 把当前文字片段的样式保存成媒体库预设（只存样式，不存文案与时长）。 */
 function saveTextPreset(name: string): void {
   const target = clip.value;
   if (!target) return;
   const preset = textPresets.savePreset({
     name,
-    text: target.text ?? "",
-    duration: target.duration,
     textStyle: resolveTextStyle(target),
   });
   textPresets.rememberStyle(resolveTextStyle(target));
@@ -274,7 +667,7 @@ async function relink(): Promise<void> {
               {{ isText ? clip.text || i18n.t("inspector.textClip") : (asset?.name ?? i18n.t("inspector.missingAsset")) }}
             </span>
             <span class="selected-meta">
-              {{ track?.name }} · {{ formatTimecode(clip.duration, project.doc.fps) }}
+              {{ formatTimecode(clip.duration, project.doc.fps) }}
             </span>
           </div>
         </div>
@@ -654,6 +1047,91 @@ async function relink(): Promise<void> {
           </div>
         </template>
 
+        <template v-if="isVideo">
+          <div class="section-label">{{ i18n.t("video.title") }}</div>
+          <div class="group">
+            <div class="prop-row">
+              <span>{{ i18n.t("video.stabilize") }}</span>
+              <Md3Select
+                class="prop-select"
+                :model-value="videoStabilize"
+                :options="videoStrengthOptions"
+                :label="i18n.t('video.stabilize')"
+                :disabled="videoDsp.running"
+                @update:model-value="onVideoStabilize"
+              />
+            </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("video.denoise") }}</span>
+              <Md3Select
+                class="prop-select"
+                :model-value="videoDenoise"
+                :options="videoStrengthOptions"
+                :label="i18n.t('video.denoise')"
+                :disabled="videoDsp.running"
+                @update:model-value="onVideoDenoise"
+              />
+            </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("video.deflicker") }}</span>
+              <Md3Select
+                class="prop-select"
+                :model-value="videoDeflicker"
+                :options="videoStrengthOptions"
+                :label="i18n.t('video.deflicker')"
+                :disabled="videoDsp.running"
+                @update:model-value="onVideoDeflicker"
+              />
+            </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("video.motionBlur") }}</span>
+              <Md3Select
+                class="prop-select"
+                :model-value="videoMotionBlur"
+                :options="videoStrengthOptions"
+                :label="i18n.t('video.motionBlur')"
+                :disabled="videoDsp.running"
+                @update:model-value="onVideoMotionBlur"
+              />
+            </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("video.upscale") }}</span>
+              <Md3Select
+                class="prop-select"
+                :model-value="videoUpscale"
+                :options="videoUpscaleOptions"
+                :label="i18n.t('video.upscale')"
+                :disabled="videoDsp.running"
+                @update:model-value="onVideoUpscale"
+              />
+            </div>
+            <div class="prop-row">
+              <span class="audio-hint">{{ i18n.t("video.applyHint") }}</span>
+              <button
+                class="preset-btn"
+                type="button"
+                :disabled="videoDsp.running"
+                @click="applyVideoDsp"
+              >
+                {{ i18n.t("video.apply") }}
+              </button>
+            </div>
+          </div>
+          <p class="audio-note">{{ i18n.t("video.hint") }}</p>
+
+          <div v-if="videoDsp.running" class="audio-progress-row">
+            <div class="audio-progress">
+              <div
+                class="audio-progress-fill"
+                :style="{ width: `${videoDsp.progressPct}%` }"
+              />
+            </div>
+            <button class="btn-text" type="button" @click="videoDsp.cancel()">
+              {{ i18n.t("video.cancel") }}
+            </button>
+          </div>
+        </template>
+
         <template v-if="!isText && (isAudio || asset?.kind === 'video' || !asset)">
           <div class="section-label">{{ i18n.t("inspector.audio") }}</div>
           <div class="group">
@@ -720,7 +1198,147 @@ async function relink(): Promise<void> {
                 @update:model-value="onPanInput"
               />
             </div>
+            <div class="prop-row">
+              <span>{{ i18n.t("audio.muteClip") }}</span>
+              <ToggleSwitch
+                :model-value="clipMuted"
+                :label="i18n.t('audio.muteClip')"
+                @update:model-value="onMutedInput"
+              />
+            </div>
           </div>
+
+          <template v-if="hasAudio">
+            <template v-if="asset?.kind === 'video' && !clip.audioOnly">
+              <div class="section-label">{{ i18n.t("inspector.extractAudio") }}</div>
+              <div class="group">
+                <div class="prop-row">
+                  <span class="audio-hint">{{ i18n.t("inspector.extractAudioHint") }}</span>
+                  <button class="preset-btn" type="button" @click="separateAudio">
+                    {{ i18n.t("inspector.extractAudio") }}
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <div class="section-label">{{ i18n.t("audio.loudness") }}</div>
+            <div class="group">
+              <div class="prop-row">
+                <span>{{ i18n.t("audio.loudnessTarget") }}</span>
+                <Md3Select
+                  class="prop-select"
+                  :model-value="loudnessTarget"
+                  :options="loudnessOptions"
+                  :label="i18n.t('audio.loudnessTarget')"
+                  :disabled="audioAi.running"
+                  @update:model-value="onLoudnessTarget"
+                />
+              </div>
+              <div class="prop-row">
+                <span class="audio-hint">{{ i18n.t("audio.loudnessHint") }}</span>
+                <div class="audio-actions">
+                  <button
+                    class="preset-btn"
+                    type="button"
+                    :disabled="
+                      audioAi.running || loudnessRunning || selectedAudioCount === 0
+                    "
+                    @click="normalizeLoudness('selection')"
+                  >
+                    {{
+                      i18n.t("audio.loudnessSelection", {
+                        count: selectedAudioCount,
+                      })
+                    }}
+                  </button>
+                  <button
+                    class="btn-text"
+                    type="button"
+                    :disabled="audioAi.running || loudnessRunning"
+                    @click="normalizeLoudness('all')"
+                  >
+                    {{ i18n.t("audio.loudnessAll") }}
+                  </button>
+                </div>
+              </div>
+              <p v-if="loudnessInfo" class="audio-note">{{ loudnessInfo }}</p>
+            </div>
+
+            <div class="section-label">{{ i18n.t("audio.denoise") }}</div>
+            <div class="group">
+              <div class="prop-row">
+                <span>{{ i18n.t("audio.strength") }}</span>
+                <Md3Select
+                  class="prop-select"
+                  :model-value="denoisePreset"
+                  :options="denoiseOptions"
+                  :label="i18n.t('audio.strength')"
+                  :disabled="audioAi.running"
+                  @update:model-value="onDenoisePreset"
+                />
+              </div>
+              <div class="prop-row">
+                <span class="audio-hint">{{ i18n.t("audio.denoiseHint") }}</span>
+                <button
+                  class="preset-btn"
+                  type="button"
+                  :disabled="audioAi.running"
+                  @click="applyDsp('denoise', denoisePreset)"
+                >
+                  {{ i18n.t("audio.apply") }}
+                </button>
+              </div>
+            </div>
+
+            <div class="section-label">{{ i18n.t("audio.beautify") }}</div>
+            <div class="group">
+              <div class="prop-row">
+                <span>{{ i18n.t("audio.preset") }}</span>
+                <Md3Select
+                  class="prop-select"
+                  :model-value="beautifyPreset"
+                  :options="beautifyOptions"
+                  :label="i18n.t('audio.preset')"
+                  :disabled="audioAi.running"
+                  @update:model-value="onBeautifyPreset"
+                />
+              </div>
+              <div class="prop-row">
+                <span class="audio-hint">{{ i18n.t("audio.beautifyHint") }}</span>
+                <button
+                  class="preset-btn"
+                  type="button"
+                  :disabled="audioAi.running"
+                  @click="applyDsp('beautify', beautifyPreset)"
+                >
+                  {{ i18n.t("audio.apply") }}
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="
+                audioAi.running &&
+                (audioAi.task === 'dsp' || audioAi.task === 'loudness')
+              "
+              class="audio-progress-row"
+            >
+              <div class="audio-progress">
+                <div
+                  class="audio-progress-fill"
+                  :style="{ width: `${audioAi.progressPct}%` }"
+                />
+              </div>
+              <button
+                v-if="audioAi.cancellable"
+                class="btn-text"
+                type="button"
+                @click="audioAi.cancel()"
+              >
+                {{ i18n.t("audio.cancel") }}
+              </button>
+            </div>
+          </template>
         </template>
       </template>
     </div>
@@ -888,5 +1506,43 @@ async function relink(): Promise<void> {
 .preset-btn:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 1px;
+}
+.audio-hint {
+  font-size: 11px;
+  color: rgb(var(--md-on-surface-variant));
+}
+.audio-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.audio-actions .btn-text:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.audio-note {
+  margin: 2px 0 4px;
+  font-size: 11px;
+  color: rgb(var(--md-primary));
+}
+.audio-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.audio-progress {
+  flex: 1 1 auto;
+  height: 4px;
+  border-radius: 999px;
+  overflow: hidden;
+  background-color: rgb(var(--md-primary) / 0.15);
+}
+.audio-progress-fill {
+  height: 100%;
+  background-color: rgb(var(--md-primary));
+  transition: width 120ms linear;
 }
 </style>

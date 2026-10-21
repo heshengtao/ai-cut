@@ -15,8 +15,6 @@ const LAST_STYLE_KEY = "ai-cut-last-text-style";
 interface SavedTextPreset {
   id: string;
   name: string;
-  text: string;
-  duration: number;
   textStyle: ClipTextStyle;
 }
 
@@ -38,14 +36,10 @@ function loadPresets(): SavedTextPreset[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter(isObject).flatMap((item) => {
     if (typeof item.id !== "string" || typeof item.name !== "string") return [];
-    if (typeof item.text !== "string") return [];
-    const duration = typeof item.duration === "number" && item.duration > 0 ? item.duration : 15;
     return [
       {
         id: item.id,
         name: item.name,
-        text: item.text,
-        duration,
         textStyle: normalizeTextStyle(
           isObject(item.textStyle) ? (item.textStyle as Partial<ClipTextStyle>) : {},
         ),
@@ -73,11 +67,9 @@ export const useTextPresetsStore = defineStore("textPresets", () => {
   /** 加文字时使用的样式：上一次操作过的样式，没有则用默认样式。 */
   const lastStyle = computed<ClipTextStyle>(() => last.value ?? DEFAULT_TEXT_STYLE);
 
-  /** 保存一个文字样式预设；名字为空时自动生成。 */
+  /** 保存一个文字样式预设；名字为空时自动生成。预设不记录文案与时长。 */
   function savePreset(input: {
     name?: string;
-    text: string;
-    duration: number;
     textStyle: Partial<ClipTextStyle>;
   }): TextPreset {
     const style = normalizeTextStyle(input.textStyle);
@@ -86,8 +78,6 @@ export const useTextPresetsStore = defineStore("textPresets", () => {
     const preset: SavedTextPreset = {
       id: crypto.randomUUID(),
       name,
-      text: input.text.trim() || t("textPreset.default.text"),
-      duration: Math.max(0.1, input.duration),
       textStyle: style,
     };
     saved.value = [...saved.value, preset];

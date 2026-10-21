@@ -1,6 +1,6 @@
 <script setup lang="ts">
-/** 轨道头：名称 + 静音/显示/锁定 + 删除（所有轨道外观一致）。 */
-import { ref } from "vue";
+/** 轨道头：静音/显示/锁定 + 删除（轨道只用序号标识，不显示名称）。 */
+import { computed } from "vue";
 import {
   TrashIcon,
   QueueListIcon,
@@ -14,38 +14,27 @@ import {
 import type { Track } from "@/types/project";
 import { useI18n } from "@/i18n";
 
-const props = defineProps<{ track: Track; dragging?: boolean }>();
+const props = defineProps<{ track: Track; index: number; dragging?: boolean }>();
 const emit = defineEmits<{
   (e: "toggle-flag", trackId: string, flag: "muted" | "visible" | "locked"): void;
   (e: "remove", trackId: string): void;
-  (e: "rename", trackId: string, name: string): void;
   (e: "reorder", trackId: string, event: PointerEvent): void;
+  (e: "select", trackId: string): void;
 }>();
 
 const i18n = useI18n();
+const label = computed(() => i18n.t("track.label", { n: props.index + 1 }));
 
-const editing = ref(false);
-const draft = ref("");
-
-/** 双击改名后自动聚焦输入框。 */
-const vFocus = {
-  mounted: (el: HTMLElement) => el.focus(),
-};
-
-function startEdit(): void {
-  draft.value = props.track.name;
-  editing.value = true;
-}
-
-function commit(): void {
-  editing.value = false;
-  const name = draft.value.trim();
-  if (name && name !== props.track.name) emit("rename", props.track.id, name);
+/** 点击轨道头空白处：一键选中该轨道上的所有片段。 */
+function onHeadClick(event: MouseEvent): void {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("button")) return;
+  emit("select", props.track.id);
 }
 </script>
 
 <template>
-  <div class="track-head" :class="{ dragging }">
+  <div class="track-head" :class="{ dragging }" @click="onHeadClick">
     <div class="th-main">
       <button
         class="th-grip"
@@ -55,23 +44,13 @@ function commit(): void {
       >
         <QueueListIcon class="th-icon" />
       </button>
-      <input
-        v-if="editing"
-        v-model="draft"
-        v-focus
-        class="th-input"
-        @blur="commit"
-        @keydown.enter.prevent="commit"
-        @keydown.escape.prevent="editing = false"
-      />
-      <span v-else class="th-name" @dblclick="startEdit">{{ track.name }}</span>
     </div>
     <div class="th-btns">
       <button
         class="th-btn"
         :class="{ on: track.muted }"
         :aria-pressed="track.muted"
-        :aria-label="i18n.t('track.muteNamed', { name: track.name })"
+        :aria-label="i18n.t('track.muteNamed', { name: label })"
         :title="track.muted ? i18n.t('track.unmute') : i18n.t('track.mute')"
         @click="emit('toggle-flag', track.id, 'muted')"
       >
@@ -82,7 +61,7 @@ function commit(): void {
         class="th-btn"
         :class="{ on: !track.visible }"
         :aria-pressed="!track.visible"
-        :aria-label="i18n.t('track.showNamed', { name: track.name })"
+        :aria-label="i18n.t('track.showNamed', { name: label })"
         :title="track.visible ? i18n.t('track.hide') : i18n.t('track.show')"
         @click="emit('toggle-flag', track.id, 'visible')"
       >
@@ -93,7 +72,7 @@ function commit(): void {
         class="th-btn"
         :class="{ on: track.locked }"
         :aria-pressed="track.locked"
-        :aria-label="i18n.t('track.lockNamed', { name: track.name })"
+        :aria-label="i18n.t('track.lockNamed', { name: label })"
         :title="track.locked ? i18n.t('track.unlock') : i18n.t('track.lock')"
         @click="emit('toggle-flag', track.id, 'locked')"
       >
@@ -102,7 +81,7 @@ function commit(): void {
       </button>
       <button
         class="th-btn danger"
-        :aria-label="i18n.t('track.deleteNamed', { name: track.name })"
+        :aria-label="i18n.t('track.deleteNamed', { name: label })"
         :title="i18n.t('track.delete')"
         @click="emit('remove', track.id)"
       >
@@ -167,25 +146,6 @@ function commit(): void {
 .th-grip:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 1px;
-}
-.th-name {
-  font-size: 11.5px;
-  font-weight: 500;
-  color: rgb(var(--md-on-surface));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.th-input {
-  width: 82px;
-  height: 22px;
-  padding: 0 6px;
-  border: 1px solid rgb(var(--md-primary) / 0.7);
-  border-radius: 6px;
-  background: rgb(var(--md-surface-container-high));
-  color: rgb(var(--md-on-surface));
-  font-size: 11.5px;
-  outline: none;
 }
 .th-btns {
   display: flex;

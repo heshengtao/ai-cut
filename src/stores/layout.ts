@@ -6,7 +6,18 @@ import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 
 /** 右侧面板可打开的窗口类型；后续新增面板只需在此登记。 */
-export type PaneId = "media" | "inspector" | "ai";
+export type PaneId = "media" | "inspector" | "agent" | "ai" | "models";
+
+/** 设置页分区。 */
+export type SettingsSection =
+  | "general"
+  | "appearance"
+  | "layout"
+  | "ai"
+  | "tts"
+  | "network"
+  | "cli"
+  | "about";
 
 /** 预览画布比例。`project` 跟随工程分辨率。 */
 export type PreviewAspect =
@@ -45,7 +56,9 @@ const PREVIEW_QUALITIES: PreviewQuality[] = ["auto", "high", "medium", "low"];
 export const PANES: { id: PaneId; labelKey: string; hintKey: string }[] = [
   { id: "media", labelKey: "panel.media", hintKey: "panel.mediaHint" },
   { id: "inspector", labelKey: "panel.inspector", hintKey: "panel.inspectorHint" },
+  { id: "agent", labelKey: "panel.agent", hintKey: "panel.agentHint" },
   { id: "ai", labelKey: "panel.ai", hintKey: "panel.aiHint" },
+  { id: "models", labelKey: "panel.models", hintKey: "panel.modelsHint" },
 ];
 
 /** 右侧面板宽度下限（px）：标签栏与属性行需要的最小呼吸空间。 */
@@ -129,6 +142,8 @@ export const useLayoutStore = defineStore("layout", () => {
   );
   /** 全屏设置页是否开启（不持久化：下次启动回到工作区）。 */
   const settingsOpen = ref(false);
+  /** 打开设置页时定位到哪个分区（不持久化）。 */
+  const settingsSection = ref<SettingsSection | null>(null);
 
   const hasTabs = computed(() => tabs.value.length > 0);
 
@@ -194,14 +209,16 @@ export const useLayoutStore = defineStore("layout", () => {
     previewRatio.value = clamp(previewRatio.value, MIN_PREVIEW_RATIO, MAX_PREVIEW_RATIO);
   }
 
-  /** 打开全屏设置页。 */
-  function openSettings(): void {
+  /** 打开全屏设置页；可指定分区（如智能体跳转到 AI 设置）。 */
+  function openSettings(section?: SettingsSection): void {
+    if (section) settingsSection.value = section;
     settingsOpen.value = true;
   }
 
   /** 返回工作区。 */
   function closeSettings(): void {
     settingsOpen.value = false;
+    settingsSection.value = null;
   }
 
   watch(
@@ -253,6 +270,7 @@ export const useLayoutStore = defineStore("layout", () => {
     layoutMode,
     previewRatio,
     settingsOpen,
+    settingsSection,
     hasTabs,
     openTab,
     closeTab,

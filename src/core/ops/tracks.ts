@@ -1,4 +1,4 @@
-/** 轨道 ops：增删改名与静音/显示/锁定。 */
+/** 轨道 ops：增删与静音/显示/锁定。 */
 import type { Project, Track } from "@/types/project";
 import { createTrack, nextTrackName } from "@/core/factory";
 import { replaceTrack, withTouch } from "./internal";
@@ -34,12 +34,6 @@ export function removeTrack(doc: Project, trackId: string): Project {
   const tracks = doc.tracks.filter((t) => t.id !== trackId);
   if (tracks.length === doc.tracks.length) return doc;
   return withTouch(doc, { tracks });
-}
-
-export function renameTrack(doc: Project, trackId: string, name: string): Project {
-  const track = doc.tracks.find((t) => t.id === trackId);
-  if (!track || track.name === name) return doc;
-  return replaceTrack(doc, trackId, { ...track, name });
 }
 
 export function setTrackFlag(

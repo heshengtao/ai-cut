@@ -23,6 +23,30 @@ serde_json = "1"
 base64 = "0.22"
 tauri-plugin-dialog = "2.8.3"
 tauri-plugin-shell = "2.5.0"
+# 自动更新：从 GitHub Releases 的 latest.json 取新版本，验签后安装；
+# 装完用 process 插件重启到新版本。端点与公钥在 tauri.conf.json 的 plugins.updater。
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+axum = "0.8"
+tokio = { version = "1", features = ["net", "sync", "time", "rt", "macros"] }
+tokio-util = "0.7"
+tower-http = { version = "0.6", features = ["cors"] }
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "native-tls"] }
+futures-util = { version = "0.3", default-features = false }
+sha2 = "0.10"
+sherpa-onnx = "1.13.8"
+tar = "0.4"
+flate2 = "1"
+# 复用 sherpa-onnx 已经静态链接的 ONNX Runtime（1.28.2），避免二进制里出现两份 ORT。
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "api-17", "alternative-backend"] }
+ort-backend = { path = "../crates/ort-backend" }
+# sherpa-onnx 静态库里的 UVR / Spleeter 音源分离 C API（Rust 绑定尚未暴露）。
+sherpa-separation = { path = "../crates/sherpa-separation" }
+# 音源分离的 STFT / iSTFT。
+rustfft = "6"
+# 响度（EBU R128 / ITU-R BS.1770）。
+ebur128 = "0.1"
 
 [profile.release]
 codegen-units = 1

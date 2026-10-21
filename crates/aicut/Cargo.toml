@@ -1,0 +1,18 @@
+[package]
+name = "aicut"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "AI Cut 的薄 MCP 客户端"
+
+[[bin]]
+name = "aicut"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", default-features = false }
+
+# 独立 workspace：不要被 src-tauri 或根目录的 Cargo 配置吸进去。
+[workspace]

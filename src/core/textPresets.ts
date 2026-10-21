@@ -3,15 +3,14 @@ import type { ClipTextStyle } from "@/types/project";
 import { DEFAULT_TEXT_STYLE } from "@/core/clipStyle";
 import { t } from "@/i18n";
 
+/** 文字预设插入时间线时的固定时长（秒）。预设本身不保存时长。 */
+export const TEXT_PRESET_SECONDS = 15;
+
 export interface TextPreset {
   id: string;
   /** 媒体库里显示的名字。 */
   name: string;
-  /** 插入时间线时使用的文案。 */
-  text: string;
-  /** 默认片段时长（秒）。 */
-  duration: number;
-  /** 文字样式。 */
+  /** 文字样式；预设只描述样式，不含文案与时长。 */
   textStyle: ClipTextStyle;
   /** 内置预设立：不可删除。 */
   builtin: boolean;
@@ -22,8 +21,6 @@ export function defaultTextPreset(): TextPreset {
   return {
     id: "default",
     name: t("textPreset.default.name"),
-    text: t("textPreset.default.text"),
-    duration: 15,
     textStyle: { ...DEFAULT_TEXT_STYLE },
     builtin: true,
   };

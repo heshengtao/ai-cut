@@ -23,18 +23,19 @@ const emit = defineEmits<{
 
 const left = computed(() => props.clip.start * props.pxPerSecond);
 const width = computed(() => Math.max(2, props.clip.duration * props.pxPerSecond));
+const isText = computed(() => props.clip.assetId === "");
+const isAudioOnly = computed(() => props.clip.audioOnly === true);
 const thumbUrl = computed(() => {
   const asset = props.asset;
-  if (!asset) return null;
+  if (!asset || isAudioOnly.value) return null;
   if (asset.thumb) return fileUrl(asset.thumb);
   // 图片没有缓存缩略图时直接显示原图，保证媒体库与轨道上都有预览。
   return asset.kind === "image" ? fileUrl(asset.src) : null;
 });
-const isText = computed(() => props.clip.assetId === "");
 const isUnavailable = computed(() => props.asset !== undefined && props.asset.offline === true);
 const tone = computed(() => {
   if (isText.value) return "tone-text";
-  if (props.asset?.kind === "audio") return "tone-audio";
+  if (isAudioOnly.value || props.asset?.kind === "audio") return "tone-audio";
   if (props.asset?.kind === "image") return "tone-image";
   if (props.asset?.kind === "video") return "tone-primary";
   return "tone-primary";
@@ -51,11 +52,12 @@ const wavePeaks = computed(() => {
 const showWave = computed(() => {
   const asset = props.asset;
   if (!asset || !asset.duration || !wavePeaks.value?.length) return false;
+  if (isAudioOnly.value) return true;
   return asset.kind === "audio" || (asset.kind === "video" && asset.hasAudio !== false);
 });
 
 const waveClass = computed(() =>
-  props.asset?.kind === "audio" ? "wave-audio" : "wave-video",
+  isAudioOnly.value || props.asset?.kind === "audio" ? "wave-audio" : "wave-video",
 );
 
 // 旧工程里的波形只有 64 桶：按需重新生成一次，显示真实的音量起伏。
@@ -73,7 +75,14 @@ watch(
 <template>
   <div
     class="clip"
-    :class="[tone, { selected, unavailable: isUnavailable, 'has-thumb': !!thumbUrl }]"
+    :class="[
+      tone,
+      {
+        selected,
+        unavailable: isUnavailable,
+        'has-thumb': !!thumbUrl,
+      },
+    ]"
     :style="{ left: `${left}px`, width: `${width}px` }"
     @pointerdown="emit('grab', { clipId: clip.id, event: $event, mode: 'move' })"
     @contextmenu.prevent="emit('delete', clip.id)"

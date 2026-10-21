@@ -3,7 +3,13 @@
 import { computed } from "vue";
 import { formatTimecode } from "@/core/time";
 
-const props = defineProps<{ duration: number; pxPerSecond: number; fps: number }>();
+const props = defineProps<{
+  duration: number;
+  pxPerSecond: number;
+  fps: number;
+  /** 播放头在内容坐标系里的 X（px）；用标尺自带的播放头帽保证纵向滚动时它不被卷走。 */
+  playheadX?: number;
+}>();
 const emit = defineEmits<{ (e: "seek", seconds: number): void }>();
 
 /** 刻度间隔：随缩放自适应，取 1/2/5/10/30/60 秒里最合适的一档。 */
@@ -33,16 +39,24 @@ function seekFromEvent(event: PointerEvent): void {
     <div v-for="tick in ticks" :key="tick.seconds" class="tick" :style="{ left: `${tick.x}px` }">
       <span class="tick-label tabular">{{ tick.label }}</span>
     </div>
+    <span
+      v-if="playheadX !== undefined && playheadX >= 0"
+      class="ph-cap"
+      :style="{ left: `${playheadX}px` }"
+    />
   </div>
 </template>
 
 <style scoped>
 .ruler {
-  position: relative;
+  /* 纵向滚动时标尺锁在视口顶部；横向仍然跟随内容滚动。 */
+  position: sticky;
+  top: 0;
+  z-index: 4;
   height: 28px;
   flex: 0 0 auto;
   border-bottom: 1px solid rgb(var(--md-outline-variant) / 0.35);
-  background-color: rgb(var(--md-surface-container-low) / 0.5);
+  background-color: rgb(var(--md-surface-container-low));
   cursor: pointer;
   user-select: none;
   touch-action: none;
@@ -62,5 +76,18 @@ function seekFromEvent(event: PointerEvent): void {
   font-weight: 500;
   color: rgb(var(--md-on-surface-muted));
   white-space: nowrap;
+}
+/* 播放头帽：属于标尺，纵向滚动时和刻度一起保持可见。 */
+.ph-cap {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 12px;
+  z-index: 2;
+  background-color: rgb(var(--md-primary));
+  border-radius: 0 0 3px 3px;
+  clip-path: polygon(0 0, 100% 0, 100% 62%, 50% 100%, 0 62%);
+  pointer-events: none;
 }
 </style>

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-/** 顶栏右侧的工程动作按钮：新建 / 打开 / 保存 / 导出 + 快捷键、布局与设置。 */
+/** 顶栏右侧的工程动作按钮：历史 / 新建 / 打开 / 保存 / 导出 + 快捷键、布局与设置。 */
 import { ref } from "vue";
 import {
+  ClockIcon,
   PlusIcon,
   FolderOpenIcon,
   ArrowUpTrayIcon,
@@ -10,6 +11,7 @@ import {
 import Tooltip from "@/components/common/Tooltip.vue";
 import FloppyDiskIcon from "@/components/common/icons/FloppyDiskIcon.vue";
 import KeyboardIcon from "@/components/common/icons/KeyboardIcon.vue";
+import ProjectHistoryDialog from "@/components/common/ProjectHistoryDialog.vue";
 import ShortcutsDialog from "@/components/common/ShortcutsDialog.vue";
 import LayoutMenu from "./LayoutMenu.vue";
 import { useLayoutStore } from "@/stores/layout";
@@ -21,10 +23,21 @@ const actions = useProjectActions();
 const i18n = useI18n();
 
 const shortcutsOpen = ref(false);
+const historyOpen = ref(false);
 </script>
 
 <template>
   <div class="bar-actions">
+    <Tooltip :text="i18n.t('topbar.history')" align="end">
+      <button
+        class="bar-btn"
+        :class="{ on: historyOpen }"
+        :aria-label="i18n.t('topbar.historyLabel')"
+        @click="historyOpen = true"
+      >
+        <ClockIcon class="bar-icon" />
+      </button>
+    </Tooltip>
     <Tooltip :text="i18n.t('topbar.new')" align="end">
       <button class="bar-btn" :aria-label="i18n.t('topbar.newLabel')" @click="actions.newProject">
         <PlusIcon class="bar-icon" />
@@ -77,6 +90,7 @@ const shortcutsOpen = ref(false);
   </div>
 
   <ShortcutsDialog v-model:open="shortcutsOpen" />
+  <ProjectHistoryDialog v-model:open="historyOpen" />
 </template>
 
 <style scoped>

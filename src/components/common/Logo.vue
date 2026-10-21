@@ -13,7 +13,7 @@ withDefaults(defineProps<{ size?: number }>(), { size: 28 });
     class="logo"
   >
     <rect width="32" height="32" rx="7.25" fill="#6750A4" />
-    <rect x="6.25" y="7.563" width="3.75" height="16.875" rx="1.875" fill="#fff" />
+    <rect x="6.25" y="7.563" width="3.75" height="16.875" rx="1.875" fill="#FFB74D" />
     <path
       d="M 12.625 10.539 L 12.625 21.461 Q 12.625 24.438 15.129 22.828 L 23.624 17.367 Q 25.75 16 23.624 14.633 L 15.129 9.172 Q 12.625 7.563 12.625 10.539 Z"
       fill="#fff"

@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.aicut.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run fetch:sidecars && npm run dev",
     "devUrl": "http://localhost:1430",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && npm run fetch:sidecars && npm run build:aicut",
     "frontendDist": "../dist"
   },
   "app": {
@@ -33,7 +33,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/ffmpeg", "binaries/ffprobe"],
+    "createUpdaterArtifacts": true,
+    "externalBin": ["binaries/ffmpeg", "binaries/ffprobe", "binaries/aicut"],
+    "resources": {
+      "resources/models/": "models/"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -41,5 +45,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdCNzNCNDg1MDE1NjFEMzkKUldRNUhWWUJoYlJ6ZS82eUh3YXFZcDkxZUZ6eWxXY3JvMlNvUzh2VlVJaEU1aWhKRmtYVW5yM0IK",
+      "endpoints": [
+        "https://github.com/heshengtao/ai-cut/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

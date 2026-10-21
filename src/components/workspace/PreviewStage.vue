@@ -457,7 +457,7 @@ const visualItems = computed<VisualItem[]>(() => {
   project.doc.tracks.forEach((track, index) => {
     if (!isVisible(track)) return;
     const clip = active.value.get(track.id);
-    if (!clip) return;
+    if (!clip || clip.audioOnly) return;
 
     const asset =
       clip.assetId === ""

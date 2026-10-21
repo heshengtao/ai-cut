@@ -10,31 +10,69 @@ export interface MediaMeta {
   width: number | null;
   height: number | null;
   fps: number | null;
+  rotation: number | null;
   has_video: boolean;
   has_audio: boolean;
+  format_name: string;
+  video_codec: string | null;
+  audio_codec: string | null;
 }
 
-const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "heic", "tiff"]);
-const VIDEO_EXTS = new Set(["mp4", "mov", "m4v", "mkv", "webm", "avi", "mpg", "mpeg", "wmv", "flv", "ts"]);
-const AUDIO_EXTS = new Set(["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "aiff", "aif"]);
+const IMAGE_EXTS = new Set([
+  "png", "jpg", "jpeg", "jfif", "gif", "webp", "bmp", "avif", "heic", "heif",
+  "tif", "tiff", "ico", "svg",
+]);
+const VIDEO_EXTS = new Set([
+  "mp4", "m4v", "mov", "mkv", "webm", "avi", "mpg", "mpeg", "m2v",
+  "ts", "m2ts", "mts", "wmv", "flv", "vob", "ogv", "3gp", "3g2",
+  "mxf", "asf", "rm", "rmvb", "dv",
+]);
+const AUDIO_EXTS = new Set([
+  "wav", "mp3", "mp2", "m4a", "m4b", "aac", "flac", "ogg", "oga", "opus",
+  "aiff", "aif", "aifc", "wma", "mka", "ac3", "eac3", "dts", "amr", "caf",
+  "ape", "wv",
+]);
+
+/** WebView 能直接播放的容器；其余先经 ffmpeg 生成代理。 */
+const DIRECT_VIDEO_EXTS = new Set(["mp4", "m4v", "mov", "webm"]);
+/** WebAudio 能稳定解码的音频；视频音轨统一走抽取。 */
+const DIRECT_AUDIO_EXTS = new Set([
+  "wav", "mp3", "m4a", "m4b", "aac", "flac", "ogg", "oga", "opus", "aif", "aiff", "aifc",
+]);
 
 /** 取路径中的文件名（兼容 `\\` 与 `/`）。 */
 export function baseName(path: string): string {
   const normalized = path.replace(/\\/g, "/");
   const index = normalized.lastIndexOf("/");
-  return index >= 0 ? normalized.slice(index + 1) : normalized;
+  return index >= 0 ? normalized.slice(index + 1) : path;
+}
+
+/** 取小写扩展名（没有则返回空串）。 */
+export function extOf(path: string): string {
+  const name = baseName(path);
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0 || dot === name.length - 1) return "";
+  return name.slice(dot + 1).toLowerCase();
 }
 
 /** 按扩展名判定素材类型；不支持的类型返回 null。 */
 export function kindFromPath(path: string): AssetKind | null {
-  const name = baseName(path);
-  const dot = name.lastIndexOf(".");
-  if (dot <= 0 || dot === name.length - 1) return null;
-  const ext = name.slice(dot + 1).toLowerCase();
+  const ext = extOf(path);
   if (IMAGE_EXTS.has(ext)) return "image";
   if (VIDEO_EXTS.has(ext)) return "video";
   if (AUDIO_EXTS.has(ext)) return "audio";
   return null;
+}
+
+/** 该视频是否需要 ffmpeg 预览代理（MKV / AVI / WMV…）。 */
+export function needsVideoProxy(path: string): boolean {
+  return !DIRECT_VIDEO_EXTS.has(extOf(path));
+}
+
+/** 该素材的音轨是否需要先转成通用格式。视频一律抽取，避免整段读进内存。 */
+export function needsAudioProxy(kind: AssetKind, path: string): boolean {
+  if (kind === "video") return true;
+  return kind === "audio" && !DIRECT_AUDIO_EXTS.has(extOf(path));
 }
 
 /** 绝对路径 → webview 可直接用于 <video>/<img>/<audio> 的 URL。 */
@@ -57,6 +95,39 @@ export function makeThumbnail(path: string, assetId: string, atSec: number): Pro
 
 export function makeWaveform(path: string, assetId: string): Promise<number[]> {
   return invoke<number[]>("make_waveform", { path, assetId });
+}
+
+/** 同一素材的转码只跑一次：界面多处同时请求时共享同一个 Promise。 */
+function cachedPreview(
+  cache: Map<string, Promise<string>>,
+  key: string,
+  run: () => Promise<string>,
+): Promise<string> {
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const promise = run().catch((error) => {
+    cache.delete(key);
+    throw error;
+  });
+  cache.set(key, promise);
+  return promise;
+}
+
+const audioPreviewCache = new Map<string, Promise<string>>();
+const videoPreviewCache = new Map<string, Promise<string>>();
+
+/** 任意素材的音轨 → 缓存 M4A（AAC），供 WebAudio 解码。 */
+export function extractAudioPreview(path: string, assetId: string): Promise<string> {
+  return cachedPreview(audioPreviewCache, `${assetId}:${path}`, () =>
+    invoke<string>("extract_audio_preview", { path, assetId }),
+  );
+}
+
+/** 任意视频素材 → H.264/AAC MP4 预览，供 `<video>` 播放。 */
+export function makeVideoPreview(path: string, assetId: string): Promise<string> {
+  return cachedPreview(videoPreviewCache, `${assetId}:${path}`, () =>
+    invoke<string>("make_video_preview", { path, assetId }),
+  );
 }
 
 export function readProjectFile(path: string): Promise<string> {
@@ -115,8 +186,27 @@ export async function importAssetAt(path: string): Promise<MediaAsset> {
   const kind = kindFromPath(path);
   if (!kind) throw new Error(t("error.unsupportedType", { name: baseName(path) }));
 
-  const meta = await probeMedia(path);
   const name = baseName(path);
+  // 图片（尤其 SVG / HEIC）不一定能被 ffprobe 读取，读不出来也允许导入。
+  let meta: MediaMeta;
+  try {
+    meta = await probeMedia(path);
+  } catch (error) {
+    if (kind !== "image") throw error;
+    meta = {
+      duration: 0,
+      width: null,
+      height: null,
+      fps: null,
+      rotation: null,
+      has_video: false,
+      has_audio: false,
+      format_name: "",
+      video_codec: null,
+      audio_codec: null,
+    };
+  }
+
   const duration = kind === "image" ? 0 : meta.duration;
   if (kind !== "image" && !(duration > 0)) throw new Error(t("error.noDuration", { name }));
 
@@ -134,6 +224,17 @@ export async function importAssetAt(path: string): Promise<MediaAsset> {
     hasAudio: meta.has_audio,
   };
 
+  // 音轨先转成通用格式：解决 MOV 里的 PCM / 冷门编码放不出声的问题，
+  // 同时让波形从纯音频解码，省掉一次视频解复用。
+  let audioSource = path;
+  if (kind !== "image" && meta.has_audio && needsAudioProxy(kind, path)) {
+    try {
+      audioSource = await extractAudioPreview(path, id);
+    } catch {
+      /* 抽取失败：回退到直接解码源文件 */
+    }
+  }
+
   const thumbAt = kind === "image" ? 0 : Math.min(1, duration / 2);
   try {
     const thumbName = await makeThumbnail(path, id, thumbAt);
@@ -143,10 +244,15 @@ export async function importAssetAt(path: string): Promise<MediaAsset> {
   }
   if (meta.has_audio) {
     try {
-      asset.wave = await makeWaveform(path, id);
+      asset.wave = await makeWaveform(audioSource, id);
     } catch {
       /* 波形失败：片段块不画波形 */
     }
+  }
+
+  // WebView 明确放不了的容器提前转代理，避免第一次播放时黑屏等待。
+  if (kind === "video" && needsVideoProxy(path)) {
+    void makeVideoPreview(path, id).catch(() => undefined);
   }
   return asset;
 }
@@ -172,6 +278,12 @@ export async function recoveryPath(): Promise<string> {
   return join(dir, "autosave.json");
 }
 
+/** 最后一次工作会话（工程内容 + 路径 + dirty），用于重启后静默恢复。 */
+export async function sessionPath(): Promise<string> {
+  const dir = await join(await appDataDir(), "recovery");
+  return join(dir, "session.json");
+}
+
 /** 读恢复草稿；不存在返回 null。 */
 export async function recoveryRead(): Promise<string | null> {
   try {
@@ -181,6 +293,15 @@ export async function recoveryRead(): Promise<string | null> {
   }
 }
 
-export async function recoveryWrite(json: string): Promise<void> {
-  await writeProjectFile(await recoveryPath(), json);
+/** 读最后一次工作会话；不存在返回 null。 */
+export async function sessionRead(): Promise<string | null> {
+  try {
+    return await readProjectFile(await sessionPath());
+  } catch {
+    return null;
+  }
+}
+
+export async function sessionWrite(json: string): Promise<void> {
+  await writeProjectFile(await sessionPath(), json);
 }

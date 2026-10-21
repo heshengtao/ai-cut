@@ -72,6 +72,14 @@ function onMouseDown(e: MouseEvent): void {
 
 <template>
   <header class="top-bar" :class="{ 'pad-mac': padMac }" @mousedown="onMouseDown">
+    <div
+      v-if="project.busy"
+      class="activity-progress"
+      role="progressbar"
+      :aria-label="i18n.t('common.loading')"
+    >
+      <span class="activity-progress-fill" />
+    </div>
     <!-- 左：应用标识 + 工程名（横屏时动作按钮也在这里） -->
     <div
       class="bar-main"
@@ -167,6 +175,33 @@ function onMouseDown(e: MouseEvent): void {
   user-select: none;
   position: relative;
   z-index: 30;
+}
+/* 打开 / 恢复工程时的顶部线性进度条（不挡住窗口按钮）。 */
+.activity-progress {
+  position: absolute;
+  left: 0;
+  right: var(--win-reserve);
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: 2;
+  background-color: rgb(var(--md-primary) / 0.14);
+}
+.activity-progress-fill {
+  display: block;
+  width: 34%;
+  height: 100%;
+  border-radius: 999px;
+  background-color: rgb(var(--md-primary));
+  animation: top-activity 1.05s ease-in-out infinite;
+}
+@keyframes top-activity {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(395%);
+  }
 }
 .bar-main {
   flex: 1 1 auto;
@@ -313,6 +348,11 @@ function onMouseDown(e: MouseEvent): void {
   }
   .bar-btn:active {
     transform: none;
+  }
+  .activity-progress-fill {
+    width: 100%;
+    animation: none;
+    opacity: 0.7;
   }
 }
 </style>

@@ -23,3 +23,12 @@ src-tauri/binaries/
 .idea
 .vscode/*
 !.vscode/extensions.json
+
+# Local agent / assistant state
+.workbuddy-ai/
+.agents/
+.superpowers/
+
+# Local environment
+.env
+.env.*

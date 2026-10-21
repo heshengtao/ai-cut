@@ -133,6 +133,12 @@ export interface Clip {
   pitch?: number;
   /** 立体声平衡 -1（全左）..1（全右），默认 0。 */
   pan?: number;
+  /** 静音该片段的音频；画面仍然保留（视频片段处理后用它关掉原声）。 */
+  muted?: boolean;
+  /**
+   * 从视频里分离出来的纯音频片段：仍引用原视频素材，但预览 / 导出都不再渲染画面。
+   */
+  audioOnly?: boolean;
   /** 不透明度 0..1，默认 1。 */
   opacity?: number;
   /** 画面变换；缺省时按默认位置/大小显示。 */
@@ -174,3 +180,21 @@ export interface Project {
 
 /** 当前工程文档版本。 */
 export const PROJECT_VERSION = 1;
+
+/** 历史工程卡片：当前工程被替换前留下的一份快照。 */
+export interface ProjectHistoryEntry {
+  id: string;
+  name: string;
+  /** 记录时间（Unix 毫秒）。 */
+  saved_at: number;
+  /** 当时的工程文件路径；未保存过为 null。 */
+  path: string | null;
+  /** 当时是否有未保存改动。 */
+  dirty: boolean;
+  /** 时间线长度（秒）。 */
+  duration: number;
+  /** 视频 / 图片素材的缩略图缓存路径。 */
+  thumbnail: string | null;
+  track_count: number;
+  clip_count: number;
+}

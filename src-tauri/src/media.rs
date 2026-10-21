@@ -1,6 +1,9 @@
 //! 媒体探测与派生产物（缩略图 / 波形）。
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
@@ -14,8 +17,14 @@ pub struct MediaMeta {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub fps: Option<f64>,
+    /// 旋转元数据（0 / 90 / 180 / 270）；手机视频常见。
+    pub rotation: Option<i32>,
     pub has_video: bool,
     pub has_audio: bool,
+    /// 容器名（如 `mov,mp4,m4a,3gp,3g2,mj2`）。
+    pub format_name: String,
+    pub video_codec: Option<String>,
+    pub audio_codec: Option<String>,
 }
 
 /// 解析 ffprobe 的 `r_frame_rate`（形如 `30/1`）。
@@ -71,11 +80,18 @@ pub async fn probe_media<R: Runtime>(app: AppHandle<R>, path: String) -> Result<
     let video = streams
         .iter()
         .find(|s| codec_of(s) == "video" && !is_attached_pic(s));
+    let audio = streams.iter().find(|s| codec_of(s) == "audio");
 
     let mut meta = MediaMeta {
         has_video: video.is_some(),
-        has_audio: streams.iter().any(|s| codec_of(s) == "audio"),
+        has_audio: audio.is_some(),
         ..Default::default()
+    };
+
+    let codec_name = |s: &serde_json::Value| {
+        s.get("codec_name")
+            .and_then(|c| c.as_str())
+            .map(|c| c.to_string())
     };
 
     if let Some(v) = video {
@@ -85,7 +101,38 @@ pub async fn probe_media<R: Runtime>(app: AppHandle<R>, path: String) -> Result<
             .get("r_frame_rate")
             .and_then(|x| x.as_str())
             .and_then(parse_frame_rate);
+        meta.rotation = v
+            .get("side_data_list")
+            .and_then(|list| list.as_array())
+            .and_then(|list| {
+                list.iter().find_map(|item| {
+                    item.get("rotation")
+                        .and_then(|rotation| {
+                            rotation
+                                .as_i64()
+                                .or_else(|| rotation.as_f64().map(|value| value as i64))
+                        })
+                        .map(|rotation| rotation as i32)
+                })
+            })
+            .or_else(|| {
+                v.get("tags")
+                    .and_then(|tags| tags.get("rotate"))
+                    .and_then(|rotate| rotate.as_str())
+                    .and_then(|rotate| rotate.parse::<i32>().ok())
+            });
+        meta.video_codec = codec_name(v);
     }
+    if let Some(a) = audio {
+        meta.audio_codec = codec_name(a);
+    }
+
+    meta.format_name = json
+        .get("format")
+        .and_then(|f| f.get("format_name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     meta.duration = json
         .get("format")
@@ -100,6 +147,161 @@ pub async fn probe_media<R: Runtime>(app: AppHandle<R>, path: String) -> Result<
     }
 
     Ok(meta)
+}
+
+// ---------------------------------------------------------------------------
+// 预览兼容层
+//
+// WebView 能直接解码的容器/编码有限（尤其 MOV 里的 PCM、MKV/AVI 等）。
+// 这里统一用打包的 ffmpeg 生成缓存副本：音轨 → AAC/M4A，视频 → H.264/AAC MP4。
+// 缓存按「路径 + 大小 + 修改时间」命名，源文件变化会自动重新生成。
+// ---------------------------------------------------------------------------
+
+/// 源文件指纹。
+fn source_fingerprint(path: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    if let Ok(meta) = std::fs::metadata(path) {
+        meta.len().hash(&mut hasher);
+        if let Ok(modified) = meta.modified() {
+            if let Ok(stamp) = modified.duration_since(UNIX_EPOCH) {
+                stamp.as_nanos().hash(&mut hasher);
+            }
+        }
+    }
+    format!("{:016x}", hasher.finish())
+}
+
+/// 素材 id → 安全的文件名片段。
+fn safe_file_id(id: &str) -> String {
+    let cleaned: String = id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect();
+    if cleaned.is_empty() {
+        "asset".to_string()
+    } else {
+        cleaned
+    }
+}
+
+fn cache_ready(path: &std::path::Path) -> bool {
+    std::fs::metadata(path)
+        .map(|m| m.len() > 0)
+        .unwrap_or(false)
+}
+
+/// 把任意格式的音轨转成 WebAudio 稳定可解码的 AAC/M4A（放在缓存目录）。
+///
+/// 视频素材也走这里：避免把整个视频文件读进内存再 `decodeAudioData`。
+#[tauri::command]
+pub async fn extract_audio_preview<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    asset_id: String,
+) -> Result<String, String> {
+    let cache = cache_dir(&app)?;
+    let id = safe_file_id(&asset_id);
+    let stamp = source_fingerprint(&path);
+    let out = cache.join(format!("audio-{id}-{stamp}.m4a"));
+    if cache_ready(&out) {
+        return Ok(out.to_string_lossy().into_owned());
+    }
+
+    let tmp = cache.join(format!(".audio-{}-{id}-{stamp}.m4a", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+
+    let args: Vec<String> = vec![
+        "-y".into(),
+        "-v".into(),
+        "error".into(),
+        "-i".into(),
+        path.clone(),
+        "-map".into(),
+        "0:a:0?".into(),
+        "-vn".into(),
+        "-sn".into(),
+        "-dn".into(),
+        "-ac".into(),
+        "2".into(),
+        "-ar".into(),
+        "48000".into(),
+        "-c:a".into(),
+        "aac".into(),
+        "-b:a".into(),
+        "192k".into(),
+        "-movflags".into(),
+        "+faststart".into(),
+        tmp.to_string_lossy().into_owned(),
+    ];
+
+    let (code, _) = run_sidecar(&app, "ffmpeg", &args).await?;
+    if code != Some(0) || !cache_ready(&tmp) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("无法提取音频：{path}"));
+    }
+    std::fs::rename(&tmp, &out).map_err(|e| format!("写入音频缓存失败：{e}"))?;
+    Ok(out.to_string_lossy().into_owned())
+}
+
+/// 把 WebView 放不了的视频容器 / 编码转成 H.264 + AAC 的 MP4 预览。
+#[tauri::command]
+pub async fn make_video_preview<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    asset_id: String,
+) -> Result<String, String> {
+    let cache = cache_dir(&app)?;
+    let id = safe_file_id(&asset_id);
+    let stamp = source_fingerprint(&path);
+    let out = cache.join(format!("preview-{id}-{stamp}.mp4"));
+    if cache_ready(&out) {
+        return Ok(out.to_string_lossy().into_owned());
+    }
+
+    let tmp = cache.join(format!(".preview-{}-{id}-{stamp}.mp4", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+
+    let args: Vec<String> = vec![
+        "-y".into(),
+        "-v".into(),
+        "error".into(),
+        "-i".into(),
+        path.clone(),
+        "-map".into(),
+        "0:v:0".into(),
+        "-map".into(),
+        "0:a:0?".into(),
+        // H.264 的 yuv420p 要求宽高为偶数；超过 1080p 的宽度缩到 1920。
+        "-vf".into(),
+        "scale='min(1920,iw)':-2,pad=ceil(iw/2)*2:ceil(ih/2)*2".into(),
+        "-c:v".into(),
+        "libx264".into(),
+        "-preset".into(),
+        "veryfast".into(),
+        "-crf".into(),
+        "21".into(),
+        "-pix_fmt".into(),
+        "yuv420p".into(),
+        "-c:a".into(),
+        "aac".into(),
+        "-b:a".into(),
+        "192k".into(),
+        "-ac".into(),
+        "2".into(),
+        "-movflags".into(),
+        "+faststart".into(),
+        tmp.to_string_lossy().into_owned(),
+    ];
+
+    let (code, _) = run_sidecar(&app, "ffmpeg", &args).await?;
+    if code != Some(0) || !cache_ready(&tmp) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("无法生成视频预览：{path}"));
+    }
+    std::fs::rename(&tmp, &out).map_err(|e| format!("写入预览缓存失败：{e}"))?;
+    Ok(out.to_string_lossy().into_owned())
 }
 
 /// 波形分桶数。片段缩放、裁剪时按素材内时间重新采样，桶数越多细节越真实。
@@ -208,10 +410,25 @@ fn compute_peaks(pcm: &[u8], buckets: usize) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::compute_peaks;
+    use super::{compute_peaks, safe_file_id, source_fingerprint};
 
     fn pcm(samples: &[i16]) -> Vec<u8> {
         samples.iter().flat_map(|s| s.to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn sanitizes_asset_ids_for_cache_names() {
+        assert_eq!(safe_file_id("a1b2-c3_d4"), "a1b2-c3_d4");
+        assert_eq!(safe_file_id("../a/b"), "ab");
+        assert_eq!(safe_file_id(""), "asset");
+    }
+
+    #[test]
+    fn fingerprints_differ_by_path_and_are_stable_for_missing_files() {
+        let a = source_fingerprint("/tmp/does-not-exist-a.mov");
+        let b = source_fingerprint("/tmp/does-not-exist-b.mov");
+        assert_ne!(a, b);
+        assert_eq!(a, a);
     }
 
     #[test]

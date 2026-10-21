@@ -307,6 +307,13 @@ export function setClipPitch(doc: Project, clipId: string, semitones: number): P
   return updateClip(doc, clipId, { pitch: value });
 }
 
+/** 静音片段的音频；视频画面保留。 */
+export function setClipMuted(doc: Project, clipId: string, muted: boolean): Project {
+  const found = findClip(doc, clipId);
+  if (!found || Boolean(found.clip.muted) === muted) return doc;
+  return updateClip(doc, clipId, { muted });
+}
+
 /** 立体声平衡 -1..1。 */
 export function setClipPan(doc: Project, clipId: string, value: number): Project {
   const found = findClip(doc, clipId);
