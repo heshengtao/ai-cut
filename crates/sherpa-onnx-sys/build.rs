@@ -403,11 +403,13 @@ fn archive_name(
         (LinkMode::Static, "macos", "aarch64") => {
             format!("sherpa-onnx-v{version}-osx-arm64-static-lib.tar.bz2")
         }
+        // 使用 MD（动态 CRT）而不是 MT：ort 的预编译 ONNX Runtime 和 Rust 自身
+        // 都链接 msvcrt/msvcprt，MT 静态库会带入 libcpmt，导致 LNK2005 重复符号。
         (LinkMode::Static, "windows", "x86_64") => {
-            format!("sherpa-onnx-v{version}-win-x64-static-MT-Release-lib.tar.bz2")
+            format!("sherpa-onnx-v{version}-win-x64-static-MD-Release-lib.tar.bz2")
         }
         (LinkMode::Static, "windows", "aarch64") => {
-            format!("sherpa-onnx-v{version}-win-arm64-static-MT-Release-lib.tar.bz2")
+            format!("sherpa-onnx-v{version}-win-arm64-static-MD-Release-lib.tar.bz2")
         }
         (LinkMode::Shared, "linux", "x86_64") => {
             format!("sherpa-onnx-v{version}-linux-x64-shared-lib.tar.bz2")
