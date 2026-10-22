@@ -171,8 +171,10 @@ fn download_prebuilt_libs(
         .or_else(|| archive_name.strip_suffix(".xcframework.zip"))
         .unwrap_or(&archive_name);
 
+    // 放在 OUT_DIR 而不是 target/ 根目录：rust-cache 等缓存工具会清掉
+    // target/ 下不属于 Cargo 产物的文件，但会保留 build/*/out。
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
-    let cache_root = target_dir_from_out_dir(&out_dir)?.join("sherpa-onnx-prebuilt");
+    let cache_root = out_dir.join("sherpa-onnx-prebuilt");
     let extracted_dir = cache_root.join(archive_stem);
 
     // For iOS simulator builds, use a separate lib directory to avoid
@@ -185,7 +187,16 @@ fn download_prebuilt_libs(
 
     if lib_dir.is_dir() {
         remove_bundled_onnxruntime(&lib_dir);
-        return Ok((lib_dir, archive_stem.to_string()));
+        if link_mode != LinkMode::Static
+            || matches!(target_os, "android" | "ios")
+            || missing_static_libs(&lib_dir, target_os).is_empty()
+        {
+            return Ok((lib_dir, archive_stem.to_string()));
+        }
+        eprintln!(
+            "Cached sherpa-onnx libs in {} are incomplete; re-extracting",
+            lib_dir.display()
+        );
     }
 
     // Android archives use jniLibs/{abi}/ instead of lib/. Check both
@@ -305,9 +316,35 @@ fn download_prebuilt_libs(
     }
 
     remove_bundled_onnxruntime(&lib_dir);
+
+    if link_mode == LinkMode::Static && !matches!(target_os, "android" | "ios") {
+        let missing = missing_static_libs(&lib_dir, target_os);
+        if !missing.is_empty() {
+            return Err(format!(
+                "sherpa-onnx archive is missing required static libraries: {}",
+                missing.join(", ")
+            )
+            .into());
+        }
+    }
+
     eprintln!("Downloaded sherpa-onnx libs to {}", extracted_dir.display());
 
     Ok((lib_dir, archive_stem.to_string()))
+}
+
+/// 静态链接时 Cargo 必须在 `lib_dir` 里找到这些库。
+fn missing_static_libs(lib_dir: &Path, target_os: &str) -> Vec<String> {
+    let (prefix, suffix) = if target_os == "windows" {
+        ("", ".lib")
+    } else {
+        ("lib", ".a")
+    };
+    SHERPA_ONNX_STATIC_LIBS
+        .iter()
+        .filter(|name| !lib_dir.join(format!("{prefix}{name}{suffix}")).is_file())
+        .map(|name| name.to_string())
+        .collect()
 }
 
 

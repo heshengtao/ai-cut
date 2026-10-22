@@ -67,6 +67,8 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
+          # v1: sherpa-onnx 预编译库已移入 OUT_DIR，需要丢弃旧的空目录缓存。
+          prefix-key: v1-rust
           workspaces: |
             . -> target
             src-tauri -> target
