@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod agent;
+mod analysis;
 mod asr;
 mod audio_ai;
 mod bridge;
@@ -12,6 +13,7 @@ mod mcp;
 mod media;
 mod models;
 mod network;
+mod opener;
 mod project_io;
 mod sidecar;
 mod tools;
@@ -101,6 +103,7 @@ pub fn run() {
             cli::cli_status,
             cli::install_cli,
             cli::uninstall_cli,
+            opener::open_external_url,
             models::model_catalog,
             models::model_download,
             models::model_probe,

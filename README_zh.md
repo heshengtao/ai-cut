@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.0-1A6CFF?style=flat-square" alt="版本 0.2.0">
+  <img src="https://img.shields.io/badge/version-0.2.1-1A6CFF?style=flat-square" alt="版本 0.2.1">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-1A6CFF?style=flat-square" alt="许可：Apache-2.0"></a>
   <img src="https://img.shields.io/badge/platforms-Windows%20/%20macOS%20/%20Linux-1A6CFF?style=flat-square" alt="平台：Windows、macOS、Linux">
 </p>
@@ -102,6 +102,7 @@ aicut call get_project
 - **朗读** —— 本地 TTS，以及 OpenAI、ElevenLabs、Azure、Google、百度、MiniMax、火山引擎或自定义 HTTP
 - **音频 AI** —— 响度统一、降噪、人声美化、人声分离、音频翻译
 - **视频 AI** —— 超分、补帧、智能裁剪、镜头追踪
+- **素材预检** —— 一次调用返回元数据、运动/切点、人脸/人物框与本地转写
 - **生来离线** —— 编辑器与本地模型不要账号、不上传素材
 
 ### 🔌 MCP 服务器与剪辑智能体 —— 让智能体在你的工程里干活
@@ -109,8 +110,10 @@ aicut call get_project
 打开一个开关，你的工程就变成 AI 助手可以操作的对象。内置的 **MCP（Model Context Protocol）服务器**把会话通过只监听 `127.0.0.1` 的 HTTP 端点开放出去——接上你的代理、给它一个任务，就能看它建轨、放片段、改文字，界面实时跟着变。同一套工具定义也驱动内置的**剪辑智能体**：一个 OpenAI 兼容的对话面板，支持流式回答、工具调用与会话树分支。
 
 - **MCP over HTTP** —— 只监听回环地址的接入点，JSON 与 SSE 双协议
+- **工程生命周期** —— `new_project` / `open_project` / `save_project` 直接读写工程 JSON，不弹保存/打开对话框
 - **实时改工程** —— 代理的操作会立刻以正常的工程改动出现
 - **`aicut` 命令行** —— 薄客户端；新增工具不需要改 CLI
+- **`aicut start`** —— 自动查找本机安装位置，并脱离启动器的 Job Object（含 Windows）
 - **剪辑智能体** —— OpenAI 兼容端点、流式回答、工具卡片、会话分支
 - **Skills** —— 剪辑与生产文档，由智能体按需加载
 
@@ -201,7 +204,7 @@ ffmpeg 与 ffprobe 以静态二进制随包分发，用户不需要自己安装�
 
 ### 智能体能直接导出成片吗？
 
-不能。MCP 暴露六个读写工程的工具；字幕、朗读、音频 / 视频 AI 与最终导出都需要人在应用里触发——智能体把时间线准备好，再交回给人审片。
+能。`export_video` 可以通过 MCP 直接导出 MP4、ProRes 或 GIF。`outputPath` 可以省略：省略时写到工程文件旁边（未保存的工程写到下载目录），并返回最终路径。字幕、朗读、音频 / 视频 AI 与导出都是工具，智能体可以准备时间线、渲染成片，再交回给人审片。
 
 ## 许可
 

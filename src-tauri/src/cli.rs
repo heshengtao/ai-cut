@@ -194,6 +194,11 @@ pub fn publish_path(app: &AppHandle) {
         return;
     };
     let _ = std::fs::create_dir_all(&dir);
+    // 外部 CLI（aicut start）据此找到本应用的真实可执行文件，不必再依赖
+    // AICUT_APP_PATH 或平台猜测。
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::fs::write(dir.join("app-path"), exe.display().to_string());
+    }
     if let Some(bundled) = bundled_binary() {
         let _ = std::fs::write(dir.join(PATH_FILE), bundled.display().to_string());
     }

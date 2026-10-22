@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 顶栏右侧的工程动作按钮：历史 / 新建 / 打开 / 保存 / 导出 + 快捷键、布局与设置。 */
 import { ref } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import {
   ClockIcon,
   PlusIcon,
@@ -10,6 +11,7 @@ import {
 } from "@heroicons/vue/24/outline";
 import Tooltip from "@/components/common/Tooltip.vue";
 import FloppyDiskIcon from "@/components/common/icons/FloppyDiskIcon.vue";
+import GitHubIcon from "@/components/common/icons/GitHubIcon.vue";
 import KeyboardIcon from "@/components/common/icons/KeyboardIcon.vue";
 import ProjectHistoryDialog from "@/components/common/ProjectHistoryDialog.vue";
 import ShortcutsDialog from "@/components/common/ShortcutsDialog.vue";
@@ -22,8 +24,16 @@ const layout = useLayoutStore();
 const actions = useProjectActions();
 const i18n = useI18n();
 
+const REPO_URL = "https://github.com/heshengtao/ai-cut";
+
 const shortcutsOpen = ref(false);
 const historyOpen = ref(false);
+
+function openRepository(): void {
+  void invoke("open_external_url", { url: REPO_URL }).catch(() => {
+    window.open(REPO_URL, "_blank", "noopener");
+  });
+}
 </script>
 
 <template>
@@ -75,6 +85,16 @@ const historyOpen = ref(false);
     <LayoutMenu />
 
     <span class="bar-sep" />
+
+    <Tooltip :text="i18n.t('topbar.github')" align="end">
+      <button
+        class="bar-btn"
+        :aria-label="i18n.t('topbar.githubLabel')"
+        @click="openRepository"
+      >
+        <GitHubIcon class="bar-icon" />
+      </button>
+    </Tooltip>
 
     <Tooltip :text="i18n.t('topbar.settings')" align="end">
       <button

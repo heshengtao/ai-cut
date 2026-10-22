@@ -30,13 +30,14 @@ dependencies = [
 
 [[package]]
 name = "ai-cut"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
  "ebur128",
  "flate2",
  "futures-util",
+ "open",
  "ort",
  "ort-backend",
  "reqwest",

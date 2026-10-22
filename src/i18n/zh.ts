@@ -50,6 +50,8 @@ const zh: Record<string, string> = {
   "topbar.export": "导出视频",
   "topbar.exportLabel": "导出视频",
   "topbar.settings": "设置",
+  "topbar.github": "GitHub 仓库",
+  "topbar.githubLabel": "打开 GitHub 仓库",
   "topbar.rename": "重命名工程",
   "topbar.renameLabel": "重命名工程",
   "topbar.unsaved": "有未保存的改动",

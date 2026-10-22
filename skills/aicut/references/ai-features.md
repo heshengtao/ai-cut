@@ -199,8 +199,11 @@
 - **文字片段会被 Canvas 预渲染成 PNG 并烧录**；字幕不是独立 SRT/VTT 文件。
 - 音频混音：所有发声轨按 `gain` / `start` / `fadeIn` / `fadeOut` / `pitch` / `pan` 混合；单轨时直通，多轨 `amix`。
 - 导出前检查离线素材；缺失会报错。
+- `export_video` 的 `outputPath` 可以省略：默认写到工程所在目录（未保存的工程写到下载目录），
+  文件名取工程名并自动去重；返回值里的 `path` 才是最终路径。也可以只给 `outputDir`。
 - `export_video` 返回 `path / duration / warnings / format / width / height / fps / fit / fitAnchor`，智能体可以直接核对交付规格，不必再猜。
-- 当前没有内置转场、蒙版轨或字幕文件导出。需要这些请用外部工具预处理/后处理。
+- 字幕可以独立导出：`export_subtitles({outputPath})` 写 SRT/VTT。
+- 当前没有内置转场或蒙版轨；字幕文件导出用 `export_subtitles`。
 
 ## 8. 智能体工具
 
@@ -215,7 +218,7 @@
 | `measure_loudness` | 响度与真峰值 | `clipId`, `targetLufs?`, `apply?` |
 | `upscale_video` / `interpolate_video` / `reframe_video` | 超分 / 补帧 / 重构 | `clipId`, `modelId?` 或 `subject`/`aspect` |
 | `process_video` | 稳定/去噪/去闪烁/动态模糊/放大 | `clipId`, `options` |
-| `export_video` | 导出到显式路径 | `outputPath`, `format?`, `resolution?`, `width?`, `height?`, `fit?`, `fitAnchor?`, `fps?`, `quality?`, `gif?` |
+| `export_video` | 导出成片（`outputPath` 可省略） | `outputPath?`, `outputDir?`, `format?`, `resolution?`, `quality?`, … |
 | `list_ai_models` / `download_model` / `cancel_ai` | 模型与任务管理 | `feature?` / `id` / — |
 | `extract_audio` | 分离视频音轨（确定性，不跑模型） | `clipId`, `trackName?` |
 
@@ -224,7 +227,7 @@
 - 工具是同步的：调用后等到任务结束；停止按钮或 `cancel_ai` 会取消当前 job。
 - 产出物（分轨、降噪音频、朗读、超分视频）会自动导入素材库并落回时间线，整个回填是一步撤销。
 - 模型缺失会直接报错并列出可下载的 id，不会静默降级。
-- 仍然不支持：把字幕写成 SRT/VTT 文件、内置转场、蒙版轨。不要承诺这些。
+- 仍然不支持：内置转场（相邻片段交叉淡化）、蒙版轨。不要承诺这些。
 
 ## 9. 故障排查
 

@@ -113,7 +113,11 @@ function optionalAnchor(value: unknown): ExportAnchor | undefined {
 }
 
 function currentOverview(project: ReturnType<typeof useProjectStore>) {
-  return { ...views.overview(project.doc, project.revision), filePath: project.filePath };
+  return {
+    ...views.overview(project.doc, project.revision),
+    filePath: project.filePath,
+    dirty: project.dirty,
+  };
 }
 
 async function handle(

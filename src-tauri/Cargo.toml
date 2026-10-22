@@ -1,6 +1,6 @@
 [package]
 name = "ai-cut"
-version = "0.2.0"
+version = "0.2.1"
 description = "AI Cut — AI 视频剪辑器（原型）"
 authors = ["you"]
 edition = "2021"
@@ -27,6 +27,8 @@ tauri-plugin-shell = "2.5.0"
 # 装完用 process 插件重启到新版本。端点与公钥在 tauri.conf.json 的 plugins.updater。
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# 用系统默认浏览器打开外链（顶栏 GitHub 按钮）。
+open = "5"
 axum = "0.8"
 tokio = { version = "1", features = ["net", "sync", "time", "rt", "macros"] }
 tokio-util = "0.7"

@@ -23,7 +23,7 @@ license: Apache-2.0
 
 | 类别 | 工具 |
 | --- | --- |
-| 读取 | `get_project`（概览）、`get_context`（播放头/选中）、`get_track`（分页读轨）、`get_clip`（单片段）、`find_clips`（按时间/素材/文字检索）、`get_assets`（素材分页）、`get_markers`、`list_ai_models`、`aicut_help` |
+| 读取 | `get_project`（概览）、`get_context`（播放头/选中）、`get_track`（分页读轨）、`get_clip`（单片段）、`find_clips`（按时间/素材/文字检索）、`get_assets`（素材分页）、`get_markers`、`probe_media`（元数据/运动/目标框/转写）、`list_ai_models`、`aicut_help` |
 | 剪辑 | `apply_command`、`apply_commands`（批量原子）、`append_clip`、`set_clip_speed`、`set_clip_color`、`set_clip_mask`、`set_clip_transition`、`set_clip_keyframes`、`duplicate_clips`、`ripple_delete`、`extract_audio`、`import_asset`、`undo`、`redo` |
 | 字幕 | `import_subtitles`、`export_subtitles` |
 | 标记 | `add_marker`、`update_marker`、`remove_marker` |
@@ -50,9 +50,27 @@ AI 工具默认是同步的：调用后会等到任务结束，期间可以用 `
 
 只读你下一步真正要用的数据。读工程不是越全越好，返回体积会直接挤占上下文。
 
+如果任务是「看看这段素材里有什么」——镜头在哪切、人在画面哪里、说了什么——先用
+`probe_media` 一次拿结构化结果，不要用 `render_frame` / `render_storyboard` 逐帧看图。
+
+## 工程生命周期（不要操作 UI）
+
+`new_project` / `open_project` / `save_project` 是一等公民：它们直接读写工程 JSON，
+**不会弹保存/打开对话框，也不需要模拟点标题栏按钮**。
+
+- `new_project`：新建并替换当前工程；旧工程自动进入工程历史。
+- `open_project({path})`：直接打开 `.json`；同样不弹文件框。
+- `save_project({path?})`：直接写盘；省略 `path` 时存回原路径。
+- 工程文件就是 `Project` JSON；`get_project` 返回它的概览（规格 + 轨道摘要），
+  `filePath` / `dirty` 也在概览里。需要完整结构时用 `save_project({path})` 落盘再读。
+
+智能体永远不需要为了「新建 / 打开 / 保存」去做 UI 自动化；有 `path` 就直接调工具。
+
 ## 前提
 
 - AI Cut 需要在运行。走 CLI 时先 `aicut status`，没开就 `aicut start`。
+  `aicut start` 会自动查找本机安装位置，并写 `app-path`；Windows 上会脱离父进程
+  Job Object 启动，通常不再需要 `AICUT_APP_PATH`。只有自动查找失败时才用它指定路径。
 - 所有写操作都走与界面同一条命令总线：进入撤销历史，界面实时更新。
 - 先 `get_project` 拿 `revision` 和轨道摘要，按需再取片段 / 素材；`baseRevision` 过期会被拒绝。上一条命令、批量命令或 AI 工具的返回值里也有新 `revision`，可以直接接着用，不必每步重读概览。
 - `get_project` 永远只返回概览，不返回片段与素材明细；细节用 `get_track` / `find_clips` / `get_clip` / `get_assets` 按需取。
@@ -101,6 +119,7 @@ aicut tools
 | `find_clips` | `trackId?`, `assetId?`, `text?`, `kind?`, `from?`, `to?`, `offset?`, `limit?` | 按关注点检索片段 |
 | `get_assets` | `kind?`, `name?`, `offline?`, `offset?`, `limit?` | 分页读素材库 |
 | `get_markers` | `from?`, `to?` | 读时间线标记 |
+| `probe_media` | `path`, `motion?`, `objects?`, `transcript?`, `interval?`, `maxSamples?`, `modelId?` | 一次拿到元数据、运动/切点、目标框、语音转写 |
 | `import_subtitles` | `path`, `trackName?`, `offset?` | 导入 SRT/VTT 到置顶文字轨 |
 | `export_subtitles` | `outputPath`, `trackId?`, `format?` | 从文字片段导出 SRT/VTT |
 | `add_marker` | `time`, `name?`, `color?` | 添加标记 |
@@ -111,9 +130,9 @@ aicut tools
 | `append_clip` | `assetId`, `trackId?`, `start?`, `duration?`, `in?` | 追加到轨道末尾，自动建轨/接尾 |
 | `duplicate_clips` | `clipIds`, `offset?`, `targetTrackId?` | 复制并偏移；重叠会被拒绝 |
 | `ripple_delete` | `clipIds` | 波纹删除并左移同轨后续片段 |
-| `new_project` | `name?`, `width?`, `height?`, `fps?` | 新建工程（当前工程进入历史） |
-| `open_project` | `path` | 打开工程文件（当前工程进入历史） |
-| `save_project` | `path?` | 保存工程；省略路径时存回原路径 |
+| `new_project` | `name?`, `width?`, `height?`, `fps?` | 新建工程；不弹对话框，旧工程进入历史 |
+| `open_project` | `path` | 直接打开工程 JSON；不弹文件框 |
+| `save_project` | `path?` | 直接写盘；省略路径时存回原路径 |
 | `extract_audio` | `clipId`, `trackName?` | 把视频音轨拆到新轨道并静音原片段 |
 | `import_asset` | `path`, `name?` | 探测媒体并加入素材库 |
 | `undo` / `redo` | — | 撤销 / 重做 |
@@ -126,7 +145,7 @@ aicut tools
 | `measure_loudness` | `clipId`, `targetLufs?`, `apply?` | 测量响度，可写回 gain |
 | `upscale_video` / `interpolate_video` / `reframe_video` | `clipId`, … | 超分 / 补帧 / 重构 |
 | `process_video` | `clipId`, `options` | 稳定/去噪/去闪烁/动态模糊/放大 |
-| `export_video` | `outputPath`, `format?`, `resolution?`, `width?`, `height?`, `fit?`, `fitAnchor?`, `fps?`, `quality?`, `gif?` | 导出到指定路径；支持任意尺寸与裁切 |
+| `export_video` | `outputPath?`, `outputDir?`, `format?`, `resolution?`, `width?`, `height?`, `fit?`, `fitAnchor?`, `fps?`, `quality?`, `gif?` | 导出成片；省略 `outputPath` 时自动写到工程目录/下载目录并去重 |
 | `render_frame` | `time`, `outputPath`, `resolution?`, `width?`, `height?`, `fit?`, `fitAnchor?`, `fps?` | 渲染时间线某一帧到 PNG |
 | `render_storyboard` | `times[]`, `outputDir`, `prefix?`, `width?`, `height?`, `fit?`, `fitAnchor?` | 按多个时间点连续输出 PNG |
 | `list_ai_models` / `download_model` | `feature?` / `id` | 查模型 / 下载模型 |
@@ -238,3 +257,12 @@ aicut tools
 - **AI 任务会真的跑模型**：字幕、翻译、朗读、音频/视频 AI、导出都可能耗时数分钟；调用前确认用户意图，缺模型先下载，并在 Gate 处等人确认。
 - **版权与许可证**：生成模型、素材库、字体、音乐、Remotion 商用许可都有条款；在 `research.md` / `manifest.json` 里记录来源与许可证。
 - **不要凭搜索结果编造 API**：框架能力以官方仓库/文档为准；版本与可用性会变，执行前先核对。
+
+## 仓库、反馈与贡献
+
+- **仓库**：<https://github.com/heshengtao/ai-cut>，Apache-2.0 开源；文档、Issue、Release 都在这里。安装 Skill 用 `npx skills add heshengtao/ai-cut`。
+- **遇到问题**：先让用户在仓库提 Issue —— <https://github.com/heshengtao/ai-cut/issues>。附上系统与版本（`aicut status`）、复现步骤、期望与实际结果；有日志或最小工程 JSON 更好。不要声称已经替用户提了 Issue，除非确实创建成功。
+- **修完 Bug 或加完功能后**：主动问用户是否要把改动贡献回上游，PR 入口是 <https://github.com/heshengtao/ai-cut/pulls>。说明改了什么、为什么改、如何验证，并跟随现有代码风格与命令总线设计。
+- **未经用户同意，不要 push、开 PR 或发 Issue。** 用户同意后，再按仓库现有约定整理提交。
+
+这个项目靠社区共建才会越来越好用——问题、想法和补丁都欢迎回上游。

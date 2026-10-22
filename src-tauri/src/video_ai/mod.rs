@@ -161,7 +161,8 @@ fn compact_number(value: f64) -> String {
 }
 
 fn fps_text(fps: f64) -> String {
-    compact_number(fps.clamp(1.0, MAX_FPS))
+    // 采样分析会用到 < 1 fps（例如每 2 秒一帧），不能在这里抬到 1。
+    compact_number(fps.clamp(0.01, MAX_FPS))
 }
 
 fn estimated_frames(duration: f64, fps: f64) -> usize {
@@ -265,7 +266,15 @@ impl Decoder {
         fps: f64,
         width: usize,
         height: usize,
+        scale: Option<(usize, usize)>,
     ) -> Result<Self, String> {
+        let filter = match scale {
+            Some((width, height)) => format!(
+                "fps={},scale={width}:{height}",
+                fps_text(fps)
+            ),
+            None => format!("fps={}", fps_text(fps)),
+        };
         let args = vec![
             "-v".into(),
             "error".into(),
@@ -282,7 +291,7 @@ impl Decoder {
             "-sn".into(),
             "-dn".into(),
             "-vf".into(),
-            format!("fps={}", fps_text(fps)),
+            filter,
             "-f".into(),
             "rawvideo".into(),
             "-pix_fmt".into(),
@@ -565,7 +574,7 @@ pub async fn video_ai_upscale(
     let app_for_task = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let mut decoder =
-            Decoder::spawn(&path, start, duration, source_fps, info.width, info.height)?;
+            Decoder::spawn(&path, start, duration, source_fps, info.width, info.height, None)?;
         let mut encoder = Encoder::spawn(
             &output_for_task,
             &path,
@@ -671,7 +680,7 @@ pub async fn video_ai_interpolate(
     let app_for_task = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let mut decoder =
-            Decoder::spawn(&path, start, duration, source_fps, info.width, info.height)?;
+            Decoder::spawn(&path, start, duration, source_fps, info.width, info.height, None)?;
         let mut encoder = Encoder::spawn(
             &output_for_task,
             &path,
@@ -910,7 +919,7 @@ pub async fn video_ai_reframe(
     let app_for_task = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let mut decoder =
-            Decoder::spawn(&path, start, duration, source_fps, info.width, info.height)?;
+            Decoder::spawn(&path, start, duration, source_fps, info.width, info.height, None)?;
         let mut encoder = Encoder::spawn(
             &output_for_task,
             &path,
@@ -1005,6 +1014,194 @@ pub async fn video_ai_reframe(
     }
 }
 
+/// 采样分析得到的一个目标框，坐标按画面归一化到 0..1。
+#[derive(Debug, Clone, Serialize)]
+pub struct AnalysisObject {
+    pub kind: String,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub score: f32,
+}
+
+/// 采样分析的一帧：时间、相对上一帧的运动量、目标框。
+#[derive(Debug, Clone, Serialize)]
+pub struct AnalysisSample {
+    pub time: f64,
+    pub motion: f32,
+    pub objects: Vec<AnalysisObject>,
+}
+
+/// 找某个 feature 下第一个已安装的模型权重。
+fn first_installed_model(app: &AppHandle, feature: &str) -> Option<PathBuf> {
+    models::all()
+        .iter()
+        .filter(|entry| entry.feature == feature)
+        .find_map(|entry| {
+            let dir = models::installed_dir(app, entry)?;
+            let file = entry.files.first()?;
+            Some(dir.join(file.filename))
+        })
+}
+
+fn motion_score(previous: &Frame, current: &Frame) -> f32 {
+    let previous = frames::resize_bilinear(previous, 32, 18);
+    let current = frames::resize_bilinear(current, 32, 18);
+    let total = previous.rgb.len().min(current.rgb.len());
+    if total == 0 {
+        return 0.0;
+    }
+    let sum: f64 = previous.rgb[..total]
+        .iter()
+        .zip(current.rgb[..total].iter())
+        .map(|(a, b)| f64::from((i16::from(*a) - i16::from(*b)).unsigned_abs()))
+        .sum();
+    (sum / (total as f64 * 255.0)).clamp(0.0, 1.0) as f32
+}
+
+fn normalized_object(detection: Detection, kind: &str, width: usize, height: usize) -> AnalysisObject {
+    let width = width.max(1) as f32;
+    let height = height.max(1) as f32;
+    AnalysisObject {
+        kind: kind.to_string(),
+        x: (detection.x / width).clamp(0.0, 1.0),
+        y: (detection.y / height).clamp(0.0, 1.0),
+        width: (detection.width / width).clamp(0.0, 1.0),
+        height: (detection.height / height).clamp(0.0, 1.0),
+        score: detection.score,
+    }
+}
+
+/// 低分辨率采样分析：逐样本给出运动量，按需返回人脸 / 人物框。
+///
+/// 智能体只要一个 `probe_media` 调用就能了解素材内容，不必逐帧渲染再看图。
+pub async fn video_ai_samples(
+    app: AppHandle,
+    path: String,
+    interval: f64,
+    max_samples: usize,
+    subject: String,
+) -> Result<Vec<AnalysisSample>, String> {
+    let info = source_info(&app, &path).await?;
+    let interval = if interval.is_finite() && interval > 0.0 {
+        interval.clamp(0.25, 600.0)
+    } else {
+        2.0
+    };
+    let max_samples = max_samples.clamp(1, 300);
+    let sampled_duration = interval * max_samples as f64;
+    let duration = if info.duration > 0.0 {
+        info.duration.min(sampled_duration)
+    } else {
+        sampled_duration
+    };
+    if duration <= 0.0 {
+        return Err("素材没有可分析的画面".into());
+    }
+
+    let subject = subject.to_ascii_lowercase();
+    let subject = match subject.as_str() {
+        "" | "none" | "off" => "none",
+        "face" | "person" | "auto" => subject.as_str(),
+        other => return Err(format!("未知的检测对象：{other}")),
+    };
+
+    let mut yunet = if subject == "face" || subject == "auto" {
+        first_installed_model(&app, "reframe")
+            .map(|path| detect::Yunet::load(&path))
+            .transpose()?
+    } else {
+        None
+    };
+    let mut yolo = if subject == "person" || subject == "auto" {
+        first_installed_model(&app, "track")
+            .map(|path| detect::Yolo::load(&path))
+            .transpose()?
+    } else {
+        None
+    };
+    match subject {
+        "face" if yunet.is_none() => return Err("请先安装 YuNet 人脸检测模型".into()),
+        "person" if yolo.is_none() => return Err("请先安装 YOLOX 人物检测模型".into()),
+        "auto" if yunet.is_none() && yolo.is_none() => {
+            return Err("请先安装 YuNet 或 YOLOX 模型".into())
+        }
+        _ => {}
+    }
+
+    let scale = (info.width as f64 / 640.0).max(1.0);
+    let width = ((info.width as f64 / scale).round() as usize).max(2);
+    let height = ((info.height as f64 / scale).round() as usize).max(2);
+    let fps = 1.0 / interval;
+
+    begin_task()?;
+    let result = tauri::async_runtime::spawn_blocking(
+        move || -> Result<Vec<AnalysisSample>, String> {
+            let mut decoder = Decoder::spawn(
+                &path,
+                0.0,
+                duration,
+                fps,
+                width,
+                height,
+                Some((width, height)),
+            )?;
+            let mut samples = Vec::new();
+            let mut previous: Option<Frame> = None;
+            let mut index = 0usize;
+
+            while let Some(frame) = decoder.next()? {
+                let motion = previous
+                    .as_ref()
+                    .map(|previous| motion_score(previous, &frame))
+                    .unwrap_or(0.0);
+                let mut objects = Vec::new();
+                if let Some(detector) = yunet.as_mut() {
+                    for detection in detector.detect_faces(&frame)? {
+                        objects.push(normalized_object(
+                            detection,
+                            "face",
+                            frame.width,
+                            frame.height,
+                        ));
+                    }
+                }
+                if let Some(detector) = yolo.as_mut() {
+                    for detection in detector.detect_people(&frame)? {
+                        objects.push(normalized_object(
+                            detection,
+                            "person",
+                            frame.width,
+                            frame.height,
+                        ));
+                    }
+                }
+                objects.sort_by(|a, b| b.score.total_cmp(&a.score));
+                objects.truncate(20);
+                samples.push(AnalysisSample {
+                    time: index as f64 * interval,
+                    motion,
+                    objects,
+                });
+                previous = Some(frame);
+                index += 1;
+            }
+
+            decoder.finish()?;
+            samples.truncate(max_samples);
+            Ok(samples)
+        },
+    )
+    .await;
+    end_task();
+
+    match result {
+        Ok(samples) => samples,
+        Err(error) => Err(format!("视频采样任务异常：{error}")),
+    }
+}
+
 #[tauri::command]
 pub fn video_ai_cancel() {
     runtime().cancelled.store(true, Ordering::SeqCst);
@@ -1067,6 +1264,7 @@ mod tests {
     fn fps_text_is_compact() {
         assert_eq!(fps_text(60.0), "60");
         assert_eq!(fps_text(23.976), "23.976");
+        assert_eq!(fps_text(0.5), "0.5");
     }
 
     fn staged(relative: &str) -> Option<PathBuf> {
@@ -1227,7 +1425,7 @@ mod tests {
         }
         let input_text = input.to_string_lossy().into_owned();
 
-        let mut decoder = Decoder::spawn(&input_text, 0.0, 0.4, 30.0, 64, 64).expect("解码器");
+        let mut decoder = Decoder::spawn(&input_text, 0.0, 0.4, 30.0, 64, 64, None).expect("解码器");
         let mut encoder =
             Encoder::spawn(&output, &input_text, 0.0, 0.4, 64, 64, 60.0, true).expect("编码器");
         let mut session = rife::load(&model).expect("加载 RIFE");
@@ -1274,7 +1472,7 @@ mod tests {
         }
         let input_text = input.to_string_lossy().into_owned();
 
-        let mut decoder = Decoder::spawn(&input_text, 0.0, 0.2, 30.0, 32, 32).expect("解码器");
+        let mut decoder = Decoder::spawn(&input_text, 0.0, 0.2, 30.0, 32, 32, None).expect("解码器");
         let mut encoder =
             Encoder::spawn(&output, &input_text, 0.0, 0.2, 128, 128, 30.0, true).expect("编码器");
         let mut session = esrgan::load(&model).expect("加载 Real-ESRGAN");

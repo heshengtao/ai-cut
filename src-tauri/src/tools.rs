@@ -2,7 +2,7 @@
 //!
 //! 写操作统一转成前端命令总线的 `Command`，因此和界面操作一样进入撤销历史。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::analysis::{self, ObjectMode, ProbeOptions};
 use crate::bridge::ProjectBridge;
 use crate::media::probe_media;
 
@@ -346,11 +347,12 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "export_video",
-            description: "导出时间线到指定绝对路径。路径扩展名要与 format 匹配（mp4 / mov / gif）。给出 width/height 可按任意尺寸导出；fit=cover 居中裁切填满，fit=contain 加边。",
+            description: "导出时间线。outputPath 可省略：省略时写到工程所在目录（未保存的工程写到下载目录），文件名取工程名并自动去重，返回值里会给出最终 path。format/resolution/quality 等参数照常可用。",
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "outputPath": { "type": "string" },
+                    "outputPath": { "type": "string", "description": "可选；目标绝对路径，扩展名要与 format 匹配（mp4 / mov / gif）" },
+                    "outputDir": { "type": "string", "description": "可选；只给目录时按工程名生成文件名" },
                     "format": { "enum": ["mp4", "prores", "gif"] },
                     "resolution": {
                         "enum": ["project", "1080p", "720p", "custom"],
@@ -385,8 +387,7 @@ pub fn definitions() -> Vec<ToolDef> {
                             }
                         }
                     }
-                },
-                "required": ["outputPath"]
+                }
             }),
         },
         ToolDef {
@@ -664,7 +665,7 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "new_project",
-            description: "新建工程并替换当前工程；当前工程会先进入历史。",
+            description: "新建工程并替换当前工程。直接执行，不会弹保存/打开对话框，也不需要操作界面；当前工程会先进入工程历史。",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -677,7 +678,7 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "open_project",
-            description: "打开工程文件并替换当前工程；当前工程会先进入历史。",
+            description: "打开工程文件并替换当前工程。直接读 JSON，不会弹文件框；当前工程会先进入工程历史。",
             parameters: json!({
                 "type": "object",
                 "properties": { "path": { "type": "string", "description": "工程 .json 绝对路径" } },
@@ -686,7 +687,7 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "save_project",
-            description: "保存当前工程。path 省略时保存到原路径；未保存过且未给 path 会失败。",
+            description: "保存当前工程到原路径或指定路径。直接写 JSON，不会弹保存对话框；未保存过且未给 path 时才失败。",
             parameters: json!({
                 "type": "object",
                 "properties": { "path": { "type": "string", "description": "目标 .json 绝对路径" } }
@@ -700,6 +701,36 @@ pub fn definitions() -> Vec<ToolDef> {
                 "properties": {
                     "path": { "type": "string", "description": "本机绝对路径" },
                     "name": { "type": "string", "description": "可选显示名" }
+                },
+                "required": ["path"]
+            }),
+        },
+        ToolDef {
+            name: "probe_media",
+            description: "一次调用了解素材内容：ffprobe 元数据 + 按时间的运动采样与候选切点 + 可选目标框 + 可选语音转写。优先用它代替逐帧 render_frame 看图。objects 需要已安装 YuNet（face）或 YOLOX（person）模型；transcript 需要已安装 ASR + silero-vad。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "本机媒体绝对路径" },
+                    "motion": { "type": "boolean", "description": "返回运动采样与切点，默认 true" },
+                    "objects": {
+                        "enum": ["none", "face", "person", "auto"],
+                        "description": "目标框类型，默认 none"
+                    },
+                    "transcript": { "type": "boolean", "description": "同时做本地语音转写，默认 false" },
+                    "interval": {
+                        "type": "number",
+                        "minimum": 0.25,
+                        "maximum": 600,
+                        "description": "采样间隔（秒），默认 2"
+                    },
+                    "maxSamples": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "最多采样多少帧，默认 60"
+                    },
+                    "modelId": { "type": "string", "description": "指定 ASR 模型；省略时用第一个已安装的" }
                 },
                 "required": ["path"]
             }),
@@ -1250,11 +1281,15 @@ pub async fn dispatch_with_cancel(
         "interpolate_video" => run_ai_job(bridge, "interpolate", args, cancel).await,
         "reframe_video" => run_ai_job(bridge, "reframe", args, cancel).await,
         "process_video" => run_ai_job(bridge, "process_video", args, cancel).await,
-        "export_video" => run_ai_job(bridge, "export", args, cancel).await,
+        "export_video" => {
+            let args = prepare_export_args(bridge, args).await?;
+            run_ai_job(bridge, "export", args, cancel).await
+        }
         "render_frame" => bridge.request("export.frame", args).await,
         "render_storyboard" => bridge.request("export.storyboard", args).await,
         "download_model" => run_ai_job(bridge, "download_model", args, cancel).await,
         "import_asset" => import_asset(app, bridge, actor, &args).await,
+        "probe_media" => probe_media_tool(app, &args).await,
         other => Err(format!("未知工具：{other}")),
     }
 }
@@ -1375,6 +1410,158 @@ fn help(topic: &str) -> String {
             TOPICS.join(" / ")
         )
     }
+}
+
+fn sanitize_file_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|value| {
+            if value.is_control() || matches!(value, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            {
+                '_'
+            } else {
+                value
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_matches('.').to_string();
+    if trimmed.is_empty() {
+        return "export".into();
+    }
+    trimmed.chars().take(80).collect()
+}
+
+fn export_extension(format: Option<&str>, output_path: Option<&str>) -> Result<&'static str, String> {
+    match format {
+        Some("mp4") => Ok("mp4"),
+        Some("prores") => Ok("mov"),
+        Some("gif") => Ok("gif"),
+        Some(other) => Err(format!("不支持的导出格式：{other}")),
+        None => match output_path
+            .and_then(|path| Path::new(path).extension())
+            .and_then(|value| value.to_str())
+            .map(|value| value.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("mov") => Ok("mov"),
+            Some("gif") => Ok("gif"),
+            _ => Ok("mp4"),
+        },
+    }
+}
+
+fn default_output_dir(explicit: Option<&str>, file_path: Option<&str>) -> PathBuf {
+    if let Some(dir) = explicit.map(str::trim).filter(|value| !value.is_empty()) {
+        let dir = PathBuf::from(dir);
+        if dir.is_absolute() {
+            return dir;
+        }
+        return std::env::current_dir()
+            .map(|cwd| cwd.join(dir))
+            .unwrap_or_else(|_| PathBuf::from("."));
+    }
+    if let Some(file) = file_path {
+        if let Some(parent) = Path::new(file).parent() {
+            if !parent.as_os_str().is_empty() {
+                return parent.to_path_buf();
+            }
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        let home = PathBuf::from(home);
+        let downloads = home.join("Downloads");
+        if downloads.is_dir() {
+            return downloads;
+        }
+        return home;
+    }
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn unique_output_path(dir: &Path, stem: &str, extension: &str) -> PathBuf {
+    let mut candidate = dir.join(format!("{stem}.{extension}"));
+    let mut index = 2;
+    while candidate.exists() && index < 10_000 {
+        candidate = dir.join(format!("{stem}-{index}.{extension}"));
+        index += 1;
+    }
+    candidate
+}
+
+/// 导出路径可选：省略时写到工程目录（未保存的工程写到下载目录），并自动去重。
+async fn prepare_export_args(bridge: &ProjectBridge, mut args: Value) -> Result<Value, String> {
+    let (has_path, output_dir, format) = {
+        let object = args
+            .as_object()
+            .ok_or_else(|| "导出参数必须是对象".to_string())?;
+        (
+            object
+                .get("outputPath")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_some(),
+            object
+                .get("outputDir")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            object
+                .get("format")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        )
+    };
+    if has_path {
+        return Ok(args);
+    }
+
+    let extension = export_extension(format.as_deref(), None)?;
+    let overview = bridge.request("project.overview", json!({})).await?;
+    let name = overview
+        .get("project")
+        .and_then(|project| project.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or("AI Cut 导出");
+    let file_path = overview.get("filePath").and_then(Value::as_str);
+    let dir = default_output_dir(output_dir.as_deref(), file_path);
+    std::fs::create_dir_all(&dir).map_err(|error| format!("创建导出目录失败：{error}"))?;
+    let path = unique_output_path(&dir, &sanitize_file_name(name), extension);
+
+    let object = args
+        .as_object_mut()
+        .ok_or_else(|| "导出参数必须是对象".to_string())?;
+    object.insert(
+        "outputPath".into(),
+        json!(path.to_string_lossy().into_owned()),
+    );
+    Ok(args)
+}
+
+async fn probe_media_tool(app: &AppHandle, args: &Value) -> Result<Value, String> {
+    let path = args
+        .get("path")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "缺少 path".to_string())?
+        .to_string();
+    let options = ProbeOptions {
+        motion: args.get("motion").and_then(Value::as_bool).unwrap_or(true),
+        transcript: args
+            .get("transcript")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        objects: ObjectMode::parse(args.get("objects").and_then(Value::as_str))?,
+        interval: args.get("interval").and_then(Value::as_f64),
+        max_samples: args
+            .get("maxSamples")
+            .and_then(Value::as_u64)
+            .unwrap_or(60) as usize,
+        model_id: args
+            .get("modelId")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    };
+    analysis::probe(app, path, options).await
 }
 
 async fn import_asset(
@@ -1507,6 +1694,7 @@ mod tests {
             "reframe_video",
             "process_video",
             "export_video",
+            "probe_media",
             "render_frame",
             "render_storyboard",
             "list_ai_models",
@@ -1518,5 +1706,32 @@ mod tests {
         ] {
             assert!(names.contains(&required), "missing tool: {required}");
         }
+    }
+
+    #[test]
+    fn sanitizes_export_file_names() {
+        assert_eq!(sanitize_file_name("海边日落"), "海边日落");
+        assert_eq!(sanitize_file_name("a/b:c*?"), "a_b_c__");
+        assert_eq!(sanitize_file_name("   "), "export");
+        assert_eq!(sanitize_file_name(".hidden."), "hidden");
+    }
+
+    #[test]
+    fn export_extension_follows_format_and_path() {
+        assert_eq!(export_extension(Some("mp4"), None).unwrap(), "mp4");
+        assert_eq!(export_extension(Some("prores"), None).unwrap(), "mov");
+        assert_eq!(export_extension(None, Some("/tmp/out.gif")).unwrap(), "gif");
+        assert_eq!(export_extension(None, None).unwrap(), "mp4");
+        assert!(export_extension(Some("avi"), None).is_err());
+    }
+
+    #[test]
+    fn export_paths_are_unique() {
+        let dir = std::env::temp_dir().join(format!("aicut-export-{}", now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("cut.mp4"), b"x").unwrap();
+        let next = unique_output_path(&dir, "cut", "mp4");
+        assert_eq!(next.file_name().and_then(|name| name.to_str()), Some("cut-2.mp4"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

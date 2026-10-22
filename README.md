@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.0-1A6CFF?style=flat-square" alt="Version 0.2.0">
+  <img src="https://img.shields.io/badge/version-0.2.1-1A6CFF?style=flat-square" alt="Version 0.2.1">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-1A6CFF?style=flat-square" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/platforms-Windows%20/%20macOS%20/%20Linux-1A6CFF?style=flat-square" alt="Platforms: Windows, macOS, Linux">
 </p>
@@ -102,6 +102,7 @@ The AI features are built for real sessions, not demos. Point them at a clip and
 - **Voiceover** — local TTS plus OpenAI, ElevenLabs, Azure, Google, Baidu, MiniMax, Volcengine, or custom HTTP
 - **Audio AI** — loudness matching, denoise, vocal polish, source separation, audio translation
 - **Video AI** — super resolution, frame interpolation, smart reframing, camera tracking
+- **Media probe** — one call returns metadata, motion/cut samples, face/person boxes, and a local transcript
 - **Offline by design** — the editor and its local models need no account and no upload
 
 ### 🔌 MCP server & clip agent — Let an AI agent work in your session
@@ -109,8 +110,10 @@ The AI features are built for real sessions, not demos. Point them at a clip and
 Flip one switch and your project becomes something an AI assistant can operate. The built-in **MCP (Model Context Protocol)** server exposes the session over HTTP bound to `127.0.0.1` — connect your agent, hand it a task, and watch it add tracks, place clips, or rewrite text while the UI updates in real time. The same tool definitions also power the built-in **clip agent**, an OpenAI-compatible chat panel with streaming, tool calls, and a branching session tree.
 
 - **MCP over HTTP** — a loopback-only endpoint, JSON and SSE transports
+- **Project lifecycle** — `new_project` / `open_project` / `save_project` read and write the project JSON directly, with no save/open dialogs
 - **Live edits** — agent actions appear immediately as ordinary project changes
 - **`aicut` CLI** — a thin client; new tools need no CLI changes
+- **`aicut start`** — auto-discovers the installed app and detaches it from the launcher's job (Windows included)
 - **Clip agent** — OpenAI-compatible endpoint, streaming answers, tool cards, session branches
 - **Skills** — editing and production docs loaded on demand by the agent
 
@@ -202,7 +205,7 @@ Yes. The Skill and the `aicut` CLI talk to a running AI Cut over MCP, so start t
 
 ### Can an agent export the final video?
 
-No. MCP exposes six tools for reading and writing the project. Captions, voiceover, audio / video AI, and final export are human-triggered in the app — the agent prepares the timeline and hands it back for review.
+Yes. `export_video` renders the timeline over MCP — MP4, ProRes, or GIF. `outputPath` is optional: when omitted, AI Cut writes next to the project file (or to your Downloads folder for an unsaved project) and returns the final path. Captions, voiceover, audio / video AI, and export are all available as tools, so the agent can prepare the timeline, render it, and hand the file back for review.
 
 ## License
 

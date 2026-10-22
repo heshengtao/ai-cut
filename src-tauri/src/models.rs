@@ -1235,6 +1235,13 @@ pub fn require_dir(app: &AppHandle, entry: &ModelEntry) -> Result<PathBuf, Strin
     installed_dir(app, entry).ok_or_else(|| format!("模型尚未安装：{}", entry.name))
 }
 
+/// 某个能力域下第一个已安装的模型。用于智能体不指定 modelId 时的默认值。
+pub fn first_installed(app: &AppHandle, feature: &str) -> Option<&'static ModelEntry> {
+    all()
+        .iter()
+        .find(|entry| entry.feature == feature && installed_dir(app, entry).is_some())
+}
+
 fn statuses(app: &AppHandle) -> Vec<ModelStatus> {
     all()
         .iter()

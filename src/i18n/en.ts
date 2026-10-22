@@ -50,6 +50,8 @@ const en: Record<string, string> = {
   "topbar.export": "Export video",
   "topbar.exportLabel": "Export video",
   "topbar.settings": "Settings",
+  "topbar.github": "GitHub repository",
+  "topbar.githubLabel": "Open GitHub repository",
   "topbar.rename": "Rename project",
   "topbar.renameLabel": "Rename project",
   "topbar.unsaved": "Unsaved changes",
