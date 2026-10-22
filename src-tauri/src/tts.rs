@@ -23,6 +23,7 @@ use ort::value::{DynValue, Tensor};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
+use crate::backend;
 use crate::media;
 use crate::models;
 use crate::sidecar;
@@ -241,14 +242,26 @@ fn new_session(path: &Path) -> Result<Session, String> {
         .map(|value| value.get())
         .unwrap_or(4)
         .clamp(1, 4);
-    Session::builder()
+    let builder = Session::builder()
         .map_err(|error| format!("创建 ONNX 会话失败：{error}"))?
         .with_optimization_level(GraphOptimizationLevel::Level3)
         .map_err(|error| format!("配置 ONNX 优化失败：{error}"))?
         .with_intra_threads(threads)
-        .map_err(|error| format!("配置 ONNX 线程失败：{error}"))?
-        .commit_from_file(path)
-        .map_err(|error| format!("加载 {} 失败：{error}", path.display()))
+        .map_err(|error| format!("配置 ONNX 线程失败：{error}"))?;
+    let label = path.display().to_string();
+    backend::commit(
+        backend::apply(builder),
+        || {
+            Session::builder()
+                .map_err(|error| format!("创建 ONNX 会话失败：{error}"))?
+                .with_optimization_level(GraphOptimizationLevel::Level3)
+                .map_err(|error| format!("配置 ONNX 优化失败：{error}"))?
+                .with_intra_threads(threads)
+                .map_err(|error| format!("配置 ONNX 线程失败：{error}"))
+        },
+        path,
+        &label,
+    )
 }
 
 fn meta_path(map: &HashMap<String, String>, key: &str, base: &Path) -> Result<PathBuf, String> {
@@ -260,9 +273,6 @@ fn meta_path(map: &HashMap<String, String>, key: &str, base: &Path) -> Result<Pa
 
 impl Loaded {
     fn load(app: &AppHandle, model_id: &str) -> Result<Self, String> {
-        if !ort_backend::init() {
-            return Err("ONNX Runtime 初始化失败（未找到可用的运行时）".into());
-        }
         let entry =
             models::by_id(model_id).ok_or_else(|| format!("未知朗读模型：{model_id}"))?;
         if entry.family != models::ModelFamily::MossTtsNano {
@@ -1729,7 +1739,6 @@ mod tests {
         };
         let tts_dir = PathBuf::from(tts_dir);
         let codec_dir = PathBuf::from(codec_dir);
-        assert!(ort_backend::init(), "ONNX Runtime 初始化失败");
 
         let manifest: Manifest =
             read_json(&tts_dir.join("browser_poc_manifest.json"), "模型清单").unwrap();

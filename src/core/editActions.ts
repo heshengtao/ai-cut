@@ -7,6 +7,8 @@ import { t } from "@/i18n";
 export interface ExtractAudioParams {
   clipId: string;
   trackName?: string;
+  actor?: "human" | "agent";
+  sessionId?: string;
 }
 
 /**
@@ -39,7 +41,12 @@ export function extractAudio(params: ExtractAudioParams) {
         target,
         params.trackName?.trim() || t("inspector.extractAudioTrack"),
       ).doc,
-    { kind: "ui.dispatch", actor: "agent", label: "分离音频" },
+    {
+      kind: "ui.dispatch",
+      actor: params.actor ?? "agent",
+      label: "分离音频",
+      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+    },
   );
 
   const track = project.doc.tracks.find((candidate) => !previousTracks.has(candidate.id));

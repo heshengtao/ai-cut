@@ -16,6 +16,7 @@ import type {
   ExportResolution,
   GifDither,
 } from "@/types/export";
+import type { DispatchMeta } from "@/types/events";
 import type { Clip, MediaAsset, Project } from "@/types/project";
 import type { VideoAiAspect, VideoAiSubject, VideoDspOptions } from "@/types/video";
 import { audioExtractReference } from "@/core/audioAiApi";
@@ -38,6 +39,20 @@ import { t } from "@/i18n";
 
 export interface JobContext {
   cancelled(): boolean;
+  /** 触发这次 AI 任务的操作者；默认按外部 AI 处理。 */
+  actor?: "human" | "agent";
+  /** `chat` = 内置剪辑智能体，其余为外部 MCP 会话。 */
+  sessionId?: string;
+}
+
+/** AI 产出物落盘时用的历史元数据：操作者与来源会话一路带到操作记录面板。 */
+function jobMeta(ctx: JobContext, label: string): DispatchMeta {
+  return {
+    kind: "ui.dispatch",
+    actor: ctx.actor ?? "agent",
+    label,
+    ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+  };
 }
 
 export interface TrackRef {
@@ -183,6 +198,7 @@ function insertCueTrack(
   cues: { start: number; duration: number; text: string }[],
   baseName: string,
   label: string,
+  ctx: JobContext,
 ): TrackRef | null {
   if (cues.length === 0) return null;
   const before = project().doc;
@@ -206,7 +222,7 @@ function insertCueTrack(
       }
       return next;
     },
-    { kind: "ui.dispatch", actor: "agent", label },
+    jobMeta(ctx, label),
   );
   return createdTracks(before)[0] ?? null;
 }
@@ -253,6 +269,7 @@ export async function transcribe(params: TranscribeParams, ctx: JobContext) {
           mapped,
           params.trackName?.trim() || t("ai.subtitleTrack"),
           "生成字幕",
+          ctx,
         );
 
   return {
@@ -316,6 +333,7 @@ export async function translate(params: TranslateParams, ctx: JobContext) {
     mapped.map((cue, index) => ({ ...cue, text: translated[index] })),
     t("audio.translatedSubtitleTrack"),
     "翻译音频",
+    ctx,
   );
 
   let dubbed = 0;
@@ -377,7 +395,7 @@ export async function translate(params: TranslateParams, ctx: JobContext) {
           t("audio.dubTrack"),
         );
       },
-      { kind: "ui.dispatch", actor: "agent", label: "译制配音" },
+      jobMeta(ctx, "译制配音"),
     );
     dubbed = imported.length;
     return {
@@ -447,7 +465,7 @@ export async function separate(params: SeparateParams, ctx: JobContext) {
         true,
       );
     },
-    { kind: "ui.dispatch", actor: "agent", label: "人声分离" },
+    jobMeta(ctx, "人声分离"),
   );
 
   return {
@@ -490,7 +508,7 @@ export async function denoise(params: DenoiseParams, ctx: JobContext) {
         t("audio.aiDenoiseTrack"),
       );
     },
-    { kind: "ui.dispatch", actor: "agent", label: "AI 降噪" },
+    jobMeta(ctx, "AI 降噪"),
   );
 
   return {
@@ -537,7 +555,7 @@ export async function processAudio(params: ProcessAudioParams, ctx: JobContext) 
           : t("audio.beautifyTrack", { preset: params.preset }),
       );
     },
-    { kind: "ui.dispatch", actor: "agent", label: "音频处理" },
+    jobMeta(ctx, "音频处理"),
   );
 
   return {
@@ -554,7 +572,7 @@ export interface LoudnessParams {
   apply?: boolean;
 }
 
-export async function measureLoudness(params: LoudnessParams) {
+export async function measureLoudness(params: LoudnessParams, ctx: JobContext) {
   const { clip, asset } = requireMediaClip(params.clipId);
   const audioAi = useAudioAiStore();
   const report = await audioAi.loudness(asset.src, clip.in ?? 0, clip.duration);
@@ -564,7 +582,7 @@ export async function measureLoudness(params: LoudnessParams) {
   if (params.apply && gain !== null) {
     project().dispatch(
       (doc) => setClipGain(doc, clip.id, gain),
-      { kind: "ui.dispatch", actor: "agent", label: "响度统一" },
+      jobMeta(ctx, "响度统一"),
     );
   }
 
@@ -684,7 +702,7 @@ export async function synthesizeVoiceover(params: VoiceoverParams, ctx: JobConte
         t("ai.voiceoverTrack"),
       );
     },
-    { kind: "ui.dispatch", actor: "agent", label: "AI 朗读" },
+    jobMeta(ctx, "AI 朗读"),
   );
 
   return {
@@ -704,6 +722,7 @@ async function replaceVideoWith(
   result: { path: string; duration: number },
   label: string,
   sourceName: string,
+  ctx: JobContext,
 ) {
   const generated = await importAsset(result.path, `${sourceName} · ${label}`);
   const clipDuration = findClip(clipId).clip.duration;
@@ -713,7 +732,7 @@ async function replaceVideoWith(
       const withAsset = addAsset(doc, generated);
       return replaceClipVideo(withAsset, clipId, generated.id, result.duration, clipDuration);
     },
-    { kind: "ui.dispatch", actor: "agent", label },
+    jobMeta(ctx, label),
   );
   return {
     assetId: generated.id,
@@ -743,7 +762,7 @@ export async function upscale(params: UpscaleParams, ctx: JobContext) {
     params.scale === 4 ? 4 : 2,
   );
   if (ctx.cancelled()) throw new Error("已取消");
-  return replaceVideoWith(params.clipId, result, t("videoAi.upscale"), asset.name);
+  return replaceVideoWith(params.clipId, result, t("videoAi.upscale"), asset.name, ctx);
 }
 
 export interface InterpolateParams {
@@ -765,7 +784,7 @@ export async function interpolate(params: InterpolateParams, ctx: JobContext) {
     params.factor === 4 ? 4 : 2,
   );
   if (ctx.cancelled()) throw new Error("已取消");
-  return replaceVideoWith(params.clipId, result, t("videoAi.interpolate"), asset.name);
+  return replaceVideoWith(params.clipId, result, t("videoAi.interpolate"), asset.name, ctx);
 }
 
 export interface ReframeParams {
@@ -808,7 +827,7 @@ export async function reframe(params: ReframeParams, ctx: JobContext) {
   );
   if (ctx.cancelled()) throw new Error("已取消");
   const label = params.mode === "track" ? t("videoAi.track") : t("videoAi.crop");
-  return replaceVideoWith(params.clipId, result, label, asset.name);
+  return replaceVideoWith(params.clipId, result, label, asset.name, ctx);
 }
 
 const VIDEO_DSP_LABEL = "视频处理";
@@ -838,7 +857,7 @@ export async function processVideo(params: ProcessVideoParams, ctx: JobContext) 
     options,
   );
   if (ctx.cancelled()) throw new Error("已取消");
-  return replaceVideoWith(params.clipId, result, VIDEO_DSP_LABEL, asset.name);
+  return replaceVideoWith(params.clipId, result, VIDEO_DSP_LABEL, asset.name, ctx);
 }
 
 // ---------------------------------------------------------------------------

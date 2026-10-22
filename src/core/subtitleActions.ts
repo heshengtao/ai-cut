@@ -18,6 +18,7 @@ export interface ImportSubtitleFileOptions {
   trackName?: string;
   offset?: number;
   actor?: "human" | "agent";
+  sessionId?: string;
   baseRevision?: number;
 }
 
@@ -40,6 +41,7 @@ export async function importSubtitlesFromFile(
     id: crypto.randomUUID(),
     baseRevision: options.baseRevision ?? project.revision,
     actor: options.actor ?? "human",
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
     kind: "subtitle.import",
     payload: {
       entries: entries.map(({ start, end, text: body }) => ({ start, end, text: body })),

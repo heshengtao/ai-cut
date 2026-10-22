@@ -81,6 +81,23 @@ export interface CliStatus {
 
 export type ProxyMode = "direct" | "system" | "manual";
 
+/** 本地 AI 执行后端。 */
+export type BackendPreference = "cpu" | "coreml" | "directml";
+
+export interface BackendOption {
+  kind: BackendPreference;
+  label: string;
+  note: string;
+  available: boolean;
+}
+
+export interface BackendInfo {
+  preference: BackendPreference;
+  current: BackendPreference;
+  platform: string;
+  options: BackendOption[];
+}
+
 export interface NetworkConfig {
   proxy_mode: ProxyMode;
   proxy_url: string;

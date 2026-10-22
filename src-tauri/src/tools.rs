@@ -883,6 +883,18 @@ async fn base_revision(bridge: &ProjectBridge, args: &Value) -> Result<u64, Stri
     }
 }
 
+/// 给只带业务参数的桥接请求补上操作者来源。
+///
+/// 内置智能体固定用 `chat`，外部 MCP 客户端用 `mcp`；前端据此把 AI 产生的
+/// 改动归到「内置助手」或「外部 AI」，操作记录里可分别筛选与回撤。
+fn with_actor(actor: &str, mut args: Value) -> Value {
+    if let Some(object) = args.as_object_mut() {
+        object.insert("actor".into(), json!("agent"));
+        object.insert("sessionId".into(), json!(actor));
+    }
+    args
+}
+
 /// 给命令补齐 actor / sessionId / id / timestamp / label。
 fn prepare_command(actor: &str, args: &Value) -> Result<Value, String> {
     let command = args
@@ -1242,7 +1254,7 @@ pub async fn dispatch_with_cancel(
         "new_project" => bridge.request("project.new", args).await,
         "open_project" => bridge.request("project.open", args).await,
         "save_project" => bridge.request("project.save", args).await,
-        "import_subtitles" => bridge.request("subtitle.import", args).await,
+        "import_subtitles" => bridge.request("subtitle.import", with_actor(actor, args)).await,
         "export_subtitles" => bridge.request("subtitle.export", args).await,
         "add_marker" => apply_macro(bridge, actor, "marker.add", &args).await,
         "update_marker" => apply_marker_update(bridge, actor, &args).await,
@@ -1264,30 +1276,30 @@ pub async fn dispatch_with_cancel(
                 .to_ascii_lowercase();
             Ok(Value::String(help(&topic)))
         }
-        "extract_audio" => bridge.request("edit.extract_audio", args).await,
+        "extract_audio" => bridge.request("edit.extract_audio", with_actor(actor, args)).await,
         "list_ai_models" => bridge.request("ai.models.list", args).await,
         "cancel_ai" => bridge.request("ai.job.cancel", json!({})).await,
-        "job_start" => bridge.request("ai.job.start", args).await,
+        "job_start" => bridge.request("ai.job.start", with_actor(actor, args)).await,
         "job_status" => bridge.request("ai.job.status", args).await,
         "job_cancel" => bridge.request("ai.job.cancel", args).await,
-        "transcribe" => run_ai_job(bridge, "transcribe", args, cancel).await,
-        "separate_stems" => run_ai_job(bridge, "separate", args, cancel).await,
-        "denoise_audio" => run_ai_job(bridge, "denoise", args, cancel).await,
-        "process_audio" => run_ai_job(bridge, "process_audio", args, cancel).await,
-        "measure_loudness" => run_ai_job(bridge, "loudness", args, cancel).await,
-        "translate_audio" => run_ai_job(bridge, "translate", args, cancel).await,
-        "synthesize_voiceover" => run_ai_job(bridge, "voiceover", args, cancel).await,
-        "upscale_video" => run_ai_job(bridge, "upscale", args, cancel).await,
-        "interpolate_video" => run_ai_job(bridge, "interpolate", args, cancel).await,
-        "reframe_video" => run_ai_job(bridge, "reframe", args, cancel).await,
-        "process_video" => run_ai_job(bridge, "process_video", args, cancel).await,
+        "transcribe" => run_ai_job(bridge, actor, "transcribe", args, cancel).await,
+        "separate_stems" => run_ai_job(bridge, actor, "separate", args, cancel).await,
+        "denoise_audio" => run_ai_job(bridge, actor, "denoise", args, cancel).await,
+        "process_audio" => run_ai_job(bridge, actor, "process_audio", args, cancel).await,
+        "measure_loudness" => run_ai_job(bridge, actor, "loudness", args, cancel).await,
+        "translate_audio" => run_ai_job(bridge, actor, "translate", args, cancel).await,
+        "synthesize_voiceover" => run_ai_job(bridge, actor, "voiceover", args, cancel).await,
+        "upscale_video" => run_ai_job(bridge, actor, "upscale", args, cancel).await,
+        "interpolate_video" => run_ai_job(bridge, actor, "interpolate", args, cancel).await,
+        "reframe_video" => run_ai_job(bridge, actor, "reframe", args, cancel).await,
+        "process_video" => run_ai_job(bridge, actor, "process_video", args, cancel).await,
         "export_video" => {
             let args = prepare_export_args(bridge, args).await?;
-            run_ai_job(bridge, "export", args, cancel).await
+            run_ai_job(bridge, actor, "export", args, cancel).await
         }
         "render_frame" => bridge.request("export.frame", args).await,
         "render_storyboard" => bridge.request("export.storyboard", args).await,
-        "download_model" => run_ai_job(bridge, "download_model", args, cancel).await,
+        "download_model" => run_ai_job(bridge, actor, "download_model", args, cancel).await,
         "import_asset" => import_asset(app, bridge, actor, &args).await,
         "probe_media" => probe_media_tool(app, &args).await,
         other => Err(format!("未知工具：{other}")),
@@ -1297,6 +1309,7 @@ pub async fn dispatch_with_cancel(
 /// 启动一个前端 AI job 并轮询到完成。单次桥接请求都很短，长任务不会撞上 20 秒超时。
 async fn run_ai_job(
     bridge: &ProjectBridge,
+    actor: &str,
     kind: &str,
     params: Value,
     cancel: Option<&CancellationToken>,
@@ -1305,7 +1318,15 @@ async fn run_ai_job(
         return Err("已取消".into());
     }
     let started = bridge
-        .request("ai.job.start", json!({ "kind": kind, "params": params }))
+        .request(
+            "ai.job.start",
+            json!({
+                "kind": kind,
+                "params": params,
+                "actor": "agent",
+                "sessionId": actor,
+            }),
+        )
         .await?;
     let job_id = started
         .get("jobId")

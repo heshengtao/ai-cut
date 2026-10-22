@@ -8,6 +8,8 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
+use crate::backend::BackendPreference;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyMode {
@@ -46,6 +48,8 @@ pub struct NetworkConfig {
     pub download_prefix: String,
     /// 模型下载源区域偏好。
     pub model_source_preference: ModelSourcePreference,
+    /// 本地 AI 执行后端偏好。
+    pub backend_preference: BackendPreference,
 }
 
 impl Default for NetworkConfig {
@@ -56,6 +60,7 @@ impl Default for NetworkConfig {
             model_mirrors: Vec::new(),
             download_prefix: String::new(),
             model_source_preference: ModelSourcePreference::Auto,
+            backend_preference: BackendPreference::Cpu,
         }
     }
 }

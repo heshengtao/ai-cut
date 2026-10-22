@@ -22,6 +22,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::agent::openai::normalize_base;
 use crate::agent::AgentState;
+use crate::backend;
 use crate::media::cache_dir;
 use crate::models::{self, ModelFamily};
 use crate::network::NetworkRuntime;
@@ -151,15 +152,16 @@ pub(crate) fn err<E: std::fmt::Display>(what: &str, e: E) -> String {
     format!("{what}：{e}")
 }
 
-/// 建 ONNX 会话。`ort-backend` 把 sherpa-onnx 静态链接的 ORT C API 交给 `ort`。
+/// 建 ONNX 会话。
 pub(crate) fn build_session(path: &Path, label: &str) -> Result<ort::session::Session, String> {
-    if !ort_backend::init() {
-        return Err("ONNX Runtime 初始化失败".into());
-    }
-    ort::session::Session::builder()
-        .map_err(|e| format!("初始化 ONNX Runtime 失败：{e}"))?
-        .commit_from_file(path)
-        .map_err(|e| format!("加载{label}权重失败：{e}"))
+    let builder =
+        ort::session::Session::builder().map_err(|e| format!("初始化 ONNX Runtime 失败：{e}"))?;
+    backend::commit(
+        backend::apply(builder),
+        || ort::session::Session::builder().map_err(|e| format!("初始化 ONNX Runtime 失败：{e}")),
+        path,
+        label,
+    )
 }
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ mod agent;
 mod analysis;
 mod asr;
 mod audio_ai;
+mod backend;
 mod bridge;
 mod cli;
 mod cloud_tts;
@@ -89,6 +90,8 @@ pub fn run() {
             network::network_probe,
             network::model_source_config,
             network::model_set_source_config,
+            backend::ai_backend_info,
+            backend::ai_set_backend,
             agent::agent_config,
             agent::agent_set_config,
             agent::agent_models,
@@ -136,6 +139,12 @@ pub fn run() {
             let network = Arc::new(network::NetworkRuntime::load(
                 config_dir.as_ref().map(|dir| dir.join("network.json")),
             ));
+            backend::set_preference(network.get().backend_preference);
+            if let Some(dir) = config_dir.as_ref() {
+                let cache = dir.join("backend-cache").join("coreml");
+                let _ = std::fs::create_dir_all(&cache);
+                backend::set_coreml_cache_dir(cache);
+            }
             app.manage(network.clone());
 
             let cloud_tts = Arc::new(cloud_tts::CloudTtsRuntime::load(

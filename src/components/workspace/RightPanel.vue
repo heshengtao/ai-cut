@@ -10,9 +10,11 @@ import {
   SparklesIcon,
   ChatBubbleLeftRightIcon,
   CpuChipIcon,
+  ListBulletIcon,
 } from "@heroicons/vue/24/outline";
 import MediaPane from "./panes/MediaPane.vue";
 import InspectorPane from "./panes/InspectorPane.vue";
+import OpsPane from "./panes/OpsPane.vue";
 import AiPane from "./panes/AiPane.vue";
 import ModelsPane from "./panes/ModelsPane.vue";
 import ClipAgentPanel from "./agent/ClipAgentPanel.vue";
@@ -25,6 +27,7 @@ const i18n = useI18n();
 const ICONS: Record<PaneId, unknown> = {
   media: RectangleStackIcon,
   inspector: AdjustmentsHorizontalIcon,
+  ops: ListBulletIcon,
   agent: ChatBubbleLeftRightIcon,
   ai: SparklesIcon,
   models: CpuChipIcon,
@@ -55,6 +58,7 @@ const panes = computed(() => PANES);
 
       <MediaPane v-else-if="layout.activeTab === 'media'" />
       <InspectorPane v-else-if="layout.activeTab === 'inspector'" />
+      <OpsPane v-else-if="layout.activeTab === 'ops'" />
       <ClipAgentPanel v-else-if="layout.activeTab === 'agent'" />
       <AiPane v-else-if="layout.activeTab === 'ai'" />
       <ModelsPane v-else-if="layout.activeTab === 'models'" />

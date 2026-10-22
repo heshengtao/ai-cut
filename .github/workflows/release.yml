@@ -71,7 +71,7 @@ jobs:
             . -> target
             src-tauri -> target
             crates/aicut -> target
-            crates/ort-backend -> target
+            crates/sherpa-onnx-sys -> target
             crates/sherpa-separation -> target
 
       - name: Install Linux dependencies

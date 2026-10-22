@@ -304,7 +304,8 @@ async function handle(
         path,
         trackName: optionalString(record.trackName),
         offset: optionalNumber(record.offset),
-        actor: "agent",
+        actor: record.actor === "human" ? "human" : "agent",
+        sessionId: optionalString(record.sessionId),
         baseRevision: optionalNumber(record.baseRevision),
       });
     }
@@ -324,7 +325,11 @@ async function handle(
     }
 
     case "edit.extract_audio":
-      return extractAudio(asRecord(payload) as { clipId: string; trackName?: string });
+      return extractAudio({
+        ...(asRecord(payload) as { clipId: string; trackName?: string }),
+        actor: record.actor === "human" ? "human" : "agent",
+        sessionId: optionalString(record.sessionId),
+      });
     case "ai.models.list":
       return ai.listAiModels(asRecord(payload) as { feature?: string });
     case "ai.job.start":
@@ -367,6 +372,9 @@ interface AiJob {
   result: unknown;
   error: string | null;
   cancelled: boolean;
+  /** 触发者：内置智能体是 `chat`，外部 MCP 是会话 id。 */
+  actor: "human" | "agent";
+  sessionId?: string;
 }
 
 const aiJobs = new Map<string, AiJob>();
@@ -377,7 +385,11 @@ function isAiJobKind(value: string): value is AiJobKind {
 }
 
 function runAiJob(kind: AiJobKind, params: Record<string, unknown>, job: AiJob): Promise<unknown> {
-  const ctx: ai.JobContext = { cancelled: () => job.cancelled };
+  const ctx: ai.JobContext = {
+    cancelled: () => job.cancelled,
+    actor: job.actor,
+    sessionId: job.sessionId,
+  };
   const args = params as never;
   switch (kind) {
     case "transcribe":
@@ -389,7 +401,7 @@ function runAiJob(kind: AiJobKind, params: Record<string, unknown>, job: AiJob):
     case "process_audio":
       return ai.processAudio(args, ctx);
     case "loudness":
-      return ai.measureLoudness(args);
+      return ai.measureLoudness(args, ctx);
     case "translate":
       return ai.translate(args, ctx);
     case "voiceover":
@@ -426,6 +438,8 @@ function startAiJob(payload: unknown): { jobId: string } {
     result: null,
     error: null,
     cancelled: false,
+    actor: record.actor === "human" ? "human" : "agent",
+    sessionId: optionalString(record.sessionId),
   };
   aiJobs.set(job.id, job);
   activeAiJob = job.id;

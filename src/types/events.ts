@@ -71,6 +71,39 @@ export interface OpEvent {
   error?: string;
 }
 
+/**
+ * 撤销栈里的一步：命令元数据 + 提交前 / 后的文档快照。
+ *
+ * 前端的撤销历史是唯一真相源；操作记录面板直接由它派生，因此人类、内置助手
+ * 与外部 AI 的每一步改动都天然可见、可回撤、可重做。
+ */
+export interface HistoryStep {
+  id: string;
+  kind: CommandKind;
+  actor: Actor;
+  sessionId?: string;
+  label: string;
+  timestamp: number;
+  affected: Affected;
+  durationMs: number;
+  before: Project;
+  after: Project;
+}
+
+/** 操作记录面板的一行（`HistoryStep` 去掉文档快照）。 */
+export interface HistoryEntry {
+  id: string;
+  kind: CommandKind;
+  actor: Actor;
+  sessionId?: string;
+  label: string;
+  timestamp: number;
+  affected: Affected;
+  durationMs: number;
+  /** 是否仍在文档中生效（撤销栈 vs 重做栈）。 */
+  applied: boolean;
+}
+
 /** 命令执行结果。 */
 export interface CommandResult {
   ok: boolean;

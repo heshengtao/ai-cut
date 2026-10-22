@@ -6,7 +6,7 @@ import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 
 /** 右侧面板可打开的窗口类型；后续新增面板只需在此登记。 */
-export type PaneId = "media" | "inspector" | "agent" | "ai" | "models";
+export type PaneId = "media" | "inspector" | "ops" | "agent" | "ai" | "models";
 
 /** 设置页分区。 */
 export type SettingsSection =
@@ -56,6 +56,7 @@ const PREVIEW_QUALITIES: PreviewQuality[] = ["auto", "high", "medium", "low"];
 export const PANES: { id: PaneId; labelKey: string; hintKey: string }[] = [
   { id: "media", labelKey: "panel.media", hintKey: "panel.mediaHint" },
   { id: "inspector", labelKey: "panel.inspector", hintKey: "panel.inspectorHint" },
+  { id: "ops", labelKey: "panel.ops", hintKey: "panel.opsHint" },
   { id: "agent", labelKey: "panel.agent", hintKey: "panel.agentHint" },
   { id: "ai", labelKey: "panel.ai", hintKey: "panel.aiHint" },
   { id: "models", labelKey: "panel.models", hintKey: "panel.modelsHint" },

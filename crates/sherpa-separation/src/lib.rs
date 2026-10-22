@@ -53,7 +53,7 @@ struct Output {
 
 // `sherpa-onnx` 的 build script 会把静态库目录加进 `-L`，但链接指令不一定能穿透到
 // 本 crate 的最终二进制（尤其是测试二进制）。这里显式链接同一组静态库，顺序与
-// sherpa-onnx-sys 保持一致。
+// sherpa-onnx-sys 保持一致。ONNX Runtime 由 `ort` 链接，不在这里重复声明。
 #[link(name = "sherpa-onnx-c-api", kind = "static")]
 #[link(name = "sherpa-onnx-core", kind = "static")]
 #[link(name = "kaldi-decoder-core", kind = "static")]
@@ -65,7 +65,6 @@ struct Output {
 #[link(name = "piper_phonemize", kind = "static")]
 #[link(name = "espeak-ng", kind = "static")]
 #[link(name = "ucd", kind = "static")]
-#[link(name = "onnxruntime", kind = "static")]
 #[link(name = "ssentencepiece_core", kind = "static")]
 extern "C" {
     fn SherpaOnnxCreateOfflineSourceSeparation(config: *const Config) -> *const c_void;

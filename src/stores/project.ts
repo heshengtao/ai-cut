@@ -8,7 +8,15 @@
  */
 import { computed, ref, shallowRef } from "vue";
 import { defineStore } from "pinia";
-import type { Affected, Command, CommandResult, DispatchMeta, OpEvent } from "@/types/events";
+import type {
+  Affected,
+  Command,
+  CommandResult,
+  DispatchMeta,
+  HistoryEntry,
+  HistoryStep,
+  OpEvent,
+} from "@/types/events";
 import type { Project } from "@/types/project";
 import { newProject as makeProject } from "@/core/factory";
 import { parseProject, serializeProject } from "@/core/serialize";
@@ -64,8 +72,8 @@ export const useProjectStore = defineStore("project", () => {
   const doc = shallowRef<Project>(makeProject());
   const dirty = ref(false);
   const filePath = ref<string | null>(null);
-  const undoStack = shallowRef<Project[]>([]);
-  const redoStack = shallowRef<Project[]>([]);
+  const undoStack = shallowRef<HistoryStep[]>([]);
+  const redoStack = shallowRef<HistoryStep[]>([]);
   /** 连续同类操作（滑杆拖动）的合并键；不同键则另记一步历史。 */
   const coalesceKey = ref<string | null>(null);
   /** 文档版本：每次真实变更 +1，命令用它做乐观并发校验。 */
@@ -80,6 +88,26 @@ export const useProjectStore = defineStore("project", () => {
 
   const canUndo = computed(() => undoStack.value.length > 0);
   const canRedo = computed(() => redoStack.value.length > 0);
+
+  /** 操作记录：已应用（正序）+ 已撤销（正序），供面板直接渲染。 */
+  const history = computed<HistoryEntry[]>(() => [
+    ...undoStack.value.map((step) => toEntry(step, true)),
+    ...[...redoStack.value].reverse().map((step) => toEntry(step, false)),
+  ]);
+
+  function toEntry(step: HistoryStep, applied: boolean): HistoryEntry {
+    return {
+      id: step.id,
+      kind: step.kind,
+      actor: step.actor,
+      ...(step.sessionId ? { sessionId: step.sessionId } : {}),
+      label: step.label,
+      timestamp: step.timestamp,
+      affected: step.affected,
+      durationMs: step.durationMs,
+      applied,
+    };
+  }
 
   function emitEvent(event: OpEvent): void {
     opLog.value = [...opLog.value, event].slice(-EVENT_LOG_LIMIT);
@@ -100,16 +128,56 @@ export const useProjectStore = defineStore("project", () => {
     };
   }
 
-  function pushHistory(previous: Project): void {
+  function makeStep(
+    command: Command,
+    affected: Affected,
+    durationMs: number,
+    before: Project,
+    after: Project,
+  ): HistoryStep {
+    return {
+      id: command.id,
+      kind: command.kind,
+      actor: command.actor,
+      ...(command.sessionId ? { sessionId: command.sessionId } : {}),
+      label: command.label,
+      timestamp: command.timestamp,
+      affected,
+      durationMs,
+      before,
+      after,
+    };
+  }
+
+  function pushHistory(step: HistoryStep): void {
     const stack = undoStack.value.slice();
-    stack.push(previous);
+    stack.push(step);
     if (stack.length > HISTORY_LIMIT) stack.shift();
     undoStack.value = stack;
     redoStack.value = [];
   }
 
-  function commitBefore(after: Project, before: Project): void {
-    pushHistory(before);
+  /** 合并手势期间更新已入栈那一步的最终快照与影响范围。 */
+  function updateStep(
+    id: string,
+    patch: Partial<Pick<HistoryStep, "affected" | "durationMs" | "after">>,
+  ): void {
+    const stack = undoStack.value;
+    const index = stack.findIndex((step) => step.id === id);
+    if (index < 0) return;
+    const next = stack.slice();
+    next[index] = { ...next[index], ...patch };
+    undoStack.value = next;
+  }
+
+  function commitBefore(
+    after: Project,
+    before: Project,
+    command: Command,
+    affected: Affected,
+    durationMs: number,
+  ): void {
+    pushHistory(makeStep(command, affected, durationMs, before, after));
     doc.value = after;
     dirty.value = true;
     revision.value += 1;
@@ -125,12 +193,20 @@ export const useProjectStore = defineStore("project", () => {
     coalesceKey.value = null;
     if (!pending) return;
     const after = doc.value;
-    if (after === pending.before) return;
+    // 手势回到起点（拖出去又拖回来）：这一步没有净改动，直接从历史里摘掉，
+    // 否则重做会停在中途的某个值上。
+    if (after === pending.before) {
+      undoStack.value = undoStack.value.filter((step) => step.id !== pending.command.id);
+      return;
+    }
+    const affected = diffAffected(pending.before, after);
+    const durationMs = Date.now() - pending.startedAt;
+    updateStep(pending.command.id, { affected, durationMs, after });
     emitEvent({
       revision: revision.value,
       command: pending.command,
-      affected: diffAffected(pending.before, after),
-      durationMs: Date.now() - pending.startedAt,
+      affected,
+      durationMs,
     });
   }
 
@@ -149,8 +225,6 @@ export const useProjectStore = defineStore("project", () => {
     const next = mutate(before);
     if (next === before) return false;
 
-    commitBefore(next, before);
-
     const command = makeCommand({
       kind: meta?.kind ?? "ui.dispatch",
       payload: meta?.payload ?? {},
@@ -159,11 +233,14 @@ export const useProjectStore = defineStore("project", () => {
       sessionId: meta?.sessionId,
       baseRevision,
     });
+    const affected = diffAffected(before, next);
+    const durationMs = Date.now() - startedAt;
+    commitBefore(next, before, command, affected, durationMs);
     emitEvent({
       revision: revision.value,
       command,
-      affected: diffAffected(before, next),
-      durationMs: Date.now() - startedAt,
+      affected,
+      durationMs,
     });
     return true;
   }
@@ -201,13 +278,23 @@ export const useProjectStore = defineStore("project", () => {
       };
     }
 
+    const pending = pendingCoalesce;
     if (coalesceKey.value !== key) {
-      pushHistory(before);
+      pushHistory(
+        makeStep(
+          pending.command,
+          diffAffected(before, next),
+          0,
+          before,
+          next,
+        ),
+      );
       coalesceKey.value = key;
     }
     doc.value = next;
     dirty.value = true;
     revision.value = baseRevision + 1;
+    // 步骤的最终快照与影响范围在 `flushCoalesce` 时一次写入：拖动过程中不重复复制历史数组。
     return true;
   }
 
@@ -255,12 +342,13 @@ export const useProjectStore = defineStore("project", () => {
         };
       }
 
-      commitBefore(result.doc, before);
+      const durationMs = Date.now() - startedAt;
+      commitBefore(result.doc, before, command, result.affected, durationMs);
       emitEvent({
         revision: revision.value,
         command,
         affected: result.affected,
-        durationMs: Date.now() - startedAt,
+        durationMs,
       });
       return {
         ok: true,
@@ -342,21 +430,23 @@ export const useProjectStore = defineStore("project", () => {
         };
       }
 
-      commitBefore(result.doc, before);
       const label =
         commands.length === 1
           ? commands[0].label
-          : `${commands[0].label} 等 ${commands.length} 项`;
+          : t("ops.batchLabel", { label: commands[0].label, count: commands.length });
+      const stepCommand: Command = {
+        ...commands[0],
+        kind: "ui.dispatch",
+        payload: { count: commands.length },
+        label,
+      };
+      const durationMs = Date.now() - startedAt;
+      commitBefore(result.doc, before, stepCommand, result.affected, durationMs);
       emitEvent({
         revision: revision.value,
-        command: {
-          ...commands[0],
-          kind: "ui.dispatch",
-          payload: { count: commands.length },
-          label,
-        },
+        command: stepCommand,
         affected: result.affected,
-        durationMs: Date.now() - startedAt,
+        durationMs,
       });
       return {
         ok: true,
@@ -383,20 +473,23 @@ export const useProjectStore = defineStore("project", () => {
     }
   }
 
-  function undo(): void {
+  /** 撤销一步；`record` 为 false 时用于「回撤到此步」的批量重放，不逐条刷事件流。 */
+  function undoOne(record: boolean): boolean {
     flushCoalesce();
     const stack = undoStack.value.slice();
-    const previous = stack.pop();
-    if (!previous) return;
+    const step = stack.pop();
+    if (!step) return false;
 
     const before = doc.value;
     const baseRevision = revision.value;
     const startedAt = Date.now();
-    redoStack.value = [...redoStack.value, before];
     undoStack.value = stack;
-    doc.value = previous;
+    redoStack.value = [...redoStack.value, step];
+    doc.value = step.before;
     dirty.value = true;
     revision.value = baseRevision + 1;
+
+    if (!record) return true;
 
     const command = makeCommand({
       kind: "history.undo",
@@ -408,25 +501,29 @@ export const useProjectStore = defineStore("project", () => {
     emitEvent({
       revision: revision.value,
       command,
-      affected: diffAffected(before, previous),
+      affected: diffAffected(before, step.before),
       durationMs: Date.now() - startedAt,
     });
+    return true;
   }
 
-  function redo(): void {
+  /** 重做一步；`record` 语义同 `undoOne`。 */
+  function redoOne(record: boolean): boolean {
     flushCoalesce();
     const stack = redoStack.value.slice();
-    const next = stack.pop();
-    if (!next) return;
+    const step = stack.pop();
+    if (!step) return false;
 
     const before = doc.value;
     const baseRevision = revision.value;
     const startedAt = Date.now();
-    undoStack.value = [...undoStack.value, before];
     redoStack.value = stack;
-    doc.value = next;
+    undoStack.value = [...undoStack.value, step];
+    doc.value = step.after;
     dirty.value = true;
     revision.value = baseRevision + 1;
+
+    if (!record) return true;
 
     const command = makeCommand({
       kind: "history.redo",
@@ -438,9 +535,48 @@ export const useProjectStore = defineStore("project", () => {
     emitEvent({
       revision: revision.value,
       command,
-      affected: diffAffected(before, next),
+      affected: diffAffected(before, step.after),
       durationMs: Date.now() - startedAt,
     });
+    return true;
+  }
+
+  function undo(): void {
+    undoOne(true);
+  }
+
+  function redo(): void {
+    redoOne(true);
+  }
+
+  /**
+   * 回撤到某一步之前：该步及其之后所有已应用的操作都会撤销。
+   * 被撤销的步骤仍留在操作记录里，可以随时重做到其中任意一步。
+   */
+  function revertTo(id: string): boolean {
+    flushCoalesce();
+    const index = undoStack.value.findIndex((step) => step.id === id);
+    if (index < 0) return false;
+    let changed = false;
+    while (undoStack.value.length > index) {
+      if (!undoOne(false)) break;
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** 重做到某一步（含该步），把它之前的撤销步骤一并恢复。 */
+  function reapplyTo(id: string): boolean {
+    flushCoalesce();
+    const index = redoStack.value.findIndex((step) => step.id === id);
+    if (index < 0) return false;
+    const count = redoStack.value.length - index;
+    let changed = false;
+    for (let i = 0; i < count; i += 1) {
+      if (!redoOne(false)) break;
+      changed = true;
+    }
+    return changed;
   }
 
   /** 用一份新文档替换当前工程，并清空历史与事件流。被替换的工作副本会进入历史工程。 */
@@ -573,6 +709,7 @@ export const useProjectStore = defineStore("project", () => {
     revision,
     busy,
     opLog,
+    history,
     canUndo,
     canRedo,
     subscribe,
@@ -584,6 +721,8 @@ export const useProjectStore = defineStore("project", () => {
     setAssetWaveform,
     undo,
     redo,
+    revertTo,
+    reapplyTo,
     reset,
     newProject,
     rename,

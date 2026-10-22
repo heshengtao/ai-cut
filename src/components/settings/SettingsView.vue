@@ -33,6 +33,8 @@ import { displayProjectName } from "@/utils/projectName";
 import { useI18n } from "@/i18n";
 import type {
   AgentProbe,
+  BackendInfo,
+  BackendPreference,
   CliStatus,
   McpStatus,
   ProxyMode,
@@ -51,6 +53,9 @@ import {
   agentModels,
   agentSetConfig,
   agentTest,
+  aiBackendInfo,
+  aiSetBackend,
+  backendFallback,
   cliStatus,
   installCli,
   mcpStatus,
@@ -120,7 +125,7 @@ const MODEL_SOURCE_PREFS: { id: ModelSourcePreference; labelKey: string }[] = [
   { id: "international", labelKey: "settings.store.sourceIntl" },
 ];
 
-const APP_VERSION = "0.2.1";
+const APP_VERSION = "0.2.2";
 
 const i18n = useI18n();
 const layout = useLayoutStore();
@@ -230,6 +235,51 @@ const agentProbe = ref<AgentProbe | null>(null);
 const agentBusy = ref(false);
 const agentSaving = ref(false);
 const agentSaved = ref(false);
+
+// ---- 本地 AI 执行后端 ----
+const backendInfo = ref<BackendInfo | null>(null);
+const backendSaving = ref(false);
+const backendOptions = computed(() => backendInfo.value?.options ?? []);
+const backendRuntimeLimited = computed(() =>
+  backendOptions.value.some((option) => !option.available),
+);
+
+/**
+ * 后端文案：后端目录里的中文只作兜底，界面优先用 i18n（英文界面才不会出现中文）。
+ */
+function backendText(kind: string, field: "label" | "note", fallback: string): string {
+  const key = field === "note" ? `backend.${kind}.note` : `backend.${kind}`;
+  const text = i18n.t(key);
+  return text === key ? fallback : text;
+}
+
+const backendNote = computed(() => {
+  const current = backendInfo.value?.options.find(
+    (option) => option.kind === backendInfo.value?.preference,
+  );
+  return current ? backendText(current.kind, "note", current.note) : "";
+});
+
+async function loadBackend(): Promise<void> {
+  try {
+    backendInfo.value = await aiBackendInfo();
+  } catch {
+    // 旧版桌面端没有新命令 / 预览环境：保留完整选项，只把非 CPU 标为不可用。
+    backendInfo.value = backendFallback();
+  }
+}
+
+async function setBackend(preference: BackendPreference): Promise<void> {
+  if (backendInfo.value?.preference === preference) return;
+  backendSaving.value = true;
+  try {
+    backendInfo.value = await aiSetBackend(preference);
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    backendSaving.value = false;
+  }
+}
 
 // ---- MCP ----
 const mcp = ref<McpStatus | null>(null);
@@ -1122,6 +1172,7 @@ function back(): void {
 onMounted(() => {
   void updater.loadVersion();
   void loadAgent();
+  void loadBackend();
   void loadMcp();
   void loadNetwork();
   void loadModelSources();
@@ -1381,47 +1432,43 @@ onMounted(() => {
 
         <!-- AI / MCP -->
         <template v-else-if="active === 'ai'">
+          <!-- OpenAI 兼容端点：右侧「剪辑智能体」面板直连它 -->
           <div class="group">
             <div class="group-title">{{ i18n.t("settings.ai.title") }}</div>
             <div class="card">
-              <div class="row">
-                <div class="row-text">
-                  <span class="row-title">{{ i18n.t("settings.ai.baseUrl") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.ai.baseUrlHint") }}</span>
-                </div>
+              <div class="col-row">
+                <span class="row-title">{{ i18n.t("settings.ai.baseUrl") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.ai.baseUrlHint") }}</span>
                 <input
                   v-model="agentBaseUrl"
-                  class="md3-field net-input"
-                  :placeholder="i18n.t('settings.ai.baseUrlPlaceholder')"
+                  class="net-input"
+                  type="text"
                   spellcheck="false"
+                  :placeholder="i18n.t('settings.ai.baseUrlPlaceholder')"
                 />
               </div>
-              <div class="row">
-                <div class="row-text">
-                  <span class="row-title">{{ i18n.t("settings.ai.apiKey") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.ai.apiKeyHint") }}</span>
-                </div>
+              <div class="col-row">
+                <span class="row-title">{{ i18n.t("settings.ai.apiKey") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.ai.apiKeyHint") }}</span>
                 <input
                   v-model="agentApiKey"
-                  class="md3-field net-input"
+                  class="net-input"
                   type="password"
                   autocomplete="off"
+                  spellcheck="false"
                   :placeholder="i18n.t('settings.ai.apiKeyPlaceholder')"
                 />
               </div>
-              <div class="row">
-                <div class="row-text">
-                  <span class="row-title">{{ i18n.t("settings.ai.model") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.ai.modelHint") }}</span>
-                </div>
-                <div class="row-combo">
-                  <ComboField
-                    v-model="agentModel"
-                    :options="agentModelList"
-                    :label="i18n.t('settings.ai.model')"
-                    :placeholder="i18n.t('settings.ai.modelPlaceholder')"
-                  />
-                </div>
+              <div class="col-row">
+                <span class="row-title">{{ i18n.t("settings.ai.model") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.ai.modelHint") }}</span>
+                <ComboField
+                  v-model="agentModel"
+                  :options="agentModelList"
+                  :label="i18n.t('settings.ai.model')"
+                  :placeholder="i18n.t('settings.ai.modelPlaceholder')"
+                  :empty="i18n.t('settings.ai.modelEmpty')"
+                />
               </div>
               <div class="row actions-row">
                 <button class="scan-btn" :disabled="agentBusy" @click="fetchModels">
@@ -1456,6 +1503,50 @@ onMounted(() => {
             </div>
           </div>
 
+          <!-- 本地 AI 执行后端 -->
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.ai.backendGroup") }}</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.ai.backend") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.ai.backendHint") }}</span>
+                </div>
+                <div class="m3-seg" role="group" :aria-label="i18n.t('settings.ai.backend')">
+                  <button
+                    v-for="option in backendOptions"
+                    :key="option.kind"
+                    class="m3-seg-btn"
+                    :class="{ on: backendInfo?.preference === option.kind }"
+                    :aria-pressed="backendInfo?.preference === option.kind"
+                    :disabled="backendSaving || !option.available"
+                    :title="
+                      option.available
+                        ? undefined
+                        : i18n.t('settings.ai.backendUnsupported')
+                    "
+                    @click="setBackend(option.kind)"
+                  >
+                    {{ backendText(option.kind, "label", option.label) }}
+                  </button>
+                </div>
+              </div>
+              <div class="col-row">
+                <span v-if="backendNote" class="row-sub">{{ backendNote }}</span>
+                <span class="row-sub">
+                  {{ i18n.t("settings.ai.platform", { platform: backendInfo?.platform ?? "…" }) }}
+                </span>
+                <span v-if="backendOptions.length > 1" class="row-sub">
+                  {{ i18n.t("settings.ai.backendCpuFaster") }}
+                </span>
+                <span v-if="backendRuntimeLimited" class="row-sub">
+                  {{ i18n.t("settings.ai.backendUnavailableHint") }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- MCP 服务器 -->
           <div class="group">
             <div class="group-title">{{ i18n.t("settings.mcp.server") }}</div>
             <div class="card">
@@ -1493,6 +1584,7 @@ onMounted(() => {
               <div class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("settings.mcp.status") }}</span>
+                  <span class="row-sub">{{ mcpEndpoint || i18n.t("settings.mcp.notListening") }}</span>
                 </div>
                 <span class="row-value" :class="{ 'status-on': mcpRunning }">
                   {{
@@ -1503,13 +1595,20 @@ onMounted(() => {
                   }}
                 </span>
               </div>
+            </div>
+          </div>
+
+          <!-- MCP 接入地址 -->
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.mcp.usage") }}</div>
+            <div class="card">
               <div class="row">
                 <div class="row-text">
-                  <span class="row-title">{{ i18n.t("settings.mcp.usage") }}</span>
+                  <span class="row-title">{{ i18n.t("settings.mcp.endpoint") }}</span>
+                  <span class="row-sub mono">
+                    {{ mcpEndpoint || i18n.t("settings.mcp.notListening") }}
+                  </span>
                 </div>
-                <span class="row-value mono">
-                  {{ mcpEndpoint || i18n.t("settings.mcp.notListening") }}
-                </span>
                 <button class="scan-btn" :disabled="!mcpEndpoint" @click="copy(mcpEndpoint)">
                   {{ i18n.t("settings.mcp.copy") }}
                 </button>
@@ -1517,8 +1616,8 @@ onMounted(() => {
               <div class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("settings.mcp.security") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.mcp.securityHint") }}</span>
                 </div>
-                <span class="row-value hint">{{ i18n.t("settings.mcp.securityHint") }}</span>
               </div>
             </div>
           </div>
@@ -1790,6 +1889,7 @@ onMounted(() => {
               <div class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("settings.proxy.mode") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.proxy.modeHint") }}</span>
                 </div>
                 <div class="m3-seg" role="group" :aria-label="i18n.t('settings.proxy.mode')">
                   <button
@@ -1804,23 +1904,22 @@ onMounted(() => {
                   </button>
                 </div>
               </div>
-              <div v-if="proxyMode === 'manual'" class="row">
-                <div class="row-text">
-                  <span class="row-title">{{ i18n.t("settings.proxy.url") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.proxy.urlHint") }}</span>
-                </div>
+              <div v-if="proxyMode === 'manual'" class="col-row">
+                <span class="row-title">{{ i18n.t("settings.proxy.url") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.proxy.urlHint") }}</span>
                 <input
                   v-model="proxyUrl"
-                  class="md3-field net-input"
-                  :placeholder="i18n.t('settings.proxy.urlPlaceholder')"
+                  class="net-input"
+                  type="text"
                   spellcheck="false"
+                  :placeholder="i18n.t('settings.proxy.urlPlaceholder')"
                 />
               </div>
               <div class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("settings.proxy.current") }}</span>
+                  <span class="row-sub">{{ proxySourceLabel }}</span>
                 </div>
-                <span class="row-value">{{ proxySourceLabel }}</span>
                 <button class="scan-btn" :disabled="proxyTesting" @click="testProxy">
                   {{
                     proxyTesting
@@ -1829,18 +1928,19 @@ onMounted(() => {
                   }}
                 </button>
               </div>
-              <p
-                v-if="proxyProbe"
-                class="probe"
-                :class="{ ok: proxyProbe.ok, error: !proxyProbe.ok }"
-              >
-                {{
-                  i18n.t(
-                    proxyProbe.ok ? "settings.proxy.probeOk" : "settings.proxy.probeFail",
-                    { detail: proxyProbe.detail },
-                  )
-                }}
-              </p>
+              <div v-if="proxyProbe" class="col-row">
+                <span
+                  class="row-sub"
+                  :class="{ 'probe-ok': proxyProbe.ok, 'probe-error': !proxyProbe.ok }"
+                >
+                  {{
+                    i18n.t(
+                      proxyProbe.ok ? "settings.proxy.probeOk" : "settings.proxy.probeFail",
+                      { detail: proxyProbe.detail },
+                    )
+                  }}
+                </span>
+              </div>
               <div class="row actions-row">
                 <button class="scan-btn primary" :disabled="proxySaving" @click="saveNetwork">
                   {{
@@ -1878,32 +1978,31 @@ onMounted(() => {
                   </button>
                 </div>
               </div>
-              <div class="row">
-                <div class="row-text">
-                  <span class="row-title">{{ i18n.t("settings.store.models") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.store.modelsHint") }}</span>
-                </div>
+              <div class="col-row">
+                <span class="row-title">{{ i18n.t("settings.store.models") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.store.modelsHint") }}</span>
                 <textarea
                   v-model="modelMirrors"
-                  class="md3-field mirror-field"
-                  rows="3"
+                  class="net-input"
+                  rows="2"
                   spellcheck="false"
                   :placeholder="i18n.t('settings.store.modelsPlaceholder')"
                 />
               </div>
-              <div class="row">
-                <div class="row-text">
-                  <span class="row-title">{{ i18n.t("settings.store.prefix") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.store.prefixHint") }}</span>
-                </div>
+              <div class="col-row">
+                <span class="row-title">{{ i18n.t("settings.store.prefix") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.store.prefixHint") }}</span>
                 <input
                   v-model="modelDownloadPrefix"
-                  class="md3-field net-input"
+                  class="net-input"
+                  type="text"
                   spellcheck="false"
                   :placeholder="i18n.t('settings.store.prefixPlaceholder')"
                 />
               </div>
-              <p class="probe">{{ i18n.t("settings.store.saveHint") }}</p>
+              <div class="col-row">
+                <span class="row-sub">{{ i18n.t("settings.store.saveHint") }}</span>
+              </div>
               <div class="row actions-row">
                 <button class="scan-btn primary" :disabled="sourceSaving" @click="saveModelSources">
                   {{
@@ -1998,6 +2097,19 @@ onMounted(() => {
           </div>
 
           <div class="group">
+            <div class="group-title">{{ i18n.t("settings.about.license") }}</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.about.licenseLabel") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.about.licenseHint") }}</span>
+                </div>
+                <span class="row-value">Apache-2.0</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="group">
             <div class="group-title">{{ i18n.t("settings.update.group") }}</div>
             <div class="card">
               <div class="row">
@@ -2064,7 +2176,7 @@ onMounted(() => {
   min-width: 0;
   min-height: 0;
   display: flex;
-  background-color: var(--app-bg);
+  background-color: var(--app-card);
 }
 
 /* ---- 设置侧栏 ---- */
@@ -2205,7 +2317,7 @@ onMounted(() => {
   padding: 0 4px 8px;
 }
 .card {
-  background-color: var(--app-inset);
+  background-color: var(--app-bg);
   border-radius: 20px;
   padding: 4px 16px;
 }
@@ -2226,6 +2338,18 @@ onMounted(() => {
   gap: 3px;
   min-width: 0;
 }
+/* 竖向排布的设置行（网络 / AI 端点这种：标题在上、控件占满一整行）。 */
+.col-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0;
+}
+.col-row + .col-row,
+.col-row + .row,
+.row + .col-row {
+  border-top: 1px solid rgb(var(--md-outline-variant) / 0.3);
+}
 .row-title {
   font-size: 14px;
   font-weight: 500;
@@ -2234,6 +2358,17 @@ onMounted(() => {
 .row-sub {
   font-size: 12px;
   color: rgb(var(--md-on-surface-variant));
+}
+.row-sub.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+.probe-ok {
+  color: rgb(var(--md-primary));
+}
+.probe-error {
+  color: rgb(var(--md-error));
 }
 .row-value {
   font-size: 13px;
@@ -2281,6 +2416,25 @@ onMounted(() => {
   width: 300px;
   max-width: 58%;
   flex: 0 0 auto;
+}
+/* 竖排行里的输入框占满整行，与 ai-daw 的设置页一致。 */
+.col-row .net-input {
+  width: 100%;
+  max-width: none;
+  flex: 1 1 auto;
+  padding: 8px 10px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.7);
+  border-radius: 10px;
+  background-color: var(--app-card);
+  color: rgb(var(--md-on-surface));
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.col-row .net-input:focus {
+  outline: 2px solid rgb(var(--md-primary));
+  outline-offset: 0;
 }
 .row-combo {
   width: 220px;

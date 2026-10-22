@@ -12,6 +12,7 @@ import {
   SparklesIcon,
   ChatBubbleLeftRightIcon,
   CpuChipIcon,
+  ListBulletIcon,
 } from "@heroicons/vue/24/outline";
 import Tooltip from "@/components/common/Tooltip.vue";
 import { PANES, useLayoutStore, type PaneId } from "@/stores/layout";
@@ -45,6 +46,7 @@ watch(
 const ICONS: Record<PaneId, unknown> = {
   media: RectangleStackIcon,
   inspector: AdjustmentsHorizontalIcon,
+  ops: ListBulletIcon,
   agent: ChatBubbleLeftRightIcon,
   ai: SparklesIcon,
   models: CpuChipIcon,

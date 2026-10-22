@@ -7,6 +7,8 @@ import type {
   AgentProbe,
   AgentSession,
   AgentSessionSummary,
+  BackendInfo,
+  BackendPreference,
   CliStatus,
   McpStatus,
   NetworkConfig,
@@ -180,5 +182,46 @@ export function networkProbe(
     ok: false,
     detail: "Tauri 不可用",
     ms: 0,
+  });
+}
+
+/** 浏览器预览 / 后端命令不可用时的兜底：保留完整选项，避免设置页看起来没有控件。 */
+export function backendFallback(): BackendInfo {
+  return {
+    preference: "cpu",
+    current: "cpu",
+    platform: "—",
+    options: [
+      {
+        kind: "cpu",
+        label: "CPU",
+        note: "纯 CPU（默认，全平台可用）",
+        available: true,
+      },
+      {
+        kind: "coreml",
+        label: "Apple CoreML",
+        note: "Apple 神经引擎 / GPU",
+        available: false,
+      },
+      {
+        kind: "directml",
+        label: "DirectML",
+        note: "DirectX 12 硬件加速（Windows）",
+        available: false,
+      },
+    ],
+  };
+}
+
+export function aiBackendInfo(): Promise<BackendInfo> {
+  return call("ai_backend_info", {}, backendFallback());
+}
+
+export function aiSetBackend(preference: BackendPreference): Promise<BackendInfo> {
+  return call("ai_set_backend", { preference }, {
+    ...backendFallback(),
+    preference,
+    current: preference,
   });
 }

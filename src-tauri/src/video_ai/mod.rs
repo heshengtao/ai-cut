@@ -19,6 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
+use crate::backend;
 use crate::media::{cache_dir, probe_media};
 use crate::models;
 use detect::Detection;
@@ -102,13 +103,14 @@ fn emit(app: &AppHandle, state: &str, progress: f32, message: Option<String>) {
 }
 
 pub(crate) fn build_session(path: &Path, label: &str) -> Result<ort::session::Session, String> {
-    if !ort_backend::init() {
-        return Err("ONNX Runtime 初始化失败".into());
-    }
-    ort::session::Session::builder()
-        .map_err(|e| format!("初始化 ONNX Runtime 失败：{e}"))?
-        .commit_from_file(path)
-        .map_err(|e| format!("加载{label}权重失败：{e}"))
+    let builder = ort::session::Session::builder()
+        .map_err(|e| format!("初始化 ONNX Runtime 失败：{e}"))?;
+    backend::commit(
+        backend::apply(builder),
+        || ort::session::Session::builder().map_err(|e| format!("初始化 ONNX Runtime 失败：{e}")),
+        path,
+        label,
+    )
 }
 
 fn sidecar_path(name: &str) -> PathBuf {
