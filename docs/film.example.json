@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "name": "137s 草稿",
+  "fps": 60,
+  "width": 1920,
+  "height": 1080,
+  "duration": 137,
+  "scenes": [
+    {
+      "id": "s05-song",
+      "t0": 29,
+      "t1": 35,
+      "title": "宋代山水",
+      "take": "renders/s05-song.mp4",
+      "markers": [31.0, 32.0],
+      "review": [
+        {
+          "id": "r-s05-01",
+          "t": 31.2,
+          "text": "翅膀穿模：鹈鹕翅膀穿过山体 → 翅膀与山体不能相交",
+          "severity": "high",
+          "resolved": false,
+          "bbox": { "x": 0.3, "y": 0.2, "width": 0.2, "height": 0.3 },
+          "screenshot": "shots/s05-31.2.png",
+          "tags": ["character"]
+        }
+      ]
+    },
+    {
+      "id": "s06-cross",
+      "t0": 35,
+      "t1": 41,
+      "title": "第一次穿越",
+      "take": "renders/s06-cross.mp4",
+      "markers": [35.0, 38.0, 41.0],
+      "review": [
+        {
+          "id": "r-s06-01",
+          "t": 38.0,
+          "text": "穿越瞬间画面闪白过长 → 闪白 ≤ 2 帧",
+          "severity": "medium"
+        }
+      ]
+    }
+  ],
+  "review": [
+    {
+      "t": 120.0,
+      "text": "结尾字幕停留偏短 → 至少 2.5s",
+      "severity": "low",
+      "tags": ["titles"]
+    }
+  ],
+  "music": {
+    "bpm": 120,
+    "key": "A minor",
+    "bars": 68,
+    "offset": 0,
+    "cues": [
+      {
+        "scene": "s05-song",
+        "t0": 29,
+        "t1": 35,
+        "instrument": "guqin-like",
+        "stem": "s05-guqin.wav",
+        "gainDb": -3
+      },
+      {
+        "scene": "s06-cross",
+        "t0": 35,
+        "t1": 41,
+        "instrument": "gamelan-like",
+        "stem": "s06-gamelan.wav"
+      }
+    ]
+  }
+}

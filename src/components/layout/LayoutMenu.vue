@@ -68,7 +68,7 @@ onUnmounted(() => {
     </button>
 
     <transition name="pop">
-      <div v-if="open" class="menu" role="menu" :aria-label="i18n.t('topbar.layout')">
+      <div v-if="open" class="menu" role="menu" :aria-label="i18n.t('topbar.layout')" data-no-drag>
         <div class="menu-title">{{ i18n.t("topbar.layout") }}</div>
         <button
           v-for="mode in MODES"

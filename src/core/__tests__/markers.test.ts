@@ -5,6 +5,7 @@ import { createAsset, createMarker, newProject } from "@/core/factory";
 import { addAsset, addMarker, addTrack, removeMarker, updateMarker } from "@/core/ops";
 import { applyCommandToDoc } from "@/core/commands";
 import { markers, overview } from "@/core/projectView";
+import { parseProject, serializeProject } from "@/core/serialize";
 
 function cmd(kind: CommandKind, payload: unknown): Command {
   return {
@@ -68,6 +69,61 @@ describe("marker commands", () => {
       cmd("marker.remove", { markerId: marker.id }),
     );
     expect(removed.doc.markers).toEqual([]);
+  });
+});
+
+describe("review note fields", () => {
+  it("keeps review metadata through commands, filters and JSON round-trip", () => {
+    let doc = fixture();
+    const added = applyCommandToDoc(
+      doc,
+      cmd("marker.add", {
+        id: "m-review",
+        time: 2.5,
+        name: "[high] 翅膀穿模",
+        kind: "review",
+        sceneId: "s05-song",
+        note: "翅膀穿模",
+        severity: "high",
+        bbox: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+        tags: ["film-manifest"],
+      }),
+    );
+    doc = added.doc;
+    expect(doc.markers[0]).toMatchObject({
+      id: "m-review",
+      kind: "review",
+      sceneId: "s05-song",
+      note: "翅膀穿模",
+      severity: "high",
+    });
+
+    const resolved = applyCommandToDoc(
+      doc,
+      cmd("marker.update", { markerId: "m-review", patch: { resolved: true } }),
+    );
+    expect(resolved.doc.markers[0].resolved).toBe(true);
+
+    const round = parseProject(serializeProject(resolved.doc));
+    expect(round.markers[0]).toMatchObject({
+      note: "翅膀穿模",
+      severity: "high",
+      resolved: true,
+      sceneId: "s05-song",
+      kind: "review",
+      bbox: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+    });
+
+    const cleared = applyCommandToDoc(
+      round,
+      cmd("marker.update", { markerId: "m-review", patch: { resolved: false } }),
+    );
+    expect(cleared.doc.markers[0].resolved).toBeUndefined();
+
+    expect(
+      markers(doc, 1, { kind: "review", sceneId: "s05-song" }).markers,
+    ).toHaveLength(1);
+    expect(markers(doc, 1, { severity: "low" }).markers).toHaveLength(0);
   });
 });
 

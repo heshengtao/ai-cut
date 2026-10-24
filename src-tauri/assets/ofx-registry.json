@@ -1,0 +1,697 @@
+{
+  "schema_version": 1,
+  "plugins": [
+    {
+      "slug": "microck/boilify",
+      "name": "Boilify",
+      "vendor": "microck",
+      "version": "1.1.6",
+      "description": "Procedural boil / heat-haze distortion with animated noise, adjustable speed and seed. CPU render, 8/16/32-bit.",
+      "homepage": "https://github.com/Microck/boilify",
+      "source": "https://github.com/Microck/boilify",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "distortion",
+        "heat",
+        "noise",
+        "retro"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/Microck/boilify/releases/download/v1.1.6/boilify-v1.1.6-macos.zip",
+          "sha256": "69b45f8ef18236a570791021ef40e42f8cfbbb61c0b9ddcb6ba5e17625531a86",
+          "size": 353471,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/Microck/boilify/releases/download/v1.1.6/boilify-v1.1.6-windows.zip",
+          "sha256": "b78e7cc9b3e61893d23b810e39640bd979d5397480e9e877215c4e6b073d0433",
+          "size": 400947,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/Microck/boilify/releases/download/v1.1.6/boilify-v1.1.6-linux.zip",
+          "sha256": "69a1a9ea3916c7eeb0742adcd63c19b59504f03ef3381ea0f03fe90a4f2fa9d0",
+          "size": 351398,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "kaelalden/domewarp",
+      "name": "DomeWarp",
+      "vendor": "Kael Alden",
+      "version": "0.10.0",
+      "description": "Fulldome / fisheye / equirectangular projection converter and spherical warp for VR and planetarium work.",
+      "homepage": "https://github.com/kaelalden/DomeWarp",
+      "source": "https://github.com/kaelalden/DomeWarp",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "fulldome",
+        "fisheye",
+        "warp",
+        "vr",
+        "gpl"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/kaelalden/DomeWarp/releases/download/v0.10.0/DomeWarp-0.10.0-macOS.zip",
+          "sha256": "2e78756de86f28f74b5fca30754a18b44f639cfb1f83ba5dc0988b9368a02a8d",
+          "size": 134260,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "arm64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/kaelalden/DomeWarp/releases/download/v0.10.0/DomeWarp-0.10.0-Windows.zip",
+          "sha256": "1c909ac7dacaa7d8a42216eb828e6256295c6aed2985626337dfd976ae52c829",
+          "size": 505587,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "gyroflow/gyroflow-ofx",
+      "name": "Gyroflow",
+      "vendor": "Gyroflow",
+      "version": "1.6.3",
+      "description": "Gyroscope-based video stabilization as an OpenFX filter.",
+      "homepage": "https://gyroflow.xyz/",
+      "source": "https://github.com/gyroflow/gyroflow",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "stabilization",
+        "gyro",
+        "gpl"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/gyroflow/gyroflow/releases",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "arch": [
+            "arm64",
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "openfx/invert",
+      "name": "Invert (Developer Sample)",
+      "vendor": "OpenFX Samples",
+      "version": "1.5.1",
+      "description": "Reference Invert filter built from the official OpenFX 1.5.1 SDK. macOS arm64 binary; Windows and Linux point to the upstream sample source.",
+      "homepage": "https://github.com/AcademySoftwareFoundation/openfx",
+      "source": "https://github.com/AcademySoftwareFoundation/openfx",
+      "license": "BSD-3-Clause",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "sample",
+        "developer",
+        "invert"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/heshengtao/ai-cut-ofx-registry/releases/download/v1.5.1-invert/invert-1.5.1-macos-arm64-r3.zip",
+          "sha256": "72b25a45f32cb1f692392601c480513ec937118610901a93aab43991754ad84f",
+          "size": 86964,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "arm64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/AcademySoftwareFoundation/openfx/tree/main/Support/Plugins/Invert",
+          "systems": [
+            "win",
+            "linux"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/macroblock",
+      "name": "Macroblock",
+      "vendor": "Stoatworks Labs",
+      "version": "0.1.4",
+      "description": "Chroma subsampling and block-art filter: any block size from 4:2:0 to a single colour, with presets for retro video looks. CPU render, 8/16/32-bit.",
+      "homepage": "https://github.com/stoatworks-labs/macroblock",
+      "source": "https://github.com/stoatworks-labs/macroblock",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "chroma",
+        "subsampling",
+        "pixel",
+        "retro",
+        "vhs"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/macroblock/releases/download/v0.1.4/macroblock-ofx-macos-universal.zip",
+          "sha256": "d63e2340846d56b4eab29fc541f5d0df5d9664b7b64a5be2e937019b15a0ddc5",
+          "size": 246211,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/macroblock/releases/download/v0.1.4/macroblock-ofx-windows-x86_64.zip",
+          "sha256": "866e97f8b0cd5876d9065aeb38c0cc91eb9dc6e6c58bf193bc83f24a429a6143",
+          "size": 67133,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/macroblock/releases/download/v0.1.4/macroblock-ofx-linux-x86_64.zip",
+          "sha256": "b1f66cf42a9156416748da9a92892fd8b0fe960ff22e73986de7a2e9d1c2623e",
+          "size": 706610,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "sosoyan/make-hdr",
+      "name": "MakeHDR",
+      "vendor": "sosoyan",
+      "version": "1.3.0",
+      "description": "Bracketed-exposure HDR merge with Debevec / Robertson solving and tone mapping. One archive ships macOS arm64, Windows x64 and Linux x86-64 binaries.",
+      "homepage": "https://github.com/sosoyan/make-hdr",
+      "source": "https://github.com/sosoyan/make-hdr",
+      "license": "BSD-3-Clause",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "hdr",
+        "exposure",
+        "bracketing",
+        "tone-mapping"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/sosoyan/make-hdr/releases/download/1.3.0/make_hdr-1.3.0.zip",
+          "sha256": "ab282fdd6ba7de6eeee3d58d8e841019e9c041c84126c1873947d17f7a665d24",
+          "size": 1343431,
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "arch": [
+            "arm64",
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "ntsc-rs/ntsc-rs",
+      "name": "NTSC-RS",
+      "vendor": "ntsc-rs",
+      "version": "0.9.7",
+      "description": "VHS / analogue TV artefact simulator (NTSC encode-decode, ringing, colour fringing). Windows and Linux ship OFX archives; the macOS OFX build is a pkg installer.",
+      "homepage": "https://github.com/ntsc-rs/ntsc-rs",
+      "source": "https://github.com/ntsc-rs/ntsc-rs",
+      "license": "Apache-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "vhs",
+        "analog",
+        "retro",
+        "ntsc"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/ntsc-rs/ntsc-rs/releases/download/v0.9.7/ntsc-rs-windows-openfx.zip",
+          "sha256": "725d07aa5c007659eb0185f0fe0f08773e8341d5d8c96b7382a448da12434d5b",
+          "size": 459263,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/ntsc-rs/ntsc-rs/releases/download/v0.9.7/ntsc-rs-linux-openfx.zip",
+          "sha256": "3d8369b638ea7b13714d3587cfe953442972203a9ee43ff8f7b5aa586ce19172",
+          "size": 768604,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/ntsc-rs/ntsc-rs/releases/download/v0.9.7/ntsc-rs-macos-openfx.pkg",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "natron/openfx-arena",
+      "name": "OpenFX Arena",
+      "vendor": "Natron",
+      "version": "2.5.0",
+      "description": "ImageMagick-based effects for OFX hosts, including distortion, stylize and color tools.",
+      "homepage": "https://github.com/NatronGitHub/openfx-arena",
+      "source": "https://github.com/NatronGitHub/openfx-arena",
+      "license": "GPL-2.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter",
+        "generator"
+      ],
+      "contexts": [
+        "filter",
+        "generator"
+      ],
+      "tags": [
+        "imagemagick",
+        "natron",
+        "gpl"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/NatronGitHub/openfx-arena/releases",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "openfx/developer-samples",
+      "name": "OpenFX Developer Samples",
+      "vendor": "Academy Software Foundation",
+      "version": "1.5.1",
+      "description": "Reference OpenFX plugins: Invert, Noise generator, Cross-fade transition and Retimer. Useful for host compatibility testing.",
+      "homepage": "https://openeffects.org/",
+      "source": "https://github.com/AcademySoftwareFoundation/openfx",
+      "license": "BSD-3-Clause",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "generator",
+        "transition"
+      ],
+      "contexts": [
+        "filter",
+        "generator",
+        "transition"
+      ],
+      "tags": [
+        "samples",
+        "developer",
+        "reference"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/AcademySoftwareFoundation/openfx/tree/main/Support/Plugins",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "natron/openfx-gmic",
+      "name": "OpenFX G'MIC",
+      "vendor": "Natron",
+      "version": "2.5.0",
+      "description": "G'MIC image processing effects exposed as OFX filters.",
+      "homepage": "https://github.com/NatronGitHub/openfx-gmic",
+      "source": "https://github.com/NatronGitHub/openfx-gmic",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "gmic",
+        "natron",
+        "gpl"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/NatronGitHub/openfx-gmic/releases",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "natron/openfx-io",
+      "name": "OpenFX IO",
+      "vendor": "Natron",
+      "version": "2.5.0",
+      "description": "OpenImageIO / FFmpeg readers and writers plus OpenColorIO color management for OFX hosts.",
+      "homepage": "https://github.com/NatronGitHub/openfx-io",
+      "source": "https://github.com/NatronGitHub/openfx-io",
+      "license": "GPL-2.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "io",
+        "color",
+        "natron",
+        "gpl"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/NatronGitHub/openfx-io/releases",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "natron/openfx-misc",
+      "name": "OpenFX Misc",
+      "vendor": "Natron",
+      "version": "2.5.0",
+      "description": "Essential compositing filters, generators and transitions from the Natron project.",
+      "homepage": "https://github.com/NatronGitHub/openfx-misc",
+      "source": "https://github.com/NatronGitHub/openfx-misc",
+      "license": "GPL-2.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter",
+        "generator",
+        "transition"
+      ],
+      "contexts": [
+        "filter",
+        "generator",
+        "transition"
+      ],
+      "tags": [
+        "compositing",
+        "natron",
+        "gpl"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/NatronGitHub/openfx-misc/releases",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "nikita-petrovich/ofx-qrcoder",
+      "name": "QRcoder",
+      "vendor": "Nikita Petrovich",
+      "version": "1.0.0",
+      "description": "QR code generator with adjustable border and foreground / background colours.",
+      "homepage": "https://github.com/nikita-petrovich/OFX-QRCoder",
+      "source": "https://github.com/nikita-petrovich/OFX-QRCoder",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "generator"
+      ],
+      "contexts": [
+        "generator"
+      ],
+      "tags": [
+        "qr",
+        "generator",
+        "graphics",
+        "overlay"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/nikita-petrovich/OFX-QRCoder/releases/download/v1.0/NP_QRcoder-v1.0.MacOS-only.zip",
+          "sha256": "1d8d05df64187c81ca3572c7eb396afd86a8cbc2997be4fc936651097fc0287f",
+          "size": 321172,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "arm64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "loilo/smooth-ofx",
+      "name": "Smooth",
+      "vendor": "LOILO",
+      "version": "1.6.0",
+      "description": "Pixel-boundary smoothing filter that cleans up stair-step patterns; CPU implementation with 8/16/32-bit support.",
+      "homepage": "https://github.com/hiroshisaito/smooth-ofx",
+      "source": "https://github.com/hiroshisaito/smooth-ofx",
+      "license": "Apache-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "smooth",
+        "anti-alias",
+        "apache"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/hiroshisaito/smooth-ofx",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "arch": [
+            "arm64",
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    }
+  ]
+}

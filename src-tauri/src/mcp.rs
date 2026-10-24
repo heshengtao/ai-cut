@@ -330,7 +330,7 @@ async fn handle_mcp(
                 .unwrap_or("2025-06-18"),
             "capabilities": { "tools": {} },
             "serverInfo": { "name": "aicut", "version": env!("CARGO_PKG_VERSION") },
-            "instructions": "AI Cut 的剪辑工具面：读写时间线、字幕/标记、调色/蒙版/转场/关键帧、调用本地 AI 与导出。读取是渐进的：get_project 只给概览，按关注点再用 get_context / get_track / find_clips / get_clip / get_assets / get_markers。看素材内容先调用 probe_media，一次拿元数据、运动采样/候选切点、可选目标框与语音转写，不要逐帧 render_frame 看图。工程生命周期 new_project / open_project / save_project 直接读写工程 JSON，不会弹保存/打开对话框，不要做 UI 自动化。写操作进入撤销历史；单条用 apply_command，多条用 apply_commands。合成原语用 set_clip_color / set_clip_mask / set_clip_transition / set_clip_keyframes；看画面用 render_frame / render_storyboard；长任务用 job_start 再用 job_status 轮询。export_video 的 outputPath 可省略，省略时自动写到工程目录/下载目录并返回最终路径。"
+            "instructions": "AI Cut 的剪辑工具面：读写时间线、字幕/标记、调色/转场/关键帧、调用本地 AI 与导出。读取是渐进的：get_project 只给概览，按关注点再用 get_context / get_track / find_clips / get_clip / get_assets / get_markers。看素材内容先调用 probe_media，一次拿元数据、运动采样/候选切点、可选目标框与语音转写，不要逐帧 render_frame 看图。工程生命周期 new_project / open_project / save_project 直接读写工程 JSON，不会弹保存/打开对话框，不要做 UI 自动化。写操作进入撤销历史；单条用 apply_command，多条用 apply_commands。合成原语用 set_clip_color / set_clip_transition / set_clip_keyframes；看画面用 render_frame / render_storyboard；整片结构用 import_film_manifest，单场重渲用 render_range（先 render_status 找脏段），版本对比用 compare_takes，20 格总览用 render_contact_sheet；审片意见用 add_review_note / list_review_notes，改完用 update_review_note 标 resolved。长任务用 job_start 再用 job_status 轮询。export_video 的 outputPath 可省略，省略时自动写到工程目录/下载目录并返回最终路径。"
         })),
         "ping" => Ok(json!({})),
         // MCP 规范要求参数 schema 放在 `inputSchema`；`ToolDef` 的内部字段名是

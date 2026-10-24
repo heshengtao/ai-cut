@@ -33,9 +33,12 @@ import { toast } from "@/composables/useToast";
 import { formatTimecode } from "@/core/time";
 import { containSize } from "@/core/transform";
 import { clipColorCss } from "@/core/clipColor";
-import { clipMaskCss } from "@/core/clipMask";
 import { transitionState } from "@/core/clipTransition";
-import { opacityAt, resolveTransformAt } from "@/core/keyframes";
+import {
+  opacityAt,
+  resolveTransformAt,
+  upsertKeyframe,
+} from "@/core/keyframes";
 import {
   fontStackOf,
   hexToRgba,
@@ -48,9 +51,13 @@ import {
   TEXT_BACKGROUND_PADDING_Y,
   TEXT_BACKGROUND_RADIUS,
 } from "@/core/clipStyle";
-import { setClipTransform } from "@/core/ops";
+import { setClipKeyframes, setClipTransform } from "@/core/ops";
+import { clipEffectSpecs, clipHasEffects } from "@/core/effects";
+import { ofxRenderPreview } from "@/core/ofxApi";
+import { isTauri } from "@/utils/platform";
 import { usePlaybackStore } from "@/stores/playback";
 import { useProjectStore } from "@/stores/project";
+import { useEffectRenderStore } from "@/stores/effectRender";
 import {
   useLayoutStore,
   type PreviewAspect,
@@ -64,6 +71,7 @@ import { useI18n } from "@/i18n";
 
 const project = useProjectStore();
 const playback = usePlaybackStore();
+const effectRender = useEffectRenderStore();
 const selection = useSelectionStore();
 const layout = useLayoutStore();
 const i18n = useI18n();
@@ -223,6 +231,7 @@ onMounted(() => {
     engine = new PlaybackEngine({
       container: mediaLayer.value,
       getDoc: () => project.doc,
+      getEffectSource: (clipId) => effectRender.sourceFor(clipId),
       onTime: (seconds) => {
         engineDrivenTime = seconds;
         playback.setPlayhead(seconds);
@@ -260,7 +269,20 @@ onBeforeUnmount(() => {
   resizeObserver = null;
   engine?.dispose();
   engine = null;
+  if (effectTimer !== null) {
+    window.clearTimeout(effectTimer);
+    effectTimer = null;
+  }
+  effectPreview.value = {};
 });
+
+watch(
+  () => effectRender.revision,
+  () => {
+    // 预渲染完成：让引擎重新比较画面签名并换成烘焙文件。
+    engine?.sync();
+  },
+);
 
 watch(
   () => playback.playing,
@@ -533,6 +555,160 @@ const textItems = computed(() =>
   visualItems.value.filter((item) => item.kind === "text"),
 );
 
+// ---------------------------------------------------------------------------
+// OFX 效果预览（暂停时渲染当前帧，播放时隐藏）
+// ---------------------------------------------------------------------------
+
+interface EffectPreview {
+  url: string;
+  time: number;
+}
+
+const effectPreview = ref<Record<string, EffectPreview>>({});
+let effectToken = 0;
+let effectTimer: number | null = null;
+let effectRendering = false;
+let effectQueued = false;
+
+/**
+ * 暂停时的单帧预览：视频用当前帧（整段烘焙可能还没跑完），图片用静态帧。
+ * 播放时由引擎直接播已烘焙的文件，这里的叠加层会隐藏。
+ */
+const effectItems = computed(() =>
+  visualItems.value.filter((item) => {
+    if (!item.asset || !clipHasEffects(item.clip)) return false;
+    // 整段烘焙已就绪：引擎直接播烘焙文件，不用再逐帧渲染叠加层。
+    if (effectRender.sourceFor(item.clip.id)) return false;
+    if (item.kind === "video") return item === videoItem.value;
+    return item.kind === "image";
+  }),
+);
+
+/** 预渲染状态：进度显示在预览标题旁。 */
+const effectRenderLabel = computed(() => {
+  const progress = effectRender.progress;
+  if (progress) return i18n.t("effects.rendering", { pct: progress.pct });
+  if (effectRender.failed) return i18n.t("preview.fxFailed");
+  return null;
+});
+
+const effectSignature = computed(() =>
+  effectItems.value
+    .map(
+      (item) =>
+        `${item.clip.id}:${item.asset?.src ?? ""}:${item.clip.start}:` +
+        `${item.clip.duration}:${item.clip.in}:${item.clip.speed ?? 1}:` +
+        `${JSON.stringify(item.clip.effects ?? [])}`,
+    )
+    .join("|"),
+);
+
+function effectUrl(item: VisualItem): string | null {
+  const preview = effectPreview.value[item.clip.id];
+  if (!preview) return null;
+  if (Math.abs(preview.time - playback.playhead) > 1e-3) return null;
+  return preview.url;
+}
+
+async function renderEffectPreviews(): Promise<void> {
+  if (effectRendering) {
+    effectQueued = true;
+    return;
+  }
+  if (!isTauri() || playback.playing) {
+    effectPreview.value = {};
+    return;
+  }
+  const items = effectItems.value;
+  if (items.length === 0) {
+    effectPreview.value = {};
+    return;
+  }
+  effectRendering = true;
+  try {
+    const token = ++effectToken;
+    const width = project.doc.width;
+    const height = project.doc.height;
+    const next: Record<string, EffectPreview> = {};
+    for (const item of items) {
+      const asset = item.asset;
+      if (!asset) continue;
+      const local = Math.max(0, playback.playhead - item.clip.start);
+      const sourceTime =
+        item.kind === "image" ? 0 : (item.clip.in ?? 0) + local * (item.clip.speed ?? 1);
+      try {
+        const frame = await ofxRenderPreview({
+          source: asset.src,
+          sourceTime,
+          time: local,
+          width,
+          height,
+          isImage: item.kind === "image",
+          fit: "contain",
+          effects: clipEffectSpecs(item.clip),
+        });
+        if (token !== effectToken) break;
+        next[item.clip.id] = {
+          url: `data:image/png;base64,${frame.pngBase64}`,
+          time: playback.playhead,
+        };
+      } catch (error) {
+        // 预览失败不应该打断编辑；导出阶段会给出明确错误。
+        console.warn("OFX preview failed", error);
+      }
+    }
+    if (token === effectToken && !playback.playing) effectPreview.value = next;
+  } finally {
+    effectRendering = false;
+    if (effectQueued) {
+      effectQueued = false;
+      void renderEffectPreviews();
+    }
+  }
+}
+
+watch(
+  [
+    () => playback.playhead,
+    () => playback.playing,
+    () => effectSignature.value,
+    () => project.doc.width,
+    () => project.doc.height,
+  ],
+  () => {
+    if (effectTimer !== null) {
+      window.clearTimeout(effectTimer);
+      effectTimer = null;
+    }
+    if (playback.playing || effectItems.value.length === 0) {
+      effectPreview.value = {};
+      return;
+    }
+    effectTimer = window.setTimeout(() => {
+      effectTimer = null;
+      void renderEffectPreviews();
+    }, 160);
+  },
+  { immediate: true },
+);
+
+function effectOverlayStyle(item: VisualItem): Record<string, string | number> {
+  const localTime = playback.playhead - item.clip.start;
+  const transform = transformAt(item.clip);
+  const transition = transitionState(item.clip, localTime);
+  const offsetX = ((transform.x + transition.offsetX) / 100) * stageSize.value.width;
+  const offsetY = ((transform.y + transition.offsetY) / 100) * stageSize.value.height;
+  return {
+    transform:
+      `translate(${offsetX}px, ${offsetY}px) ` +
+      `rotate(${transform.rotation}deg) scale(${transform.scale})`,
+    opacity: opacityAt(item.clip, localTime) * transition.opacity,
+    zIndex: item.layer,
+    mixBlendMode: resolveBlendMode(item.clip),
+    filter: clipColorCss(item.clip) ?? "none",
+  };
+}
+
 function findClipById(id: string): Clip | null {
   for (const track of project.doc.tracks) {
     const clip = track.clips.find((candidate) => candidate.id === id);
@@ -651,7 +827,6 @@ function elementStyle(item: VisualItem): Record<string, string | number> {
     zIndex: item.layer,
     mixBlendMode: resolveBlendMode(item.clip),
     filter: clipColorCss(item.clip) ?? "none",
-    ...clipMaskCss(item.clip),
   };
 }
 
@@ -764,7 +939,6 @@ const videoLayerStyle = computed<Record<string, string | number>>(() => {
       `rotate(${transform.rotation}deg) scale(${transform.scale})`,
     mixBlendMode: resolveBlendMode(item.clip),
     filter: clipColorCss(item.clip) ?? "none",
-    ...clipMaskCss(item.clip),
     ...mediaEffectStyle(item),
   };
   return style;
@@ -968,7 +1142,19 @@ function applyClipTransform(
   patch: Partial<ClipTransform>,
   coalesce: boolean,
 ): void {
-  const mutate = (doc: Project) => setClipTransform(doc, clipId, patch);
+  const mutate = (doc: Project) => {
+    for (const track of doc.tracks) {
+      const clip = track.clips.find((candidate) => candidate.id === clipId);
+      if (!clip) return doc;
+      if (!clip.keyframes?.length) return setClipTransform(doc, clipId, patch);
+      const time = Math.max(
+        0,
+        Math.min(clip.duration, playback.playhead - clip.start),
+      );
+      return setClipKeyframes(doc, clipId, upsertKeyframe(clip, time, patch));
+    }
+    return doc;
+  };
   if (coalesce) project.dispatchCoalesced(mutate, `transform:${clipId}`);
   else project.dispatch(mutate);
 }
@@ -1282,6 +1468,9 @@ watch(
             })
           }}
         </span>
+        <span v-if="effectRenderLabel" class="fx-chip">
+          {{ effectRenderLabel }}
+        </span>
       </div>
     </header>
 
@@ -1328,6 +1517,17 @@ watch(
             :style="videoHitStyle ?? undefined"
             @pointerdown="onElementPointerDown(videoItem, $event)"
           />
+
+          <template v-for="item in effectItems" :key="`fx-${item.clip.id}`">
+            <img
+              v-if="!playback.playing && effectUrl(item)"
+              class="effect-overlay"
+              :src="effectUrl(item) ?? ''"
+              :style="effectOverlayStyle(item)"
+              alt=""
+              draggable="false"
+            />
+          </template>
 
           <div v-if="projectIsEmpty" class="black-frame">
             <span>{{ i18n.t("preview.importHint") }}</span>
@@ -1544,6 +1744,15 @@ watch(
   font-weight: 500;
   white-space: nowrap;
 }
+.fx-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: rgb(var(--md-primary) / 0.14);
+  color: rgb(var(--md-primary));
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
 
 /* ---- 画布视口：缩放 / 平移都发生在这里 ---- */
 .stage-viewport {
@@ -1639,6 +1848,19 @@ watch(
   user-select: none;
   will-change: transform;
 }
+.effect-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: center;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  will-change: transform;
+}
+
 .video-hit {
   position: absolute;
   left: 50%;

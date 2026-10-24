@@ -49,8 +49,9 @@ withDefaults(
   line-height: 1.2;
   letter-spacing: 0.2px;
   white-space: nowrap;
-  color: rgb(var(--md-surface));
-  background-color: rgb(var(--md-on-surface));
+  color: rgb(var(--md-on-surface));
+  background-color: rgb(var(--md-surface));
+  border: 1px solid rgb(var(--md-outline-variant) / 0.45);
   box-shadow: var(--md-elevation-2);
   opacity: 0;
   pointer-events: none;

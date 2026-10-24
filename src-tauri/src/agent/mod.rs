@@ -663,7 +663,7 @@ fn system_prompt() -> String {
 所有写操作都会进入撤销历史，界面会实时更新。写命令的 baseRevision 可以用 get_project 返回的值，也可以用上一条命令或 AI 工具返回的 revision。\
 读取要渐进：get_project 只给概览（规格、轨道摘要、素材数量）。按关注点再取：get_context 看播放头与选中片段，get_track 分页读某轨，find_clips 按时间/素材/文字检索，get_clip 读单片段，get_assets 读素材。不要要求整份工程。\
 批量修改用 apply_commands：一次 revision、一个撤销步、失败整批回滚。追加片段用 append_clip，波纹删除用 ripple_delete，复制用 duplicate_clips。分离视频音轨用 extract_audio，不要手工拼 track.add + clip.add。\
-字幕文件用 import_subtitles / export_subtitles；标记用 get_markers / add_marker / update_marker / remove_marker，不要把标记当片段。合成原语用 set_clip_color / set_clip_mask / set_clip_transition / set_clip_keyframes；转场是片段入/出动画，不支持重叠式交叉淡化。需要看画面时用 render_frame 或 render_storyboard 导出 PNG 自检。\
+字幕文件用 import_subtitles / export_subtitles；标记用 get_markers / add_marker / update_marker / remove_marker，不要把标记当片段。合成原语用 set_clip_color / set_clip_transition / set_clip_keyframes；转场是片段入/出动画，不支持重叠式交叉淡化。需要看画面时用 render_frame 或 render_storyboard 导出 PNG 自检。\
 AI 工具默认同步：调用后会等到任务结束；缺模型时先用 list_ai_models 查看、download_model 下载。长任务可用 job_start 立即拿 jobId，再用 job_status 轮询、job_cancel 取消。\
 一次只做一件清晰的事。需要细则时调用 aicut_help 取对应能力域文档。\n\n--- 技能索引 ---\n{index}"
     )

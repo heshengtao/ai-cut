@@ -3,11 +3,11 @@ import type {
   BlendMode,
   Clip,
   ClipKeyframes,
-  ClipMask,
   ClipShadow,
   ClipStroke,
   ClipTextStyle,
   ClipTransform,
+  ClipEffect,
   ClipTransition,
   Project,
 } from "@/types/project";
@@ -17,9 +17,9 @@ import {
   setClipCornerRadius,
   setClipFadeIn,
   setClipFadeOut,
+  setClipEffects,
   setClipGain,
   setClipKeyframes,
-  setClipMask,
   setClipMuted,
   setClipOpacity,
   setClipPan,
@@ -40,9 +40,11 @@ import {
   resolveTextStyle,
 } from "@/core/clipStyle";
 import { resolveTransform } from "@/core/transform";
-import { KEYFRAME_PROPERTIES } from "@/core/keyframes";
+import { cloneClipEffects } from "@/core/effects";
 
 export interface ClipAttributes {
+  /** 粘贴时会保留原 id（同一片段内不重复即可）。 */
+  effects: ClipEffect[];
   opacity: number;
   transform: ClipTransform;
   blendMode: BlendMode;
@@ -50,8 +52,6 @@ export interface ClipAttributes {
   shadow: ClipShadow;
   cornerRadius: number;
   color: ResolvedClipColor;
-  /** null：没有蒙版。 */
-  mask: ClipMask | null;
   /** null：没有入 / 出转场。 */
   transitionIn: ClipTransition | null;
   transitionOut: ClipTransition | null;
@@ -67,22 +67,13 @@ export interface ClipAttributes {
 }
 
 function copyKeyframes(clip: Clip): ClipKeyframes | null {
-  const frames = clip.keyframes;
-  if (!frames) return null;
-  return {
-    ...(frames.opacity ? { opacity: frames.opacity.map((frame) => ({ ...frame })) } : {}),
-    ...(frames.x ? { x: frames.x.map((frame) => ({ ...frame })) } : {}),
-    ...(frames.y ? { y: frames.y.map((frame) => ({ ...frame })) } : {}),
-    ...(frames.scale ? { scale: frames.scale.map((frame) => ({ ...frame })) } : {}),
-    ...(frames.rotation
-      ? { rotation: frames.rotation.map((frame) => ({ ...frame })) }
-      : {}),
-  };
+  return clip.keyframes ? clip.keyframes.map((frame) => ({ ...frame })) : null;
 }
 
 /** 取片段的实际外观参数（缺省值也会被解析出来），保证粘贴后与源片段一致。 */
 export function copyClipAttributes(clip: Clip): ClipAttributes {
   return {
+    effects: cloneClipEffects(clip.effects),
     opacity: clip.opacity ?? 1,
     transform: resolveTransform(clip),
     blendMode: resolveBlendMode(clip),
@@ -90,7 +81,6 @@ export function copyClipAttributes(clip: Clip): ClipAttributes {
     shadow: resolveShadow(clip),
     cornerRadius: resolveCornerRadius(clip),
     color: resolveClipColor(clip),
-    mask: clip.mask ? { ...clip.mask } : null,
     transitionIn: clip.transitionIn ? { ...clip.transitionIn } : null,
     transitionOut: clip.transitionOut ? { ...clip.transitionOut } : null,
     keyframes: copyKeyframes(clip),
@@ -104,13 +94,14 @@ export function copyClipAttributes(clip: Clip): ClipAttributes {
   };
 }
 
-/** 把一份属性写到片段上；`null` 表示清除蒙版 / 转场 / 关键帧。 */
+/** 把一份属性写到片段上；`null` 表示清除转场 / 关键帧。 */
 export function applyClipAttributes(
   doc: Project,
   clipId: string,
   attrs: ClipAttributes,
 ): Project {
   let next = doc;
+  next = setClipEffects(next, clipId, cloneClipEffects(attrs.effects));
   next = setClipOpacity(next, clipId, attrs.opacity);
   next = setClipTransform(next, clipId, attrs.transform);
   next = setClipBlendMode(next, clipId, attrs.blendMode);
@@ -118,12 +109,9 @@ export function applyClipAttributes(
   next = setClipShadow(next, clipId, attrs.shadow);
   next = setClipCornerRadius(next, clipId, attrs.cornerRadius);
   next = setClipColor(next, clipId, attrs.color);
-  next = setClipMask(next, clipId, attrs.mask);
   next = setClipTransition(next, clipId, "in", attrs.transitionIn);
   next = setClipTransition(next, clipId, "out", attrs.transitionOut);
-  for (const property of KEYFRAME_PROPERTIES) {
-    next = setClipKeyframes(next, clipId, property, attrs.keyframes?.[property] ?? null);
-  }
+  next = setClipKeyframes(next, clipId, attrs.keyframes);
   next = setClipTextStyle(next, clipId, attrs.textStyle);
   next = setClipGain(next, clipId, attrs.gain);
   next = setClipFadeIn(next, clipId, attrs.fadeIn);
@@ -135,6 +123,7 @@ export function applyClipAttributes(
 }
 
 const RESET_PATCH: Partial<Clip> = {
+  effects: undefined,
   opacity: undefined,
   transform: undefined,
   blendMode: undefined,
@@ -142,7 +131,6 @@ const RESET_PATCH: Partial<Clip> = {
   shadow: undefined,
   cornerRadius: undefined,
   color: undefined,
-  mask: undefined,
   transitionIn: undefined,
   transitionOut: undefined,
   keyframes: undefined,

@@ -27,6 +27,36 @@ pub struct MediaMeta {
     pub audio_codec: Option<String>,
 }
 
+/// 文件戳：增量渲染用它判断素材是否被重新生成。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileStamp {
+    pub exists: bool,
+    pub size: u64,
+    pub mtime_ms: i64,
+}
+
+#[tauri::command]
+pub fn file_stamp(path: String) -> FileStamp {
+    match std::fs::metadata(&path) {
+        Ok(meta) => FileStamp {
+            exists: true,
+            size: meta.len(),
+            mtime_ms: meta
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_millis() as i64)
+                .unwrap_or(0),
+        },
+        Err(_) => FileStamp {
+            exists: false,
+            size: 0,
+            mtime_ms: 0,
+        },
+    }
+}
+
 /// 解析 ffprobe 的 `r_frame_rate`（形如 `30/1`）。
 fn parse_frame_rate(raw: &str) -> Option<f64> {
     let (num, den) = raw.split_once('/').unwrap_or((raw, "1"));
@@ -396,7 +426,9 @@ fn compute_peaks(pcm: &[u8], buckets: usize) -> Vec<u8> {
     let mut peaks = Vec::with_capacity(buckets);
     for i in 0..buckets {
         let start = i * samples.len() / buckets;
-        let end = (((i + 1) * samples.len()) / buckets).max(start + 1).min(samples.len());
+        let end = (((i + 1) * samples.len()) / buckets)
+            .max(start + 1)
+            .min(samples.len());
         let peak = samples[start..end]
             .iter()
             .map(|s| s.unsigned_abs() as u32)

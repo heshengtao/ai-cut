@@ -35,13 +35,14 @@ export const useUpdaterStore = defineStore("updater", () => {
   /** 下载进度 0..1（总长未知时为 0）。 */
   const progress = computed(() => (total.value > 0 ? downloaded.value / total.value : 0));
 
-  /** 读一次当前版本号（设置页加载时调用）。 */
-  async function loadVersion(): Promise<void> {
+  /** 读一次当前版本号，并返回结果（设置页与启动检测共用）。 */
+  async function loadVersion(): Promise<string> {
     try {
       version.value = await currentVersion();
     } catch {
       version.value = "";
     }
+    return version.value;
   }
 
   /**

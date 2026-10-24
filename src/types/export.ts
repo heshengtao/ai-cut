@@ -56,6 +56,11 @@ export interface ExportOptions {
   gifDither: GifDither;
   /** GIF 循环次数：0 = 无限，-1 = 不循环。 */
   gifLoop: number;
+  /**
+   * 是否编译音频链。缺省 true；静帧 / 故事板设为 false——
+   * 单帧输出只 map 视频，未连接的 `anullsrc`/`anull` 会让 ffmpeg 直接报错。
+   */
+  audio?: boolean;
 }
 
 export interface ExportPlan {

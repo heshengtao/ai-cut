@@ -212,12 +212,7 @@ macro_rules! moss_file {
                 official(
                     "hf",
                     "intl",
-                    concat!(
-                        "https://huggingface.co/",
-                        $hf,
-                        "/resolve/main/",
-                        $file
-                    ),
+                    concat!("https://huggingface.co/", $hf, "/resolve/main/", $file),
                 ),
             ],
         }
@@ -247,12 +242,7 @@ macro_rules! moss_file_sized {
                 sized(
                     "hf",
                     "intl",
-                    concat!(
-                        "https://huggingface.co/",
-                        $hf,
-                        "/resolve/main/",
-                        $file
-                    ),
+                    concat!("https://huggingface.co/", $hf, "/resolve/main/", $file),
                     $hf_size,
                 ),
             ],
@@ -1227,7 +1217,12 @@ pub fn installed_dir(app: &AppHandle, entry: &ModelEntry) -> Option<PathBuf> {
     search_dirs(app)
         .into_iter()
         .map(|base| base.join(entry.id))
-        .find(|dir| entry.files.iter().all(|file| dir.join(file.filename).is_file()))
+        .find(|dir| {
+            entry
+                .files
+                .iter()
+                .all(|file| dir.join(file.filename).is_file())
+        })
 }
 
 /// 已安装目录，未安装时报错。
@@ -1322,7 +1317,14 @@ pub async fn model_download(app: AppHandle, id: String) -> Result<(), String> {
 
     runtime().running.store(false, Ordering::SeqCst);
     match &result {
-        Ok(()) => emit(&app, entry, "done", entry.total_bytes(), entry.total_bytes(), None),
+        Ok(()) => emit(
+            &app,
+            entry,
+            "done",
+            entry.total_bytes(),
+            entry.total_bytes(),
+            None,
+        ),
         Err(error) => emit(
             &app,
             entry,
@@ -1693,8 +1695,7 @@ where
                 Err(error) => {
                     let cancelled = error == "已取消";
                     // 内容对不上说明这个源/断点不可用，换下一个源；传输错误则重试同一源。
-                    let content_error =
-                        error.contains("sha256") || error.contains("大小不符");
+                    let content_error = error.contains("sha256") || error.contains("大小不符");
                     if !errors.iter().any(|line| line.starts_with(&candidate.url)) {
                         errors.push(format!("{} → {}", candidate.url, error));
                     }
@@ -1706,8 +1707,7 @@ where
                         break;
                     }
                     if attempt < DOWNLOAD_ATTEMPTS {
-                        tokio::time::sleep(Duration::from_millis(600 * u64::from(attempt)))
-                            .await;
+                        tokio::time::sleep(Duration::from_millis(600 * u64::from(attempt))).await;
                     }
                 }
             }
@@ -1732,9 +1732,7 @@ async fn download_once<F>(
 where
     F: FnMut(u64, &Candidate),
 {
-    let mut existing = fs::metadata(part_path)
-        .map(|meta| meta.len())
-        .unwrap_or(0);
+    let mut existing = fs::metadata(part_path).map(|meta| meta.len()).unwrap_or(0);
     if candidate.size > 0 && existing > candidate.size {
         let _ = fs::remove_file(part_path);
         existing = 0;
@@ -1748,7 +1746,9 @@ where
         existing = 0;
     }
 
-    let mut request = client.get(&candidate.url).timeout(Duration::from_secs(60 * 60));
+    let mut request = client
+        .get(&candidate.url)
+        .timeout(Duration::from_secs(60 * 60));
     if existing > 0 {
         request = request.header(reqwest::header::RANGE, format!("bytes={existing}-"));
     }
@@ -1871,7 +1871,9 @@ fn emit(
     total: u64,
     message: Option<String>,
 ) {
-    emit_source(app, entry, state, received, total, message, None, None, None);
+    emit_source(
+        app, entry, state, received, total, message, None, None, None,
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1993,7 +1995,13 @@ mod tests {
                 );
                 for source in file.sources {
                     if let Some(sha) = source.sha256 {
-                        assert_eq!(sha.len(), 64, "{} / {} 源 sha256 不合法", entry.id, file.filename);
+                        assert_eq!(
+                            sha.len(),
+                            64,
+                            "{} / {} 源 sha256 不合法",
+                            entry.id,
+                            file.filename
+                        );
                     }
                 }
             }
@@ -2048,7 +2056,9 @@ mod tests {
             Some("cn"),
         );
         assert!(cn[0].url.contains("modelscope.cn"));
-        assert!(cn.iter().any(|candidate| candidate.url.contains("huggingface.co")));
+        assert!(cn
+            .iter()
+            .any(|candidate| candidate.url.contains("huggingface.co")));
 
         let intl = candidates_for(
             file,
@@ -2056,7 +2066,9 @@ mod tests {
             Some("intl"),
         );
         assert!(intl[0].url.contains("huggingface.co"));
-        assert!(intl.iter().any(|candidate| candidate.url.contains("modelscope.cn")));
+        assert!(intl
+            .iter()
+            .any(|candidate| candidate.url.contains("modelscope.cn")));
     }
 
     #[test]
@@ -2092,10 +2104,15 @@ mod tests {
         let file = file_of(entry);
         let candidates = candidates_for(
             file,
-            &network_with(&["https://mirror.example/?u={url}"], ModelSourcePreference::Auto),
+            &network_with(
+                &["https://mirror.example/?u={url}"],
+                ModelSourcePreference::Auto,
+            ),
             Some("cn"),
         );
-        assert!(candidates[0].url.starts_with("https://mirror.example/?u=http"));
+        assert!(candidates[0]
+            .url
+            .starts_with("https://mirror.example/?u=http"));
         let mut seen = std::collections::HashSet::new();
         for candidate in candidates {
             assert!(seen.insert(candidate.url.clone()), "候选地址重复");

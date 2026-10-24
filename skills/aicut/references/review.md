@@ -104,15 +104,30 @@
 
 **不要接受「感觉不对」这种反馈。** 追问：哪个时间点、哪个元素、期望是什么。
 
-## 5. 意见处理
+## 5. 意见处理（工具优先）
 
-1. 把意见写进 `review-<date>.md`，不要只留在聊天里。
-2. 按 P0 → P1 → P2 排序；P0 未清零不导出。
-3. 每条意见对应一条或多条命令；同一条意见的修改可以用 `apply_commands` 合成一个撤销步。
-4. 修完只回读受影响的片段（`get_track` / `get_clip`）验证；关键帧、调色、蒙版、转场用 `render_frame` 或 `render_storyboard` 导出 PNG 自检，再请人复核。
-5. 如果意见冲突（A 要快、B 要慢），回到 brief 的成功标准裁决。
+有 `film.json` 或 AI Cut 工程时，意见直接进时间线，不要只留在聊天里：
 
-**不要把不同意见混进同一批**：审片后的修改要能按意见回退。
+1. 人看片 → 在 marker 上双击写备注，或 agent 调
+   `add_review_note({time, sceneId, severity, text, bbox?, screenshot?})`。
+2. `list_review_notes({resolved:false})` 拿到结构化任务；按 `blocker → high → medium → low` 排序。
+3. 每条意见对应一条或多条命令；同一条意见的修改用 `apply_commands` 合成一个撤销步。
+4. **只重渲受影响的场景**：`render_status({ranges:[该场]})` → `render_range({start,end})`。
+5. 用 `compare_takes({a:旧版,b:新版})` 看 SSIM 与并排帧；关键帧、调色、转场也可用 `render_frame` 单帧复核。
+6. 改完 → `update_review_note({markerId, resolved:true})`。
+7. 写回共享清单：`export_film_manifest({path})`（保留 AI DAW 的 `music`）。
+
+严重程度映射：
+
+| 反馈优先级 | `severity` | 处理 |
+| --- | --- | --- |
+| P0 | `blocker` | 未清零不导出 |
+| P1 | `high` | 必须修 |
+| P2 | `medium` / `low` | 有余力再修 |
+
+`review-<date>.md` 仍然可以作为交付物和离线兜底，但它不再是唯一真相；工程里的 review notes 才是 agent 能读的任务队列。
+
+如果意见冲突（A 要快、B 要慢），回到 brief 的成功标准裁决。**不要把不同意见混进同一批**：审片后的修改要能按意见回退。
 
 ## 6. 导出规格
 

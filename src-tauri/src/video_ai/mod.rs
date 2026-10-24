@@ -103,8 +103,8 @@ fn emit(app: &AppHandle, state: &str, progress: f32, message: Option<String>) {
 }
 
 pub(crate) fn build_session(path: &Path, label: &str) -> Result<ort::session::Session, String> {
-    let builder = ort::session::Session::builder()
-        .map_err(|e| format!("初始化 ONNX Runtime 失败：{e}"))?;
+    let builder =
+        ort::session::Session::builder().map_err(|e| format!("初始化 ONNX Runtime 失败：{e}"))?;
     backend::commit(
         backend::apply(builder),
         || ort::session::Session::builder().map_err(|e| format!("初始化 ONNX Runtime 失败：{e}")),
@@ -271,10 +271,7 @@ impl Decoder {
         scale: Option<(usize, usize)>,
     ) -> Result<Self, String> {
         let filter = match scale {
-            Some((width, height)) => format!(
-                "fps={},scale={width}:{height}",
-                fps_text(fps)
-            ),
+            Some((width, height)) => format!("fps={},scale={width}:{height}", fps_text(fps)),
             None => format!("fps={}", fps_text(fps)),
         };
         let args = vec![
@@ -575,8 +572,15 @@ pub async fn video_ai_upscale(
     let output_for_task = output.clone();
     let app_for_task = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let mut decoder =
-            Decoder::spawn(&path, start, duration, source_fps, info.width, info.height, None)?;
+        let mut decoder = Decoder::spawn(
+            &path,
+            start,
+            duration,
+            source_fps,
+            info.width,
+            info.height,
+            None,
+        )?;
         let mut encoder = Encoder::spawn(
             &output_for_task,
             &path,
@@ -681,8 +685,15 @@ pub async fn video_ai_interpolate(
     let output_for_task = output.clone();
     let app_for_task = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let mut decoder =
-            Decoder::spawn(&path, start, duration, source_fps, info.width, info.height, None)?;
+        let mut decoder = Decoder::spawn(
+            &path,
+            start,
+            duration,
+            source_fps,
+            info.width,
+            info.height,
+            None,
+        )?;
         let mut encoder = Encoder::spawn(
             &output_for_task,
             &path,
@@ -920,8 +931,15 @@ pub async fn video_ai_reframe(
     let output_for_task = output.clone();
     let app_for_task = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let mut decoder =
-            Decoder::spawn(&path, start, duration, source_fps, info.width, info.height, None)?;
+        let mut decoder = Decoder::spawn(
+            &path,
+            start,
+            duration,
+            source_fps,
+            info.width,
+            info.height,
+            None,
+        )?;
         let mut encoder = Encoder::spawn(
             &output_for_task,
             &path,
@@ -1062,7 +1080,12 @@ fn motion_score(previous: &Frame, current: &Frame) -> f32 {
     (sum / (total as f64 * 255.0)).clamp(0.0, 1.0) as f32
 }
 
-fn normalized_object(detection: Detection, kind: &str, width: usize, height: usize) -> AnalysisObject {
+fn normalized_object(
+    detection: Detection,
+    kind: &str,
+    width: usize,
+    height: usize,
+) -> AnalysisObject {
     let width = width.max(1) as f32;
     let height = height.max(1) as f32;
     AnalysisObject {
@@ -1138,8 +1161,8 @@ pub async fn video_ai_samples(
     let fps = 1.0 / interval;
 
     begin_task()?;
-    let result = tauri::async_runtime::spawn_blocking(
-        move || -> Result<Vec<AnalysisSample>, String> {
+    let result =
+        tauri::async_runtime::spawn_blocking(move || -> Result<Vec<AnalysisSample>, String> {
             let mut decoder = Decoder::spawn(
                 &path,
                 0.0,
@@ -1193,9 +1216,8 @@ pub async fn video_ai_samples(
             decoder.finish()?;
             samples.truncate(max_samples);
             Ok(samples)
-        },
-    )
-    .await;
+        })
+        .await;
     end_task();
 
     match result {
@@ -1427,7 +1449,8 @@ mod tests {
         }
         let input_text = input.to_string_lossy().into_owned();
 
-        let mut decoder = Decoder::spawn(&input_text, 0.0, 0.4, 30.0, 64, 64, None).expect("解码器");
+        let mut decoder =
+            Decoder::spawn(&input_text, 0.0, 0.4, 30.0, 64, 64, None).expect("解码器");
         let mut encoder =
             Encoder::spawn(&output, &input_text, 0.0, 0.4, 64, 64, 60.0, true).expect("编码器");
         let mut session = rife::load(&model).expect("加载 RIFE");
@@ -1474,7 +1497,8 @@ mod tests {
         }
         let input_text = input.to_string_lossy().into_owned();
 
-        let mut decoder = Decoder::spawn(&input_text, 0.0, 0.2, 30.0, 32, 32, None).expect("解码器");
+        let mut decoder =
+            Decoder::spawn(&input_text, 0.0, 0.2, 30.0, 32, 32, None).expect("解码器");
         let mut encoder =
             Encoder::spawn(&output, &input_text, 0.0, 0.2, 128, 128, 30.0, true).expect("编码器");
         let mut session = esrgan::load(&model).expect("加载 Real-ESRGAN");

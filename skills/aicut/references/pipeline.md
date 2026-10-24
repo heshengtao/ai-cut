@@ -201,6 +201,27 @@ aicut call get_project       # 拿 revision / 轨道摘要 / 素材数量（不�
 
 批量导入时每导一条就记下 id，不要等最后靠名字猜。
 
+### 7.2b 有 film.json / timeline.json 时
+
+代码渲染的工程通常已经有一份清单。不要手写 `sheet.mjs` 算时间，一次调用：
+
+```json
+{"path":"/abs/path/film.json","mode":"replace","trackName":"Scenes","conform":true}
+```
+
+`conform:true` 会把工程 fps/宽高改成 manifest 的交付规格（同一个撤销步），避免 30fps 草稿
+和 60fps 成片各建一个工程。
+
+`import_film_manifest` 会：
+
+- 按 `take` 探测并导入素材；
+- 建场景轨与逐场 clip；
+- 按 21 个穿越点写 `kind:"hit"` marker；
+- 把 `scenes[].review` 写成结构化审片批注。
+
+重复导入幂等；`replace` 只删上次导入且本次已不存在的条目，不会碰人工 marker。
+清单格式见 `docs/film-manifest.md`。
+
 ### 7.3 建立轨道结构
 
 `index 0` 是最上层。建议从底层往上建，每加一层画面用 `index: 0`；音轨追加到底部即可（顺序不影响混音）。

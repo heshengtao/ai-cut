@@ -8,11 +8,12 @@ import type { Affected, Command, CommandKind } from "@/types/events";
 import type {
   Clip,
   ClipColor,
-  ClipMask,
   ClipTransition,
-  KeyframeProperty,
+  MarkerKind,
   MediaAsset,
   Project,
+  ReviewBBox,
+  ReviewSeverity,
   Track,
 } from "@/types/project";
 import {
@@ -32,7 +33,6 @@ import {
   rippleDeleteClips,
   setClipColor,
   setClipKeyframes,
-  setClipMask,
   setClipSpeed,
   setClipTransition,
   setProjectOutput,
@@ -43,8 +43,13 @@ import {
   updateClip,
   updateMarker,
 } from "@/core/ops";
+import type { MarkerPatch } from "@/core/ops";
 import { createClip } from "@/core/factory";
-import { KEYFRAME_PROPERTIES, KEYFRAME_RANGES } from "@/core/keyframes";
+import {
+  KEYFRAME_PROPERTIES,
+  KEYFRAME_RANGES,
+  type KeyframeInput,
+} from "@/core/keyframes";
 import { placeSubtitleCues } from "@/core/subtitleTrack";
 import { t } from "@/i18n";
 
@@ -82,6 +87,59 @@ function asStringArray(value: unknown, field: string): string[] {
     invalid(`${field} 必须是字符串数组`);
   }
   return value as string[];
+}
+
+const MARKER_KINDS: MarkerKind[] = ["scene", "hit", "review", "chapter"];
+const REVIEW_SEVERITIES: ReviewSeverity[] = ["blocker", "high", "medium", "low"];
+
+function optionalString(value: unknown, field: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") invalid(`${field} 必须是字符串`);
+  return value;
+}
+
+function optionalBoolean(value: unknown, field: string): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "boolean") invalid(`${field} 必须是布尔值`);
+  return value;
+}
+
+function optionalMarkerKind(value: unknown): MarkerKind | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!MARKER_KINDS.includes(value as MarkerKind)) {
+    invalid(`marker.kind 必须是 ${MARKER_KINDS.join(" / ")}`);
+  }
+  return value as MarkerKind;
+}
+
+function optionalSeverity(value: unknown): ReviewSeverity | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!REVIEW_SEVERITIES.includes(value as ReviewSeverity)) {
+    invalid(`severity 必须是 ${REVIEW_SEVERITIES.join(" / ")}`);
+  }
+  return value as ReviewSeverity;
+}
+
+/** `null` 表示显式清除；缺省表示不改。 */
+function optionalBBox(value: unknown): ReviewBBox | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const record = asRecord(value, "bbox");
+  const bbox = {
+    x: asNumber(record.x, "bbox.x"),
+    y: asNumber(record.y, "bbox.y"),
+    width: asNumber(record.width, "bbox.width"),
+    height: asNumber(record.height, "bbox.height"),
+  };
+  for (const [key, item] of Object.entries(bbox)) {
+    if (item < 0 || item > 1) invalid(`bbox.${key} 必须在 0 到 1 之间`);
+  }
+  return bbox;
+}
+
+function optionalTags(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  return asStringArray(value, "tags").map((tag) => tag.trim()).filter(Boolean);
 }
 
 function asAsset(value: unknown): MediaAsset {
@@ -449,64 +507,28 @@ export function applyCommandToDoc(doc: Project, command: Command): ApplyResult {
     }
     case "clip.keyframes": {
       const clipId = asString(payload.clipId, "clipId");
-      const propertyValue = asString(payload.property, "property");
-      if (!KEYFRAME_PROPERTIES.includes(propertyValue as KeyframeProperty)) {
-        invalid("property 必须是 opacity / x / y / scale / rotation");
-      }
-      const property = propertyValue as KeyframeProperty;
       if (payload.keyframes === null) {
-        next = setClipKeyframes(doc, clipId, property, null);
+        next = setClipKeyframes(doc, clipId, null);
         break;
       }
       if (!Array.isArray(payload.keyframes)) invalid("keyframes 必须是数组或 null");
-      const [min, max] = KEYFRAME_RANGES[property];
       const frames = payload.keyframes.map((frame, index) => {
         const record = asRecord(frame, `keyframes[${index}]`);
         const time = asNumber(record.time, `keyframes[${index}].time`);
-        const value = asNumber(record.value, `keyframes[${index}].value`);
         if (time < 0) invalid(`keyframes[${index}].time 不能为负`);
-        if (value < min || value > max) {
-          invalid(`keyframes[${index}].value 必须在 ${min} 到 ${max} 之间`);
+        const values: KeyframeInput = { time };
+        for (const property of KEYFRAME_PROPERTIES) {
+          if (record[property] === undefined) continue;
+          const value = asNumber(record[property], `keyframes[${index}].${property}`);
+          const [min, max] = KEYFRAME_RANGES[property];
+          if (value < min || value > max) {
+            invalid(`keyframes[${index}].${property} 必须在 ${min} 到 ${max} 之间`);
+          }
+          values[property] = value;
         }
-        return { time, value };
+        return values;
       });
-      next = setClipKeyframes(doc, clipId, property, frames);
-      break;
-    }
-    case "clip.mask": {
-      const clipId = asString(payload.clipId, "clipId");
-      if (payload.mask === null) {
-        next = setClipMask(doc, clipId, null);
-        break;
-      }
-      const mask = asRecord(payload.mask, "mask");
-      const clean: Partial<ClipMask> = {};
-      if (mask.shape !== undefined) {
-        const shape = asString(mask.shape, "shape");
-        if (shape !== "rect" && shape !== "ellipse" && shape !== "linear") {
-          invalid("shape 必须是 rect / ellipse / linear");
-        }
-        clean.shape = shape;
-      }
-      const numericKeys = ["x", "y", "width", "height", "feather", "angle"] as const;
-      const ranges: Record<(typeof numericKeys)[number], [number, number]> = {
-        x: [0, 1],
-        y: [0, 1],
-        width: [0.01, 1],
-        height: [0.01, 1],
-        feather: [0, 0.5],
-        angle: [0, 360],
-      };
-      for (const key of numericKeys) {
-        if (mask[key] === undefined) continue;
-        const value = asNumber(mask[key], key);
-        const [min, max] = ranges[key];
-        if (value < min || value > max) {
-          invalid(`${key} 必须在 ${min} 到 ${max} 之间`);
-        }
-        clean[key] = value;
-      }
-      next = setClipMask(doc, clipId, clean);
+      next = setClipKeyframes(doc, clipId, frames);
       break;
     }
     case "clip.duplicate": {
@@ -605,21 +627,53 @@ export function applyCommandToDoc(doc: Project, command: Command): ApplyResult {
         payload.name === undefined ? "" : asString(payload.name, "name").trim();
       const color =
         payload.color === undefined ? undefined : asString(payload.color, "color");
+      const id =
+        typeof payload.id === "string" && payload.id.length > 0
+          ? payload.id
+          : crypto.randomUUID();
+      const bbox = optionalBBox(payload.bbox);
+      const kind = optionalMarkerKind(payload.kind);
+      const severity = optionalSeverity(payload.severity);
+      const sceneId = optionalString(payload.sceneId, "sceneId")?.trim();
+      const note = optionalString(payload.note, "note")?.trim();
+      const screenshot = optionalString(payload.screenshot, "screenshot")?.trim();
+      const tags = optionalTags(payload.tags);
+      const resolved = optionalBoolean(payload.resolved, "resolved");
       next = addMarker(doc, {
-        id: crypto.randomUUID(),
+        id,
         time,
         name: name || t("marker.defaultName", { n: doc.markers.length + 1 }),
         ...(color ? { color } : {}),
+        ...(kind ? { kind } : {}),
+        ...(sceneId ? { sceneId } : {}),
+        ...(note ? { note } : {}),
+        ...(severity ? { severity } : {}),
+        ...(resolved === true ? { resolved: true } : {}),
+        ...(bbox ? { bbox } : {}),
+        ...(screenshot ? { screenshot } : {}),
+        ...(tags && tags.length > 0 ? { tags } : {}),
       });
       break;
     }
     case "marker.update": {
       const markerId = asString(payload.markerId, "markerId");
       const patch = asRecord(payload.patch, "patch");
-      const clean: { time?: number; name?: string; color?: string } = {};
+      const clean: MarkerPatch = {};
       if (patch.time !== undefined) clean.time = asNumber(patch.time, "time");
       if (patch.name !== undefined) clean.name = asString(patch.name, "name");
       if (patch.color !== undefined) clean.color = asString(patch.color, "color");
+      if (patch.kind !== undefined) clean.kind = optionalMarkerKind(patch.kind);
+      if (patch.sceneId !== undefined) clean.sceneId = optionalString(patch.sceneId, "sceneId");
+      if (patch.note !== undefined) clean.note = optionalString(patch.note, "note");
+      if (patch.severity !== undefined) clean.severity = optionalSeverity(patch.severity);
+      if (patch.resolved !== undefined) {
+        clean.resolved = optionalBoolean(patch.resolved, "resolved");
+      }
+      if (patch.bbox !== undefined) clean.bbox = optionalBBox(patch.bbox);
+      if (patch.screenshot !== undefined) {
+        clean.screenshot = optionalString(patch.screenshot, "screenshot");
+      }
+      if (patch.tags !== undefined) clean.tags = optionalTags(patch.tags);
       next = updateMarker(doc, markerId, clean);
       break;
     }

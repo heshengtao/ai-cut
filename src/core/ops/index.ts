@@ -2,5 +2,6 @@
 export * from "./assets";
 export * from "./tracks";
 export * from "./clips";
+export * from "./effects";
 export * from "./markers";
 export * from "./project";

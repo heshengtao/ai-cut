@@ -112,6 +112,8 @@ export interface Clip {
   id: string;
   /** 文字片段为空串。 */
   assetId: string;
+  /** 所属场次 id；由 film manifest 导入时写入，用于幂等重导入。 */
+  sceneId?: string;
   trackId: string;
   /** 时间线起点（秒）。 */
   start: number;
@@ -123,8 +125,8 @@ export interface Clip {
   speed?: number;
   /** 调色参数。 */
   color?: ClipColor;
-  /** 静态蒙版。 */
-  mask?: ClipMask;
+  /** OFX 效果链，按数组顺序执行。 */
+  effects?: ClipEffect[];
   transitionIn?: ClipTransition;
   transitionOut?: ClipTransition;
   keyframes?: ClipKeyframes;
@@ -176,19 +178,22 @@ export interface Track {
 
 export type KeyframeProperty = "opacity" | "x" | "y" | "scale" | "rotation";
 
-/** 关键帧时间相对片段起点（秒）。 */
+/**
+ * 关键帧：某一瞬间记录全部可动画参数。
+ *
+ * 时间相对片段起点（秒）；相邻关键帧之间按属性线性插值。
+ */
 export interface Keyframe {
   time: number;
-  value: number;
+  opacity: number;
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
 }
 
-export interface ClipKeyframes {
-  opacity?: Keyframe[];
-  x?: Keyframe[];
-  y?: Keyframe[];
-  scale?: Keyframe[];
-  rotation?: Keyframe[];
-}
+/** 片段的关键帧列表，按 time 升序。 */
+export type ClipKeyframes = Keyframe[];
 
 export type ClipTransitionType = "fade" | "slide";
 export type ClipTransitionDirection = "left" | "right" | "up" | "down";
@@ -200,19 +205,22 @@ export interface ClipTransition {
   direction?: ClipTransitionDirection;
 }
 
-export type ClipMaskShape = "rect" | "ellipse" | "linear";
-
-/** 静态蒙版：坐标与尺寸按片段画面归一化到 0..1。 */
-export interface ClipMask {
-  shape: ClipMaskShape;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  /** 羽化，按蒙版短边的比例，0..0.5。 */
-  feather?: number;
-  /** 线性蒙版角度（度），0 = 从左到右。 */
-  angle?: number;
+/** 应用到片段画面上的 OFX 效果。 */
+export interface ClipEffect {
+  /** 同一次「应用到选中片段」共用同一个 id，便于多选时匹配。 */
+  id: string;
+  /** OFX 插件标识（pluginIdentifier）。 */
+  plugin: string;
+  /** 插件显示名（缓存，便于离线展示）。 */
+  name: string;
+  /** 安装位置：.ofx.bundle 路径或 .ofx 文件路径。 */
+  bundle: string;
+  /** OFX context；缺省时由 host 选择。 */
+  context?: string;
+  /** 参数值，键是 OFX 脚本名。 */
+  params: Record<string, number | boolean | string | number[]>;
+  /** 关闭后保留参数但不参与预览 / 导出。 */
+  enabled?: boolean;
 }
 
 /** 片段调色；缺省值分别是 0 / 1 / 1 / 0 / 0。 */
@@ -229,6 +237,20 @@ export interface ClipColor {
   tint?: number;
 }
 
+/** 标记类型：场次边界、穿越/切点、审片批注、普通章节。 */
+export type MarkerKind = "scene" | "hit" | "review" | "chapter";
+
+/** 审片意见的严重程度。 */
+export type ReviewSeverity = "blocker" | "high" | "medium" | "low";
+
+/** 归一化到画面 0..1 的批注框。 */
+export interface ReviewBBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /** 时间线标记：用于定位、章节与审片批注。 */
 export interface Marker {
   id: string;
@@ -237,6 +259,20 @@ export interface Marker {
   name: string;
   /** 可选颜色（#rrggbb）。 */
   color?: string;
+  /** 标记类型；缺省时按是否有 note 推断（不写回文档）。 */
+  kind?: MarkerKind;
+  /** 所属场次 id（film manifest 的 scene.id）。 */
+  sceneId?: string;
+  /** 审片备注正文。 */
+  note?: string;
+  severity?: ReviewSeverity;
+  resolved?: boolean;
+  bbox?: ReviewBBox;
+  /** 审片截图（绝对路径或相对 manifest 的路径）。 */
+  screenshot?: string;
+  tags?: string[];
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 /** 工程文档，可直接序列化为 .json。 */

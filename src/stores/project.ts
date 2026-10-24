@@ -23,6 +23,7 @@ import { parseProject, serializeProject } from "@/core/serialize";
 import { applyCommandToDoc, applyCommandsToDoc, diffAffected } from "@/core/commands";
 import { recordProjectHistory, getProjectHistory, flushHistoryRecords } from "@/core/history";
 import { updateAsset } from "@/core/ops";
+import { ensureThumbnail } from "@/core/thumbnails";
 import { renameProject } from "@/core/ops/project";
 import {
   pathExists,
@@ -635,6 +636,24 @@ export const useProjectStore = defineStore("project", () => {
     if (next !== doc.value) doc.value = next;
   }
 
+  /**
+   * 写入素材的缩略图缓存。与波形一样属于派生数据：不进撤销栈、不置 dirty。
+   */
+  function setAssetThumbnail(assetId: string, thumb: string): void {
+    const next = updateAsset(doc.value, assetId, { thumb });
+    if (next !== doc.value) doc.value = next;
+  }
+
+  /**
+   * 给所有缺缩略图的视频素材补图：agent 导入与旧工程都不会带 `thumb`。
+   * 和波形一样是派生数据，不进撤销栈、不置 dirty。
+   */
+  function backfillThumbnails(): void {
+    for (const asset of doc.value.assets) {
+      void ensureThumbnail(asset, (thumb) => setAssetThumbnail(asset.id, thumb));
+    }
+  }
+
   /** 载入时把源文件已缺失的素材标为离线。 */
   async function markOfflineAssets(project: Project): Promise<Project> {
     let next = project;
@@ -719,6 +738,8 @@ export const useProjectStore = defineStore("project", () => {
     applyCommand,
     applyCommands,
     setAssetWaveform,
+    setAssetThumbnail,
+    backfillThumbnails,
     undo,
     redo,
     revertTo,

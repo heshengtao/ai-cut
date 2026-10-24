@@ -19,7 +19,6 @@ import {
   setClipFadeOut,
   setClipGain,
   setClipKeyframes,
-  setClipMask,
   setClipMuted,
   setClipOpacity,
   setClipPan,
@@ -44,13 +43,11 @@ import type { AudioDspPreset } from "@/types/models";
 import type { VideoDspOptions, VideoStrength } from "@/types/video";
 import { replaceClipVideo } from "@/core/videoEdit";
 import { formatTimecode } from "@/core/time";
-import { resolveTransform } from "@/core/transform";
 import {
   DEFAULT_CLIP_COLOR,
   resolveClipColor,
   type ResolvedClipColor,
 } from "@/core/clipColor";
-import { DEFAULT_CLIP_MASK } from "@/core/clipMask";
 import {
   applyClipAttributes,
   copyClipAttributes,
@@ -58,7 +55,13 @@ import {
   type ClipAttributes,
 } from "@/core/clipAttributes";
 import { DEFAULT_TRANSITION_DURATION } from "@/core/clipTransition";
-import { currentKeyframeValue, KEYFRAME_PROPERTIES } from "@/core/keyframes";
+import {
+  keyframeAt,
+  keyframeValuesAt,
+  opacityAt,
+  resolveTransformAt,
+  upsertKeyframe,
+} from "@/core/keyframes";
 import { usePlaybackStore } from "@/stores/playback";
 import {
   BLEND_MODES,
@@ -73,13 +76,12 @@ import {
 import type {
   BlendMode,
   Clip,
-  ClipMask,
   ClipShadow,
   ClipStroke,
   ClipTextStyle,
   ClipTransform,
   ClipTransition,
-  KeyframeProperty,
+  Keyframe,
   MediaAsset,
   Project,
   TextAlign,
@@ -92,6 +94,7 @@ import { useVideoDspStore } from "@/stores/videoDsp";
 import { useTimelineActions } from "@/composables/useTimelineActions";
 import { toast } from "@/composables/useToast";
 import NumberField from "@/components/common/NumberField.vue";
+import EffectsSection from "@/components/workspace/panes/EffectsSection.vue";
 import ColorField from "@/components/common/ColorField.vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
@@ -229,31 +232,31 @@ const isVideo = computed(
     clip.value?.audioOnly !== true &&
     (clip.value?.duration ?? 0) > 0,
 );
-const opacityPercent = computed(() => Math.round((clip.value?.opacity ?? 1) * 100));
-const speed = computed(() => clip.value?.speed ?? 1);
-const color = computed<ResolvedClipColor>(() =>
-  clip.value ? resolveClipColor(clip.value) : DEFAULT_CLIP_COLOR,
-);
-const mask = computed(() => clip.value?.mask ?? null);
-const transitionIn = computed(() => clip.value?.transitionIn ?? null);
-const transitionOut = computed(() => clip.value?.transitionOut ?? null);
-const keyframeProperty = ref<KeyframeProperty>("opacity");
 const keyframeLocalTime = computed(() =>
   clip.value
     ? Math.max(0, Math.min(clip.value.duration, playback.playhead - clip.value.start))
     : 0,
 );
-const keyframesForProperty = computed(() =>
-  (clip.value?.keyframes?.[keyframeProperty.value] ?? [])
-    .slice()
-    .sort((a, b) => a.time - b.time),
-);
-const keyframeCurrentValue = computed(() =>
+const opacityPercent = computed(() =>
   clip.value
-    ? currentKeyframeValue(clip.value, keyframeProperty.value, keyframeLocalTime.value)
-    : 0,
+    ? Math.round(opacityAt(clip.value, keyframeLocalTime.value) * 100)
+    : 100,
 );
-const transform = computed(() => (clip.value ? resolveTransform(clip.value) : null));
+const speed = computed(() => clip.value?.speed ?? 1);
+const color = computed<ResolvedClipColor>(() =>
+  clip.value ? resolveClipColor(clip.value) : DEFAULT_CLIP_COLOR,
+);
+const transitionIn = computed(() => clip.value?.transitionIn ?? null);
+const transitionOut = computed(() => clip.value?.transitionOut ?? null);
+const clipKeyframes = computed(() =>
+  (clip.value?.keyframes ?? []).slice().sort((a, b) => a.time - b.time),
+);
+const keyframeHere = computed(() =>
+  keyframeAt(clip.value?.keyframes, keyframeLocalTime.value) !== undefined,
+);
+const transform = computed(() =>
+  clip.value ? resolveTransformAt(clip.value, keyframeLocalTime.value) : null,
+);
 const scalePercent = computed(() => Math.round((transform.value?.scale ?? 1) * 100));
 
 const textStyle = computed(() => (clip.value ? resolveTextStyle(clip.value) : null));
@@ -681,8 +684,23 @@ function applySelected(
   }
 }
 
+/** 片段内相对时间：关键帧统一以片段起点为 0。 */
+function localTimeOf(target: Clip): number {
+  return Math.max(0, Math.min(target.duration, playback.playhead - target.start));
+}
+
+/** 有关键帧时修改参数 = 在当前时间写入/更新关键帧；否则改静态值。 */
 function onOpacityInput(value: number): void {
-  applySelected((doc, target) => setClipOpacity(doc, target.id, value / 100));
+  applySelected((doc, target) => {
+    if (!target.keyframes?.length) {
+      return setClipOpacity(doc, target.id, value / 100);
+    }
+    return setClipKeyframes(
+      doc,
+      target.id,
+      upsertKeyframe(target, localTimeOf(target), { opacity: value / 100 }),
+    );
+  });
 }
 
 function onSpeedInput(value: number): void {
@@ -692,28 +710,6 @@ function onSpeedInput(value: number): void {
 function onColorInput(patch: Partial<ResolvedClipColor>): void {
   applySelected((doc, target) => setClipColor(doc, target.id, patch));
 }
-
-function onMaskToggle(enabled: boolean): void {
-  applySelected((doc, target) =>
-    setClipMask(doc, target.id, enabled ? { ...DEFAULT_CLIP_MASK } : null),
-  );
-}
-
-function onMaskInput(patch: Partial<ClipMask>): void {
-  applySelected((doc, target) => setClipMask(doc, target.id, patch));
-}
-
-function onMaskShape(value: string): void {
-  if (value === "rect" || value === "ellipse" || value === "linear") {
-    onMaskInput({ shape: value });
-  }
-}
-
-const maskShapeOptions = computed<SelectOption[]>(() => [
-  { id: "rect", label: i18n.t("mask.rect") },
-  { id: "ellipse", label: i18n.t("mask.ellipse") },
-  { id: "linear", label: i18n.t("mask.linear") },
-]);
 
 const transitionTypeOptions = computed<SelectOption[]>(() => [
   { id: "none", label: i18n.t("transition.none") },
@@ -751,40 +747,39 @@ function onTransitionDirection(edge: "in" | "out", value: string): void {
   }
 }
 
-const keyframeOptions = computed<SelectOption[]>(() =>
-  KEYFRAME_PROPERTIES.map((property) => ({
-    id: property,
-    label: i18n.t(`keyframe.property.${property}`),
-  })),
-);
-
-function onKeyframeProperty(value: string): void {
-  if (KEYFRAME_PROPERTIES.includes(value as KeyframeProperty)) {
-    keyframeProperty.value = value as KeyframeProperty;
-  }
-}
-
+/** 一个关键帧同时记录当前时间点上的全部动画参数。 */
 function addKeyframe(): void {
-  const property = keyframeProperty.value;
   applySelected((doc, target) => {
-    const time = Math.max(0, Math.min(target.duration, playback.playhead - target.start));
-    const existing = target.keyframes?.[property] ?? [];
-    const value = currentKeyframeValue(target, property, time);
-    const next = [
-      ...existing.filter((frame) => Math.abs(frame.time - time) > 1e-4),
-      { time, value },
-    ].sort((a, b) => a.time - b.time);
-    return setClipKeyframes(doc, target.id, property, next);
+    const time = localTimeOf(target);
+    return setClipKeyframes(
+      doc,
+      target.id,
+      upsertKeyframe(target, time, keyframeValuesAt(target, time)),
+    );
   });
 }
 
 function removeKeyframe(time: number): void {
-  const property = keyframeProperty.value;
   applySelected((doc, target) => {
-    const existing = target.keyframes?.[property] ?? [];
-    const next = existing.filter((frame) => Math.abs(frame.time - time) > 1e-4);
-    return setClipKeyframes(doc, target.id, property, next.length > 0 ? next : null);
+    const next = (target.keyframes ?? []).filter(
+      (frame) => Math.abs(frame.time - time) > 1e-4,
+    );
+    return setClipKeyframes(doc, target.id, next.length > 0 ? next : null);
   });
+}
+
+function seekToKeyframe(time: number): void {
+  const target = clip.value;
+  if (!target) return;
+  playback.setPlayhead(target.start + time);
+}
+
+function keyframeSummary(frame: Keyframe): string {
+  return (
+    `${Math.round(frame.opacity * 100)}% · ` +
+    `${frame.x.toFixed(0)},${frame.y.toFixed(0)} · ` +
+    `${Math.round(frame.scale * 100)}% · ${Math.round(frame.rotation)}°`
+  );
 }
 
 function onBlendMode(value: BlendMode | string): void {
@@ -819,7 +814,16 @@ function onRadius(value: number): void {
 }
 
 function onTransformInput(patch: Partial<ClipTransform>): void {
-  applySelected((doc, target) => setClipTransform(doc, target.id, patch));
+  applySelected((doc, target) => {
+    if (!target.keyframes?.length) {
+      return setClipTransform(doc, target.id, patch);
+    }
+    return setClipKeyframes(
+      doc,
+      target.id,
+      upsertKeyframe(target, localTimeOf(target), patch),
+    );
+  });
 }
 
 function onGainInput(value: number): void {
@@ -1317,110 +1321,11 @@ async function relink(): Promise<void> {
           </div>
         </template>
 
-        <template v-if="!isText && (asset?.kind === 'video' || asset?.kind === 'image')">
-          <div class="section-label">{{ i18n.t("inspector.mask") }}</div>
-          <div class="group">
-            <div class="prop-row">
-              <span>{{ i18n.t("inspector.maskEnabled") }}</span>
-              <ToggleSwitch
-                :model-value="!!mask"
-                :label="i18n.t('inspector.maskEnabled')"
-                @update:model-value="onMaskToggle"
-              />
-            </div>
-            <template v-if="mask">
-              <div class="prop-row">
-                <span>{{ i18n.t("inspector.maskShape") }}</span>
-                <Md3Select
-                  class="prop-select"
-                  :model-value="mask.shape"
-                  :options="maskShapeOptions"
-                  :label="i18n.t('inspector.maskShape')"
-                  @update:model-value="onMaskShape"
-                />
-              </div>
-              <div class="prop-row">
-                <span>{{ i18n.t("inspector.maskX") }}</span>
-                <NumberField
-                  :model-value="Math.round(mask.x * 100)"
-                  :min="0"
-                  :max="100"
-                  :step="1"
-                  :sr-label="i18n.t('inspector.maskX')"
-                  input-width="44px"
-                  @update:model-value="onMaskInput({ x: $event / 100 })"
-                />
-              </div>
-              <div class="prop-row">
-                <span>{{ i18n.t("inspector.maskY") }}</span>
-                <NumberField
-                  :model-value="Math.round(mask.y * 100)"
-                  :min="0"
-                  :max="100"
-                  :step="1"
-                  :sr-label="i18n.t('inspector.maskY')"
-                  input-width="44px"
-                  @update:model-value="onMaskInput({ y: $event / 100 })"
-                />
-              </div>
-              <div class="prop-row">
-                <span>{{ i18n.t("inspector.maskWidth") }}</span>
-                <NumberField
-                  :model-value="Math.round(mask.width * 100)"
-                  :min="1"
-                  :max="100"
-                  :step="1"
-                  :sr-label="i18n.t('inspector.maskWidth')"
-                  input-width="44px"
-                  @update:model-value="onMaskInput({ width: $event / 100 })"
-                />
-              </div>
-              <div class="prop-row">
-                <span>{{ i18n.t("inspector.maskHeight") }}</span>
-                <NumberField
-                  :model-value="Math.round(mask.height * 100)"
-                  :min="1"
-                  :max="100"
-                  :step="1"
-                  :sr-label="i18n.t('inspector.maskHeight')"
-                  input-width="44px"
-                  @update:model-value="onMaskInput({ height: $event / 100 })"
-                />
-              </div>
-              <div class="prop-row">
-                <span>{{ i18n.t("inspector.maskFeather") }}</span>
-                <NumberField
-                  :model-value="Math.round((mask.feather ?? 0) * 100)"
-                  :min="0"
-                  :max="50"
-                  :step="1"
-                  :sr-label="i18n.t('inspector.maskFeather')"
-                  input-width="44px"
-                  @update:model-value="onMaskInput({ feather: $event / 100 })"
-                />
-              </div>
-              <div v-if="mask.shape === 'linear'" class="prop-row">
-                <span>{{ i18n.t("inspector.maskAngle") }}</span>
-                <NumberField
-                  :model-value="Math.round(mask.angle ?? 0)"
-                  :min="0"
-                  :max="360"
-                  :step="1"
-                  :sr-label="i18n.t('inspector.maskAngle')"
-                  input-width="44px"
-                  @update:model-value="onMaskInput({ angle: $event })"
-                />
-              </div>
-              <button
-                class="btn-text"
-                type="button"
-                @click="onMaskInput({ ...DEFAULT_CLIP_MASK })"
-              >
-                {{ i18n.t("inspector.reset") }}
-              </button>
-            </template>
-          </div>
-        </template>
+        <EffectsSection
+          v-if="!isText && (asset?.kind === 'video' || asset?.kind === 'image')"
+          :clip="clip"
+          :clips="selectedClips"
+        />
 
         <template v-if="isVisual">
           <div class="section-label">{{ i18n.t("inspector.transition") }}</div>
@@ -1503,33 +1408,29 @@ async function relink(): Promise<void> {
           <div class="section-label">{{ i18n.t("inspector.keyframes") }}</div>
           <div class="group">
             <div class="prop-row">
-              <span>{{ i18n.t("keyframe.property") }}</span>
-              <Md3Select
-                class="prop-select"
-                :model-value="keyframeProperty"
-                :options="keyframeOptions"
-                :label="i18n.t('keyframe.property')"
-                @update:model-value="onKeyframeProperty"
-              />
-            </div>
-            <div class="prop-row">
               <span>{{ i18n.t("keyframe.time") }}</span>
               <span class="prop-value tabular">{{ keyframeLocalTime.toFixed(2) }}s</span>
             </div>
-            <div class="prop-row">
-              <span>{{ i18n.t("keyframe.value") }}</span>
-              <span class="prop-value tabular">{{ keyframeCurrentValue.toFixed(2) }}</span>
-            </div>
             <button class="btn-text" type="button" @click="addKeyframe">
-              {{ i18n.t("keyframe.add") }}
+              {{ keyframeHere ? i18n.t("keyframe.update") : i18n.t("keyframe.add") }}
             </button>
+            <div v-if="clipKeyframes.length === 0" class="keyframe-empty">
+              {{ i18n.t("keyframe.empty") }}
+            </div>
             <div
-              v-for="frame in keyframesForProperty"
+              v-for="frame in clipKeyframes"
               :key="frame.time"
               class="keyframe-row"
             >
-              <span class="tabular">{{ frame.time.toFixed(2) }}s</span>
-              <span class="tabular">{{ frame.value.toFixed(2) }}</span>
+              <button
+                class="keyframe-time tabular"
+                type="button"
+                :title="i18n.t('keyframe.seek')"
+                @click="seekToKeyframe(frame.time)"
+              >
+                {{ frame.time.toFixed(2) }}s
+              </button>
+              <span class="keyframe-values tabular">{{ keyframeSummary(frame) }}</span>
               <button
                 class="keyframe-remove"
                 type="button"
@@ -2075,13 +1976,37 @@ async function relink(): Promise<void> {
 }
 .keyframe-row {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 8px;
   padding: 4px 0;
   font-size: 10.5px;
   color: rgb(var(--md-on-surface-variant));
   border-top: 1px solid rgb(var(--md-outline-variant) / 0.3);
+}
+.keyframe-time {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--md-primary));
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+.keyframe-time:hover {
+  text-decoration: underline;
+}
+.keyframe-values {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.keyframe-empty {
+  padding: 6px 0;
+  font-size: 10.5px;
+  color: rgb(var(--md-on-surface-muted));
 }
 .keyframe-remove {
   width: 22px;

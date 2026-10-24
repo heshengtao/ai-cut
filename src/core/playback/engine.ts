@@ -13,6 +13,7 @@
  */
 import type { Clip, MediaAsset, Project } from "@/types/project";
 import { isAudible, mainVideoClipAt } from "./activeClips";
+import { clipHasEffects } from "@/core/effects";
 import {
   extractAudioPreview,
   fileUrl,
@@ -114,6 +115,8 @@ export interface PlaybackEngineOptions {
   getDoc: () => Project;
   onTime: (seconds: number) => void;
   onEnded?: () => void;
+  /** 已预渲染的 OFX 片段：返回烘焙好的预览文件路径（替换素材源）。 */
+  getEffectSource?: (clipId: string) => string | null;
 }
 
 export class PlaybackEngine {
@@ -121,11 +124,14 @@ export class PlaybackEngine {
   private readonly getDoc: () => Project;
   private readonly onTime: (seconds: number) => void;
   private readonly onEnded: () => void;
+  private readonly getEffectSource: (clipId: string) => string | null;
 
   /** 常驻画面元素：同一时间只显示主视频轨的一个片段。 */
   private readonly video: HTMLVideoElement;
   private videoAssetId: string | null = null;
   private videoClipId: string | null = null;
+  /** 当前 `<video>` 的源标识：素材 id 或已烘焙的 OFX 预览文件。 */
+  private videoSourceKey = "";
   private lastVideoCheck = 0;
   private lastVideoPlayAttempt = 0;
   /** 素材 id → 已生成的预览代理路径。 */
@@ -164,6 +170,7 @@ export class PlaybackEngine {
     this.getDoc = options.getDoc;
     this.onTime = options.onTime;
     this.onEnded = options.onEnded ?? (() => undefined);
+    this.getEffectSource = options.getEffectSource ?? (() => null);
 
     this.video = document.createElement("video");
     this.video.className = "engine-video";
@@ -590,7 +597,7 @@ export class PlaybackEngine {
     }
   }
 
-  /** 与画面有关的文档摘要：轨道可见性、片段位置 / 入点、素材源。 */
+  /** 与画面有关的文档摘要：轨道可见性、片段位置 / 入点、素材源、OFX 烘焙源。 */
   private computeVideoSignature(doc: Project): string {
     return JSON.stringify({
       tracks: doc.tracks.map((track) => ({
@@ -602,6 +609,7 @@ export class PlaybackEngine {
           clip.duration,
           clip.in,
           clip.speed ?? 1,
+          this.effectSourceFor(clip) ?? "",
         ]),
       })),
       assets: doc.assets.map((asset) => [asset.id, asset.src, asset.kind, asset.offline ?? false]),
@@ -635,6 +643,15 @@ export class PlaybackEngine {
   // 画面：常驻 <video>，不做逐帧 seek
   // ---------------------------------------------------------------------------
 
+  /**
+   * 该片段现在是否应该用烘焙文件当源。效果被关掉 / 删掉时立即失效，
+   * 不用等渲染队列下一次对齐。
+   */
+  private effectSourceFor(clip: Clip): string | null {
+    if (!clipHasEffects(clip)) return null;
+    return this.getEffectSource(clip.id);
+  }
+
   private syncVideo(timelineTime: number, force: boolean): void {
     const doc = this.getDoc();
     const main = mainVideoClipAt(doc, timelineTime);
@@ -643,6 +660,7 @@ export class PlaybackEngine {
 
     if (!clip || !asset) {
       this.videoClipId = null;
+      this.videoSourceKey = "";
       if (this.videoAssetId !== null) {
         this.videoAssetId = null;
         this.videoProxyInUse = false;
@@ -654,25 +672,35 @@ export class PlaybackEngine {
       return;
     }
 
-    const expected = mediaTimeFor(clip, timelineTime);
-    const freshAsset = this.videoAssetId !== asset.id;
+    const effectSource = this.effectSourceFor(clip);
+    const sourceKey = effectSource ? `ofx:${effectSource}` : `src:${asset.id}`;
+    const freshSource = this.videoSourceKey !== sourceKey;
     const freshClip = this.videoClipId !== clip.id;
+    // 烘焙文件从 0 开始、已经包含入点与变速；原片才需要换算素材内时间。
+    const expected = effectSource
+      ? Math.max(0, Math.min(clip.duration, timelineTime - clip.start))
+      : mediaTimeFor(clip, timelineTime);
 
-    if (freshAsset) {
+    if (freshSource) {
+      this.videoSourceKey = sourceKey;
       this.videoAssetId = asset.id;
-      const proxy = this.videoProxyPaths.get(asset.id);
-      if (proxy) {
-        this.applyVideoSource(fileUrl(proxy), expected, true);
-      } else if (needsVideoProxy(asset.src)) {
-        // 容器本身放不了（MKV/AVI…）：先黑场等代理，代理就绪后再换源。
-        this.video.pause();
-        this.video.removeAttribute("src");
-        this.video.load();
-        this.videoProxyInUse = false;
-        this.video.style.visibility = "hidden";
-        this.requestVideoProxy(asset);
+      if (effectSource) {
+        this.applyVideoSource(fileUrl(effectSource), expected, false);
       } else {
-        this.applyVideoSource(fileUrl(asset.src), expected, false);
+        const proxy = this.videoProxyPaths.get(asset.id);
+        if (proxy) {
+          this.applyVideoSource(fileUrl(proxy), expected, true);
+        } else if (needsVideoProxy(asset.src)) {
+          // 容器本身放不了（MKV/AVI…）：先黑场等代理，代理就绪后再换源。
+          this.video.pause();
+          this.video.removeAttribute("src");
+          this.video.load();
+          this.videoProxyInUse = false;
+          this.video.style.visibility = "hidden";
+          this.requestVideoProxy(asset);
+        } else {
+          this.applyVideoSource(fileUrl(asset.src), expected, false);
+        }
       }
     } else if (freshClip || force) {
       seekMedia(this.video, expected, this.pendingSeek);
@@ -689,7 +717,7 @@ export class PlaybackEngine {
 
     this.videoClipId = clip.id;
     this.video.muted = true;
-    const rate = clamp(clip.speed ?? 1, 0.1, 4);
+    const rate = effectSource ? 1 : clamp(clip.speed ?? 1, 0.1, 4);
     if (this.video.playbackRate !== rate) this.video.playbackRate = rate;
 
     if (this.video.getAttribute("src")) {
@@ -715,6 +743,8 @@ export class PlaybackEngine {
   /** 直接播放失败（编码 / 容器不受支持）：改走代理。 */
   private onVideoError(): void {
     if (this.videoProxyInUse) return;
+    // 烘焙文件播放失败时不回退到素材代理，否则效果会被悄悄丢掉。
+    if (this.videoSourceKey.startsWith("ofx:")) return;
     const assetId = this.videoAssetId;
     if (!assetId) return;
     const asset = this.getDoc().assets.find((a) => a.id === assetId);
@@ -738,6 +768,7 @@ export class PlaybackEngine {
         if (this.videoAssetId !== asset.id) return;
         const doc = this.getDoc();
         const main = mainVideoClipAt(doc, this.currentTime);
+        if (main && this.effectSourceFor(main.clip)) return;
         const seekTo = main ? mediaTimeFor(main.clip, this.currentTime) : 0;
         this.applyVideoSource(fileUrl(path), seekTo, true);
         this.lastVideoCheck = 0;

@@ -204,11 +204,7 @@ pub async fn probe(app: &AppHandle, path: String, options: ProbeOptions) -> Resu
     }))
 }
 
-async fn transcribe(
-    app: &AppHandle,
-    path: &str,
-    model_id: Option<&str>,
-) -> Result<Value, String> {
+async fn transcribe(app: &AppHandle, path: &str, model_id: Option<&str>) -> Result<Value, String> {
     let entry = match model_id.filter(|value| !value.is_empty()) {
         Some(id) => models::by_id(id).ok_or_else(|| format!("未知模型：{id}"))?,
         None => models::first_installed(app, "asr").ok_or_else(|| {
@@ -223,7 +219,8 @@ async fn transcribe(
         return Err("语音检测模型 silero-vad 尚未安装".into());
     }
 
-    let cues = asr::asr_transcribe(app.clone(), path.to_string(), entry.id.to_string(), None).await?;
+    let cues =
+        asr::asr_transcribe(app.clone(), path.to_string(), entry.id.to_string(), None).await?;
     Ok(json!({
         "model": entry.id,
         "cues": cues,
@@ -269,7 +266,10 @@ mod tests {
     fn object_mode_parses_aliases() {
         assert_eq!(ObjectMode::parse(None).unwrap(), ObjectMode::None);
         assert_eq!(ObjectMode::parse(Some("OFF")).unwrap(), ObjectMode::None);
-        assert_eq!(ObjectMode::parse(Some("Person")).unwrap(), ObjectMode::Person);
+        assert_eq!(
+            ObjectMode::parse(Some("Person")).unwrap(),
+            ObjectMode::Person
+        );
         assert!(ObjectMode::parse(Some("cat")).is_err());
     }
 }

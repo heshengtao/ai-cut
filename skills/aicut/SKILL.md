@@ -24,13 +24,14 @@ license: Apache-2.0
 | 类别 | 工具 |
 | --- | --- |
 | 读取 | `get_project`（概览）、`get_context`（播放头/选中）、`get_track`（分页读轨）、`get_clip`（单片段）、`find_clips`（按时间/素材/文字检索）、`get_assets`（素材分页）、`get_markers`、`probe_media`（元数据/运动/目标框/转写）、`list_ai_models`、`aicut_help` |
-| 剪辑 | `apply_command`、`apply_commands`（批量原子）、`append_clip`、`set_clip_speed`、`set_clip_color`、`set_clip_mask`、`set_clip_transition`、`set_clip_keyframes`、`duplicate_clips`、`ripple_delete`、`extract_audio`、`import_asset`、`undo`、`redo` |
+| 剪辑 | `apply_command`、`apply_commands`（批量原子）、`append_clip`、`set_clip_speed`、`set_clip_color`、`set_clip_transition`、`set_clip_keyframes`、`duplicate_clips`、`ripple_delete`、`extract_audio`、`import_asset`、`undo`、`redo` |
 | 字幕 | `import_subtitles`、`export_subtitles` |
 | 标记 | `add_marker`、`update_marker`、`remove_marker` |
 | 工程 | `new_project`、`open_project`、`save_project` |
 | 音频 AI | `transcribe`、`translate_audio`、`synthesize_voiceover`、`separate_stems`、`denoise_audio`、`process_audio`、`measure_loudness` |
 | 视频 AI | `upscale_video`、`interpolate_video`、`reframe_video`、`process_video` |
 | 产出 | `export_video`、`render_frame`、`render_storyboard`、`download_model`、`cancel_ai` |
+| 审片/增量渲染 | `import_film_manifest`、`export_film_manifest`、`add_review_note`、`list_review_notes`、`update_review_note`、`remove_review_note`、`render_status`、`render_range`、`render_manifest`、`compare_takes`、`render_contact_sheet` |
 | 异步任务 | `job_start`、`job_status`、`job_cancel` |
 
 AI 工具默认是同步的：调用后会等到任务结束，期间可以用 `cancel_ai` 或停止按钮中止。模型缺失时先 `list_ai_models` 查 id，再 `download_model`。
@@ -148,6 +149,17 @@ aicut tools
 | `export_video` | `outputPath?`, `outputDir?`, `format?`, `resolution?`, `width?`, `height?`, `fit?`, `fitAnchor?`, `fps?`, `quality?`, `gif?` | 导出成片；省略 `outputPath` 时自动写到工程目录/下载目录并去重 |
 | `render_frame` | `time`, `outputPath`, `resolution?`, `width?`, `height?`, `fit?`, `fitAnchor?`, `fps?` | 渲染时间线某一帧到 PNG |
 | `render_storyboard` | `times[]`, `outputDir`, `prefix?`, `width?`, `height?`, `fit?`, `fitAnchor?` | 按多个时间点连续输出 PNG |
+| `import_film_manifest` | `path`, `mode?`, `trackName?`, `conform?` | 导入 film.json：场景 clip、场次/穿越 marker、review notes；`conform` 自动匹配 fps/宽高；幂等 |
+| `export_film_manifest` | `path?` | 把场景与批注写回 film.json，保留 `music` |
+| `add_review_note` | `time`, `text`, `severity?`, `sceneId?`, `bbox?`, `screenshot?` | 写一条结构化审片意见，返回 `markerId` |
+| `list_review_notes` | `from?`, `to?`, `sceneId?`, `severity?`, `resolved?` | 读审片意见 |
+| `update_review_note` | `markerId`, `text?`, `severity?`, `resolved?`, `bbox?` | 修改 / 关闭审片意见 |
+| `remove_review_note` | `markerId` | 删除审片意见 |
+| `render_status` | `ranges[{id?,start,end}]` | 只算脏段：fresh / no-cache / content-changed / missing-file |
+| `render_range` | `start`, `end`, `outputPath?`, `force?`, `cache?` | 单段渲染 + 内容哈希缓存 |
+| `render_manifest` | `scenes[]` 或 `manifestPath`, `force?` | 逐段渲染，命中缓存跳过 |
+| `compare_takes` | `a`, `b`, `times?`, `range?`, `threshold?` | SSIM 逐帧分数 + 并排关键帧 |
+| `render_contact_sheet` | `manifestPath?` / `times?` / `frames?`, `perScene?`, `outputPath`, `cols?` | 接触表 PNG + 图例 JSON |
 | `list_ai_models` / `download_model` | `feature?` / `id` | 查模型 / 下载模型 |
 | `cancel_ai` | — | 取消当前同步 AI 任务 |
 | `job_start` | `kind`, `params?` | 异步启动 AI 任务，立即返回 `jobId` |
@@ -189,14 +201,13 @@ aicut tools
 | `clip.append` | `{ assetId, trackId?, trackName?, start?, duration?, in? }` |
 | `clip.speed` | `{ clipId, speed }`（0.1–4） |
 | `clip.color` | `{ clipId, patch: { brightness?, contrast?, saturation?, temperature?, tint? } }` |
-| `clip.mask` | `{ clipId, mask: { shape, x, y, width, height, feather?, angle? } \| null }` |
 | `clip.transition` | `{ clipId, edge: "in"\|"out", transition: { type, duration, direction? } \| null }` |
-| `clip.keyframes` | `{ clipId, property, keyframes: [{ time, value }] \| null }` |
+| `clip.keyframes` | `{ clipId, keyframes: [{ time, opacity?, x?, y?, scale?, rotation? }] \| null }` |
 | `clip.duplicate` | `{ clipIds, offset?, targetTrackId? }` |
 | `clip.ripple_delete` | `{ clipIds }` |
 | `subtitle.import` | `{ entries: [{ start, end, text }], trackName?, offset? }` |
-| `marker.add` | `{ time, name?, color? }` |
-| `marker.update` | `{ markerId, patch: { time?, name?, color? } }` |
+| `marker.add` | `{ time, name?, color?, kind?, sceneId?, note?, severity?, resolved?, bbox?, screenshot?, tags? }` |
+| `marker.update` | `{ markerId, patch: { time?, name?, color?, kind?, sceneId?, note?, severity?, resolved?, bbox?, screenshot?, tags? } }` |
 | `marker.remove` | `{ markerId }` |
 
 约束：
@@ -240,6 +251,7 @@ aicut tools
 | 时间线 | `references/timeline.md` | 轨道、片段、移动/裁剪/分割 |
 | 素材 | `references/assets.md` | 导入、探测、素材引用 |
 | 工作流 | `references/workflow.md` | 读工程 → 改时间线 → 验证 → 撤销 |
+| 审片/增量渲染 | `references/render.md` | film.json 导入、结构化审片、脏段检测、区间渲染、take 对比、接触表 |
 
 ## 约定与坑
 
@@ -251,9 +263,13 @@ aicut tools
 - **轨道顺序**：`index 0` 是最上层。建多层画面时从底层往上建，每加一层用 `index: 0`；音轨顺序不影响混音。
 - **字幕可以交换，但仍是文字片段**：用 `import_subtitles` / `export_subtitles` 读写 SRT/VTT；时间线里仍是文字片段，样式与普通文字一致。
 - **标记是工程级对象**：用 `get_markers` 读，`add_marker` / `update_marker` / `remove_marker` 写；不要把它当成片段。
-- **合成原语**：调色、静态蒙版、片段入/出转场、关键帧都走命令总线；预览是近似，最终以导出为准。
+- **审片意见就是 marker**：优先用 `add_review_note` / `list_review_notes` / `update_review_note`，不要自己拼 `marker.add`；`kind:"review"` + `note` + `severity` 才能被 `film.json` 往返保留。
+- **整片结构用 manifest**：`import_film_manifest` 一次建场景轨、场次/穿越 marker 与批注；重复导入幂等。不要手写 `sheet.mjs` 算时间。
+- **增量渲染**：先 `render_status` 找脏段，再 `render_range` / `render_manifest`；缓存按素材 `{size, mtimeMs}` 失效，重新生成同名 take 后会自动变脏。ffmpeg 单槽，不要并行发渲染任务。
+- **对比与接触表**：`compare_takes` 给 SSIM + 并排帧；`render_contact_sheet` 给 20 格总览。不要用逐帧 `render_frame` 代替这两件事。
+- **合成原语**：调色、片段入/出转场、关键帧都走命令总线；预览是近似，最终以导出为准。
 - **转场是片段入/出动画**：支持 `fade` / `slide`；不支持相邻片段重叠式交叉淡化，不要承诺。
-- **关键帧属性**：`opacity` / `x` / `y` / `scale` / `rotation`；时间相对片段起点。
+- **关键帧是整帧快照**：每个关键帧同时记录 `opacity` / `x` / `y` / `scale` / `rotation`；时间相对片段起点，中间自动线性插值。
 - **AI 任务会真的跑模型**：字幕、翻译、朗读、音频/视频 AI、导出都可能耗时数分钟；调用前确认用户意图，缺模型先下载，并在 Gate 处等人确认。
 - **版权与许可证**：生成模型、素材库、字体、音乐、Remotion 商用许可都有条款；在 `research.md` / `manifest.json` 里记录来源与许可证。
 - **不要凭搜索结果编造 API**：框架能力以官方仓库/文档为准；版本与可用性会变，执行前先核对。

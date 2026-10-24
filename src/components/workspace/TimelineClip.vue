@@ -5,6 +5,7 @@ import { DocumentTextIcon } from "@heroicons/vue/24/outline";
 import type { Clip, MediaAsset } from "@/types/project";
 import { fileUrl } from "@/core/media";
 import { cachedWaveform, ensureWaveform } from "@/core/waveform";
+import { cachedThumbnail } from "@/core/thumbnails";
 import { useProjectStore } from "@/stores/project";
 import ClipWaveform from "@/components/common/ClipWaveform.vue";
 import { useI18n } from "@/i18n";
@@ -23,12 +24,20 @@ const emit = defineEmits<{
 
 const left = computed(() => props.clip.start * props.pxPerSecond);
 const width = computed(() => Math.max(2, props.clip.duration * props.pxPerSecond));
+const keyframeTimes = computed(() =>
+  (props.clip.keyframes ?? []).map((frame) => frame.time),
+);
+function keyframePercent(time: number): number {
+  const duration = Math.max(props.clip.duration, 1e-6);
+  return Math.max(0, Math.min(100, (time / duration) * 100));
+}
 const isText = computed(() => props.clip.assetId === "");
 const isAudioOnly = computed(() => props.clip.audioOnly === true);
 const thumbUrl = computed(() => {
   const asset = props.asset;
   if (!asset || isAudioOnly.value) return null;
-  if (asset.thumb) return fileUrl(asset.thumb);
+  const thumb = asset.thumb ?? cachedThumbnail(asset.id);
+  if (thumb) return fileUrl(thumb);
   // 图片没有缓存缩略图时直接显示原图，保证媒体库与轨道上都有预览。
   return asset.kind === "image" ? fileUrl(asset.src) : null;
 });
@@ -66,7 +75,9 @@ const i18n = useI18n();
 watch(
   () => props.asset,
   (asset) => {
-    if (asset) void ensureWaveform(asset, (wave) => project.setAssetWaveform(asset.id, wave));
+    if (!asset) return;
+    void ensureWaveform(asset, (wave) => project.setAssetWaveform(asset.id, wave));
+    project.backfillThumbnails();
   },
   { immediate: true },
 );
@@ -109,6 +120,13 @@ watch(
         :duration="clip.duration"
       />
     </div>
+
+    <span
+      v-for="time in keyframeTimes"
+      :key="time"
+      class="clip-keyframe"
+      :style="{ left: `${keyframePercent(time)}%` }"
+    />
 
     <span
       class="handle handle-start"
@@ -235,6 +253,18 @@ watch(
   color: #fff;
   mix-blend-mode: difference;
   filter: none;
+}
+.clip-keyframe {
+  position: absolute;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  transform: translateX(-50%) rotate(45deg);
+  border: 1px solid rgb(0 0 0 / 0.5);
+  border-radius: 1px;
+  background-color: #fff;
+  box-shadow: 0 0 2px rgb(0 0 0 / 0.45);
+  pointer-events: none;
 }
 .handle {
   position: absolute;

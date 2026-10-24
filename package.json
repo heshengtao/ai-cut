@@ -1,7 +1,7 @@
 {
   "name": "ai-cut",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "AI Cut — a local-first, agent-operable video editing workspace.",
   "license": "Apache-2.0",
   "repository": {
@@ -16,7 +16,9 @@
     "test": "vitest run",
     "tauri": "tauri",
     "fetch:sidecars": "bash scripts/fetch-sidecars.sh",
-    "build:aicut": "bash scripts/build-aicut.sh"
+    "build:aicut": "bash scripts/build-aicut.sh",
+    "build:ofx-host": "cargo build --release --manifest-path crates/ofx-host/Cargo.toml",
+    "sync:ofx": "node scripts/sync-ofx-registry.mjs"
   },
   "dependencies": {
     "@heroicons/vue": "^2.2.0",

@@ -1,6 +1,14 @@
 /** AI 协作事件与命令类型：跨 UI / MCP / 事件流共用的稳定协议。 */
 
-import type { Clip, MediaAsset, Project, Track } from "@/types/project";
+import type {
+  Clip,
+  MarkerKind,
+  MediaAsset,
+  Project,
+  ReviewBBox,
+  ReviewSeverity,
+  Track,
+} from "@/types/project";
 
 /** 操作者。 */
 export type Actor = "human" | "agent";
@@ -19,7 +27,6 @@ export type CommandKind =
   | "clip.append"
   | "clip.speed"
   | "clip.color"
-  | "clip.mask"
   | "clip.transition"
   | "clip.keyframes"
   | "clip.duplicate"
@@ -221,20 +228,14 @@ export interface CommandPayloads {
   };
   "clip.keyframes": {
     clipId: string;
-    property: "opacity" | "x" | "y" | "scale" | "rotation";
-    keyframes: { time: number; value: number }[] | null;
-  };
-  "clip.mask": {
-    clipId: string;
-    mask: {
-      shape?: "rect" | "ellipse" | "linear";
+    keyframes: {
+      time: number;
+      opacity?: number;
       x?: number;
       y?: number;
-      width?: number;
-      height?: number;
-      feather?: number;
-      angle?: number;
-    } | null;
+      scale?: number;
+      rotation?: number;
+    }[] | null;
   };
   "clip.duplicate": {
     clipIds: string[];
@@ -254,10 +255,35 @@ export interface CommandPayloads {
     trackName?: string;
     offset?: number;
   };
-  "marker.add": { time: number; name?: string; color?: string };
+  "marker.add": {
+    id?: string;
+    time: number;
+    name?: string;
+    color?: string;
+    kind?: MarkerKind;
+    sceneId?: string;
+    note?: string;
+    severity?: ReviewSeverity;
+    resolved?: boolean;
+    bbox?: ReviewBBox;
+    screenshot?: string;
+    tags?: string[];
+  };
   "marker.update": {
     markerId: string;
-    patch: { time?: number; name?: string; color?: string };
+    patch: {
+      time?: number;
+      name?: string;
+      color?: string;
+      kind?: MarkerKind;
+      sceneId?: string;
+      note?: string;
+      severity?: ReviewSeverity;
+      resolved?: boolean;
+      bbox?: ReviewBBox | null;
+      screenshot?: string;
+      tags?: string[];
+    };
   };
   "marker.remove": { markerId: string };
   "project.rename": { name: string };
@@ -284,7 +310,6 @@ export const COMMAND_KINDS: readonly CommandKind[] = [
   "clip.append",
   "clip.speed",
   "clip.color",
-  "clip.mask",
   "clip.transition",
   "clip.keyframes",
   "clip.duplicate",

@@ -1,6 +1,6 @@
 [package]
 name = "ai-cut"
-version = "0.2.2"
+version = "0.2.3"
 description = "AI Cut — AI 视频剪辑器（原型）"
 authors = ["you"]
 edition = "2021"
@@ -34,12 +34,17 @@ tokio = { version = "1", features = ["net", "sync", "time", "rt", "macros"] }
 tokio-util = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
 uuid = { version = "1", features = ["v4"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "native-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "native-tls", "socks"] }
 futures-util = { version = "0.3", default-features = false }
 sha2 = "0.10"
 sherpa-onnx = "1.13.8"
 tar = "0.4"
 flate2 = "1"
+zip = "2"
+plist = "1"
+walkdir = "2"
+png = "0.17"
+ofx-host = { path = "../crates/ofx-host" }
 # ONNX Runtime 由 ort 自带：macOS 含 CoreML、Windows 含 DirectML、Linux 用 CPU。
 # sherpa-onnx 预编译包自带的 ONNX Runtime 不再参与链接（见 crates/sherpa-onnx-sys）。
 # sherpa-onnx 静态库里的 UVR / Spleeter 音源分离 C API（Rust 绑定尚未暴露）。
@@ -64,11 +69,22 @@ ort = { version = "=2.0.0-rc.13" }
 [patch.crates-io]
 sherpa-onnx-sys = { path = "../crates/sherpa-onnx-sys" }
 
+[dev-dependencies]
+tempfile = "3"
+
 [profile.release]
 codegen-units = 1
 lto = true
 opt-level = 3
 strip = true
+
+# 调试运行时也要能跑 OFX 逐帧渲染：默认 -O0 下像素转换比 release 慢两个数量级，
+# 预览烘焙会从几分钟变成几秒级。依赖（含 cc 编译的 ofx-host）进一步放到 -O2。
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
 
 # Opt out of any repository-root Cargo workspace: this crate is its own root.
 [workspace]

@@ -235,27 +235,6 @@ describe("applyCommandToDoc", () => {
     });
   });
 
-  it("sets and removes a clip mask", () => {
-    const { doc, trackId } = fixture();
-    const clip = createClip({ assetId: "a1", trackId, start: 0, duration: 4 });
-    const withClip = applyCommandToDoc(doc, cmd("clip.add", { trackId, clip })).doc;
-
-    const masked = applyCommandToDoc(
-      withClip,
-      cmd("clip.mask", {
-        clipId: clip.id,
-        mask: { shape: "ellipse", x: 0.2, y: 0.1, width: 0.6, height: 0.8 },
-      }),
-    ).doc;
-    expect(masked.tracks[0].clips[0].mask).toMatchObject({ shape: "ellipse", x: 0.2 });
-
-    const cleared = applyCommandToDoc(
-      masked,
-      cmd("clip.mask", { clipId: clip.id, mask: null }),
-    ).doc;
-    expect(cleared.tracks[0].clips[0].mask).toBeUndefined();
-  });
-
   it("sets and removes clip transitions", () => {
     const { doc, trackId } = fixture();
     const clip = createClip({ assetId: "a1", trackId, start: 0, duration: 4 });
@@ -291,20 +270,21 @@ describe("applyCommandToDoc", () => {
       withClip,
       cmd("clip.keyframes", {
         clipId: clip.id,
-        property: "opacity",
         keyframes: [
-          { time: 0, value: 0 },
-          { time: 2, value: 1 },
+          { time: 0, opacity: 0, x: 0 },
+          { time: 2, opacity: 1, x: 20 },
         ],
       }),
     ).doc;
-    expect(keyed.tracks[0].clips[0].keyframes?.opacity).toHaveLength(2);
+    const frames = keyed.tracks[0].clips[0].keyframes;
+    expect(frames).toHaveLength(2);
+    expect(frames?.[0]).toMatchObject({ time: 0, opacity: 0, x: 0, scale: 1 });
+    expect(frames?.[1]).toMatchObject({ time: 2, opacity: 1, x: 20 });
 
     const cleared = applyCommandToDoc(
       keyed,
       cmd("clip.keyframes", {
         clipId: clip.id,
-        property: "opacity",
         keyframes: null,
       }),
     ).doc;

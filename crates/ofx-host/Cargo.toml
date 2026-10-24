@@ -1,0 +1,25 @@
+[package]
+name = "ofx-host"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "A small OFX image-effect host with a probe/render CLI"
+
+[lib]
+name = "ofx_host"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ofx-host"
+path = "src/bin/ofx-host.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+cc = "1"
+
+# Standalone workspace: keep src-tauri's workspace out of this crate.
+[workspace]

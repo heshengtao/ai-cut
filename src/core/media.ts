@@ -89,6 +89,17 @@ export function probeMedia(path: string): Promise<MediaMeta> {
   return invoke<MediaMeta>("probe_media", { path });
 }
 
+export interface FileStamp {
+  exists: boolean;
+  size: number;
+  mtimeMs: number;
+}
+
+/** 文件戳：增量渲染缓存用它判断素材是否变化。 */
+export function fileStamp(path: string): Promise<FileStamp> {
+  return invoke<FileStamp>("file_stamp", { path });
+}
+
 export function makeThumbnail(path: string, assetId: string, atSec: number): Promise<string> {
   return invoke<string>("make_thumbnail", { path, assetId, atSec });
 }

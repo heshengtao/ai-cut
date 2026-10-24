@@ -36,7 +36,7 @@ curl -fsS --max-time 10 -X POST "${URL}" -H "${JSON}" \
 echo "3/5 tools/list"
 TOOLS="$(curl -fsS --max-time 10 -X POST "${URL}" -H "${JSON}" \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')"
-for TOOL in get_project get_context get_track find_clips get_markers apply_command apply_commands set_clip_color set_clip_mask set_clip_transition set_clip_keyframes import_subtitles export_subtitles render_frame render_storyboard job_start; do
+for TOOL in get_project get_context get_track find_clips get_markers apply_command apply_commands set_clip_color set_clip_transition set_clip_keyframes import_subtitles export_subtitles render_frame render_storyboard job_start import_film_manifest export_film_manifest add_review_note list_review_notes update_review_note render_status render_range render_manifest compare_takes render_contact_sheet; do
   grep -q "\"${TOOL}\"" <<<"${TOOLS}"
 done
 

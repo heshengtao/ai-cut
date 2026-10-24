@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::analysis::{self, ObjectMode, ProbeOptions};
 use crate::bridge::ProjectBridge;
-use crate::media::probe_media;
+use crate::media::{cache_dir, make_thumbnail, probe_media};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolDef {
@@ -56,6 +56,10 @@ pub const SKILL_DOCS: &[(&str, &str)] = &[
         "workflow",
         include_str!("../../skills/aicut/references/workflow.md"),
     ),
+    (
+        "render",
+        include_str!("../../skills/aicut/references/render.md"),
+    ),
 ];
 
 const TOPICS: &[&str] = &[
@@ -67,6 +71,7 @@ const TOPICS: &[&str] = &[
     "timeline",
     "assets",
     "workflow",
+    "render",
 ];
 
 pub fn definitions() -> Vec<ToolDef> {
@@ -452,6 +457,228 @@ pub fn definitions() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
+            name: "import_film_manifest",
+            description: "导入共享的 film.json：一次建立场景 clip、场次/穿越 marker 与审片 notes。take 用 ffprobe 探测后入素材库；mode=replace 会同步删除上次导入但本次已不存在的条目，绝不碰人工标记。重复导入幂等。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "film.json 绝对路径" },
+                    "mode": { "enum": ["replace", "merge"], "description": "默认 replace" },
+                    "trackName": { "type": "string", "description": "场景轨名称，默认 Scenes" },
+                    "conform": { "type": "boolean", "description": "true 时把工程 fps/宽高改成 manifest 的交付规格（同一个撤销步）" },
+                    "baseRevision": { "type": "integer", "minimum": 0 }
+                },
+                "required": ["path"]
+            }),
+        },
+        ToolDef {
+            name: "export_film_manifest",
+            description: "把当前工程的场景与审片 notes 写回 film.json。省略 path 时只返回 JSON 不落盘；写入已存在的文件时保留 music 与未知字段，避免覆盖 AI DAW 的配乐信息。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "目标 film.json；省略则只返回内容" }
+                }
+            }),
+        },
+        ToolDef {
+            name: "add_review_note",
+            description: "写一条结构化审片意见（时间线 marker，kind=review）。time 用秒；severity 建议 blocker/high/medium/low；可带 sceneId、归一化 bbox、截图路径。返回 markerId，供后续 resolved。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "time": { "type": "number", "minimum": 0 },
+                    "text": { "type": "string" },
+                    "severity": { "enum": ["blocker", "high", "medium", "low"] },
+                    "sceneId": { "type": "string" },
+                    "bbox": {
+                        "type": "object",
+                        "properties": {
+                            "x": { "type": "number", "minimum": 0, "maximum": 1 },
+                            "y": { "type": "number", "minimum": 0, "maximum": 1 },
+                            "width": { "type": "number", "minimum": 0, "maximum": 1 },
+                            "height": { "type": "number", "minimum": 0, "maximum": 1 }
+                        },
+                        "required": ["x", "y", "width", "height"]
+                    },
+                    "screenshot": { "type": "string" },
+                    "tags": { "type": "array", "items": { "type": "string" } },
+                    "color": { "type": "string", "description": "#rrggbb" },
+                    "baseRevision": { "type": "integer", "minimum": 0 }
+                },
+                "required": ["time", "text"]
+            }),
+        },
+        ToolDef {
+            name: "list_review_notes",
+            description: "读取结构化审片 notes，可按时间、场次、严重程度、是否已解决过滤。返回 markerId 与全部字段，agent 改完代码后用 update_review_note 标记 resolved。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "from": { "type": "number", "description": "时间下限（秒）" },
+                    "to": { "type": "number", "description": "时间上限（秒）" },
+                    "sceneId": { "type": "string" },
+                    "severity": { "enum": ["blocker", "high", "medium", "low"] },
+                    "resolved": { "type": "boolean" },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
+                    "offset": { "type": "integer", "minimum": 0 }
+                }
+            }),
+        },
+        ToolDef {
+            name: "update_review_note",
+            description: "修改一条审片意见：正文、严重程度、resolved、bbox、截图、标签或时间。只改给出的字段。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "markerId": { "type": "string" },
+                    "text": { "type": "string" },
+                    "severity": { "enum": ["blocker", "high", "medium", "low"] },
+                    "resolved": { "type": "boolean" },
+                    "time": { "type": "number", "minimum": 0 },
+                    "bbox": {
+                        "type": ["object", "null"],
+                        "properties": {
+                            "x": { "type": "number" },
+                            "y": { "type": "number" },
+                            "width": { "type": "number" },
+                            "height": { "type": "number" }
+                        }
+                    },
+                    "screenshot": { "type": "string" },
+                    "tags": { "type": "array", "items": { "type": "string" } },
+                    "baseRevision": { "type": "integer", "minimum": 0 }
+                },
+                "required": ["markerId"]
+            }),
+        },
+        ToolDef {
+            name: "remove_review_note",
+            description: "删除一条审片意见（底层是删除 marker）。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "markerId": { "type": "string" },
+                    "baseRevision": { "type": "integer", "minimum": 0 }
+                },
+                "required": ["markerId"]
+            }),
+        },
+        ToolDef {
+            name: "render_range",
+            description: "只渲染时间线的一段，并写入内容哈希缓存。改一场只重渲一场；第二次调用命中缓存直接返回。长任务走 job，不会撞 20 秒桥接超时。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "start": { "type": "number", "minimum": 0 },
+                    "end": { "type": "number", "minimum": 0 },
+                    "outputPath": { "type": "string", "description": "省略时写到应用缓存目录" },
+                    "resolution": { "enum": ["project", "1080p", "720p", "custom"] },
+                    "width": { "type": "integer", "minimum": 16, "maximum": 8192 },
+                    "height": { "type": "integer", "minimum": 16, "maximum": 8192 },
+                    "fps": { "type": "number" },
+                    "fit": { "enum": ["contain", "cover"] },
+                    "fitAnchor": { "type": "string" },
+                    "force": { "type": "boolean", "description": "true 时忽略缓存重新渲染" },
+                    "cache": { "type": "boolean", "description": "默认 true" }
+                },
+                "required": ["start", "end"]
+            }),
+        },
+        ToolDef {
+            name: "render_status",
+            description: "只计算脏段、不渲染：对每个区间返回 fresh / no-cache / content-changed / missing-file。用来决定 render_manifest 只传哪几段。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "ranges": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" },
+                                "start": { "type": "number", "minimum": 0 },
+                                "end": { "type": "number", "minimum": 0 }
+                            },
+                            "required": ["start", "end"]
+                        }
+                    },
+                    "resolution": { "enum": ["project", "1080p", "720p", "custom"] },
+                    "width": { "type": "integer" },
+                    "height": { "type": "integer" },
+                    "fps": { "type": "number" }
+                },
+                "required": ["ranges"]
+            }),
+        },
+        ToolDef {
+            name: "render_manifest",
+            description: "按场景逐个渲染，命中缓存则跳过；串行执行（ffmpeg 单槽）。scenes 或 manifestPath 二选一，返回 rendered/cached/failed 与每段耗时。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "scenes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" },
+                                "start": { "type": "number", "minimum": 0 },
+                                "end": { "type": "number", "minimum": 0 }
+                            },
+                            "required": ["start", "end"]
+                        }
+                    },
+                    "manifestPath": { "type": "string" },
+                    "outputDir": { "type": "string" },
+                    "force": { "type": "boolean" },
+                    "cache": { "type": "boolean" }
+                }
+            }),
+        },
+        ToolDef {
+            name: "compare_takes",
+            description: "对比两版导出：ffmpeg SSIM 逐帧分数 + 低于 threshold 的变化点 + 并排关键帧 PNG。用于确认「只改这一场」没有把别处弄坏。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "a": { "type": "string", "description": "A 版视频绝对路径" },
+                    "b": { "type": "string", "description": "B 版视频绝对路径" },
+                    "times": { "type": "array", "items": { "type": "number", "minimum": 0 } },
+                    "outputDir": { "type": "string" },
+                    "range": {
+                        "type": "object",
+                        "properties": {
+                            "start": { "type": "number", "minimum": 0 },
+                            "end": { "type": "number", "minimum": 0 }
+                        },
+                        "required": ["start", "end"]
+                    },
+                    "threshold": { "type": "number", "minimum": 0, "maximum": 1, "description": "默认 0.98" },
+                    "fps": { "type": "number", "description": "对齐帧率，默认 30" }
+                },
+                "required": ["a", "b"]
+            }),
+        },
+        ToolDef {
+            name: "render_contact_sheet",
+            description: "把多帧拼成一张接触表 PNG，并写同名 .json 图例（cell → 时间）。frames / times / manifestPath+perScene 三选一；每场取 start/mid/end 中点可一次看完 20 场。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "frames": { "type": "array", "items": { "type": "string" } },
+                    "times": { "type": "array", "items": { "type": "number", "minimum": 0 } },
+                    "manifestPath": { "type": "string" },
+                    "perScene": { "enum": ["start", "mid", "end"], "description": "默认 mid" },
+                    "outputPath": { "type": "string" },
+                    "cols": { "type": "integer", "minimum": 1, "maximum": 6 },
+                    "cellWidth": { "type": "integer", "minimum": 64, "maximum": 1920 }
+                },
+                "required": ["outputPath"]
+            }),
+        },
+        ToolDef {
             name: "cancel_ai",
             description: "取消当前正在运行的同步 AI 任务（转写 / 分离 / 配音 / 视频 AI / 导出 / 模型下载）。",
             parameters: json!({ "type": "object", "properties": {} }),
@@ -467,7 +694,8 @@ pub fn definitions() -> Vec<ToolDef> {
                             "transcribe", "separate", "denoise", "process_audio",
                             "loudness", "translate", "voiceover", "upscale",
                             "interpolate", "reframe", "process_video", "export",
-                            "download_model"
+                            "download_model", "render_range", "render_manifest",
+                            "compare_takes", "contact_sheet", "storyboard"
                         ]
                     },
                     "params": { "type": "object", "description": "与同步工具相同的参数" }
@@ -574,26 +802,6 @@ pub fn definitions() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
-            name: "set_clip_mask",
-            description: "设置/移除静态蒙版（矩形/椭圆/线性渐变）。坐标与尺寸按画面归一化到 0..1；只对视频/图片生效。",
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "clipId": { "type": "string" },
-                    "remove": { "type": "boolean", "description": "true 时移除蒙版" },
-                    "shape": { "enum": ["rect", "ellipse", "linear"] },
-                    "x": { "type": "number", "minimum": 0, "maximum": 1 },
-                    "y": { "type": "number", "minimum": 0, "maximum": 1 },
-                    "width": { "type": "number", "minimum": 0.01, "maximum": 1 },
-                    "height": { "type": "number", "minimum": 0.01, "maximum": 1 },
-                    "feather": { "type": "number", "minimum": 0, "maximum": 0.5 },
-                    "angle": { "type": "number", "minimum": 0, "maximum": 360 },
-                    "baseRevision": { "type": "integer", "minimum": 0 }
-                },
-                "required": ["clipId"]
-            }),
-        },
-        ToolDef {
             name: "set_clip_transition",
             description: "设置/移除片段入场或出场转场（fade / slide）。duration 以时间线秒为单位。",
             parameters: json!({
@@ -612,27 +820,30 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_clip_keyframes",
-            description: "设置/清空某个属性的关键帧。property: opacity / x / y / scale / rotation；时间相对片段起点。",
+            description: "整组替换片段的关键帧。每个关键帧记录该时刻的全部画面参数（opacity / x / y / scale / rotation），缺省字段沿用片段当前静态值；相邻关键帧之间自动线性插值。remove: true 清空全部关键帧。时间相对片段起点。",
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "clipId": { "type": "string" },
-                    "property": { "enum": ["opacity", "x", "y", "scale", "rotation"] },
-                    "remove": { "type": "boolean" },
+                    "remove": { "type": "boolean", "description": "true 时清空全部关键帧" },
                     "keyframes": {
                         "type": "array",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "time": { "type": "number", "minimum": 0 },
-                                "value": { "type": "number" }
+                                "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+                                "x": { "type": "number", "minimum": -100, "maximum": 100 },
+                                "y": { "type": "number", "minimum": -100, "maximum": 100 },
+                                "scale": { "type": "number", "minimum": 0.01, "maximum": 10 },
+                                "rotation": { "type": "number", "minimum": -360, "maximum": 360 }
                             },
-                            "required": ["time", "value"]
+                            "required": ["time"]
                         }
                     },
                     "baseRevision": { "type": "integer", "minimum": 0 }
                 },
-                "required": ["clipId", "property"]
+                "required": ["clipId"]
             }),
         },
         ToolDef {
@@ -774,6 +985,20 @@ pub fn definitions() -> Vec<ToolDef> {
                     "time": { "type": "number", "minimum": 0 },
                     "name": { "type": "string" },
                     "color": { "type": "string", "description": "#rrggbb" },
+                    "kind": { "enum": ["scene", "hit", "review", "chapter"] },
+                    "sceneId": { "type": "string" },
+                    "note": { "type": "string" },
+                    "severity": { "enum": ["blocker", "high", "medium", "low"] },
+                    "resolved": { "type": "boolean" },
+                    "bbox": {
+                        "type": "object",
+                        "properties": {
+                            "x": { "type": "number" }, "y": { "type": "number" },
+                            "width": { "type": "number" }, "height": { "type": "number" }
+                        }
+                    },
+                    "screenshot": { "type": "string" },
+                    "tags": { "type": "array", "items": { "type": "string" } },
                     "baseRevision": { "type": "integer", "minimum": 0 }
                 },
                 "required": ["time"]
@@ -789,6 +1014,14 @@ pub fn definitions() -> Vec<ToolDef> {
                     "time": { "type": "number", "minimum": 0 },
                     "name": { "type": "string" },
                     "color": { "type": "string" },
+                    "kind": { "enum": ["scene", "hit", "review", "chapter"] },
+                    "sceneId": { "type": "string" },
+                    "note": { "type": "string" },
+                    "severity": { "enum": ["blocker", "high", "medium", "low"] },
+                    "resolved": { "type": "boolean" },
+                    "bbox": { "type": ["object", "null"] },
+                    "screenshot": { "type": "string" },
+                    "tags": { "type": "array", "items": { "type": "string" } },
                     "baseRevision": { "type": "integer", "minimum": 0 }
                 },
                 "required": ["markerId"]
@@ -929,7 +1162,6 @@ fn macro_label(kind: &str) -> &'static str {
         "clip.ripple_delete" => "波纹删除",
         "clip.speed" => "变速",
         "clip.color" => "调色",
-        "clip.mask" => "蒙版",
         "clip.transition" => "转场",
         "clip.keyframes" => "关键帧",
         "marker.add" => "添加标记",
@@ -977,7 +1209,13 @@ async fn apply_clip_color(
         .ok_or_else(|| "缺少 clipId".to_string())?;
 
     let mut patch = serde_json::Map::new();
-    for key in ["brightness", "contrast", "saturation", "temperature", "tint"] {
+    for key in [
+        "brightness",
+        "contrast",
+        "saturation",
+        "temperature",
+        "tint",
+    ] {
         if let Some(value) = args.get(key) {
             patch.insert(key.to_string(), value.clone());
         }
@@ -999,7 +1237,7 @@ async fn apply_clip_color(
     ensure_ok(result)
 }
 
-/// 关键帧传数组；remove 时传 null 清空该属性。
+/// 关键帧整组替换；remove 时传 null 清空。
 async fn apply_clip_keyframes(
     bridge: &ProjectBridge,
     actor: &str,
@@ -1010,10 +1248,6 @@ async fn apply_clip_keyframes(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "缺少 clipId".to_string())?;
-    let property = args
-        .get("property")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "缺少 property".to_string())?;
     let keyframes = if args.get("remove").and_then(Value::as_bool) == Some(true) {
         Value::Null
     } else {
@@ -1027,7 +1261,7 @@ async fn apply_clip_keyframes(
         actor,
         json!({
             "kind": "clip.keyframes",
-            "payload": { "clipId": clip_id, "property": property, "keyframes": keyframes },
+            "payload": { "clipId": clip_id, "keyframes": keyframes },
             "baseRevision": base,
             "label": macro_label("clip.keyframes"),
         }),
@@ -1083,46 +1317,6 @@ async fn apply_clip_transition(
     ensure_ok(result)
 }
 
-/// 蒙版参数是扁平的，`remove: true` 时传 null。
-async fn apply_clip_mask(
-    bridge: &ProjectBridge,
-    actor: &str,
-    args: &Value,
-) -> Result<Value, String> {
-    let clip_id = args
-        .get("clipId")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "缺少 clipId".to_string())?;
-
-    let mask = if args.get("remove").and_then(Value::as_bool) == Some(true) {
-        Value::Null
-    } else {
-        let mut mask = serde_json::Map::new();
-        for key in ["shape", "x", "y", "width", "height", "feather", "angle"] {
-            if let Some(value) = args.get(key) {
-                mask.insert(key.to_string(), value.clone());
-            }
-        }
-        Value::Object(mask)
-    };
-
-    let base = base_revision(bridge, args).await?;
-    let command = prepare_command_value(
-        actor,
-        json!({
-            "kind": "clip.mask",
-            "payload": { "clipId": clip_id, "mask": mask },
-            "baseRevision": base,
-            "label": macro_label("clip.mask"),
-        }),
-    )?;
-    let result = bridge
-        .request("project.apply", json!({ "command": command }))
-        .await?;
-    ensure_ok(result)
-}
-
 /// 标记更新需要把扁平参数收进 `patch`，和其他命令保持同样的 payload 形状。
 async fn apply_marker_update(
     bridge: &ProjectBridge,
@@ -1136,7 +1330,19 @@ async fn apply_marker_update(
         .ok_or_else(|| "缺少 markerId".to_string())?;
 
     let mut patch = serde_json::Map::new();
-    for key in ["time", "name", "color"] {
+    for key in [
+        "time",
+        "name",
+        "color",
+        "kind",
+        "sceneId",
+        "note",
+        "severity",
+        "resolved",
+        "bbox",
+        "screenshot",
+        "tags",
+    ] {
         if let Some(value) = args.get(key) {
             patch.insert(key.to_string(), value.clone());
         }
@@ -1246,7 +1452,6 @@ pub async fn dispatch_with_cancel(
         "append_clip" => apply_macro(bridge, actor, "clip.append", &args).await,
         "set_clip_speed" => apply_macro(bridge, actor, "clip.speed", &args).await,
         "set_clip_color" => apply_clip_color(bridge, actor, &args).await,
-        "set_clip_mask" => apply_clip_mask(bridge, actor, &args).await,
         "set_clip_transition" => apply_clip_transition(bridge, actor, &args).await,
         "set_clip_keyframes" => apply_clip_keyframes(bridge, actor, &args).await,
         "duplicate_clips" => apply_macro(bridge, actor, "clip.duplicate", &args).await,
@@ -1254,7 +1459,11 @@ pub async fn dispatch_with_cancel(
         "new_project" => bridge.request("project.new", args).await,
         "open_project" => bridge.request("project.open", args).await,
         "save_project" => bridge.request("project.save", args).await,
-        "import_subtitles" => bridge.request("subtitle.import", with_actor(actor, args)).await,
+        "import_subtitles" => {
+            bridge
+                .request("subtitle.import", with_actor(actor, args))
+                .await
+        }
         "export_subtitles" => bridge.request("subtitle.export", args).await,
         "add_marker" => apply_macro(bridge, actor, "marker.add", &args).await,
         "update_marker" => apply_marker_update(bridge, actor, &args).await,
@@ -1276,10 +1485,18 @@ pub async fn dispatch_with_cancel(
                 .to_ascii_lowercase();
             Ok(Value::String(help(&topic)))
         }
-        "extract_audio" => bridge.request("edit.extract_audio", with_actor(actor, args)).await,
+        "extract_audio" => {
+            bridge
+                .request("edit.extract_audio", with_actor(actor, args))
+                .await
+        }
         "list_ai_models" => bridge.request("ai.models.list", args).await,
         "cancel_ai" => bridge.request("ai.job.cancel", json!({})).await,
-        "job_start" => bridge.request("ai.job.start", with_actor(actor, args)).await,
+        "job_start" => {
+            bridge
+                .request("ai.job.start", with_actor(actor, args))
+                .await
+        }
         "job_status" => bridge.request("ai.job.status", args).await,
         "job_cancel" => bridge.request("ai.job.cancel", args).await,
         "transcribe" => run_ai_job(bridge, actor, "transcribe", args, cancel).await,
@@ -1298,7 +1515,18 @@ pub async fn dispatch_with_cancel(
             run_ai_job(bridge, actor, "export", args, cancel).await
         }
         "render_frame" => bridge.request("export.frame", args).await,
-        "render_storyboard" => bridge.request("export.storyboard", args).await,
+        "render_storyboard" => run_ai_job(bridge, actor, "storyboard", args, cancel).await,
+        "render_range" => run_ai_job(bridge, actor, "render_range", args, cancel).await,
+        "render_manifest" => run_ai_job(bridge, actor, "render_manifest", args, cancel).await,
+        "compare_takes" => run_ai_job(bridge, actor, "compare_takes", args, cancel).await,
+        "render_contact_sheet" => run_ai_job(bridge, actor, "contact_sheet", args, cancel).await,
+        "render_status" => bridge.request("render.status", args).await,
+        "import_film_manifest" => import_film_manifest(app, bridge, actor, &args).await,
+        "export_film_manifest" => bridge.request("film.export", args).await,
+        "add_review_note" => add_review_note(bridge, actor, &args).await,
+        "list_review_notes" => list_review_notes(bridge, &args).await,
+        "update_review_note" => update_review_note(bridge, actor, &args).await,
+        "remove_review_note" => apply_macro(bridge, actor, "marker.remove", &args).await,
         "download_model" => run_ai_job(bridge, actor, "download_model", args, cancel).await,
         "import_asset" => import_asset(app, bridge, actor, &args).await,
         "probe_media" => probe_media_tool(app, &args).await,
@@ -1437,7 +1665,8 @@ fn sanitize_file_name(name: &str) -> String {
     let cleaned: String = name
         .chars()
         .map(|value| {
-            if value.is_control() || matches!(value, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            if value.is_control()
+                || matches!(value, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
             {
                 '_'
             } else {
@@ -1452,7 +1681,10 @@ fn sanitize_file_name(name: &str) -> String {
     trimmed.chars().take(80).collect()
 }
 
-fn export_extension(format: Option<&str>, output_path: Option<&str>) -> Result<&'static str, String> {
+fn export_extension(
+    format: Option<&str>,
+    output_path: Option<&str>,
+) -> Result<&'static str, String> {
     match format {
         Some("mp4") => Ok("mp4"),
         Some("prores") => Ok("mov"),
@@ -1573,10 +1805,7 @@ async fn probe_media_tool(app: &AppHandle, args: &Value) -> Result<Value, String
             .unwrap_or(false),
         objects: ObjectMode::parse(args.get("objects").and_then(Value::as_str))?,
         interval: args.get("interval").and_then(Value::as_f64),
-        max_samples: args
-            .get("maxSamples")
-            .and_then(Value::as_u64)
-            .unwrap_or(60) as usize,
+        max_samples: args.get("maxSamples").and_then(Value::as_u64).unwrap_or(60) as usize,
         model_id: args
             .get("modelId")
             .and_then(Value::as_str)
@@ -1609,8 +1838,23 @@ async fn import_asset(
         .map(str::to_string)
         .unwrap_or_else(|| file_name(&path));
 
-    let asset = json!({
-        "id": uuid::Uuid::new_v4().to_string(),
+    let asset_id = uuid::Uuid::new_v4().to_string();
+
+    // 派生缩略图：和前端 importAssetAt 一样尽力而为，失败只退化为纯色占位。
+    let at_sec = if kind == "image" {
+        0.0
+    } else {
+        (meta.duration / 2.0).min(1.0)
+    };
+    let thumb = match make_thumbnail(app.clone(), path.clone(), asset_id.clone(), at_sec).await {
+        Ok(file) => cache_dir(app)
+            .ok()
+            .map(|dir| dir.join(file).to_string_lossy().into_owned()),
+        Err(_) => None,
+    };
+
+    let mut asset = json!({
+        "id": asset_id,
         "name": name,
         "kind": kind,
         "src": path,
@@ -1621,6 +1865,9 @@ async fn import_asset(
         "hasAudio": meta.has_audio,
         "addedAt": now_millis(),
     });
+    if let Some(thumb) = thumb {
+        asset["thumb"] = json!(thumb);
+    }
 
     let revision = current_revision(bridge).await?;
     let command = json!({
@@ -1639,6 +1886,210 @@ async fn import_asset(
             .await?,
     )?;
     Ok(json!({ "asset": asset, "result": result }))
+}
+
+fn truncate_text(text: &str, max: usize) -> String {
+    let cleaned = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if cleaned.chars().count() <= max {
+        cleaned
+    } else {
+        format!("{}…", cleaned.chars().take(max).collect::<String>())
+    }
+}
+
+/// film.json 里的相对路径按 manifest 所在目录解析。
+fn manifest_side_path(base: &Path, value: &str) -> PathBuf {
+    let candidate = Path::new(value);
+    if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        base.join(candidate)
+    }
+}
+
+/// 读 manifest、探测 take、把原始清单交给前端建命令。
+async fn import_film_manifest(
+    app: &AppHandle,
+    bridge: &ProjectBridge,
+    actor: &str,
+    args: &Value,
+) -> Result<Value, String> {
+    let path = args
+        .get("path")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "缺少 path".to_string())?
+        .to_string();
+    let text =
+        std::fs::read_to_string(&path).map_err(|error| format!("读取 film.json 失败：{error}"))?;
+    let raw: Value =
+        serde_json::from_str(&text).map_err(|error| format!("film.json 解析失败：{error}"))?;
+    let base_dir = Path::new(&path)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+
+    let mut assets = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    if let Some(scenes) = raw.get("scenes").and_then(Value::as_array) {
+        for scene in scenes {
+            let Some(take) = scene.get("take").and_then(Value::as_str) else {
+                continue;
+            };
+            if take.trim().is_empty() {
+                continue;
+            }
+            let take_path = manifest_side_path(&base_dir, take);
+            let display = take_path.to_string_lossy().to_string();
+            if !seen.insert(display.clone()) || !take_path.exists() {
+                continue;
+            }
+            let Some(kind) = kind_from_path(&display) else {
+                continue;
+            };
+            let Ok(meta) = crate::media::probe_media(app.clone(), display.clone()).await else {
+                continue;
+            };
+            assets.push(json!({
+                "path": display,
+                "kind": kind,
+                "duration": meta.duration,
+                "width": meta.width,
+                "height": meta.height,
+                "fps": meta.fps,
+                "hasAudio": meta.has_audio,
+            }));
+        }
+    }
+
+    let revision = match args.get("baseRevision").and_then(Value::as_u64) {
+        Some(value) => value,
+        None => current_revision(bridge).await?,
+    };
+    let payload = json!({
+        "path": path,
+        "text": text,
+        "assets": assets,
+        "mode": args.get("mode").cloned().unwrap_or_else(|| json!("replace")),
+        "trackName": args.get("trackName").cloned().unwrap_or_else(|| json!("Scenes")),
+        "conform": args.get("conform").and_then(Value::as_bool).unwrap_or(false),
+        "baseRevision": revision,
+        "actor": "agent",
+        "sessionId": actor,
+        "label": "导入 film.json",
+    });
+    bridge.request("film.import", payload).await
+}
+
+async fn add_review_note(
+    bridge: &ProjectBridge,
+    actor: &str,
+    args: &Value,
+) -> Result<Value, String> {
+    let time = args
+        .get("time")
+        .and_then(Value::as_f64)
+        .ok_or_else(|| "需要 time（秒）".to_string())?;
+    if time < 0.0 {
+        return Err("time 不能为负".into());
+    }
+    let text = args
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "需要非空 text".to_string())?;
+
+    let marker_id = uuid::Uuid::new_v4().to_string();
+    let severity = args.get("severity").and_then(Value::as_str);
+    let name = match severity {
+        Some(level) => format!("[{level}] {}", truncate_text(text, 40)),
+        None => truncate_text(text, 40),
+    };
+    let mut payload = json!({
+        "id": marker_id,
+        "time": time,
+        "name": name,
+        "kind": "review",
+        "note": text,
+    });
+    for key in ["severity", "sceneId", "bbox", "screenshot", "tags", "color"] {
+        if let Some(value) = args.get(key) {
+            payload[key] = value.clone();
+        }
+    }
+    if args.get("resolved").and_then(Value::as_bool) == Some(true) {
+        payload["resolved"] = json!(true);
+    }
+
+    let command = json!({
+        "id": uuid::Uuid::new_v4().to_string(),
+        "baseRevision": base_revision(bridge, args).await?,
+        "actor": "agent",
+        "sessionId": actor,
+        "kind": "marker.add",
+        "payload": payload,
+        "label": format!("审片批注：{}", truncate_text(text, 24)),
+        "timestamp": now_millis(),
+    });
+    let result = ensure_ok(
+        bridge
+            .request("project.apply", json!({ "command": command }))
+            .await?,
+    )?;
+    Ok(json!({
+        "markerId": marker_id,
+        "revision": result.get("revision").cloned().unwrap_or(Value::Null),
+        "result": result,
+    }))
+}
+
+async fn update_review_note(
+    bridge: &ProjectBridge,
+    actor: &str,
+    args: &Value,
+) -> Result<Value, String> {
+    let marker_id = args
+        .get("markerId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "需要 markerId".to_string())?;
+    let mut patch = serde_json::Map::new();
+    if let Some(value) = args.get("text") {
+        patch.insert("note".into(), value.clone());
+    }
+    for key in ["severity", "resolved", "bbox", "screenshot", "tags", "time"] {
+        if let Some(value) = args.get(key) {
+            patch.insert(key.into(), value.clone());
+        }
+    }
+    if patch.is_empty() {
+        return Err("没有要修改的字段".into());
+    }
+
+    let command = json!({
+        "id": uuid::Uuid::new_v4().to_string(),
+        "baseRevision": base_revision(bridge, args).await?,
+        "actor": "agent",
+        "sessionId": actor,
+        "kind": "marker.update",
+        "payload": { "markerId": marker_id, "patch": Value::Object(patch) },
+        "label": "更新审片批注",
+        "timestamp": now_millis(),
+    });
+    ensure_ok(
+        bridge
+            .request("project.apply", json!({ "command": command }))
+            .await?,
+    )
+}
+
+async fn list_review_notes(bridge: &ProjectBridge, args: &Value) -> Result<Value, String> {
+    let mut payload = args.clone();
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("noteOnly".into(), json!(true));
+    }
+    bridge.request("note.list", payload).await
 }
 
 #[cfg(test)]
@@ -1691,7 +2142,6 @@ mod tests {
             "append_clip",
             "set_clip_speed",
             "set_clip_color",
-            "set_clip_mask",
             "set_clip_transition",
             "set_clip_keyframes",
             "duplicate_clips",
@@ -1724,9 +2174,40 @@ mod tests {
             "job_start",
             "job_status",
             "job_cancel",
+            "import_film_manifest",
+            "export_film_manifest",
+            "add_review_note",
+            "list_review_notes",
+            "update_review_note",
+            "remove_review_note",
+            "render_range",
+            "render_status",
+            "render_manifest",
+            "compare_takes",
+            "render_contact_sheet",
         ] {
             assert!(names.contains(&required), "missing tool: {required}");
         }
+    }
+
+    #[test]
+    fn resolves_manifest_relative_paths() {
+        let base = Path::new("/tmp/film");
+        assert_eq!(
+            manifest_side_path(base, "renders/s01.mp4"),
+            PathBuf::from("/tmp/film/renders/s01.mp4")
+        );
+        assert_eq!(
+            manifest_side_path(base, "/abs/s01.mp4"),
+            PathBuf::from("/abs/s01.mp4")
+        );
+    }
+
+    #[test]
+    fn truncates_review_note_titles() {
+        assert_eq!(truncate_text("  a   b  ", 20), "a b");
+        let long = "一二三四五六七八九十";
+        assert_eq!(truncate_text(long, 4), "一二三四…");
     }
 
     #[test]
@@ -1752,7 +2233,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("cut.mp4"), b"x").unwrap();
         let next = unique_output_path(&dir, "cut", "mp4");
-        assert_eq!(next.file_name().and_then(|name| name.to_str()), Some("cut-2.mp4"));
+        assert_eq!(
+            next.file_name().and_then(|name| name.to_str()),
+            Some("cut-2.mp4")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -6,12 +6,10 @@ import type {
   ExportResolution,
 } from "@/types/export";
 import type { Project } from "@/types/project";
-import { isVisible } from "@/core/playback/activeClips";
 import { t } from "@/i18n";
 import { buildExportPlan, resolveDimensions } from "./plan";
-import { dataUrlToBase64, renderTextLayerPng, textLayerName } from "./textLayer";
-import { maskLayerName, renderMaskLayerPng } from "./maskLayer";
-import { startExport, writeExportTextImage } from "./api";
+import { prepareLayers } from "./layers";
+import { startExport } from "./api";
 
 export interface RenderFrameOptions {
   time: number;
@@ -52,41 +50,24 @@ export async function renderFrame(
     gifColors: 256,
     gifDither: "sierra2_4a",
     gifLoop: 0,
+    // 单帧只输出画面：不编译音频链，避免 anullsrc/anull 未连接导致 ffmpeg 报错。
+    audio: false,
   };
-  const { width, height } = resolveDimensions(project, exportOptions);
+  const { width, height, fps } = resolveDimensions(project, exportOptions);
+  const { textImages, effectVideos } = await prepareLayers(
+    project,
+    width,
+    height,
+    { fps, fit: exportOptions.fit, fitAnchor: exportOptions.fitAnchor },
+  );
 
-  const textImages = new Map<string, string>();
-  for (const track of project.tracks) {
-    if (!isVisible(track)) continue;
-    for (const clip of track.clips) {
-      const text = (clip.text ?? "").trim();
-      if (text === "" || !(clip.duration > 0)) continue;
-      const dataUrl = renderTextLayerPng(clip, width, height, project.height);
-      if (!dataUrl) throw new Error(t("export.frameTextFailed"));
-      const imagePath = await writeExportTextImage(
-        textLayerName(clip.id, width, height),
-        dataUrlToBase64(dataUrl),
-      );
-      textImages.set(clip.id, imagePath);
-    }
-  }
-
-  const maskImages = new Map<string, string>();
-  for (const track of project.tracks) {
-    if (!isVisible(track)) continue;
-    for (const clip of track.clips) {
-      if (!clip.mask) continue;
-      const dataUrl = renderMaskLayerPng(clip, width, height);
-      if (!dataUrl) continue;
-      const imagePath = await writeExportTextImage(
-        maskLayerName(clip.id),
-        dataUrlToBase64(dataUrl),
-      );
-      maskImages.set(clip.id, imagePath);
-    }
-  }
-
-  const plan = buildExportPlan(project, exportOptions, textImages, options.outputPath, maskImages);
+  const plan = buildExportPlan(
+    project,
+    exportOptions,
+    textImages,
+    options.outputPath,
+    effectVideos,
+  );
   if (!(options.time >= 0 && options.time <= plan.duration)) {
     throw new Error(t("export.frameTimeInvalid"));
   }

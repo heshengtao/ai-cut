@@ -6,7 +6,15 @@ import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 
 /** 右侧面板可打开的窗口类型；后续新增面板只需在此登记。 */
-export type PaneId = "media" | "inspector" | "ops" | "agent" | "ai" | "models";
+export type PaneId =
+  | "media"
+  | "inspector"
+  | "ops"
+  | "agent"
+  | "ai"
+  | "models"
+  | "plugins"
+  | "pluginEditor";
 
 /** 设置页分区。 */
 export type SettingsSection =
@@ -38,6 +46,9 @@ export type PreviewQuality = "auto" | "high" | "medium" | "low";
 /** 工作区布局：横屏 = 预览上 / 时间线下；竖屏 = 预览左 / 时间线右。 */
 export type LayoutMode = "landscape" | "portrait";
 
+/** 下载管理器的子页。 */
+export type DownloadSection = "models" | "plugins";
+
 const PREVIEW_ASPECTS: PreviewAspect[] = [
   "project",
   "16:9",
@@ -53,13 +64,26 @@ const PREVIEW_ASPECTS: PreviewAspect[] = [
 const PREVIEW_QUALITIES: PreviewQuality[] = ["auto", "high", "medium", "low"];
 
 /** 全部可用面板的元数据（供「新建标签」选择器展示）。 */
-export const PANES: { id: PaneId; labelKey: string; hintKey: string }[] = [
+export const PANES: {
+  id: PaneId;
+  labelKey: string;
+  hintKey: string;
+  /** 不出现在「+」面板选择器和空态列表里；只能由其他面板跳转打开。 */
+  hidden?: boolean;
+}[] = [
   { id: "media", labelKey: "panel.media", hintKey: "panel.mediaHint" },
   { id: "inspector", labelKey: "panel.inspector", hintKey: "panel.inspectorHint" },
   { id: "ops", labelKey: "panel.ops", hintKey: "panel.opsHint" },
   { id: "agent", labelKey: "panel.agent", hintKey: "panel.agentHint" },
   { id: "ai", labelKey: "panel.ai", hintKey: "panel.aiHint" },
   { id: "models", labelKey: "panel.models", hintKey: "panel.modelsHint" },
+  { id: "plugins", labelKey: "panel.plugins", hintKey: "panel.pluginsHint" },
+  {
+    id: "pluginEditor",
+    labelKey: "panel.pluginEditor",
+    hintKey: "panel.pluginEditorHint",
+    hidden: true,
+  },
 ];
 
 /** 右侧面板宽度下限（px）：标签栏与属性行需要的最小呼吸空间。 */
@@ -91,6 +115,10 @@ interface Persisted {
 const KEY = "ai-cut-layout";
 
 const VALID_PANES: PaneId[] = PANES.map((p) => p.id);
+/** 隐藏面板只能由其他面板跳转打开，不在持久化的标签栏里恢复。 */
+const HIDDEN_PANES = new Set(
+  PANES.filter((pane) => pane.hidden).map((pane) => pane.id),
+);
 
 function load(): Partial<Persisted> {
   try {
@@ -103,7 +131,7 @@ function load(): Partial<Persisted> {
 function sanitizeTabs(value: unknown): PaneId[] {
   if (!Array.isArray(value)) return ["media", "inspector"];
   const tabs = value.filter((v): v is PaneId => VALID_PANES.includes(v as PaneId));
-  return tabs;
+  return tabs.filter((id) => !HIDDEN_PANES.has(id));
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -118,7 +146,7 @@ export const useLayoutStore = defineStore("layout", () => {
   const panelWidth = ref(clamp(saved.panelWidth ?? 360, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH));
   const tabs = ref<PaneId[]>(sanitizeTabs(saved.tabs));
   const activeTab = ref<PaneId>(
-    saved.activeTab && VALID_PANES.includes(saved.activeTab)
+    saved.activeTab && tabs.value.includes(saved.activeTab)
       ? saved.activeTab
       : (tabs.value[0] ?? "media"),
   );
@@ -141,6 +169,8 @@ export const useLayoutStore = defineStore("layout", () => {
   const previewRatio = ref(
     clamp(saved.previewRatio ?? 0.34, MIN_PREVIEW_RATIO, MAX_PREVIEW_RATIO),
   );
+  /** 下载管理器当前子页（不持久化）。 */
+  const downloadSection = ref<DownloadSection>("models");
   /** 全屏设置页是否开启（不持久化：下次启动回到工作区）。 */
   const settingsOpen = ref(false);
   /** 打开设置页时定位到哪个分区（不持久化）。 */
@@ -210,6 +240,16 @@ export const useLayoutStore = defineStore("layout", () => {
     previewRatio.value = clamp(previewRatio.value, MIN_PREVIEW_RATIO, MAX_PREVIEW_RATIO);
   }
 
+  function setDownloadSection(section: DownloadSection): void {
+    downloadSection.value = section;
+  }
+
+  /** 打开下载管理器并切到指定子页。 */
+  function openDownloads(section: DownloadSection = "models"): void {
+    downloadSection.value = section;
+    openTab("models");
+  }
+
   /** 打开全屏设置页；可指定分区（如智能体跳转到 AI 设置）。 */
   function openSettings(section?: SettingsSection): void {
     if (section) settingsSection.value = section;
@@ -270,11 +310,14 @@ export const useLayoutStore = defineStore("layout", () => {
     previewQuality,
     layoutMode,
     previewRatio,
+    downloadSection,
     settingsOpen,
     settingsSection,
     hasTabs,
     openTab,
     closeTab,
+    setDownloadSection,
+    openDownloads,
     resizePanel,
     resizeTimeline,
     resizePreview,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 媒体库面板：真实素材 + 文本预设，原生导入，拖拽到时间线。 */
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   MagnifyingGlassIcon,
   PlusIcon,
@@ -29,6 +29,7 @@ import {
 } from "@/core/subtitleActions";
 import { addAsset, addClip, addTrack, removeAsset, setClipTextStyle } from "@/core/ops";
 import { createClip } from "@/core/factory";
+import { cachedThumbnail } from "@/core/thumbnails";
 import { snapToFrame } from "@/core/time";
 import { TEXT_PRESET_SECONDS, type TextPreset } from "@/core/textPresets";
 import { clearDragPayload, setDragPayload } from "@/core/dragPayload";
@@ -194,6 +195,13 @@ const entries = computed<LibraryEntry[]>(() => {
   return [...textEntries, ...assetEntries];
 });
 
+// agent 通过 MCP / film.json 导入的素材没有缩略图，打开媒体库时按需补齐。
+watch(
+  () => project.doc.assets,
+  () => project.backfillThumbnails(),
+  { immediate: true },
+);
+
 const kindIcon = { video: FilmIcon, audio: MusicalNoteIcon, image: PhotoIcon };
 
 const textThumb = {
@@ -202,16 +210,17 @@ const textThumb = {
 
 /** 素材缩略图 / 占位渐变；图片没有缓存缩略图时直接用原图。 */
 function thumbStyle(asset: MediaAsset): Record<string, string> {
+  const thumb = asset.thumb ?? cachedThumbnail(asset.id);
   if (asset.kind === "image") {
     // 用 cover 填满预览框：比例不一致时裁切边缘，不拉伸也不留黑边。
     return {
-      backgroundImage: `url("${fileUrl(asset.thumb ?? asset.src)}")`,
+      backgroundImage: `url("${fileUrl(thumb ?? asset.src)}")`,
       backgroundSize: "cover",
       backgroundRepeat: "no-repeat",
       backgroundPosition: "center",
     };
   }
-  if (asset.thumb) return { backgroundImage: `url("${fileUrl(asset.thumb)}")` };
+  if (thumb) return { backgroundImage: `url("${fileUrl(thumb)}")` };
   return { background: "linear-gradient(140deg, #2c1f4d 0%, #7c4a76 45%, #e79a76 100%)" };
 }
 

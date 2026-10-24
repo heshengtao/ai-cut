@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.2-1A6CFF?style=flat-square" alt="Version 0.2.2">
+  <img src="https://img.shields.io/badge/version-0.2.3-1A6CFF?style=flat-square" alt="Version 0.2.3">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-1A6CFF?style=flat-square" alt="License: Apache-2.0"></a>
   <img src="https://img.shields.io/badge/platforms-Windows%20/%20macOS%20/%20Linux-1A6CFF?style=flat-square" alt="Platforms: Windows, macOS, Linux">
 </p>
@@ -41,6 +41,7 @@ Being small is a feature, not a compromise.
 - **Fast to start** — nothing heavyweight loads at boot; AI models are pulled in only when you use them.
 - **Heavy AI stays where it belongs** — generation is deliberately external. Your AI harness can generate or source footage, then hand the files to AI Cut for editing, captioning, mixing, and export.
 - **Built to be extended** — every edit is a serializable command, so new editing operations do not need a new CLI or MCP tool.
+- **OFX plugin manager** — the download manager handles installed / external / available OpenFX plugins, search, import, updates and removal; the OFX plugins pane opens the interface of an installed plugin. Free/open-source entries come from the [AI Cut OFX Registry](https://github.com/heshengtao/ai-cut-ofx-registry), with SHA-256 verification. GPL/AGPL entries may download from the author's upstream release, but the app never hosts or bundles their binaries. The native host (`crates/ofx-host`, CLI `ofx-host probe|render`) loads OFX 1.5.1 bundles at the input size; clips can carry an `effects[]` chain managed in the inspector, with parameters edited in a dedicated Parameters pane, previewed when paused, and baked for export.
 
 ## Drive it from any AI harness
 
@@ -103,6 +104,7 @@ The AI features are built for real sessions, not demos. Point them at a clip and
 - **Audio AI** — loudness matching, denoise, vocal polish, source separation, audio translation
 - **Video AI** — super resolution, frame interpolation, smart reframing, camera tracking
 - **Media probe** — one call returns metadata, motion/cut samples, face/person boxes, and a local transcript
+- **Review loop** — `film.json` import, structured review notes (`severity`, `sceneId`, `resolved`), dirty-segment detection, range re-rendering with a content-hash cache, take comparison (SSIM + side-by-side frames), and contact sheets
 - **Offline by design** — the editor and its local models need no account and no upload
 
 ### 🔌 MCP server & clip agent — Let an AI agent work in your session

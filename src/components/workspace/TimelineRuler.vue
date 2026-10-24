@@ -1,8 +1,27 @@
 <script setup lang="ts">
 /** 时间线标尺：按缩放生成刻度，点击/拖动定位播放头。 */
 import { computed } from "vue";
-import type { Marker } from "@/types/project";
+import type { Marker, ReviewSeverity } from "@/types/project";
 import { formatTimecode } from "@/core/time";
+
+const SEVERITY_COLORS: Record<ReviewSeverity, string> = {
+  blocker: "#d32f2f",
+  high: "#f57c00",
+  medium: "#f9a825",
+  low: "#1976d2",
+};
+
+function markerColor(marker: Marker): string | undefined {
+  if (marker.color) return marker.color;
+  return marker.severity ? SEVERITY_COLORS[marker.severity] : undefined;
+}
+
+function markerTitle(marker: Marker): string {
+  const prefix = marker.severity ? `[${marker.severity}] ` : "";
+  const note = marker.note ? `\n${marker.note}` : "";
+  const resolved = marker.resolved ? "\n✓" : "";
+  return `${prefix}${marker.name}${note}${resolved}`;
+}
 
 const props = defineProps<{
   duration: number;
@@ -49,8 +68,11 @@ function seekFromEvent(event: PointerEvent): void {
       v-for="marker in markers ?? []"
       :key="marker.id"
       class="marker"
-      :style="{ left: `${marker.time * pxPerSecond}px` }"
-      :title="marker.name"
+      :style="{
+        left: `${marker.time * pxPerSecond}px`,
+        opacity: marker.resolved ? 0.45 : 1,
+      }"
+      :title="markerTitle(marker)"
       :aria-label="marker.name"
       @pointerdown.stop
       @click.stop="emit('seek', marker.time)"
@@ -59,7 +81,7 @@ function seekFromEvent(event: PointerEvent): void {
     >
       <span
         class="marker-pin"
-        :style="marker.color ? { backgroundColor: marker.color } : undefined"
+        :style="markerColor(marker) ? { backgroundColor: markerColor(marker) } : undefined"
       />
       <span class="marker-name">{{ marker.name }}</span>
     </button>

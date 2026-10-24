@@ -10,16 +10,10 @@ import type { ExportOptions } from "@/types/export";
 import { EXPORT_FORMATS } from "@/types/export";
 import { buildExportPlan, collectUsedAssets, resolveDimensions } from "@/core/export/plan";
 import { safeFileName } from "@/core/export/escape";
-import {
-  cancelExport,
-  onExportProgress,
-  startExport,
-  writeExportTextImage,
-} from "@/core/export/api";
-import { dataUrlToBase64, renderTextLayerPng, textLayerName } from "@/core/export/textLayer";
-import { maskLayerName, renderMaskLayerPng } from "@/core/export/maskLayer";
+import { cancelExport, onExportProgress, startExport } from "@/core/export/api";
+import { prepareLayers } from "@/core/export/layers";
 import { pathExists, pickExportPath } from "@/core/media";
-import { isVisible, projectDuration } from "@/core/playback/activeClips";
+import { projectDuration } from "@/core/playback/activeClips";
 import { useProjectStore } from "@/stores/project";
 import { toast } from "@/composables/useToast";
 import { t } from "@/i18n";
@@ -57,7 +51,8 @@ export const useExportStore = defineStore("export", () => {
   /** 当前设置对应的输出规格（未导出时也用于 UI 摘要）。 */
   const outputSpec = computed(() => resolveDimensions(project.doc, options));
 
-  async function ensureProgressListener(): Promise<void> {
+  /** 供区间渲染等非 ExportModal 路径复用同一份进度监听。 */
+  async function listenProgress(): Promise<void> {
     if (unlisten) return;
     unlisten = await onExportProgress((p) => {
       progress.value = p.fraction;
@@ -99,38 +94,20 @@ export const useExportStore = defineStore("export", () => {
 
       // 文字片段先用 Canvas 渲染成透明 PNG，导出时作为叠层使用。
       const spec = outputSpec.value;
-      const textImages = new Map<string, string>();
-      for (const track of doc.tracks) {
-        if (!isVisible(track)) continue;
-        for (const clip of track.clips) {
-          const text = (clip.text ?? "").trim();
-          if (text === "" || !(clip.duration > 0)) continue;
-          const dataUrl = renderTextLayerPng(clip, spec.width, spec.height, doc.height);
-          if (!dataUrl) throw new Error(t("export.textRenderFailed"));
-          const imagePath = await writeExportTextImage(
-            textLayerName(clip.id, spec.width, spec.height),
-            dataUrlToBase64(dataUrl),
-          );
-          textImages.set(clip.id, imagePath);
-        }
-      }
+      const { textImages, effectVideos } = await prepareLayers(
+        doc,
+        spec.width,
+        spec.height,
+        { fps: spec.fps, fit: options.fit, fitAnchor: options.fitAnchor },
+      );
 
-      const maskImages = new Map<string, string>();
-      for (const track of doc.tracks) {
-        if (!isVisible(track)) continue;
-        for (const clip of track.clips) {
-          if (!clip.mask) continue;
-          const dataUrl = renderMaskLayerPng(clip, spec.width, spec.height);
-          if (!dataUrl) continue;
-          const imagePath = await writeExportTextImage(
-            maskLayerName(clip.id),
-            dataUrlToBase64(dataUrl),
-          );
-          maskImages.set(clip.id, imagePath);
-        }
-      }
-
-      const plan = buildExportPlan(doc, { ...options }, textImages, path, maskImages);
+      const plan = buildExportPlan(
+        doc,
+        { ...options },
+        textImages,
+        path,
+        effectVideos,
+      );
       warnings.value = plan.warnings;
 
       duration.value = plan.duration;
@@ -140,7 +117,7 @@ export const useExportStore = defineStore("export", () => {
       status.value = "exporting";
       cancelRequested = false;
 
-      await ensureProgressListener();
+      await listenProgress();
       await startExport({
         inputs: plan.inputs,
         filterGraph: plan.filterGraph,
@@ -200,6 +177,7 @@ export const useExportStore = defineStore("export", () => {
     outputSpec,
     openDialog,
     closeDialog,
+    listenProgress,
     start,
     cancel,
   };

@@ -353,22 +353,14 @@ fn create_recognizer(
         ModelFamily::SenseVoice => {
             // `use_itn` 同时打开数字归一化与标点，正是字幕需要的形态。
             config.model_config.sense_voice = OfflineSenseVoiceModelConfig {
-                model: Some(
-                    dir.join("model.int8.onnx")
-                        .to_string_lossy()
-                        .into_owned(),
-                ),
+                model: Some(dir.join("model.int8.onnx").to_string_lossy().into_owned()),
                 language: Some(sense_voice_language(language)),
                 use_itn: true,
             };
         }
         ModelFamily::Paraformer => {
             config.model_config.paraformer = OfflineParaformerModelConfig {
-                model: Some(
-                    dir.join("model.int8.onnx")
-                        .to_string_lossy()
-                        .into_owned(),
-                ),
+                model: Some(dir.join("model.int8.onnx").to_string_lossy().into_owned()),
             };
         }
         ModelFamily::Vad => return Err("VAD 模型不能用于识别".into()),
@@ -421,8 +413,22 @@ fn is_cjk_context(ch: char) -> bool {
     is_cjk(ch)
         || matches!(
             ch,
-            '，' | '。' | '！' | '？' | '；' | '：' | '、' | '（' | '）' | '《' | '》' | '“'
-                | '”' | '‘' | '’' | '…' | '—'
+            '，' | '。'
+                | '！'
+                | '？'
+                | '；'
+                | '：'
+                | '、'
+                | '（'
+                | '）'
+                | '《'
+                | '》'
+                | '“'
+                | '”'
+                | '‘'
+                | '’'
+                | '…'
+                | '—'
         )
 }
 
@@ -452,7 +458,10 @@ fn split_cues(text: &str, start: f64, end: f64) -> Vec<SubtitleCue> {
         return Vec::new();
     }
 
-    let total_chars: usize = pieces.iter().map(|piece| piece.chars().count().max(1)).sum();
+    let total_chars: usize = pieces
+        .iter()
+        .map(|piece| piece.chars().count().max(1))
+        .sum();
     let span = (end - start).max(0.2);
     let mut cursor = start;
     let mut cues = Vec::new();
@@ -483,8 +492,8 @@ fn split_long(text: &str, out: &mut Vec<String>) {
     let mut current = String::new();
     for ch in text.chars() {
         current.push(ch);
-        let should_break = matches!(ch, '，' | ',' | '、' | ' ')
-            && current.chars().count() >= MAX_CUE_CHARS / 2;
+        let should_break =
+            matches!(ch, '，' | ',' | '、' | ' ') && current.chars().count() >= MAX_CUE_CHARS / 2;
         if should_break || current.chars().count() >= MAX_CUE_CHARS {
             let piece = current.trim();
             if !piece.is_empty() {

@@ -17,7 +17,8 @@ import TimelineRuler from "./TimelineRuler.vue";
 import TrackHeader from "./TrackHeader.vue";
 import TimelineClip from "./TimelineClip.vue";
 import Tooltip from "@/components/common/Tooltip.vue";
-import ProjectDialog from "@/components/common/ProjectDialog.vue";
+import ReviewNoteDialog from "@/components/common/ReviewNoteDialog.vue";
+import type { MarkerPatch } from "@/core/ops";
 import CutIcon from "@/components/common/CutIcon.vue";
 import { useProjectStore } from "@/stores/project";
 import { MAX_ZOOM, MIN_ZOOM, usePlaybackStore } from "@/stores/playback";
@@ -416,13 +417,13 @@ function onMarkerRename(marker: Marker): void {
   markerDialog.value = marker;
 }
 
-function submitMarkerRename(name: string): void {
+function submitMarkerEdit(patch: MarkerPatch): void {
   const marker = markerDialog.value;
   if (!marker) return;
-  project.dispatch((doc) => updateMarker(doc, marker.id, { name }), {
+  project.dispatch((doc) => updateMarker(doc, marker.id, patch), {
     kind: "marker.update",
-    payload: { markerId: marker.id, patch: { name } },
-    label: i18n.t("marker.renameLabel"),
+    payload: { markerId: marker.id, patch },
+    label: i18n.t("marker.editLabel"),
   });
   markerDialog.value = null;
 }
@@ -1036,13 +1037,10 @@ function onLaneDrop(event: DragEvent): void {
       </div>
     </div>
 
-    <ProjectDialog
+    <ReviewNoteDialog
       v-model:open="markerDialogOpen"
-      :initial-name="markerDialog?.name ?? ''"
-      :title="i18n.t('marker.renameTitle')"
-      :label="i18n.t('marker.nameLabel')"
-      :placeholder="i18n.t('marker.namePlaceholder')"
-      @submit="submitMarkerRename"
+      :marker="markerDialog"
+      @submit="submitMarkerEdit"
     />
   </section>
 </template>

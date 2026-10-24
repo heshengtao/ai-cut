@@ -50,6 +50,10 @@ pub struct NetworkConfig {
     pub model_source_preference: ModelSourcePreference,
     /// 本地 AI 执行后端偏好。
     pub backend_preference: BackendPreference,
+    /// OFX 注册表 URL（留空 = 用内置官方 raw 地址）。
+    pub plugin_registry_url: String,
+    /// OFX 注册表镜像（按顺序在官方源之前尝试）。
+    pub plugin_registry_mirrors: Vec<String>,
 }
 
 impl Default for NetworkConfig {
@@ -61,6 +65,8 @@ impl Default for NetworkConfig {
             download_prefix: String::new(),
             model_source_preference: ModelSourcePreference::Auto,
             backend_preference: BackendPreference::Cpu,
+            plugin_registry_url: String::new(),
+            plugin_registry_mirrors: Vec::new(),
         }
     }
 }
@@ -71,6 +77,13 @@ pub struct ModelSourceConfig {
     pub preference: ModelSourcePreference,
     pub mirrors: Vec<String>,
     pub download_prefix: String,
+}
+
+/// OFX 注册表源配置（设置页用）。
+#[derive(Debug, Clone, Serialize)]
+pub struct PluginRegistryConfig {
+    pub url: String,
+    pub mirrors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -364,6 +377,40 @@ pub fn model_set_source_config(
         preference: next.model_source_preference,
         mirrors: next.model_mirrors,
         download_prefix: next.download_prefix,
+    }
+}
+
+#[tauri::command]
+pub fn plugin_registry_config(
+    state: tauri::State<'_, Arc<NetworkRuntime>>,
+) -> PluginRegistryConfig {
+    let config = state.get();
+    PluginRegistryConfig {
+        url: config.plugin_registry_url,
+        mirrors: config.plugin_registry_mirrors,
+    }
+}
+
+#[tauri::command]
+pub fn plugin_set_registry_config(
+    state: tauri::State<'_, Arc<NetworkRuntime>>,
+    url: String,
+    mirrors: Vec<String>,
+) -> PluginRegistryConfig {
+    let current = state.get();
+    let next = NetworkConfig {
+        plugin_registry_url: url.trim().to_string(),
+        plugin_registry_mirrors: mirrors
+            .into_iter()
+            .map(|mirror| mirror.trim().to_string())
+            .filter(|mirror| !mirror.is_empty())
+            .collect(),
+        ..current
+    };
+    state.set(next.clone());
+    PluginRegistryConfig {
+        url: next.plugin_registry_url,
+        mirrors: next.plugin_registry_mirrors,
     }
 }
 

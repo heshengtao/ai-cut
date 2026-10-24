@@ -94,7 +94,8 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
   --win-reserve: 0px;
 }
 .app-root.win {
-  --win-reserve: 138px;
+  /* 三个 34px 圆形按钮 + 两个 1px 间距 + 右侧 12px 内边距 */
+  --win-reserve: 116px;
 }
 /* 窗口按钮层：贴窗口右上角，压在所有面板之上 */
 .win-layer {

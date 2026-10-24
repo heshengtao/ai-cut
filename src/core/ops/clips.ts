@@ -3,15 +3,11 @@ import type {
   BlendMode,
   Clip,
   ClipColor,
-  ClipMask,
   ClipShadow,
   ClipStroke,
   ClipTextStyle,
   ClipTransform,
   ClipTransition,
-  ClipKeyframes,
-  Keyframe,
-  KeyframeProperty,
   Project,
 } from "@/types/project";
 import { createClip } from "@/core/factory";
@@ -20,9 +16,12 @@ import {
   normalizeClipColor,
   resolveClipColor,
 } from "@/core/clipColor";
-import { DEFAULT_CLIP_MASK, normalizeClipMask } from "@/core/clipMask";
 import { normalizeClipTransition } from "@/core/clipTransition";
-import { normalizeKeyframes } from "@/core/keyframes";
+import {
+  baseKeyframeValues,
+  normalizeKeyframes,
+  type KeyframeInput,
+} from "@/core/keyframes";
 import {
   normalizeBlendMode,
   normalizeShadow,
@@ -477,25 +476,6 @@ export function setClipColor(
   return updateClip(doc, clipId, { color: next });
 }
 
-/** 静态蒙版：传 null 移除；只对视频/图片生效。 */
-export function setClipMask(
-  doc: Project,
-  clipId: string,
-  patch: Partial<ClipMask> | null,
-): Project {
-  const found = findClip(doc, clipId);
-  if (!found) return doc;
-  const asset = doc.assets.find((candidate) => candidate.id === found.clip.assetId);
-  if (!asset || (asset.kind !== "video" && asset.kind !== "image")) {
-    return patch === null ? (found.clip.mask === undefined ? doc : updateClip(doc, clipId, { mask: undefined })) : doc;
-  }
-  if (patch === null) {
-    return found.clip.mask === undefined ? doc : updateClip(doc, clipId, { mask: undefined });
-  }
-  const next = normalizeClipMask({ ...(found.clip.mask ?? DEFAULT_CLIP_MASK), ...patch });
-  return updateClip(doc, clipId, { mask: next });
-}
-
 /** 设置/移除片段入或出转场。 */
 export function setClipTransition(
   doc: Project,
@@ -529,29 +509,30 @@ export function setClipTransition(
     : updateClip(doc, clipId, { transitionOut: next });
 }
 
-/** 设置/清空某个属性的关键帧。 */
+/** 整组替换片段关键帧；传 null 清空。每帧记录该时刻的全部动画参数。 */
 export function setClipKeyframes(
   doc: Project,
   clipId: string,
-  property: KeyframeProperty,
-  keyframes: Keyframe[] | null,
+  keyframes: readonly KeyframeInput[] | null,
 ): Project {
   const found = findClip(doc, clipId);
   if (!found) return doc;
-  const current: ClipKeyframes = { ...(found.clip.keyframes ?? {}) };
-  const normalized =
-    keyframes === null
-      ? []
-      : normalizeKeyframes(keyframes, found.clip.duration, property);
-  if (normalized.length === 0) delete current[property];
-  else current[property] = normalized;
-
-  if (Object.keys(current).length === 0) {
+  if (keyframes === null) {
     return found.clip.keyframes === undefined
       ? doc
       : updateClip(doc, clipId, { keyframes: undefined });
   }
-  return updateClip(doc, clipId, { keyframes: current });
+  const normalized = normalizeKeyframes(
+    keyframes,
+    found.clip.duration,
+    baseKeyframeValues(found.clip),
+  );
+  if (normalized.length === 0) {
+    return found.clip.keyframes === undefined
+      ? doc
+      : updateClip(doc, clipId, { keyframes: undefined });
+  }
+  return updateClip(doc, clipId, { keyframes: normalized });
 }
 
 /** 变调（半音），范围 -12..12。 */

@@ -16,7 +16,7 @@ vi.mock("@/core/export/textLayer", () => ({
 import { startExport } from "@/core/export/api";
 import { renderFrame } from "@/core/export/frame";
 
-function fixture() {
+function fixture(hasAudio = false) {
   const track = addTrack(newProject("frame"));
   const trackId = track.tracks[0].id;
   const asset = createAsset({
@@ -25,6 +25,7 @@ function fixture() {
     kind: "video",
     src: "/tmp/a.mp4",
     duration: 10,
+    hasAudio,
   });
   const clip = createClip({ assetId: "a1", trackId, start: 0, duration: 4, in: 1 });
   let doc = addAsset(track, asset);
@@ -50,6 +51,21 @@ describe("renderFrame", () => {
     expect(job.outputArgs).toContain("2");
     expect(job.outputArgs[job.outputArgs.length - 1]).toBe("/tmp/frame.png");
     expect(job.filterGraph).toContain("overlay");
+    // 单帧只 map 视频：不能留下未连接的 anullsrc。
+    expect(job.filterGraph).not.toContain("anullsrc");
+    expect(job.filterGraph).not.toContain("[aout]");
+  });
+
+  it("does not build an audio graph even when the clip has audio", async () => {
+    const doc = fixture(true);
+    await renderFrame(doc, { time: 2, outputPath: "/tmp/frame-audio.png" });
+    const job = vi.mocked(startExport).mock.calls[0][0];
+
+    expect(job.filterGraph).not.toContain("anullsrc");
+    expect(job.filterGraph).not.toContain("anull");
+    expect(job.filterGraph).not.toContain("[aout]");
+    expect(job.filterGraph).not.toContain("aresample=48000");
+    expect(job.outputArgs).toContain("-an");
   });
 
   it("renders a custom-size cover frame", async () => {

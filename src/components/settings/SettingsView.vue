@@ -72,6 +72,10 @@ import {
   cloudTtsTest,
   cloudTtsVoices,
 } from "@/core/cloudTtsApi";
+import {
+  pluginRegistryConfig,
+  pluginSetRegistryConfig,
+} from "@/core/pluginApi";
 import { fileUrl } from "@/core/media";
 import {
   CUSTOM_OUTPUT,
@@ -125,7 +129,7 @@ const MODEL_SOURCE_PREFS: { id: ModelSourcePreference; labelKey: string }[] = [
   { id: "international", labelKey: "settings.store.sourceIntl" },
 ];
 
-const APP_VERSION = "0.2.2";
+const APP_VERSION = "0.2.3";
 
 const i18n = useI18n();
 const layout = useLayoutStore();
@@ -298,6 +302,10 @@ const proxyProbe = ref<ProxyProbe | null>(null);
 const proxySaving = ref(false);
 const proxySaved = ref(false);
 const proxyTesting = ref(false);
+const pluginRegistryUrl = ref("");
+const pluginRegistryMirrors = ref("");
+const pluginSaving = ref(false);
+const pluginSaved = ref(false);
 const proxySourceLabel = computed(
   () => proxyStatus.value?.source ?? i18n.t("settings.proxy.system"),
 );
@@ -966,6 +974,51 @@ async function loadModelSources(): Promise<void> {
   modelDownloadPrefix.value = models.downloadPrefix;
 }
 
+async function loadPluginRegistry(): Promise<void> {
+  try {
+    const config = await pluginRegistryConfig();
+    pluginRegistryUrl.value = config.url;
+    pluginRegistryMirrors.value = config.mirrors.join("\n");
+  } catch {
+    pluginRegistryUrl.value = "";
+    pluginRegistryMirrors.value = "";
+  }
+}
+
+async function savePluginRegistry(): Promise<void> {
+  if (pluginSaving.value) return;
+  pluginSaving.value = true;
+  pluginSaved.value = false;
+  try {
+    const config = await pluginSetRegistryConfig(
+      pluginRegistryUrl.value.trim(),
+      pluginRegistryMirrors.value
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
+    );
+    pluginRegistryUrl.value = config.url;
+    pluginRegistryMirrors.value = config.mirrors.join("\n");
+    pluginSaved.value = true;
+    toast(i18n.t("settings.plugins.saved"));
+  } catch (error) {
+    toast(
+      i18n.t("settings.plugins.saveFailed", {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      "error",
+    );
+  } finally {
+    pluginSaving.value = false;
+  }
+}
+
+async function resetPluginRegistry(): Promise<void> {
+  pluginRegistryUrl.value = "";
+  pluginRegistryMirrors.value = "";
+  await savePluginRegistry();
+}
+
 async function saveModelSources(): Promise<void> {
   if (sourceSaving.value) return;
   sourceSaving.value = true;
@@ -1176,6 +1229,7 @@ onMounted(() => {
   void loadMcp();
   void loadNetwork();
   void loadModelSources();
+  void loadPluginRegistry();
   void loadCloudTts();
   void loadCli();
 });
@@ -2011,6 +2065,51 @@ onMounted(() => {
                       : sourceSaved
                         ? i18n.t("settings.store.saved")
                         : i18n.t("settings.store.save")
+                  }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.plugins.group") }}</div>
+            <div class="card">
+              <div class="col-row">
+                <span class="row-title">{{ i18n.t("settings.plugins.url") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.plugins.urlHint") }}</span>
+                <input
+                  v-model="pluginRegistryUrl"
+                  class="net-input"
+                  type="text"
+                  spellcheck="false"
+                  :placeholder="i18n.t('settings.plugins.urlPlaceholder')"
+                />
+              </div>
+              <div class="col-row">
+                <span class="row-title">{{ i18n.t("settings.plugins.mirrors") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.plugins.mirrorsHint") }}</span>
+                <textarea
+                  v-model="pluginRegistryMirrors"
+                  class="net-input"
+                  rows="2"
+                  spellcheck="false"
+                  :placeholder="i18n.t('settings.plugins.mirrorsPlaceholder')"
+                />
+              </div>
+              <div class="col-row">
+                <span class="row-sub">{{ i18n.t("settings.plugins.saveHint") }}</span>
+              </div>
+              <div class="row actions-row">
+                <button class="scan-btn" :disabled="pluginSaving" @click="resetPluginRegistry">
+                  {{ i18n.t("settings.plugins.reset") }}
+                </button>
+                <button class="scan-btn primary" :disabled="pluginSaving" @click="savePluginRegistry">
+                  {{
+                    pluginSaving
+                      ? i18n.t("settings.plugins.saving")
+                      : pluginSaved
+                        ? i18n.t("settings.plugins.saved")
+                        : i18n.t("settings.plugins.save")
                   }}
                 </button>
               </div>

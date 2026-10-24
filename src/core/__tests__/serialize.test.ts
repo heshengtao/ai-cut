@@ -45,6 +45,36 @@ describe("parseProject validation", () => {
     expect("solo" in parsed.tracks[0]).toBe(false);
   });
 
+  it("migrates legacy per-property keyframes and drops masks", () => {
+    const p = addTrack(newProject());
+    const legacy = {
+      ...createClip({
+        assetId: "a1",
+        trackId: p.tracks[0].id,
+        start: 0,
+        duration: 4,
+      }),
+      mask: { shape: "rect", x: 0, y: 0, width: 1, height: 1 },
+      keyframes: {
+        opacity: [
+          { time: 0, value: 0 },
+          { time: 2, value: 1 },
+        ],
+        x: [{ time: 1, value: 10 }],
+      },
+    };
+    p.tracks[0].clips.push(legacy as never);
+
+    const parsed = parseProject(JSON.stringify(p));
+    const clip = parsed.tracks[0].clips[0];
+    expect("mask" in clip).toBe(false);
+    expect(clip.keyframes).toEqual([
+      { time: 0, opacity: 0, x: 10, y: 0, scale: 1, rotation: 0 },
+      { time: 1, opacity: 0.5, x: 10, y: 0, scale: 1, rotation: 0 },
+      { time: 2, opacity: 1, x: 10, y: 0, scale: 1, rotation: 0 },
+    ]);
+  });
+
   it("rejects a document with the wrong version", () => {
     expect(() => parseProject(JSON.stringify({ ...newProject(), version: 99 }))).toThrow(/version/i);
   });

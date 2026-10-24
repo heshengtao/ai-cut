@@ -7,6 +7,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { join } from "@tauri-apps/api/path";
 import type { Command, CommandResult } from "@/types/events";
 import { isCommandKind } from "@/types/events";
 import { EXPORT_ANCHORS } from "@/types/export";
@@ -20,9 +21,15 @@ import * as views from "@/core/projectView";
 import { newProject as makeProject } from "@/core/factory";
 import { setProjectOutput } from "@/core/ops";
 import { serializeProject } from "@/core/serialize";
-import { writeProjectFile } from "@/core/media";
+import { readTextFile, writeProjectFile, writeTextFile } from "@/core/media";
 import { renderFrame } from "@/core/export/frame";
 import { renderStoryboard } from "@/core/export/storyboard";
+import { buildContactSheet } from "@/core/export/contactSheet";
+import { parseFilmManifest } from "@/core/film/manifest";
+import { buildManifestCommands } from "@/core/film/import";
+import { projectToManifest } from "@/core/film/export";
+import { renderManifest, renderRange, renderStatus } from "@/core/render/cache";
+import { compareTakes } from "@/core/render/compare";
 import { flushHistoryRecords, recordProjectHistory } from "@/core/history";
 import {
   collectSubtitleEntries,
@@ -112,6 +119,84 @@ function optionalAnchor(value: unknown): ExportAnchor | undefined {
     : undefined;
 }
 
+function dirOf(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const index = normalized.lastIndexOf("/");
+  return index > 0 ? normalized.slice(0, index) : ".";
+}
+
+async function renderManifestJob(
+  project: ReturnType<typeof useProjectStore>,
+  record: Record<string, unknown>,
+) {
+  let scenes: Array<{ id?: string; start: number; end: number }> = Array.isArray(record.scenes)
+    ? (record.scenes as Array<{ id?: string; start: number; end: number }>)
+    : [];
+  if (scenes.length === 0) {
+    const manifestPath = optionalString(record.manifestPath);
+    if (!manifestPath) throw new Error("render.manifest 需要 scenes 或 manifestPath");
+    const parsed = parseFilmManifest(
+      JSON.parse(await readTextFile(manifestPath)),
+      manifestPath,
+    );
+    scenes = parsed.manifest.scenes.map((scene) => ({
+      id: scene.id,
+      start: scene.t0,
+      end: scene.t1,
+    }));
+  }
+  return renderManifest(project.doc, {
+    scenes,
+    outputDir: optionalString(record.outputDir),
+    force: record.force === true,
+    cache: record.cache !== false,
+  });
+}
+
+async function contactSheet(
+  project: ReturnType<typeof useProjectStore>,
+  record: Record<string, unknown>,
+) {
+  const outputPath = optionalString(record.outputPath);
+  if (!outputPath) throw new Error("contact.sheet 需要 outputPath");
+  const frames = Array.isArray(record.frames)
+    ? record.frames.filter((frame): frame is string => typeof frame === "string")
+    : [];
+  let times = Array.isArray(record.times)
+    ? record.times.filter((time): time is number => typeof time === "number")
+    : [];
+
+  if (frames.length === 0) {
+    if (times.length === 0) {
+      const manifestPath = optionalString(record.manifestPath);
+      if (!manifestPath) {
+        throw new Error("contact.sheet 需要 frames / times / manifestPath 之一");
+      }
+      const parsed = parseFilmManifest(
+        JSON.parse(await readTextFile(manifestPath)),
+        manifestPath,
+      );
+      const mode = record.perScene === "start" ? "start" : record.perScene === "end" ? "end" : "mid";
+      times = parsed.manifest.scenes.map((scene) =>
+        mode === "start" ? scene.t0 : mode === "end" ? scene.t1 : (scene.t0 + scene.t1) / 2,
+      );
+    }
+    const frameDir = await join(dirOf(outputPath), `frames-${Date.now()}`);
+    for (let index = 0; index < times.length; index += 1) {
+      const path = await join(frameDir, `cell-${String(index + 1).padStart(3, "0")}.png`);
+      await renderFrame(project.doc, { time: times[index], outputPath: path });
+      frames.push(path);
+    }
+  }
+
+  return buildContactSheet(frames, {
+    outputPath,
+    cols: optionalNumber(record.cols),
+    cellWidth: optionalNumber(record.cellWidth),
+    times,
+  });
+}
+
 function currentOverview(project: ReturnType<typeof useProjectStore>) {
   return {
     ...views.overview(project.doc, project.revision),
@@ -170,6 +255,13 @@ async function handle(
       return views.markers(project.doc, project.revision, {
         from: optionalNumber(record.from),
         to: optionalNumber(record.to),
+        sceneId: optionalString(record.sceneId),
+        kind: optionalString(record.kind),
+        severity: optionalString(record.severity),
+        resolved: typeof record.resolved === "boolean" ? record.resolved : undefined,
+        noteOnly: record.noteOnly === true,
+        offset: optionalNumber(record.offset),
+        limit: optionalNumber(record.limit),
       });
     case "project.assets":
       return views.assetsPage(project.doc, project.revision, {
@@ -194,6 +286,7 @@ async function handle(
     case "project.apply": {
       const command = parseCommand(record.command);
       const result: CommandResult = project.applyCommand(command);
+      if (result.affected.assetIds.length > 0) project.backfillThumbnails();
       return result;
     }
     case "project.apply_batch": {
@@ -201,8 +294,10 @@ async function handle(
       if (!Array.isArray(raw) || raw.length === 0) {
         throw new Error("commands 必须是非空数组");
       }
-      if (raw.length > 200) throw new Error("一次最多应用 200 条命令");
-      return project.applyCommands(raw.map(parseCommand));
+      if (raw.length > 1000) throw new Error("一次最多应用 1000 条命令");
+      const result: CommandResult = project.applyCommands(raw.map(parseCommand));
+      if (result.affected.assetIds.length > 0) project.backfillThumbnails();
+      return result;
     }
     case "project.undo":
       project.undo();
@@ -297,6 +392,99 @@ async function handle(
       });
     }
 
+    case "note.list":
+      return views.markers(project.doc, project.revision, {
+        from: optionalNumber(record.from),
+        to: optionalNumber(record.to),
+        sceneId: optionalString(record.sceneId),
+        kind: optionalString(record.kind),
+        severity: optionalString(record.severity),
+        resolved: typeof record.resolved === "boolean" ? record.resolved : undefined,
+        noteOnly: record.noteOnly === true,
+        offset: optionalNumber(record.offset),
+        limit: optionalNumber(record.limit),
+      });
+
+    case "film.import": {
+      const path = optionalString(record.path);
+      const text = optionalString(record.text);
+      if (!path || !text) throw new Error("film.import 需要 path 与 text");
+      const parsed = parseFilmManifest(JSON.parse(text), path);
+      const mode = record.mode === "merge" ? "merge" : "replace";
+      const trackName = optionalString(record.trackName) ?? "Scenes";
+      const assets = Array.isArray(record.assets) ? record.assets : [];
+      const baseRevision = optionalNumber(record.baseRevision) ?? project.revision;
+      const { commands, summary } = buildManifestCommands(project.doc, parsed, {
+        mode,
+        trackName,
+        assets: assets as never,
+        baseRevision,
+        actor: record.actor === "human" ? "human" : "agent",
+        sessionId: optionalString(record.sessionId),
+        label: optionalString(record.label),
+        conform: record.conform === true,
+      });
+      if (commands.length === 0) {
+        return { ...summary, revision: project.revision, changed: false };
+      }
+      const result = project.applyCommands(commands);
+      if (!result.ok) throw new Error(result.error ?? "导入 film.json 失败");
+      project.backfillThumbnails();
+      return {
+        ...summary,
+        revision: result.revision,
+        trackId: result.affected.trackIds[0] ?? summary.trackId,
+        changed: result.changed,
+      };
+    }
+
+    case "film.export": {
+      const path = optionalString(record.path);
+      const baseDir = path
+        ? dirOf(path)
+        : project.filePath
+          ? dirOf(project.filePath)
+          : ".";
+      let previous: Record<string, unknown> | null = null;
+      if (path) {
+        try {
+          const parsed = JSON.parse(await readTextFile(path));
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            previous = parsed as Record<string, unknown>;
+          }
+        } catch {
+          previous = null;
+        }
+      }
+      const manifest = projectToManifest(project.doc, { baseDir, previous });
+      if (path) {
+        await writeTextFile(path, JSON.stringify(manifest, null, 2));
+      }
+      return { path: path ?? null, manifest, revision: project.revision };
+    }
+
+    case "render.range":
+      return renderRange(project.doc, record as never);
+    case "render.status":
+      return renderStatus(
+        project.doc,
+        Array.isArray(record.ranges) ? (record.ranges as never[]) : [],
+        {
+          resolution: record.resolution as never,
+          width: optionalNumber(record.width) ?? null,
+          height: optionalNumber(record.height) ?? null,
+          fps: optionalNumber(record.fps) ?? null,
+          fit: record.fit as never,
+          fitAnchor: optionalAnchor(record.fitAnchor),
+        },
+      );
+    case "render.manifest":
+      return renderManifestJob(project, record);
+    case "compare.takes":
+      return compareTakes(record as never);
+    case "contact.sheet":
+      return contactSheet(project, record);
+
     case "subtitle.import": {
       const path = optionalString(record.path);
       if (!path) throw new Error("需要 path");
@@ -361,6 +549,11 @@ const AI_JOB_KINDS = [
   "process_video",
   "export",
   "download_model",
+  "render_range",
+  "render_manifest",
+  "compare_takes",
+  "contact_sheet",
+  "storyboard",
 ] as const;
 
 type AiJobKind = (typeof AI_JOB_KINDS)[number];
@@ -382,6 +575,12 @@ let activeAiJob: string | null = null;
 
 function isAiJobKind(value: string): value is AiJobKind {
   return (AI_JOB_KINDS as readonly string[]).includes(value);
+}
+
+/** 渲染类任务共用导出进度；先挂监听，避免第一帧进度丢失。 */
+async function withRenderProgress<T>(task: () => Promise<T>): Promise<T> {
+  await useExportStore().listenProgress();
+  return task();
 }
 
 function runAiJob(kind: AiJobKind, params: Record<string, unknown>, job: AiJob): Promise<unknown> {
@@ -418,6 +617,20 @@ function runAiJob(kind: AiJobKind, params: Record<string, unknown>, job: AiJob):
       return ai.exportVideo(args, ctx);
     case "download_model":
       return ai.downloadModel(args, ctx);
+    case "render_range":
+      return withRenderProgress(() =>
+        renderRange(useProjectStore().doc, params as never),
+      );
+    case "render_manifest":
+      return withRenderProgress(() => renderManifestJob(useProjectStore(), params));
+    case "compare_takes":
+      return withRenderProgress(() => compareTakes(params as never));
+    case "contact_sheet":
+      return withRenderProgress(() => contactSheet(useProjectStore(), params));
+    case "storyboard":
+      return withRenderProgress(() =>
+        renderStoryboard(useProjectStore().doc, params as never),
+      );
   }
 }
 
@@ -484,6 +697,11 @@ function aiJobProgress(kind: AiJobKind): number {
     case "process_video":
       return useVideoDspStore().progress;
     case "export":
+    case "render_range":
+    case "render_manifest":
+    case "compare_takes":
+    case "contact_sheet":
+    case "storyboard":
       return useExportStore().progress;
     case "download_model":
       return (useModelsStore().progressPct ?? 0) / 100;

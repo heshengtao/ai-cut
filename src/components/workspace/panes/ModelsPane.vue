@@ -15,6 +15,7 @@ import {
 } from "@heroicons/vue/24/outline";
 import { useModelsStore } from "@/stores/models";
 import { useLayoutStore } from "@/stores/layout";
+import PluginManager from "./PluginManager.vue";
 import { useI18n } from "@/i18n";
 import { humanSize, missingBytes } from "@/utils/size";
 import { regionsLabel, sourceKindLabel } from "@/utils/modelSource";
@@ -96,12 +97,15 @@ onMounted(() => {
       <div class="head-main">
         <h2 class="title">{{ i18n.t("models.title") }}</h2>
         <p class="sub">
-          {{
-            i18n.t("models.sub", {
-              installed: installedCount,
-              total: models.catalog.length,
-            })
-          }}
+          <template v-if="layout.downloadSection === 'models'">
+            {{
+              i18n.t("models.sub", {
+                installed: installedCount,
+                total: models.catalog.length,
+              })
+            }}
+          </template>
+          <template v-else>{{ i18n.t("models.subPlugins") }}</template>
         </p>
       </div>
       <button
@@ -115,6 +119,28 @@ onMounted(() => {
       </button>
     </header>
 
+    <div class="download-tabs" role="tablist">
+      <button
+        class="download-tab"
+        :class="{ on: layout.downloadSection === 'models' }"
+        role="tab"
+        :aria-selected="layout.downloadSection === 'models'"
+        @click="layout.setDownloadSection('models')"
+      >
+        {{ i18n.t("models.tab.models") }}
+      </button>
+      <button
+        class="download-tab"
+        :class="{ on: layout.downloadSection === 'plugins' }"
+        role="tab"
+        :aria-selected="layout.downloadSection === 'plugins'"
+        @click="layout.setDownloadSection('plugins')"
+      >
+        {{ i18n.t("models.tab.plugins") }}
+      </button>
+    </div>
+
+    <template v-if="layout.downloadSection === 'models'">
     <div class="policy-row">
       <p class="policy">{{ i18n.t("models.bundlePolicy") }}</p>
       <button class="mini-btn" @click="layout.openSettings('network')">
@@ -282,6 +308,11 @@ onMounted(() => {
         {{ models.loading ? i18n.t("common.loading") : i18n.t("models.empty") }}
       </p>
     </div>
+    </template>
+
+    <template v-else>
+      <PluginManager />
+    </template>
   </div>
 </template>
 
@@ -314,6 +345,38 @@ onMounted(() => {
   margin: 3px 0 0;
   font-size: 11px;
   color: rgb(var(--md-on-surface-variant));
+}
+.download-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 14px 0;
+  padding: 3px;
+  border-radius: 999px;
+  background-color: rgb(var(--md-surface-container-high));
+}
+.download-tab {
+  flex: 1 1 0;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--md-on-surface-variant));
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.download-tab.on {
+  background-color: rgb(var(--md-secondary-container));
+  color: rgb(var(--md-on-secondary-container));
+}
+.plugin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px 0;
 }
 .policy-row {
   display: flex;

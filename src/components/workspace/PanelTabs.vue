@@ -3,7 +3,7 @@
  * 面板标签栏：标签 + 「+」打开选择器。
  * 作为顶栏的一部分渲染（与顶栏同一行），不再单独占一行。
  */
-import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   PlusIcon,
   XMarkIcon,
@@ -13,6 +13,7 @@ import {
   ChatBubbleLeftRightIcon,
   CpuChipIcon,
   ListBulletIcon,
+  PuzzlePieceIcon,
 } from "@heroicons/vue/24/outline";
 import Tooltip from "@/components/common/Tooltip.vue";
 import { PANES, useLayoutStore, type PaneId } from "@/stores/layout";
@@ -20,6 +21,7 @@ import { useI18n } from "@/i18n";
 
 const layout = useLayoutStore();
 const i18n = useI18n();
+const pickerPanes = computed(() => PANES.filter((pane) => !pane.hidden));
 const pickerOpen = ref(false);
 const pickerRoot = ref<HTMLElement | null>(null);
 const tabsEl = ref<HTMLElement | null>(null);
@@ -50,6 +52,8 @@ const ICONS: Record<PaneId, unknown> = {
   agent: ChatBubbleLeftRightIcon,
   ai: SparklesIcon,
   models: CpuChipIcon,
+  plugins: PuzzlePieceIcon,
+  pluginEditor: AdjustmentsHorizontalIcon,
 };
 
 function labelOf(id: PaneId): string {
@@ -119,10 +123,10 @@ onUnmounted(() => {
     </Tooltip>
 
     <transition name="pop">
-      <div v-if="pickerOpen" class="picker" role="menu">
+      <div v-if="pickerOpen" class="picker" role="menu" data-no-drag>
         <div class="picker-title">{{ i18n.t("panel.pickerTitle") }}</div>
         <button
-          v-for="p in PANES"
+          v-for="p in pickerPanes"
           :key="p.id"
           class="picker-item"
           role="menuitem"

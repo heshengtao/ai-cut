@@ -33,6 +33,7 @@ export interface ClipSummary {
   trackName: string;
   assetId: string;
   assetName: string | null;
+  sceneId?: string;
   kind: AssetKind | "text" | "missing";
   start: number;
   duration: number;
@@ -157,6 +158,7 @@ export function clipSummary(
     trackName: track.name,
     assetId: clip.assetId,
     assetName: asset?.name ?? null,
+    ...(clip.sceneId ? { sceneId: clip.sceneId } : {}),
     kind: clip.assetId === "" ? "text" : asset?.kind ?? "missing",
     start: clip.start,
     duration: clip.duration,
@@ -346,18 +348,47 @@ export function assetsPage(doc: Project, revision: number, query: AssetQuery) {
   };
 }
 
-export function markers(
-  doc: Project,
-  revision: number,
-  query: { from?: number; to?: number } = {},
-) {
+export interface MarkerQuery {
+  from?: number;
+  to?: number;
+  sceneId?: string;
+  kind?: string;
+  severity?: string;
+  resolved?: boolean;
+  noteOnly?: boolean;
+  offset?: number;
+  limit?: number;
+}
+
+export function markers(doc: Project, revision: number, query: MarkerQuery = {}) {
   const from = typeof query.from === "number" ? query.from : Number.NEGATIVE_INFINITY;
   const to = typeof query.to === "number" ? query.to : Number.POSITIVE_INFINITY;
   const list = doc.markers
     .filter((marker) => marker.time >= from && marker.time <= to)
+    .filter((marker) => (query.sceneId === undefined ? true : marker.sceneId === query.sceneId))
+    .filter((marker) => (query.kind === undefined ? true : marker.kind === query.kind))
+    .filter((marker) =>
+      query.severity === undefined ? true : marker.severity === query.severity,
+    )
+    .filter((marker) =>
+      query.resolved === undefined ? true : (marker.resolved === true) === query.resolved,
+    )
+    .filter((marker) => (query.noteOnly ? Boolean(marker.note) : true))
     .slice()
     .sort((a, b) => a.time - b.time || a.name.localeCompare(b.name));
-  return { revision, total: list.length, markers: list };
+
+  const offset = Math.min(clampOffset(query.offset), list.length);
+  const limit = clampPage(query.limit, 200, 1000);
+  const page = list.slice(offset, offset + limit);
+  return {
+    revision,
+    total: list.length,
+    offset,
+    limit,
+    hasMore: offset + page.length < list.length,
+    nextOffset: offset + page.length,
+    markers: page,
+  };
 }
 
 export function focusContext(doc: Project, revision: number, context: FocusContext) {

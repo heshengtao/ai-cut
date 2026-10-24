@@ -6,7 +6,6 @@ import {
   addClip,
   setClipColor,
   setClipKeyframes,
-  setClipMask,
   setClipOpacity,
   setClipSpeed,
   setClipTextStyle,
@@ -54,7 +53,6 @@ describe("copyClipAttributes", () => {
 
     expect(attrs.opacity).toBe(1);
     expect(attrs.transform).toEqual(DEFAULT_TRANSFORM);
-    expect(attrs.mask).toBeNull();
     expect(attrs.transitionIn).toBeNull();
     expect(attrs.transitionOut).toBeNull();
     expect(attrs.keyframes).toBeNull();
@@ -68,13 +66,6 @@ describe("applyClipAttributes", () => {
     let { doc, source, target } = setup();
     doc = setClipOpacity(doc, source.id, 0.5);
     doc = setClipColor(doc, source.id, { saturation: 1.5 });
-    doc = setClipMask(doc, source.id, {
-      shape: "ellipse",
-      x: 0.5,
-      y: 0.5,
-      width: 0.3,
-      height: 0.4,
-    });
     doc = setClipTransition(doc, source.id, "in", { type: "fade", duration: 0.5 });
 
     const attrs = copyClipAttributes(find(doc, source.id));
@@ -83,7 +74,6 @@ describe("applyClipAttributes", () => {
 
     expect(copied.opacity).toBe(0.5);
     expect(copied.color?.saturation).toBeCloseTo(1.5);
-    expect(copied.mask?.shape).toBe("ellipse");
     expect(copied.transitionIn?.type).toBe("fade");
     expect(copied.start).toBe(5);
     expect(copied.duration).toBe(2);
@@ -91,18 +81,16 @@ describe("applyClipAttributes", () => {
 
   it("clears effects that the source does not have", () => {
     let { doc, source, target } = setup();
-    doc = setClipMask(doc, target.id, { shape: "rect" });
     doc = setClipTransition(doc, target.id, "out", { type: "slide", duration: 0.5 });
-    doc = setClipKeyframes(doc, target.id, "opacity", [
-      { time: 0, value: 1 },
-      { time: 1, value: 0.2 },
+    doc = setClipKeyframes(doc, target.id, [
+      { time: 0, opacity: 1 },
+      { time: 1, opacity: 0.2 },
     ]);
 
     const attrs = copyClipAttributes(find(doc, source.id));
     const next = applyClipAttributes(doc, target.id, attrs);
     const copied = find(next, target.id);
 
-    expect(copied.mask).toBeUndefined();
     expect(copied.transitionOut).toBeUndefined();
     expect(copied.keyframes).toBeUndefined();
   });
@@ -113,13 +101,11 @@ describe("resetClipAttributes", () => {
     let { doc, source } = setup();
     doc = setClipSpeed(doc, source.id, 2);
     doc = setClipOpacity(doc, source.id, 0.3);
-    doc = setClipMask(doc, source.id, { shape: "rect" });
 
     const next = resetClipAttributes(doc, source.id);
     const clip = find(next, source.id);
 
     expect(clip.opacity).toBeUndefined();
-    expect(clip.mask).toBeUndefined();
     expect(clip.speed).toBe(2);
     expect(clip.duration).toBeCloseTo(2);
   });

@@ -55,12 +55,34 @@ function onRenameSubmit(name: string): void {
   actions.renameProject(name);
 }
 
-/** 顶栏空白处拖动窗口；双击最大化。按钮/输入框上不抢事件。 */
+/**
+ * 可交互元素上不能拖动窗口：Windows 下 `startDragging` 会进入系统移动循环，
+ * 吞掉随后的 mouseup/click。标签是 `div[role=tab]`，必须按角色排除，
+ * 否则点标签会被当成拖窗口，标签切不过去。
+ */
+const NO_DRAG_SELECTOR = [
+  "button",
+  "a",
+  "input",
+  "select",
+  "textarea",
+  "label",
+  "summary",
+  "[contenteditable='true']",
+  "[tabindex]:not([tabindex='-1'])",
+  "[role='tab']",
+  "[role='button']",
+  "[role='menuitem']",
+  "[role='menuitemradio']",
+  "[data-no-drag]",
+].join(", ");
+
+/** 顶栏空白处拖动窗口；双击最大化。交互控件上不抢事件。 */
 function onMouseDown(e: MouseEvent): void {
   if (!isTauri()) return;
   if (e.buttons !== 1) return;
   const target = e.target as HTMLElement;
-  if (target.closest("button, a, input, select, textarea")) return;
+  if (target.closest(NO_DRAG_SELECTOR)) return;
   const win = getCurrentWindow();
   if (e.detail === 2) {
     void win.toggleMaximize();
@@ -91,7 +113,7 @@ function onMouseDown(e: MouseEvent): void {
 
       <span class="bar-sep" />
 
-      <div class="name-block">
+      <div class="name-block" data-no-drag>
         <span class="name-strong" @dblclick="openRename">{{ projectName }}</span>
         <span v-if="project.dirty" class="name-dirty" :title="i18n.t('topbar.unsaved')" aria-hidden="true" />
       </div>
@@ -138,6 +160,8 @@ function onMouseDown(e: MouseEvent): void {
         <PanelTabs v-if="layout.showPanel" />
       </div>
       <BarActions />
+      <!-- 设置页隐藏了面板开关：补上窗口按钮的占位，避免动作按钮被覆盖 -->
+      <div v-if="layout.settingsOpen" class="win-reserve" aria-hidden="true" />
       <Tooltip
         v-if="!layout.settingsOpen"
         :text="layout.showPanel ? i18n.t('topbar.hidePanel') : i18n.t('topbar.showPanel')"
@@ -296,6 +320,11 @@ function onMouseDown(e: MouseEvent): void {
 }
 .portrait-toggle {
   margin-right: calc(12px + var(--win-reserve));
+}
+/* 竖屏设置页没有面板开关，用等宽占位保持与窗口按钮的间距 */
+.win-reserve {
+  flex: 0 0 auto;
+  width: calc(12px + var(--win-reserve));
 }
 
 /* 重命名按钮比普通图标按钮稍小，紧跟在工程名后面 */

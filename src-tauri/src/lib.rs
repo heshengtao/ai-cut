@@ -14,7 +14,9 @@ mod mcp;
 mod media;
 mod models;
 mod network;
+mod ofx;
 mod opener;
+mod plugins;
 mod project_io;
 mod sidecar;
 mod tools;
@@ -61,6 +63,7 @@ pub fn run() {
         .manage(video_dsp::VideoDspState::default())
         .invoke_handler(tauri::generate_handler![
             media::probe_media,
+            media::file_stamp,
             media::make_thumbnail,
             media::make_waveform,
             media::extract_audio_preview,
@@ -90,6 +93,8 @@ pub fn run() {
             network::network_probe,
             network::model_source_config,
             network::model_set_source_config,
+            network::plugin_registry_config,
+            network::plugin_set_registry_config,
             backend::ai_backend_info,
             backend::ai_set_backend,
             agent::agent_config,
@@ -113,6 +118,19 @@ pub fn run() {
             models::model_cancel,
             models::model_remove,
             models::model_reveal,
+            plugins::plugin_registry,
+            plugins::plugin_installed,
+            plugins::plugin_install,
+            plugins::plugin_cancel,
+            plugins::plugin_remove,
+            plugins::plugin_import,
+            plugins::plugin_reveal,
+            plugins::plugin_open,
+            ofx::ofx_probe,
+            ofx::ofx_render_frame,
+            ofx::ofx_render_preview,
+            ofx::ofx_bake_clip,
+            ofx::ofx_cancel_bake,
             asr::asr_transcribe,
             asr::asr_cancel,
             tts::tts_voices,

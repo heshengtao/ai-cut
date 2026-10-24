@@ -222,9 +222,7 @@ fn with_loaded<R>(
     model_id: &str,
     f: impl FnOnce(&mut Loaded) -> Result<R, String>,
 ) -> Result<R, String> {
-    let mut guard = cache()
-        .lock()
-        .map_err(|_| "朗读模型状态损坏".to_string())?;
+    let mut guard = cache().lock().map_err(|_| "朗读模型状态损坏".to_string())?;
     let reload = guard
         .as_ref()
         .map(|loaded| loaded.model_id != model_id)
@@ -273,8 +271,7 @@ fn meta_path(map: &HashMap<String, String>, key: &str, base: &Path) -> Result<Pa
 
 impl Loaded {
     fn load(app: &AppHandle, model_id: &str) -> Result<Self, String> {
-        let entry =
-            models::by_id(model_id).ok_or_else(|| format!("未知朗读模型：{model_id}"))?;
+        let entry = models::by_id(model_id).ok_or_else(|| format!("未知朗读模型：{model_id}"))?;
         if entry.family != models::ModelFamily::MossTtsNano {
             return Err(format!("{} 不是 MOSS TTS 模型", entry.name));
         }
@@ -286,8 +283,10 @@ impl Loaded {
 
         let manifest: Manifest = read_json(&dir.join("browser_poc_manifest.json"), "模型清单")?;
         let tts_meta: TtsMeta = read_json(&dir.join("tts_browser_onnx_meta.json"), "TTS 元数据")?;
-        let codec: CodecMeta =
-            read_json(&codec_dir.join("codec_browser_onnx_meta.json"), "音频 Tokenizer 元数据")?;
+        let codec: CodecMeta = read_json(
+            &codec_dir.join("codec_browser_onnx_meta.json"),
+            "音频 Tokenizer 元数据",
+        )?;
 
         if !tts_meta.files.contains_key("local_fixed_sampled_frame") {
             return Err("当前 ONNX 模型不包含逐帧采样图，暂不支持".into());
@@ -302,8 +301,11 @@ impl Loaded {
 
         let prefill = new_session(&meta_path(&tts_meta.files, "prefill", &dir)?)?;
         let decode = new_session(&meta_path(&tts_meta.files, "decode_step", &dir)?)?;
-        let local_frame =
-            new_session(&meta_path(&tts_meta.files, "local_fixed_sampled_frame", &dir)?)?;
+        let local_frame = new_session(&meta_path(
+            &tts_meta.files,
+            "local_fixed_sampled_frame",
+            &dir,
+        )?)?;
         let codec_encode = new_session(&meta_path(&codec.files, "encode", &codec_dir)?)?;
         let codec_decode = new_session(&meta_path(&codec.files, "decode_full", &codec_dir)?)?;
 
@@ -505,10 +507,7 @@ impl Loaded {
             .run(vec![
                 (
                     "input_ids".to_string(),
-                    tensor_i32(
-                        vec![1, total_rows as i64, row_width as i64],
-                        flat,
-                    )?,
+                    tensor_i32(vec![1, total_rows as i64, row_width as i64], flat)?,
                 ),
                 (
                     "attention_mask".to_string(),
@@ -580,10 +579,7 @@ impl Loaded {
                     ),
                     (
                         "repetition_seen_mask".to_string(),
-                        tensor_i32(
-                            vec![1, config.n_vq as i64, codebook as i64],
-                            repetition,
-                        )?,
+                        tensor_i32(vec![1, config.n_vq as i64, codebook as i64], repetition)?,
                     ),
                     (
                         "assistant_random_u".to_string(),
@@ -633,9 +629,7 @@ impl Loaded {
                 ),
             ];
             for name in decode_input_names.iter().skip(2) {
-                let tensor = past
-                    .get(name)
-                    .ok_or_else(|| format!("缺少缓存：{name}"))?;
+                let tensor = past.get(name).ok_or_else(|| format!("缺少缓存：{name}"))?;
                 feeds.push((name.clone(), tensor.into()));
             }
 
@@ -680,10 +674,7 @@ impl Loaded {
             .run(vec![
                 (
                     "audio_codes".to_string(),
-                    tensor_i32(
-                        vec![1, frames.len() as i64, n_vq as i64],
-                        codes,
-                    )?,
+                    tensor_i32(vec![1, frames.len() as i64, n_vq as i64], codes)?,
                 ),
                 (
                     "audio_code_lengths".to_string(),
@@ -882,8 +873,7 @@ fn run_synthesis(
                 Some(format!("正在朗读 {}/{}", index + 1, items.len())),
             );
 
-            let (pcm, sample_rate, channels) =
-                loaded.synthesize_item(text, &prompt, cancel)?;
+            let (pcm, sample_rate, channels) = loaded.synthesize_item(text, &prompt, cancel)?;
             let path = dir.join(format!(
                 "tts-{}-{}-{}.wav",
                 now_millis(),
@@ -971,10 +961,7 @@ fn extract_last_hidden(value: &DynValue) -> Result<(Vec<f32>, Vec<i64>), String>
                 return Err("隐藏状态形状异常".into());
             }
             let start = (sequence - 1) * hidden;
-            Ok((
-                data[start..start + hidden].to_vec(),
-                vec![1, hidden as i64],
-            ))
+            Ok((data[start..start + hidden].to_vec(), vec![1, hidden as i64]))
         }
         _ => Err(format!("不支持的隐藏状态形状：{dims:?}")),
     }
@@ -1063,10 +1050,7 @@ fn split_sentences(text: &str) -> Vec<String> {
     let mut chars = text.chars().peekable();
     while let Some(character) = chars.next() {
         current.push(character);
-        if matches!(
-            character,
-            '。' | '！' | '？' | '；' | '.' | '!' | '?' | ';'
-        ) {
+        if matches!(character, '。' | '！' | '？' | '；' | '.' | '!' | '?' | ';') {
             while let Some(&next) = chars.peek() {
                 if matches!(
                     next,
@@ -1114,7 +1098,11 @@ fn split_chunks(tokenizer: &SpTokenizer, text: &str, max_tokens: usize) -> Vec<S
         if current.is_empty() {
             current.push_str(sentence);
         } else {
-            let separator = if needs_space(&current, sentence) { " " } else { "" };
+            let separator = if needs_space(&current, sentence) {
+                " "
+            } else {
+                ""
+            };
             let merged = format!("{current}{separator}{sentence}");
             if tokenizer.count(&merged) <= max_tokens {
                 current = merged;
@@ -1131,7 +1119,10 @@ fn split_chunks(tokenizer: &SpTokenizer, text: &str, max_tokens: usize) -> Vec<S
 }
 
 fn needs_space(left: &str, right: &str) -> bool {
-    let left = left.chars().rev().find(|character| !character.is_whitespace());
+    let left = left
+        .chars()
+        .rev()
+        .find(|character| !character.is_whitespace());
     let right = right.chars().find(|character| !character.is_whitespace());
     matches!(
         (left, right),
@@ -1578,7 +1569,8 @@ pub(crate) fn write_wav(
     file.write_all(b"RIFF").map_err(|error| error.to_string())?;
     file.write_all(&(36 + data_bytes).to_le_bytes())
         .map_err(|error| error.to_string())?;
-    file.write_all(b"WAVEfmt ").map_err(|error| error.to_string())?;
+    file.write_all(b"WAVEfmt ")
+        .map_err(|error| error.to_string())?;
     file.write_all(&16u32.to_le_bytes())
         .map_err(|error| error.to_string())?;
     file.write_all(&1u16.to_le_bytes())
@@ -1732,9 +1724,10 @@ mod tests {
     /// 通过 MOSS_TTS_DIR / MOSS_CODEC_DIR 指向两个模型目录；未设置时跳过。
     #[test]
     fn real_model_smoke() {
-        let (Ok(tts_dir), Ok(codec_dir)) =
-            (std::env::var("MOSS_TTS_DIR"), std::env::var("MOSS_CODEC_DIR"))
-        else {
+        let (Ok(tts_dir), Ok(codec_dir)) = (
+            std::env::var("MOSS_TTS_DIR"),
+            std::env::var("MOSS_CODEC_DIR"),
+        ) else {
             return;
         };
         let tts_dir = PathBuf::from(tts_dir);
@@ -1744,13 +1737,17 @@ mod tests {
             read_json(&tts_dir.join("browser_poc_manifest.json"), "模型清单").unwrap();
         let tts_meta: TtsMeta =
             read_json(&tts_dir.join("tts_browser_onnx_meta.json"), "TTS 元数据").unwrap();
-        let codec: CodecMeta =
-            read_json(&codec_dir.join("codec_browser_onnx_meta.json"), "编解码元数据").unwrap();
+        let codec: CodecMeta = read_json(
+            &codec_dir.join("codec_browser_onnx_meta.json"),
+            "编解码元数据",
+        )
+        .unwrap();
         let tokenizer = SpTokenizer::load(&tts_dir.join("tokenizer.model")).unwrap();
 
         let mut loaded = Loaded {
             model_id: "smoke".into(),
-            prefill: new_session(&meta_path(&tts_meta.files, "prefill", &tts_dir).unwrap()).unwrap(),
+            prefill: new_session(&meta_path(&tts_meta.files, "prefill", &tts_dir).unwrap())
+                .unwrap(),
             decode: new_session(&meta_path(&tts_meta.files, "decode_step", &tts_dir).unwrap())
                 .unwrap(),
             local_frame: new_session(
@@ -1788,9 +1785,11 @@ mod tests {
             channels
         );
 
-        let energy: f64 =
-            pcm.iter().map(|sample| (*sample as f64) * (*sample as f64)).sum::<f64>()
-                / pcm.len() as f64;
+        let energy: f64 = pcm
+            .iter()
+            .map(|sample| (*sample as f64) * (*sample as f64))
+            .sum::<f64>()
+            / pcm.len() as f64;
         assert!(energy > 1.0, "生成的音频几乎是静音：{energy}");
 
         // 参考音频路径：把刚生成的音频当作音色参考，走一遍 codec encoder。

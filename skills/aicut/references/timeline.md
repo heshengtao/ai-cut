@@ -41,16 +41,14 @@
 
 ```json
 {"kind":"clip.color","baseRevision":14,"payload":{"clipId":"...","patch":{"brightness":0.1,"saturation":1.2}}}
-{"kind":"clip.mask","baseRevision":15,"payload":{"clipId":"...","mask":{"shape":"ellipse","x":0.2,"y":0.1,"width":0.6,"height":0.8,"feather":0.1}}}
 {"kind":"clip.transition","baseRevision":16,"payload":{"clipId":"...","edge":"in","transition":{"type":"fade","duration":0.5}}}
-{"kind":"clip.keyframes","baseRevision":17,"payload":{"clipId":"...","property":"scale","keyframes":[{"time":0,"value":1},{"time":2,"value":1.2}]}}
+{"kind":"clip.keyframes","baseRevision":17,"payload":{"clipId":"...","keyframes":[{"time":0,"opacity":1,"x":0,"y":0,"scale":1,"rotation":0},{"time":2,"opacity":0.5,"x":10,"y":0,"scale":1.2,"rotation":0}]}}
 ```
 
 - 调色：`brightness` -1..1、`contrast` 0..2、`saturation` 0..3、`temperature`/`tint` -1..1。
-- 蒙版：`shape` = `rect` / `ellipse` / `linear`；坐标按画面归一化到 0..1。只对视频/图片生效。
 - 转场：`edge` = `in` / `out`；`type` = `fade` / `slide`；`slide` 支持 `left/right/up/down`。这是片段入/出动画，不是重叠式交叉淡化。
-- 关键帧：`property` = `opacity` / `x` / `y` / `scale` / `rotation`；`time` 相对片段起点。传 `null` 清空。
-- 对应工具：`set_clip_color` / `set_clip_mask` / `set_clip_transition` / `set_clip_keyframes`。
+- 关键帧：每个关键帧记录该时刻的全部画面参数 `opacity` / `x` / `y` / `scale` / `rotation`；`time` 相对片段起点，缺省字段沿用片段静态值，相邻帧之间线性插值。传 `null` 清空。
+- 对应工具：`set_clip_color` / `set_clip_transition` / `set_clip_keyframes`。
 - 预览是近似实现；需要确认最终效果时用 `render_frame` / `render_storyboard`。
 
 ### 确定性宏

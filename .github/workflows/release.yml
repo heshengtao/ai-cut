@@ -171,6 +171,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # 完整历史 + tag，用来按 git 提交生成更新日志。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -178,6 +183,12 @@ jobs:
 
       - name: List collected artifacts
         run: ls -la artifacts
+
+      - name: Generate release notes from git
+        run: node scripts/release-notes.mjs
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
 
       - name: Generate latest.json for the updater
         run: |
@@ -202,9 +213,12 @@ jobs:
           add('darwin-aarch64', '.app.tar.gz', '.app.tar.gz.sig', 'macos-arm64');
           add('linux-x86_64', 'linux-amd64.AppImage', 'linux-amd64.AppImage.sig');
           add('linux-aarch64', 'linux-arm64.AppImage', 'linux-arm64.AppImage.sig');
+          const notes = fs.existsSync('updater-notes.txt')
+            ? fs.readFileSync('updater-notes.txt', 'utf8').trim()
+            : 'See the release notes on GitHub.';
           fs.writeFileSync('artifacts/latest.json', JSON.stringify({
             version: tag.replace(/^v/, ''),
-            notes: 'See the release notes on GitHub.',
+            notes,
             pub_date: new Date().toISOString(),
             platforms,
           }, null, 2));
@@ -220,34 +234,5 @@ jobs:
           draft: false
           prerelease: false
           fail_on_unmatched_files: false
-          body: |
-            ## 📦 Downloads
-
-            👉 [Windows — installer (.msi)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/AI-Cut-${{ github.ref_name }}-windows-amd64.msi)
-
-            👉 [Windows — setup (.exe)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/AI-Cut-${{ github.ref_name }}-windows-amd64-setup.exe)
-
-            👉 [macOS — Apple Silicon (.dmg)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/AI-Cut-${{ github.ref_name }}-macos-arm64.dmg)
-
-            👉 [Linux — x86_64 (.AppImage)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/AI-Cut-${{ github.ref_name }}-linux-amd64.AppImage)
-
-            👉 [Linux — x86_64 (.deb)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/AI-Cut-${{ github.ref_name }}-linux-amd64.deb)
-
-            👉 [Linux — arm64 (.AppImage)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/AI-Cut-${{ github.ref_name }}-linux-arm64.AppImage)
-
-            👉 [Linux — arm64 (.deb)](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/AI-Cut-${{ github.ref_name }}-linux-arm64.deb)
-
-            ## ⚠️ macOS: "App is damaged" / 「App 已损坏，无法打开」
-
-            **EN:** The app is ad-hoc signed (not notarized), so macOS quarantines downloads. Run this in Terminal, then open the app normally:
-
-            **中文：** 应用为自签名（未公证），从网络下载会带隔离属性。在终端执行以下命令后即可正常打开：
-
-            ```bash
-            xattr -cr "/Applications/AI Cut.app"
-            ```
-
-            ## 🔄 Auto-update
-
-            Installed apps check this release's `latest.json` and update in place (Settings → About → Check for updates).
+          body_path: release-body.md
           files: artifacts/*

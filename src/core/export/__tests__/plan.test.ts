@@ -5,6 +5,7 @@ import type { ExportOptions } from "@/types/export";
 import type { Project } from "@/types/project";
 import {
   buildExportPlan,
+  clipWindowOf,
   collectUsedAssets,
   hasExportableText,
   resolveDimensions,
@@ -149,23 +150,6 @@ describe("color grading", () => {
   });
 });
 
-describe("masks", () => {
-  it("adds a mask input and alphamerge filter", () => {
-    const { doc, topClip } = fixture();
-    const plan = buildExportPlan(
-      doc,
-      MP4,
-      NO_TEXT,
-      "/tmp/out.mp4",
-      new Map([[topClip.id, "/tmp/mask.png"]]),
-    );
-
-    expect(plan.inputs).toContain("/tmp/mask.png");
-    expect(plan.filterGraph).toContain("alphamerge");
-    expect(plan.filterGraph).toMatch(/\[mask\d+\]/);
-  });
-});
-
 describe("transitions", () => {
   it("adds alpha fades and slide expressions", () => {
     const { doc, topClip } = fixture();
@@ -185,20 +169,10 @@ describe("keyframes", () => {
   it("emits animated overlay, scale and alpha expressions", () => {
     const { doc, topClip } = fixture();
     const keyed = updateClip(doc, topClip.id, {
-      keyframes: {
-        x: [
-          { time: 0, value: 0 },
-          { time: 2, value: 20 },
-        ],
-        scale: [
-          { time: 0, value: 1 },
-          { time: 2, value: 1.2 },
-        ],
-        opacity: [
-          { time: 0, value: 0.2 },
-          { time: 2, value: 1 },
-        ],
-      },
+      keyframes: [
+        { time: 0, opacity: 0.2, x: 0, y: 0, scale: 1, rotation: 0 },
+        { time: 2, opacity: 1, x: 20, y: 0, scale: 1.2, rotation: 0 },
+      ],
     });
     const plan = buildExportPlan(keyed, MP4, NO_TEXT);
 
@@ -481,6 +455,20 @@ describe("buildExportPlan — output profiles", () => {
     expect(plan.outputArgs.at(-1)).toBe("/tmp/out.mp4");
   });
 
+  it("omits the audio graph when audio is false (still renders)", () => {
+    const { doc } = fixture();
+    const plan = buildExportPlan(
+      doc,
+      { ...MP4, audio: false },
+      NO_TEXT,
+      "/tmp/out.mp4",
+    );
+    expect(plan.filterGraph).not.toContain("[aout]");
+    expect(plan.filterGraph).not.toContain("anullsrc");
+    expect(plan.outputArgs).toContain("-an");
+    expect(plan.outputArgs).not.toContain("");
+  });
+
   it("maps quality to CRF", () => {
     const { doc } = fixture();
     expect(
@@ -590,5 +578,109 @@ describe("buildExportPlan — validation", () => {
     expect(() => buildExportPlan(newProject(), MP4, NO_TEXT, "/tmp/out.mp4")).toThrow(
       /时间线为空/,
     );
+  });
+});
+
+describe("clipWindowOf", () => {
+  it("maps a clip into window-local time", () => {
+    const track = createTrack("V1");
+    const clip = createClip({
+      assetId: "a",
+      trackId: track.id,
+      start: 10,
+      duration: 4,
+      in: 2,
+    });
+    const win = clipWindowOf({ ...clip, speed: 2 }, 2, { start: 12, end: 14 });
+    expect(win).toEqual({
+      localStart: 0,
+      localDuration: 2,
+      localIn: 6,
+      sourceDuration: 4,
+      offsetIntoClip: 2,
+      cutsHead: true,
+      cutsTail: false,
+    });
+  });
+
+  it("returns null when the clip does not intersect the window", () => {
+    const track = createTrack("V1");
+    const clip = createClip({ assetId: "a", trackId: track.id, start: 0, duration: 2 });
+    expect(clipWindowOf(clip, 1, { start: 3, end: 4 })).toBeNull();
+  });
+});
+
+describe("buildExportPlan — window", () => {
+  it("compiles only intersecting clips with local times", () => {
+    const { doc } = fixture();
+    const plan = buildExportPlan(doc, MP4, NO_TEXT, "/tmp/seg.mp4", new Map(), {
+      start: 0.5,
+      end: 2.5,
+    });
+
+    expect(plan.duration).toBe(2);
+    expect(plan.filterGraph).toContain("color=c=black:s=1920x1080:r=30:d=2");
+    // 底部视频 1..4 截到 1..2.5 → 本地 0.5..2
+    expect(plan.filterGraph).toContain("overlay=eof_action=pass:enable='between(t,0.5,2)'");
+    // 图片 2..5 截到 2..2.5 → 本地 1.5..2
+    expect(plan.filterGraph).toContain("setpts=PTS-STARTPTS+1.5/TB");
+    // 音乐 1.5..5 截到 1.5..2.5 → 本地 1.0 起，延迟 1000ms
+    expect(plan.filterGraph).toContain("adelay=1000:all=1");
+    expect(plan.inputs).toContain("/media/top.mp4");
+    expect(plan.inputs).not.toContain("/media/unrelated.mp4");
+  });
+
+  it("keeps the full plan byte-identical when the window covers everything", () => {
+    const { doc } = fixture();
+    const full = buildExportPlan(doc, MP4, NO_TEXT, "/tmp/out.mp4");
+    const windowed = buildExportPlan(doc, MP4, NO_TEXT, "/tmp/out.mp4", new Map(), {
+      start: 0,
+      end: 5,
+    });
+
+    expect(windowed.filterGraph).toBe(full.filterGraph);
+    expect(windowed.outputArgs).toEqual(full.outputArgs);
+    expect(windowed.duration).toBe(full.duration);
+  });
+
+  it("offsets overlay keyframes when the window cuts the clip head", () => {
+    const { doc, topClip } = fixture();
+    const keyed = updateClip(doc, topClip.id, {
+      keyframes: [
+        { time: 0, opacity: 1, x: 0, y: 0, scale: 1, rotation: 0 },
+        { time: 3, opacity: 1, x: 30, y: 0, scale: 1, rotation: 0 },
+      ],
+    });
+    const plan = buildExportPlan(keyed, MP4, NO_TEXT, "/tmp/seg.mp4", new Map(), {
+      start: 1,
+      end: 2,
+    });
+    // clip 0..3、窗口 1..2：overlay 的 t=0 对应片段内 1s，关键帧断点落在 t=2。
+    expect(plan.filterGraph).toContain("lt(t,2)");
+    expect(plan.filterGraph).toContain("t--1");
+  });
+
+  it("rejects a window with no clips", () => {
+    const { doc } = fixture();
+    expect(() =>
+      buildExportPlan(doc, MP4, NO_TEXT, "/tmp/seg.mp4", new Map(), {
+        start: 8,
+        end: 9,
+      }),
+    ).toThrow(/时间线为空/);
+  });
+
+  it("warns and skips fades cut by the window", () => {
+    const { doc, topClip } = fixture();
+    const withFades = updateClip(doc, topClip.id, {
+      transitionIn: { type: "fade", duration: 0.5 },
+      transitionOut: { type: "fade", duration: 0.5 },
+    });
+    const plan = buildExportPlan(withFades, MP4, NO_TEXT, "/tmp/seg.mp4", new Map(), {
+      start: 1,
+      end: 2,
+    });
+    expect(plan.warnings.join("")).toMatch(/截断/);
+    expect(plan.filterGraph).not.toContain("fade=t=in");
   });
 });

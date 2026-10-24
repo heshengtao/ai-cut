@@ -73,13 +73,14 @@ MCP 工具 ─┼─▶ apply_command / apply_commands ─▶ 纯函数 ops ─�
 | 类别 | 工具 |
 | --- | --- |
 | 读取 | `get_project`、`get_context`、`get_track`、`get_clip`、`find_clips`、`get_assets`、`get_markers`、`list_ai_models`、`aicut_help` |
-| 剪辑 | `apply_command`、`apply_commands`、`append_clip`、`set_clip_speed`、`set_clip_color`、`set_clip_mask`、`set_clip_transition`、`set_clip_keyframes`、`duplicate_clips`、`ripple_delete`、`extract_audio`、`import_asset`、`undo`、`redo` |
+| 剪辑 | `apply_command`、`apply_commands`、`append_clip`、`set_clip_speed`、`set_clip_color`、`set_clip_transition`、`set_clip_keyframes`、`duplicate_clips`、`ripple_delete`、`extract_audio`、`import_asset`、`undo`、`redo` |
 | 字幕 | `import_subtitles`、`export_subtitles` |
-| 标记 | `add_marker`、`update_marker`、`remove_marker` |
+| 标记 | `add_marker`、`update_marker`、`remove_marker`；审片用 `add_review_note`、`list_review_notes`、`update_review_note`、`remove_review_note` |
 | 工程 | `new_project`、`open_project`、`save_project` |
 | 音频 AI | `transcribe`、`translate_audio`、`synthesize_voiceover`、`separate_stems`、`denoise_audio`、`process_audio`、`measure_loudness` |
 | 视频 AI | `upscale_video`、`interpolate_video`、`reframe_video`、`process_video` |
 | 产出 | `export_video`、`render_frame`、`render_storyboard`、`download_model`、`cancel_ai` |
+| 审片 / 增量渲染 | `import_film_manifest`、`export_film_manifest`、`render_status`、`render_range`、`render_manifest`、`compare_takes`、`render_contact_sheet` |
 | 异步 | `job_start`、`job_status`、`job_cancel` |
 
 ### 1.6 已知边界
@@ -88,7 +89,7 @@ MCP 工具 ─┼─▶ apply_command / apply_commands ─▶ 纯函数 ops ─�
 - 字幕可以 SRT/VTT 交换，但时间线里仍是文字片段，不是独立实体。
 - 长任务可以用 `job_start` 异步跑；同一时间只允许一个 AI 任务，没有并行队列。
 - 转场是片段入场/出场动画，不是相邻片段重叠式交叉淡化。
-- 调色与蒙版在预览中是近似效果，最终以导出结果为准。
+- 调色在预览中是近似效果，最终以导出结果为准。
 - 单轨片段不允许重叠；插入冲突需要顺延或换轨。
 
 ## 2. 路线图
@@ -147,10 +148,9 @@ MCP 工具 ─┼─▶ apply_command / apply_commands ─▶ 纯函数 ops ─�
 
 - [x] 调色：亮度 / 对比度 / 饱和度 / 色温 / 色调；预览用 CSS filter，导出用 `eq` / `colorbalance`。
 - [x] 转场：片段入/出转场（淡化、滑动），预览与导出共用同一套时间曲线。
-- [x] 关键帧：不透明度与变换（x/y/scale/rotation）；预览插值，导出用 ffmpeg 表达式与 `geq`。
-- [x] 蒙版：矩形 / 椭圆 / 线性渐变，静态蒙版；导出用 Canvas 生成蒙版 PNG + `alphamerge`。
+- [x] 关键帧：每个关键帧记录全部画面参数（opacity / x / y / scale / rotation）；预览线性插值，导出用 ffmpeg 表达式与 `geq`。
 - [x] 每个原语都走命令总线，并提供 MCP 工具与 Inspector UI 入口。
-- [x] 测试：调色/蒙版/转场/关键帧的归一化、命令与导出计划。
+- [x] 测试：调色/转场/关键帧的归一化、命令与导出计划。
 - [ ] 重叠式交叉淡化（需要允许受控片段重叠）留到后续；当前转场是片段的入场/出场动画。
 - [ ] 关键帧不透明度导出使用 `geq`，大项目性能需要实测；必要时改为分段烘焙。
 
@@ -162,6 +162,31 @@ MCP 工具 ─┼─▶ apply_command / apply_commands ─▶ 纯函数 ops ─�
 - [x] 复用前端现有 AI job 系统与进度，不在 Rust 重复维护任务表。
 - [ ] 并行排队：当前同一时间只允许一个 AI 任务，后续需要拆开各 AI store 的单例状态。
 - [x] Skills 文档说明何时用同步工具、何时用异步任务。
+
+### P6 — 审片闭环与增量渲染（已完成）
+
+目标：让 AI Cut 成为 agent 的“眼睛和耳朵”，而不是又一个剪辑器。
+
+- [x] `film.json` 共享清单：`import_film_manifest` / `export_film_manifest`，写回时保留 AI DAW 的 `music`。
+- [x] 结构化审片：marker 增加 `kind` / `sceneId` / `note` / `severity` / `resolved` / `bbox` / `screenshot` / `tags`，配套 `add_review_note` / `list_review_notes` / `update_review_note` / `remove_review_note`。
+- [x] 窗口化导出计划：`buildExportPlan` 支持 `{start,end}`，只编译窗口内片段，全片路径保持逐字节回归。
+- [x] 内容哈希缓存：键 = 窗口内工程 + 素材 `{size,mtimeMs}` + 输出规格；`render_status` 只算脏段。
+- [x] `render_range` / `render_manifest` 走异步 job，修掉 `render_storyboard` 的 20s 桥接超时隐患。
+- [x] `compare_takes`（SSIM + 并排帧）与 `render_contact_sheet`（接触表 + 图例 JSON）。
+- [x] UI：marker 按 severity 着色、tooltip 显示备注、双击打开审片对话框。
+- [x] 文档：`docs/film-manifest.md`、`skills/aicut/references/render.md`。
+- [ ] M2：AI DAW 消费 `film.json`（cue sheet 导入、stems 导出、instrument map）。
+
+### P7 — OFX 宿主（已完成）
+
+目标：把插件管理器接上真正的 OpenFX 渲染，而不是只做下载。
+
+- [x] `crates/ofx-host`：OFX 1.5.1 ABI、属性 / 参数 / 图像 / 多线程套件，按输入尺寸渲染（无 720×576 硬编码）。
+- [x] `ofx-host` CLI：`probe <bundle>` 输出插件与参数表（类型 / 范围 / 默认值 / 枚举）；`render <bundle> <plugin> <input.ppm|rgba> <params.json> <output.ppm|rgba>`。
+- [x] Rust 命令：`ofx_probe` / `ofx_render_frame` / `ofx_render_preview` / `ofx_bake_clip`。
+- [x] `Clip.effects[]`、检查器效果链、独立「参数」面板、应用到选中片段、多选混合值。
+- [x] 预览：暂停时渲染当前帧并叠加；播放时隐藏。
+- [x] 导出：带效果片段先烘焙成 ProRes 4444 中间文件，再进入现有 ffmpeg 计划；音轨仍读原素材。
 
 ## 3. 非目标
 
@@ -203,14 +228,16 @@ MCP 工具 ─┼─▶ apply_command / apply_commands ─▶ 纯函数 ops ─�
 - `src-tauri/src/bridge.rs`、`tools.rs`、`mcp.rs`
 - `src-tauri/src/agent/{mod,config,store,openai}.rs`
 - `src-tauri/src/export.rs`、`media.rs`
+- `src-tauri/src/ofx.rs`（OFX 探测 / 预览 / 烘焙命令）
 - `src-tauri/src/network.rs`、`cli.rs`
+- `crates/ofx-host/`（OFX 1.5.1 宿主 + `ofx-host` CLI）
 - `crates/aicut/`（薄客户端）
 - `skills/aicut/`（技能文档）
 
 ## 6. 收尾验收
 
 - 在真实窗口里做一次深/浅色、1440×900 与最小尺寸的目视验收。
-- 跑一次同时包含调色、蒙版、转场、关键帧与变速的完整导出，检查预览与成片差异。
+- 跑一次同时包含调色、转场、关键帧与变速的完整导出，检查预览与成片差异。
 - 用 `render_frame` / `render_storyboard` 对比关键帧中间帧。
 - 实测关键帧不透明度的 `geq` 导出耗时；大项目若过慢，改为分段烘焙。
 - 后续若要真正的相邻片段交叉淡化，需要先引入受控重叠模型。

@@ -348,7 +348,10 @@ struct Call<'a> {
 }
 
 impl<'a> Call<'a> {
-    async fn new(provider: &'a CloudTtsProvider, client: &'a reqwest::Client) -> Result<Self, String> {
+    async fn new(
+        provider: &'a CloudTtsProvider,
+        client: &'a reqwest::Client,
+    ) -> Result<Self, String> {
         Self::new_with_voice(provider, client, None).await
     }
 
@@ -405,7 +408,11 @@ impl<'a> Call<'a> {
         let base = if self.provider.base_url.trim().is_empty() {
             "https://api.openai.com/v1".to_string()
         } else {
-            self.provider.base_url.trim().trim_end_matches('/').to_string()
+            self.provider
+                .base_url
+                .trim()
+                .trim_end_matches('/')
+                .to_string()
         };
         let url = if base.ends_with("/audio/speech") {
             base
@@ -451,7 +458,11 @@ impl<'a> Call<'a> {
         let base = if self.provider.base_url.trim().is_empty() {
             "https://api.elevenlabs.io/v1".to_string()
         } else {
-            self.provider.base_url.trim().trim_end_matches('/').to_string()
+            self.provider
+                .base_url
+                .trim()
+                .trim_end_matches('/')
+                .to_string()
         };
         let url = if base.ends_with("/text-to-speech") {
             format!("{base}/{}", self.voice)
@@ -544,7 +555,11 @@ impl<'a> Call<'a> {
         let base = if self.provider.base_url.trim().is_empty() {
             "https://texttospeech.googleapis.com".to_string()
         } else {
-            self.provider.base_url.trim().trim_end_matches('/').to_string()
+            self.provider
+                .base_url
+                .trim()
+                .trim_end_matches('/')
+                .to_string()
         };
         let url = format!(
             "{base}/v1/text:synthesize?key={}",
@@ -618,7 +633,10 @@ impl<'a> Call<'a> {
             ("ctp", "1".to_string()),
             ("lan", "zh".to_string()),
             ("spd", scale_0_15(self.provider.speed).to_string()),
-            ("pit", scale_0_15(self.provider.pitch / 10.0 + 1.0).to_string()),
+            (
+                "pit",
+                scale_0_15(self.provider.pitch / 10.0 + 1.0).to_string(),
+            ),
             ("vol", scale_0_15(self.provider.volume).to_string()),
             ("per", voice.to_string()),
             ("aue", "3".to_string()),
@@ -648,7 +666,11 @@ impl<'a> Call<'a> {
         let base = if self.provider.base_url.trim().is_empty() {
             "https://api.minimax.chat".to_string()
         } else {
-            self.provider.base_url.trim().trim_end_matches('/').to_string()
+            self.provider
+                .base_url
+                .trim()
+                .trim_end_matches('/')
+                .to_string()
         };
         let url = if base.contains("/text_to_speech") {
             base
@@ -783,12 +805,19 @@ impl<'a> Call<'a> {
         let format = self.format();
         let uppercase = method.to_uppercase();
         let mut request = if uppercase == "GET" {
-            self.client.get(fill_url(url, self.provider, text, &self.voice))
+            self.client
+                .get(fill_url(url, self.provider, text, &self.voice))
         } else {
             let body = if self.provider.body.trim().is_empty() {
                 default_custom_body(text, &self.voice, self.provider.speed, &format)
             } else {
-                fill_json(&self.provider.body, self.provider, text, &self.voice, &format)
+                fill_json(
+                    &self.provider.body,
+                    self.provider,
+                    text,
+                    &self.voice,
+                    &format,
+                )
             };
             self.client
                 .post(url)
@@ -914,7 +943,9 @@ async fn list_voices(
                     } else {
                         provider.region.trim()
                     };
-                    format!("https://{region}.tts.speech.microsoft.com/cognitiveservices/voices/list")
+                    format!(
+                        "https://{region}.tts.speech.microsoft.com/cognitiveservices/voices/list"
+                    )
                 };
                 let response = client
                     .get(&url)
@@ -1261,12 +1292,7 @@ fn write_audio(app: &AppHandle, bytes: &[u8], ext: &str) -> Result<PathBuf, Stri
 }
 
 async fn probe_duration(app: &AppHandle, path: &Path) -> f64 {
-    match media::probe_media(
-        app.clone(),
-        path.to_string_lossy().into_owned(),
-    )
-    .await
-    {
+    match media::probe_media(app.clone(), path.to_string_lossy().into_owned()).await {
         Ok(meta) => meta.duration,
         Err(_) => 0.0,
     }
@@ -1282,12 +1308,7 @@ fn default_custom_body(text: &str, voice: &str, speed: f32, format: &str) -> Str
     .to_string()
 }
 
-fn fill_url(
-    template: &str,
-    provider: &CloudTtsProvider,
-    text: &str,
-    voice: &str,
-) -> String {
+fn fill_url(template: &str, provider: &CloudTtsProvider, text: &str, voice: &str) -> String {
     template
         .replace("{{text}}", &url_encode(text))
         .replace("{{voice}}", &url_encode(voice))
@@ -1354,11 +1375,7 @@ fn has_header(raw: &str, name: &str) -> bool {
     serde_json::from_str::<Value>(raw)
         .ok()
         .and_then(|value| value.as_object().cloned())
-        .map(|object| {
-            object
-                .keys()
-                .any(|key| key.eq_ignore_ascii_case(name))
-        })
+        .map(|object| object.keys().any(|key| key.eq_ignore_ascii_case(name)))
         .unwrap_or(false)
 }
 
@@ -1387,14 +1404,12 @@ fn json_error(value: &Value) -> String {
                 .and_then(Value::as_str)
         })
         .or_else(|| {
-            value
-                .get("detail")
-                .and_then(|detail| {
-                    detail
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .or_else(|| detail.as_str())
-                })
+            value.get("detail").and_then(|detail| {
+                detail
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .or_else(|| detail.as_str())
+            })
         })
         .or_else(|| value.get("err_msg").and_then(Value::as_str));
     match message {

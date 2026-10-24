@@ -98,7 +98,10 @@ fn filter_mode_from_version(stdout: &str) -> FilterMode {
         .trim_start_matches('n');
     let mut parts = version.split('.');
     let major = parts.next().and_then(|p| p.parse::<u32>().ok());
-    let minor = parts.next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
+    let minor = parts
+        .next()
+        .and_then(|p| p.parse::<u32>().ok())
+        .unwrap_or(0);
     match major {
         Some(m) if m >= 8 || (m == 7 && minor >= 1) => FilterMode::SlashFile,
         Some(_) => FilterMode::LegacyScript,
@@ -152,7 +155,10 @@ pub fn write_export_text_image<R: Runtime>(
 pub fn cancel_export(state: State<'_, ExportState>) -> Result<(), String> {
     state.cancelled.store(true, Ordering::SeqCst);
     let child = {
-        let mut guard = state.child.lock().map_err(|_| "导出状态锁失败".to_string())?;
+        let mut guard = state
+            .child
+            .lock()
+            .map_err(|_| "导出状态锁失败".to_string())?;
         guard.take()
     };
     if let Some(child) = child {
@@ -169,7 +175,10 @@ pub async fn export_video<R: Runtime>(
     job: ExportJob,
 ) -> Result<(), String> {
     {
-        let guard = state.child.lock().map_err(|_| "导出状态锁失败".to_string())?;
+        let guard = state
+            .child
+            .lock()
+            .map_err(|_| "导出状态锁失败".to_string())?;
         if guard.is_some() {
             return Err("已有导出任务在进行".into());
         }
@@ -180,8 +189,7 @@ pub async fn export_video<R: Runtime>(
     if let Some(output) = job.output_args.last() {
         if let Some(parent) = std::path::Path::new(output).parent() {
             if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("创建输出目录失败：{e}"))?;
+                std::fs::create_dir_all(parent).map_err(|e| format!("创建输出目录失败：{e}"))?;
             }
         }
     }
@@ -197,8 +205,7 @@ pub async fn export_video<R: Runtime>(
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let path = dir.join(format!("export-{}-{}.ffgraph", std::process::id(), stamp));
-        std::fs::write(&path, &job.filter_graph)
-            .map_err(|e| format!("写入滤镜脚本失败：{e}"))?;
+        std::fs::write(&path, &job.filter_graph).map_err(|e| format!("写入滤镜脚本失败：{e}"))?;
         Some(path)
     };
     let _temp = script_path.as_ref().map(|path| TempGraph(path.clone()));
@@ -249,7 +256,10 @@ pub async fn export_video<R: Runtime>(
         .map_err(|e| format!("启动 ffmpeg 失败：{e}"))?;
 
     {
-        let mut guard = state.child.lock().map_err(|_| "导出状态锁失败".to_string())?;
+        let mut guard = state
+            .child
+            .lock()
+            .map_err(|_| "导出状态锁失败".to_string())?;
         *guard = Some(child);
     }
 
@@ -311,7 +321,10 @@ pub async fn export_video<R: Runtime>(
     }
 
     {
-        let mut guard = state.child.lock().map_err(|_| "导出状态锁失败".to_string())?;
+        let mut guard = state
+            .child
+            .lock()
+            .map_err(|_| "导出状态锁失败".to_string())?;
         *guard = None;
     }
 
@@ -355,7 +368,10 @@ mod tests {
     #[test]
     fn parses_timecode() {
         assert_eq!(parse_progress_line("out_time=00:00:01.500000"), Some(1.5));
-        assert_eq!(parse_progress_line("out_time=01:02:03.250000"), Some(3723.25));
+        assert_eq!(
+            parse_progress_line("out_time=01:02:03.250000"),
+            Some(3723.25)
+        );
     }
 
     #[test]

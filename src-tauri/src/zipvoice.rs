@@ -58,7 +58,9 @@ fn with_loaded<R>(
         emit(app, "loading", 0.03, Some("正在加载 ZipVoice 模型".into()));
         *guard = Some(Loaded::load(app, model_id)?);
     }
-    let loaded = guard.as_ref().ok_or_else(|| "ZipVoice 模型未加载".to_string())?;
+    let loaded = guard
+        .as_ref()
+        .ok_or_else(|| "ZipVoice 模型未加载".to_string())?;
     f(loaded)
 }
 
@@ -108,14 +110,14 @@ fn build_config(dir: &Path) -> Result<OfflineTtsConfig, String> {
 
 impl Loaded {
     fn load(app: &AppHandle, model_id: &str) -> Result<Self, String> {
-        let entry =
-            models::by_id(model_id).ok_or_else(|| format!("未知朗读模型：{model_id}"))?;
+        let entry = models::by_id(model_id).ok_or_else(|| format!("未知朗读模型：{model_id}"))?;
         if entry.family != models::ModelFamily::ZipVoice {
             return Err(format!("{} 不是 ZipVoice 模型", entry.name));
         }
         let dir = models::require_dir(app, entry)?;
         let config = build_config(&dir)?;
-        let tts = OfflineTts::create(&config).ok_or_else(|| "无法创建 ZipVoice 引擎".to_string())?;
+        let tts =
+            OfflineTts::create(&config).ok_or_else(|| "无法创建 ZipVoice 引擎".to_string())?;
 
         let voice_path = dir.join(DEFAULT_VOICE_FILE).to_string_lossy().into_owned();
         let wave = Wave::read(&voice_path).ok_or_else(|| "ZipVoice 默认音色缺失".to_string())?;
@@ -153,7 +155,9 @@ pub fn synthesize(
                 let text = reference_text
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
-                    .ok_or_else(|| "ZipVoice 需要参考音频的文本，请手动填写或自动识别".to_string())?;
+                    .ok_or_else(|| {
+                        "ZipVoice 需要参考音频的文本，请手动填写或自动识别".to_string()
+                    })?;
                 (samples.to_vec(), reference_rate, text.to_string())
             }
             None => (
@@ -302,11 +306,7 @@ mod tests {
         };
 
         let audio = tts
-            .generate_with_config(
-                "你好，世界。",
-                &generation,
-                None::<fn(&[f32], f32) -> bool>,
-            )
+            .generate_with_config("你好，世界。", &generation, None::<fn(&[f32], f32) -> bool>)
             .expect("generate");
         let samples = audio.samples();
         assert!(!samples.is_empty(), "ZipVoice 没有生成音频");

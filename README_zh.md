@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.2-1A6CFF?style=flat-square" alt="版本 0.2.2">
+  <img src="https://img.shields.io/badge/version-0.2.3-1A6CFF?style=flat-square" alt="版本 0.2.3">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-1A6CFF?style=flat-square" alt="许可：Apache-2.0"></a>
   <img src="https://img.shields.io/badge/platforms-Windows%20/%20macOS%20/%20Linux-1A6CFF?style=flat-square" alt="平台：Windows、macOS、Linux">
 </p>
@@ -41,6 +41,7 @@
 - **启动快**——启动时不加载任何重东西，AI 模型只在你用到时才引入。
 - **高算力的活交给该干的地方**——生成环节**刻意放在外部**。由你的 AI Harness 生成或寻找素材，再把文件交给 AI Cut 做剪辑、字幕、混音与导出。
 - **生来可扩展**——每一次修改都是一条可序列化命令，新增剪辑操作不需要改 CLI 或 MCP 工具。
+- **OFX 插件管理器**——下载管理器负责「已安装 / 外部 / 可下载」、搜索、导入、更新与删除；OFX 插件面板负责打开已安装插件的界面。免费/开源条目来自 [AI Cut OFX Registry](https://github.com/heshengtao/ai-cut-ofx-registry)，带 SHA-256 校验。GPL/AGPL 条目可以从作者的上游 release 下载，但 App 不托管、不随包分发它们的二进制。原生宿主（`crates/ofx-host`，CLI `ofx-host probe|render`）按输入尺寸加载 OFX 1.5.1 插件；片段可以带 `effects[]` 效果链：检查器负责链管理，独立的「参数」面板负责调参；暂停时预览，导出前烘焙。
 
 ## 用任意 AI Harness 驱动它
 
@@ -103,6 +104,7 @@ aicut call get_project
 - **音频 AI** —— 响度统一、降噪、人声美化、人声分离、音频翻译
 - **视频 AI** —— 超分、补帧、智能裁剪、镜头追踪
 - **素材预检** —— 一次调用返回元数据、运动/切点、人脸/人物框与本地转写
+- **审片闭环** —— `film.json` 导入、结构化审片批注（`severity` / `sceneId` / `resolved`）、脏段检测、带内容哈希缓存的区间重渲、take 对比（SSIM + 并排帧）与接触表
 - **生来离线** —— 编辑器与本地模型不要账号、不上传素材
 
 ### 🔌 MCP 服务器与剪辑智能体 —— 让智能体在你的工程里干活
