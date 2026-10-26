@@ -2,6 +2,203 @@
   "schema_version": 1,
   "plugins": [
     {
+      "slug": "stoatworks/abomerration",
+      "name": "Abomerration",
+      "vendor": "Stoatworks Labs",
+      "version": "0.1.8",
+      "description": "Chromatic-aberration effect with radial and directional modes and a sound-reactive option. CPU render, 8/16/32-bit.",
+      "homepage": "https://github.com/stoatworks-labs/abomerration",
+      "source": "https://github.com/stoatworks-labs/abomerration",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "chromatic-aberration",
+        "lens",
+        "glitch"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/abomerration/releases/download/v0.1.8/abomerration-ofx-macos-universal.zip",
+          "sha256": "6c96176dfa678caeff23dec1513117bd9f21433169faf6f5f7abef65776056ab",
+          "size": 264073,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/abomerration/releases/download/v0.1.8/abomerration-ofx-windows-x86_64.zip",
+          "sha256": "7f68c5fd6b8f28f7696cbffbd16a07de6e2d0845eb911271937069a77b6a8c93",
+          "size": 77584,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/abomerration/releases/download/v0.1.8/abomerration-ofx-linux-x86_64.zip",
+          "sha256": "9016330d0b6e41b5da41ea8ff9a3738934d2aa9bee4897a967c88f479957c6b4",
+          "size": 733200,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "cr-market/anime-smoother",
+      "name": "Anime Smoother",
+      "vendor": "cr-market",
+      "version": "0.9.10",
+      "description": "CPU anti-aliasing for anime and cel-style line art: smooths jagged edges while keeping flat fills intact. Ported from loilo-inc/smooth.",
+      "homepage": "https://github.com/cr-market/anime-smoother-ofx",
+      "source": "https://github.com/cr-market/anime-smoother-ofx",
+      "license": "Apache-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "anime",
+        "antialias",
+        "line-art",
+        "smoothing"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/cr-market/anime-smoother-ofx/releases/download/v0.9.10/AnimeSmoother-0.9.10-macOS.zip",
+          "sha256": "974e90052b411214afcb4832c41845667e0f48c363a04406a518b7265d22abb8",
+          "size": 268543,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/cr-market/anime-smoother-ofx/releases/download/v0.9.10/AnimeSmoother-0.9.10-Windows.zip",
+          "sha256": "cc14f8665ada50bef6693da10e8d776650220f9eaf33074e0d2617497277f3db",
+          "size": 79690,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/asciify",
+      "name": "Asciify",
+      "vendor": "Stoatworks Labs",
+      "version": "1.0.6",
+      "description": "ASCII-art effect that maps each cell's dominant tone to a character ramp, with selectable palettes. CPU render, 8/16/32-bit.",
+      "homepage": "https://github.com/stoatworks-labs/asciify",
+      "source": "https://github.com/stoatworks-labs/asciify",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "ascii",
+        "typography",
+        "retro",
+        "stylize"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/asciify/releases/download/v1.0.6/asciify-ofx-macos-universal.zip",
+          "sha256": "52f811715e0dcbc0991c004496697c4986a275dd067550f3fa8d9d0c039ae2d1",
+          "size": 257515,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/asciify/releases/download/v1.0.6/asciify-ofx-windows-x86_64.zip",
+          "sha256": "13d0c9b0a1a76fea3c164a432c024fb945ad9094f10e739f9a0de8e3175a9570",
+          "size": 78160,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/asciify/releases/download/v1.0.6/asciify-ofx-linux-x86_64.zip",
+          "sha256": "b70af3fa8fdab12818ff31b635f0de0ec5751495fd38c2dd733f8a8b83e6c7b3",
+          "size": 716903,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
       "slug": "microck/boilify",
       "name": "Boilify",
       "vendor": "microck",
@@ -72,6 +269,219 @@
       ]
     },
     {
+      "slug": "stoatworks/cogwheel",
+      "name": "Cogwheel",
+      "vendor": "Stoatworks Labs",
+      "version": "0.6.3",
+      "description": "Spirograph generator: two tooth counts and subtractive ink produce mechanical rosettes. No input clip required. CPU render, 8/16/32-bit.",
+      "homepage": "https://github.com/stoatworks-labs/cogwheel",
+      "source": "https://github.com/stoatworks-labs/cogwheel",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "generator"
+      ],
+      "contexts": [
+        "generator",
+        "general"
+      ],
+      "tags": [
+        "generator",
+        "spirograph",
+        "pattern",
+        "motion-graphics"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/cogwheel/releases/download/v0.6.3/cogwheel-ofx-macos-universal.zip",
+          "sha256": "18907ebb176e9299d5acc4776a99ad325ac0322e83aea4569a9db51a03c486f1",
+          "size": 471372,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/cogwheel/releases/download/v0.6.3/cogwheel-ofx-windows-x86_64.zip",
+          "sha256": "865a831d50fb773dbfa3f0a623b72a08377632d18e20b17164c4d4ff9d382d6a",
+          "size": 181612,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/cogwheel/releases/download/v0.6.3/cogwheel-ofx-linux-x86_64.zip",
+          "sha256": "e805d9779ce458e4a2b425e14b88369aacd4d95a176382854c27970caddf8cca",
+          "size": 1184418,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/colourunder",
+      "name": "Colourunder",
+      "vendor": "Stoatworks Labs",
+      "version": "0.2.0",
+      "description": "VHS-deck look: colour-under chroma, tape wobble and dropouts for Resolve, Vegas, Nuke and Natron. CPU render, 8/16/32-bit.",
+      "homepage": "https://github.com/stoatworks-labs/colourunder",
+      "source": "https://github.com/stoatworks-labs/colourunder",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "vhs",
+        "analog",
+        "retro",
+        "chroma"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/colourunder/releases/download/v0.2.0/colourunder-ofx-macos-universal.zip",
+          "sha256": "2215de5f8d7089009595ed7c3851c00bd465146d66ba2008b5b779e43d06dd56",
+          "size": 280079,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/colourunder/releases/download/v0.2.0/colourunder-ofx-windows-x86_64.zip",
+          "sha256": "b0aa31f234a69e01cf1c781f22fbe22d87768cf2ac03331990e2750014759295",
+          "size": 81535,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/colourunder/releases/download/v0.2.0/colourunder-ofx-linux-x86_64.zip",
+          "sha256": "3dd3e89e47039f99d1cbe5bf5c0547c864d30c70953b0155c2a49459de19ca3b",
+          "size": 729601,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/compander",
+      "name": "Compander",
+      "vendor": "Stoatworks Labs",
+      "version": "0.1.4",
+      "description": "Analogue radio-microphone companding circuit applied to the image, with drive and noise-floor controls. CPU render, 8/16/32-bit.",
+      "homepage": "https://github.com/stoatworks-labs/compander",
+      "source": "https://github.com/stoatworks-labs/compander",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "analog",
+        "radio",
+        "companding",
+        "retro"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/compander/releases/download/v0.1.4/compander-ofx-macos-universal.zip",
+          "sha256": "eb89994f198b08f05d9680c5f95888497b69ff95b4bdc5531f63c269e04b320f",
+          "size": 252626,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/compander/releases/download/v0.1.4/compander-ofx-windows-x86_64.zip",
+          "sha256": "8684ac53d5ce997fc6cf4501fc046944f2c170aac0fce487393d0e301bba481b",
+          "size": 65784,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/compander/releases/download/v0.1.4/compander-ofx-linux-x86_64.zip",
+          "sha256": "421daee9203ff68c8177f527bc74f90a4414912242b32648f1a7fc309d3738c8",
+          "size": 741015,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
       "slug": "kaelalden/domewarp",
       "name": "DomeWarp",
       "vendor": "Kael Alden",
@@ -117,6 +527,203 @@
           "size": 505587,
           "systems": [
             "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/downpour",
+      "name": "Downpour",
+      "vendor": "Stoatworks Labs",
+      "version": "1.0.11",
+      "description": "Digital-rain generator: streams of glyphs with adjustable speed, trail and glow. Works as a generator with no input clip. CPU render, 8/16/32-bit.",
+      "homepage": "https://github.com/stoatworks-labs/downpour",
+      "source": "https://github.com/stoatworks-labs/downpour",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "generator"
+      ],
+      "contexts": [
+        "generator",
+        "general"
+      ],
+      "tags": [
+        "generator",
+        "rain",
+        "matrix",
+        "retro"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/downpour/releases/download/v1.0.11/downpour-ofx-macos-universal.zip",
+          "sha256": "6d3497b63670728653bd3c834dec146573e9db371cef80efbf6e464ab825acc3",
+          "size": 395039,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/downpour/releases/download/v1.0.11/downpour-ofx-windows-x86_64.zip",
+          "sha256": "61af83310ac1f0607579bc7023f9eb38e23dc0feaece68adce8119176016145b",
+          "size": 133901,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/downpour/releases/download/v1.0.11/downpour-ofx-linux-x86_64.zip",
+          "sha256": "bd006f6dd11707f37f102ce2ca8f2c6ce42c92ef0cf6bc27ec15a6a4619beb29",
+          "size": 835644,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "cr-market/fs-plugins",
+      "name": "F's Plugins",
+      "vendor": "cr-market",
+      "version": "0.2.0",
+      "description": "Eight line-treatment effects in one bundle: selective colour blur, colour switch, rim fill, line extraction, thin, main-line repaint, select colour and edge line.",
+      "homepage": "https://github.com/cr-market/FsPluginsOFX",
+      "source": "https://github.com/cr-market/FsPluginsOFX",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "line-art",
+        "color",
+        "blur",
+        "port"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/cr-market/FsPluginsOFX/releases/download/v0.2.0/FsPluginsOFX-macOS-49721c2.zip",
+          "sha256": "5fdfe5ebb45bf6c0c4dda271f1fd54d58c94cc58fc8231c8528119234a98c87d",
+          "size": 127699,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "arm64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/cr-market/FsPluginsOFX/releases/download/v0.2.0/FsPluginsOFX-Windows-x64-49721c2.zip",
+          "sha256": "49569b392752cbe9dff683c2a09187d466f26278d4e72ea515db7b863f208634",
+          "size": 87800,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/gaffer",
+      "name": "Gaffer",
+      "vendor": "Stoatworks Labs",
+      "version": "0.1.5",
+      "description": "Simulated lens on a depth map, with focus pulls and aperture bokeh. CPU render, 8/16/32-bit.",
+      "homepage": "https://github.com/stoatworks-labs/gaffer",
+      "source": "https://github.com/stoatworks-labs/gaffer",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "lens",
+        "depth",
+        "bokeh",
+        "focus"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/gaffer/releases/download/v0.1.5/gaffer-ofx-macos-universal.zip",
+          "sha256": "3c7f78adf91176d9bee5390651c2e5f408b69efdaa485054e87a6f37b2186734",
+          "size": 268101,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/gaffer/releases/download/v0.1.5/gaffer-ofx-windows-x86_64.zip",
+          "sha256": "185ac31c665002623406cfec654ab92cb06500d3a2f9c04d20a92d32114be429",
+          "size": 79787,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/gaffer/releases/download/v0.1.5/gaffer-ofx-linux-x86_64.zip",
+          "sha256": "2ec8058a2ebd81076cf8b1539013411cb66e0fa202f6533bab07bb6439aff208",
+          "size": 737012,
+          "systems": [
+            "linux"
           ],
           "arch": [
             "x64"
@@ -218,6 +825,46 @@
             "ofx"
           ],
           "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "tkarabela/openfx-lic",
+      "name": "LIC",
+      "vendor": "tkarabela",
+      "version": "1.0.0",
+      "description": "Line integral convolution effect for flow-like stylisation of an image. Linux x86-64 build.",
+      "homepage": "https://github.com/tkarabela/openfx-lic",
+      "source": "https://github.com/tkarabela/openfx-lic",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "lic",
+        "flow",
+        "stylize"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/tkarabela/openfx-lic/releases/download/1.0/lic.ofx.bundle-1.0.tar.gz",
+          "sha256": "a22931fa5ee5d4aee766b86852f53e6dcdc2991e864b4a26f043728814b53993",
+          "size": 151169,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
         }
       ]
     },
@@ -338,6 +985,116 @@
       ]
     },
     {
+      "slug": "moazelgabry/me-opendrt",
+      "name": "ME_OpenDRT",
+      "vendor": "Moaz Elgabry",
+      "version": "1.2.14",
+      "description": "OpenDRT v1.1.0 port for Resolve with input/output gamut, tone-mapping controls and a preset manager. Metal/CPU on macOS, CUDA/OpenCL/CPU elsewhere.",
+      "homepage": "https://github.com/MoazElgabry/ME_OpenDRT-OFX",
+      "source": "https://github.com/MoazElgabry/ME_OpenDRT-OFX",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "color",
+        "tone-mapping",
+        "opendrt",
+        "aces"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/MoazElgabry/ME_OpenDRT-OFX/releases/download/v1.2.14/ME_OpenDRT_v1.2.14_macOS_universal_portable.zip",
+          "sha256": "6b4ec94daebbeb412cf6cd78b0a7ce7210bece8bc417fa6d03b2a8deb85fe303",
+          "size": 2154698,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/MoazElgabry/ME_OpenDRT-OFX/releases/download/v1.2.14/ME_OpenDRT_v1.2.14_windows_x86_64_portable.zip",
+          "sha256": "18edc709f64e4ef611826d08feb15e3b2638b315db321220d204532f3ae95791",
+          "size": 2784287,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/MoazElgabry/ME_OpenDRT-OFX/releases/download/v1.2.14/ME_OpenDRT_v1.2.14_linux_x86_64_cuda_opencl_cpu_portable.tar.gz",
+          "sha256": "a3955f830c7dba42d2ffda42707209e92d0ca8217ab9f907d990c8013493f5d6",
+          "size": 3282544,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "nikita-petrovich/nikita-blend-mode",
+      "name": "Nikita Blend",
+      "vendor": "Nikita Petrovich",
+      "version": "1.0.0",
+      "description": "Original blend mode that mixes two layers using the average colour of the top layer, with clamp and bottom-layer blend controls.",
+      "homepage": "https://github.com/nikita-petrovich/nikita-blend-mode",
+      "source": "https://github.com/nikita-petrovich/nikita-blend-mode",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "blend",
+        "compositing",
+        "bleach-bypass"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/nikita-petrovich/nikita-blend-mode/releases/download/1.x/NP-BlendMode-v1.0.MacOS-only.zip",
+          "sha256": "0e7fc01a2ddc09dec5185140e02da72bc9352067e3be6d14673e68e72b7648e0",
+          "size": 97327,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "arm64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
       "slug": "ntsc-rs/ntsc-rs",
       "name": "NTSC-RS",
       "vendor": "ntsc-rs",
@@ -406,6 +1163,61 @@
       ]
     },
     {
+      "slug": "ciqueira/open-display-transform",
+      "name": "ODT N6 Color",
+      "vendor": "ciqueira",
+      "version": "0.1.1",
+      "description": "Open Display Transform look tools ported from Resolve DCTLs to OFX, with N6 colour rendering.",
+      "homepage": "https://github.com/ciqueira/OpenDisplayTransform-OFX",
+      "source": "https://github.com/ciqueira/OpenDisplayTransform-OFX",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "color",
+        "odt",
+        "look",
+        "resolve"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/ciqueira/OpenDisplayTransform-OFX/releases/download/odt-n6-color-v0.1.1/ODTN6Color-macOS.zip",
+          "sha256": "f9ff65b2765f36c2a4d14d4334bdb8de1f07e2569643d082729c772c2de07714",
+          "size": 204973,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/ciqueira/OpenDisplayTransform-OFX/releases/download/odt-n6-color-v0.1.1/ODTN6Color-Windows.zip",
+          "sha256": "1035513a9005284e04d7ddec1829c36e68e6221a79977242ac1846ef95df76d3",
+          "size": 493721,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
       "slug": "natron/openfx-arena",
       "name": "OpenFX Arena",
       "vendor": "Natron",
@@ -437,7 +1249,7 @@
             "linux"
           ],
           "arch": [
-            "universal"
+            "x64"
           ],
           "contains": [
             "ofx"
@@ -519,7 +1331,7 @@
             "linux"
           ],
           "arch": [
-            "universal"
+            "x64"
           ],
           "contains": [
             "ofx"
@@ -561,7 +1373,7 @@
             "linux"
           ],
           "arch": [
-            "universal"
+            "x64"
           ],
           "contains": [
             "ofx"
@@ -604,7 +1416,7 @@
             "linux"
           ],
           "arch": [
-            "universal"
+            "x64"
           ],
           "contains": [
             "ofx"
@@ -690,6 +1502,148 @@
             "ofx"
           ],
           "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/tilter",
+      "name": "Tilter",
+      "vendor": "Stoatworks Labs",
+      "version": "0.1.6",
+      "description": "Tilt-shift lens with a movable focus band and a real aperture, for miniature looks. CPU render, 8/16/32-bit.",
+      "homepage": "https://github.com/stoatworks-labs/tilter",
+      "source": "https://github.com/stoatworks-labs/tilter",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "tilt-shift",
+        "lens",
+        "blur",
+        "miniature"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/tilter/releases/download/v0.1.6/tilter-ofx-macos-universal.zip",
+          "sha256": "a03d919670bf89381df63f761ba55a3b3a3f3e2bd926753880630fca17bf4326",
+          "size": 274816,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/tilter/releases/download/v0.1.6/tilter-ofx-windows-x86_64.zip",
+          "sha256": "731e17ef730b2e1843a3c7d08c20a20822f8115dc83ab73e9778622a1a753445",
+          "size": 81362,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/tilter/releases/download/v0.1.6/tilter-ofx-linux-x86_64.zip",
+          "sha256": "df026bf06edfb887d3e14e87f5f79d610c73644caea5963c65883cc95625d625",
+          "size": 728326,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/vertigo",
+      "name": "Vertigo",
+      "vendor": "Stoatworks Labs",
+      "version": "0.1.7",
+      "description": "Dolly-zoom (vertigo) effect: keeps the subject fixed while the background expands or compresses. CPU render, 8/16/32-bit.",
+      "homepage": "https://github.com/stoatworks-labs/vertigo",
+      "source": "https://github.com/stoatworks-labs/vertigo",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "dolly-zoom",
+        "perspective",
+        "warp",
+        "vertigo"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/vertigo/releases/download/v0.1.7/vertigo-ofx-macos-universal.zip",
+          "sha256": "8f47474f5cbab52992d730b1ca7bbf921270fd1f5a9bee85968b7766de83d199",
+          "size": 236812,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/vertigo/releases/download/v0.1.7/vertigo-ofx-windows-x86_64.zip",
+          "sha256": "cb216ef9f059df7feb1fd6feca6be0de91ac2124f845e34d8f0bc29c63515121",
+          "size": 67092,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/vertigo/releases/download/v0.1.7/vertigo-ofx-linux-x86_64.zip",
+          "sha256": "03b1a42283dbf18ab16e92d9086ca89c4a5f7c29e29dd4e65f144eda93d18dcf",
+          "size": 710401,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
         }
       ]
     }
