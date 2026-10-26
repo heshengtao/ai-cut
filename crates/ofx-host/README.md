@@ -61,6 +61,13 @@ clips, and a host-allocated output image. OFX canonical coordinates are
 bottom-left, so the host flips incoming and outgoing rows; callers always pass
 and receive top-down RGBA.
 
+Supported image-effect contexts are `Filter`, `General` (single input; extra
+clips receive the same frame) and `Generator`. `Transition` needs two distinct
+`SourceFrom` / `SourceTo` frames, while `Paint` and `Retimer` need interactive
+painting or a different time base; those three are not implemented. AI Cut's
+effect picker hides them instead of mounting a plugin that would render the
+wrong picture.
+
 Parameter and clip handles stay valid for the lifetime of a session (their
 backing arrays never move), parameter descriptions are seeded with the
 documented defaults (hint, labels, secret/enabled/animates), and
