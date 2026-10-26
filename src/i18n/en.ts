@@ -1064,6 +1064,8 @@ const en: Record<string, string> = {
   "plugins.type.generator": "Generator",
   "plugins.type.transition": "Transition",
   "plugins.type.general": "General",
+  "plugins.type.paint": "Paint",
+  "plugins.type.retimer": "Retimer",
   "plugins.system.mac": "macOS",
   "plugins.system.win": "Windows",
   "plugins.system.linux": "Linux",

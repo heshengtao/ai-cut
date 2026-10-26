@@ -25,7 +25,14 @@ import PluginList from "./PluginList.vue";
 import type { PluginStatus } from "@/types/plugins";
 
 type Tab = "installed" | "external" | "available";
-type TypeFilter = "all" | "filter" | "generator" | "transition";
+type TypeFilter =
+  | "all"
+  | "filter"
+  | "general"
+  | "generator"
+  | "transition"
+  | "paint"
+  | "retimer";
 
 const plugins = usePluginsStore();
 const i18n = useI18n();
@@ -36,7 +43,15 @@ const installedType = ref<TypeFilter>("all");
 const availableType = ref<TypeFilter>("all");
 const compatibleOnly = ref(true);
 
-const TYPE_FILTERS: TypeFilter[] = ["all", "filter", "generator", "transition"];
+const TYPE_FILTERS: TypeFilter[] = [
+  "all",
+  "filter",
+  "general",
+  "generator",
+  "transition",
+  "paint",
+  "retimer",
+];
 
 function typeLabel(type: string): string {
   const key = `plugins.type.${type}`;

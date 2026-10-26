@@ -1064,6 +1064,8 @@ const zh: Record<string, string> = {
   "plugins.type.generator": "生成器",
   "plugins.type.transition": "转场",
   "plugins.type.general": "通用",
+  "plugins.type.paint": "绘制",
+  "plugins.type.retimer": "变速",
   "plugins.system.mac": "macOS",
   "plugins.system.win": "Windows",
   "plugins.system.linux": "Linux",
