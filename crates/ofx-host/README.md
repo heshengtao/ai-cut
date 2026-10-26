@@ -55,14 +55,30 @@ Implemented host suites:
 - progress (v1/v2)
 - timeline (v1)
 
-Rendering uses either `OfxBitDepthFloat` (preferred) or `OfxBitDepthByte`,
-RGBA components, a single input frame for all non-output clips, and a
-host-allocated output image. OFX canonical coordinates are bottom-left, so the
-host flips incoming and outgoing rows; callers always pass and receive
-top-down RGBA.
+Rendering uses `OfxBitDepthFloat` (preferred), 16-bit `OfxBitDepthShort` or
+`OfxBitDepthByte`, RGBA components, a single input frame for all non-output
+clips, and a host-allocated output image. OFX canonical coordinates are
+bottom-left, so the host flips incoming and outgoing rows; callers always pass
+and receive top-down RGBA.
 
-Not implemented: interactive overlays, OpenGL/OpenCL/CUDA/Metal, 16-bit and
-half pixel depths, custom interact UI, and temporal clip access.
+Parameter and clip handles stay valid for the lifetime of a session (their
+backing arrays never move), parameter descriptions are seeded with the
+documented defaults (hint, labels, secret/enabled/animates), and
+`OfxActionSyncPrivateData` runs after instance creation and before every
+render, so plugins that cache state outside the parameter table keep working.
+
+Bundle discovery accepts `.ofx.bundle` and `.ofx` directories, and falls back
+to any Mach-O/PE/ELF executable under the usual `Contents/*` folders when the
+binary is not named `*.ofx`.
+
+The host runs inside the app process, so the plugin's CPU architecture must
+match the app's. On Apple Silicon, x86_64-only bundles (for example Natron
+2.5.0) fail with a clear "架构不兼容" message instead of a generic load error;
+use a universal/arm64 build, or an x86_64 build of the app under Rosetta.
+
+Not implemented: interactive overlays, OpenGL/OpenCL/CUDA/Metal, half-float
+pixel depths, custom interact UI, multiple independent input clips and
+temporal clip access.
 
 ## Headers
 

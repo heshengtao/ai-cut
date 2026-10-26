@@ -54,6 +54,16 @@ typedef void *OfxLibHandle;
 #define PATH_MAX 4096
 #endif
 
+/* Params and clips are handed to the plugin as stable pointers, so their
+ * backing arrays must never move.  Reserve the documented limits up front
+ * instead of reallocating as the plugin declares more of them. */
+#ifndef OFX_HOST_MAX_PARAMS
+#define OFX_HOST_MAX_PARAMS 2048
+#endif
+#ifndef OFX_HOST_MAX_CLIPS
+#define OFX_HOST_MAX_CLIPS 64
+#endif
+
 /* ------------------------------------------------------------------------- */
 /* Small helpers                                                             */
 /* ------------------------------------------------------------------------- */
@@ -983,14 +993,10 @@ static void init_host(void)
   ps_set_int(&g_host_props, kOfxParamHostPropPageRowColumnCount, 0, 1);
   ps_set_int(&g_host_props, kOfxParamHostPropPageRowColumnCount, 1, 1);
 
-  ps_set_string(&g_host_props, "OfxImageEffectPropOpenCLRenderSupported", 0,
-                "false");
-  ps_set_string(&g_host_props, "OfxImageEffectPropCudaRenderSupported", 0,
-                "false");
-  ps_set_string(&g_host_props, "OfxImageEffectPropCudaStreamSupported", 0,
-                "false");
-  ps_set_string(&g_host_props, "OfxImageEffectPropMetalRenderSupported", 0,
-                "false");
+  ps_set_int(&g_host_props, "OfxImageEffectPropOpenCLRenderSupported", 0, 0);
+  ps_set_int(&g_host_props, "OfxImageEffectPropCudaRenderSupported", 0, 0);
+  ps_set_int(&g_host_props, "OfxImageEffectPropCudaStreamSupported", 0, 0);
+  ps_set_int(&g_host_props, "OfxImageEffectPropMetalRenderSupported", 0, 0);
   ps_set_string(&g_host_props, kOfxImageEffectHostPropNativeOrigin, 0,
                 kOfxHostNativeOriginBottomLeft);
 
@@ -1011,8 +1017,6 @@ static void init_host(void)
                 kOfxBitDepthShort);
   ps_set_string(&g_host_props, kOfxImageEffectPropSupportedPixelDepths, 2,
                 kOfxBitDepthFloat);
-  ps_set_string(&g_host_props, kOfxImageEffectPropSupportedPixelDepths, 3,
-                kOfxBitDepthHalf);
 
   g_host.host = &g_host_props;
   g_host.fetchSuite = host_fetch_suite;
@@ -1310,17 +1314,16 @@ static OfxStatus param_define(OfxParamSetHandle set, const char *type,
   if (!g_session || !name || !type || !props) {
     return kOfxStatErrBadHandle;
   }
-  if (g_session->param_count + 1 > g_session->param_capacity) {
-    int capacity = g_session->param_capacity ? g_session->param_capacity * 2 : 32;
-    Param *params =
-        (Param *)realloc(g_session->params, (size_t)capacity * sizeof(Param));
-    if (!params) {
+  if (!g_session->params) {
+    g_session->params =
+        (Param *)calloc(OFX_HOST_MAX_PARAMS, sizeof(Param));
+    if (!g_session->params) {
       return kOfxStatErrMemory;
     }
-    memset(params + g_session->param_capacity, 0,
-           (size_t)(capacity - g_session->param_capacity) * sizeof(Param));
-    g_session->params = params;
-    g_session->param_capacity = capacity;
+    g_session->param_capacity = OFX_HOST_MAX_PARAMS;
+  }
+  if (g_session->param_count + 1 > g_session->param_capacity) {
+    return kOfxStatErrMemory;
   }
   Param *param = &g_session->params[g_session->param_count++];
   memset(param, 0, sizeof(*param));
@@ -1329,6 +1332,22 @@ static OfxStatus param_define(OfxParamSetHandle set, const char *type,
   ps_set_string(&param->props, kOfxParamPropType, 0, type);
   ps_set_string(&param->props, kOfxParamPropScriptName, 0, name);
   ps_set_string(&param->props, kOfxPropLabel, 0, name);
+  ps_set_string(&param->props, kOfxPropShortLabel, 0, name);
+  ps_set_string(&param->props, kOfxPropLongLabel, 0, name);
+  /* The OFX Support library reads some of these with throwOnFailure enabled
+   * while describing a param, so a missing optional property turns into a
+   * failed DescribeInContext.  Seed the documented defaults. */
+  ps_set_string(&param->props, kOfxParamPropHint, 0, "");
+  ps_set_string(&param->props, kOfxParamPropParent, 0, "");
+  ps_set_int(&param->props, kOfxParamPropSecret, 0, 0);
+  ps_set_int(&param->props, kOfxParamPropEnabled, 0, 1);
+  ps_set_int(&param->props, kOfxParamPropAnimates, 0,
+             strcmp(type, kOfxParamTypeGroup) != 0 &&
+                     strcmp(type, kOfxParamTypePage) != 0 &&
+                     strcmp(type, kOfxParamTypePushButton) != 0);
+  ps_set_int(&param->props, kOfxParamPropCanUndo, 0, 1);
+  ps_set_int(&param->props, kOfxParamPropEvaluateOnChange, 0, 1);
+  ps_set_int(&param->props, kOfxParamPropPersistant, 0, 1);
   *props = &param->props;
   return kOfxStatOK;
 }
@@ -1637,17 +1656,15 @@ static OfxStatus ie_clip_define(OfxImageEffectHandle effect, const char *name,
   if (!g_session || !name || !props) {
     return kOfxStatErrBadHandle;
   }
-  if (g_session->clip_count + 1 > g_session->clip_capacity) {
-    int capacity = g_session->clip_capacity ? g_session->clip_capacity * 2 : 16;
-    Clip *clips =
-        (Clip *)realloc(g_session->clips, (size_t)capacity * sizeof(Clip));
-    if (!clips) {
+  if (!g_session->clips) {
+    g_session->clips = (Clip *)calloc(OFX_HOST_MAX_CLIPS, sizeof(Clip));
+    if (!g_session->clips) {
       return kOfxStatErrMemory;
     }
-    memset(clips + g_session->clip_capacity, 0,
-           (size_t)(capacity - g_session->clip_capacity) * sizeof(Clip));
-    g_session->clips = clips;
-    g_session->clip_capacity = capacity;
+    g_session->clip_capacity = OFX_HOST_MAX_CLIPS;
+  }
+  if (g_session->clip_count + 1 > g_session->clip_capacity) {
+    return kOfxStatErrMemory;
   }
   Clip *clip = &g_session->clips[g_session->clip_count++];
   memset(clip, 0, sizeof(*clip));
@@ -1744,6 +1761,16 @@ static void capture_output(ImageSlot *slot)
     for (int y = 0; y < height; y++) {
       memcpy(converted + (size_t)y * row,
              source + (size_t)(height - 1 - y) * row, row * sizeof(float));
+    }
+  } else if (g_session->depth_bytes == 2) {
+    const unsigned short *source = (const unsigned short *)slot->data;
+    for (int y = 0; y < height; y++) {
+      const unsigned short *src_row =
+          source + (size_t)(height - 1 - y) * row;
+      float *dst_row = converted + (size_t)y * row;
+      for (size_t i = 0; i < row; i++) {
+        dst_row[i] = (float)src_row[i] / 65535.0f;
+      }
     }
   } else {
     const unsigned char *source = (const unsigned char *)slot->data;
@@ -1952,7 +1979,51 @@ static char *join_path(const char *base, const char *child)
   return out;
 }
 
-static char *find_ofx_recursive(const char *dir, int depth)
+/* Apple double files and the __MACOSX sidecar directory are archive noise,
+ * not plugin payload; never try to dlopen them. */
+static int is_ignored_entry(const char *name)
+{
+  return name && (strcmp(name, "__MACOSX") == 0 ||
+                  strncmp(name, "._", 2) == 0 ||
+                  strcmp(name, ".DS_Store") == 0);
+}
+
+/* A plugin executable does not have to be called *.ofx: macOS bundles often
+ * name the Mach-O after CFBundleExecutable.  Recognise the file by magic. */
+static int looks_like_binary(const char *path)
+{
+  unsigned char h[4];
+  FILE *file = fopen(path, "rb");
+  if (!file) {
+    return 0;
+  }
+  size_t read = fread(h, 1, 4, file);
+  fclose(file);
+  if (read < 4) {
+    return 0;
+  }
+  if (h[0] == 'M' && h[1] == 'Z') {
+    return 1;
+  }
+  if (h[0] == 0x7f && h[1] == 'E' && h[2] == 'L' && h[3] == 'F') {
+    return 1;
+  }
+  if ((h[0] == 0xfe && h[1] == 0xed && h[2] == 0xfa &&
+       (h[3] == 0xce || h[3] == 0xcf)) ||
+      (h[0] == 0xcf && h[1] == 0xfa && h[2] == 0xed && h[3] == 0xfe) ||
+      (h[0] == 0xce && h[1] == 0xfa && h[2] == 0xed && h[3] == 0xfe)) {
+    return 1;
+  }
+  if ((h[0] == 0xca && h[1] == 0xfe && h[2] == 0xba &&
+       (h[3] == 0xbe || h[3] == 0xbf)) ||
+      (h[0] == 0xbe && h[1] == 0xba && h[2] == 0xfe && h[3] == 0xca) ||
+      (h[0] == 0xbf && h[1] == 0xba && h[2] == 0xfe && h[3] == 0xca)) {
+    return 1;
+  }
+  return 0;
+}
+
+static char *find_entry_recursive(const char *dir, int depth, int want_ofx)
 {
   if (depth <= 0) {
     return NULL;
@@ -1967,20 +2038,22 @@ static char *find_ofx_recursive(const char *dir, int depth)
   }
   char *found = NULL;
   do {
-    if (strcmp(data.cFileName, ".") == 0 || strcmp(data.cFileName, "..") == 0) {
+    if (strcmp(data.cFileName, ".") == 0 || strcmp(data.cFileName, "..") == 0 ||
+        is_ignored_entry(data.cFileName)) {
       continue;
     }
     char *path = join_path(dir, data.cFileName);
     if (!path) {
       continue;
     }
-    if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 &&
-        ends_with(data.cFileName, ".ofx")) {
-      found = path;
-      break;
-    }
-    if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-      found = find_ofx_recursive(path, depth - 1);
+    if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+      if (want_ofx ? ends_with(data.cFileName, ".ofx")
+                   : looks_like_binary(path)) {
+        found = path;
+        break;
+      }
+    } else {
+      found = find_entry_recursive(path, depth - 1, want_ofx);
     }
     free(path);
   } while (!found && FindNextFileA(handle, &data));
@@ -1994,25 +2067,88 @@ static char *find_ofx_recursive(const char *dir, int depth)
   char *found = NULL;
   struct dirent *entry;
   while (!found && (entry = readdir(handle)) != NULL) {
-    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0 ||
+        is_ignored_entry(entry->d_name)) {
       continue;
     }
     char *path = join_path(dir, entry->d_name);
     if (!path) {
       continue;
     }
-    if (is_file(path) && ends_with(entry->d_name, ".ofx")) {
-      found = path;
-      break;
-    }
-    if (is_dir(path)) {
-      found = find_ofx_recursive(path, depth - 1);
+    if (is_file(path)) {
+      if (want_ofx ? ends_with(entry->d_name, ".ofx")
+                   : looks_like_binary(path)) {
+        found = path;
+        break;
+      }
+    } else if (is_dir(path)) {
+      found = find_entry_recursive(path, depth - 1, want_ofx);
     }
     free(path);
   }
   closedir(handle);
   return found;
 #endif
+}
+
+static char *find_ofx_recursive(const char *dir, int depth)
+{
+  return find_entry_recursive(dir, depth, 1);
+}
+
+static char *find_binary_recursive(const char *dir, int depth)
+{
+  return find_entry_recursive(dir, depth, 0);
+}
+
+static char *plist_executable(const char *bundle)
+{
+  char info[PATH_MAX];
+  snprintf(info, sizeof(info), "%s/Contents/Info.plist", bundle);
+  FILE *file = fopen(info, "rb");
+  if (!file) {
+    return NULL;
+  }
+  char buffer[65536];
+  size_t read = fread(buffer, 1, sizeof(buffer) - 1, file);
+  fclose(file);
+  buffer[read] = '\0';
+
+  const char *key = strstr(buffer, "CFBundleExecutable");
+  if (!key) {
+    return NULL;
+  }
+  const char *start = strstr(key, "<string>");
+  if (!start) {
+    return NULL;
+  }
+  start += 8;
+  const char *end = strstr(start, "</string>");
+  if (!end || end <= start || (size_t)(end - start) >= 256) {
+    return NULL;
+  }
+  char name[256];
+  size_t length = (size_t)(end - start);
+  memcpy(name, start, length);
+  name[length] = '\0';
+  while (length > 0 && (name[length - 1] == ' ' || name[length - 1] == '\n')) {
+    name[--length] = '\0';
+  }
+  if (length == 0) {
+    return NULL;
+  }
+
+  char *dir = join_path(bundle, "Contents/MacOS");
+  if (!dir) {
+    return NULL;
+  }
+  char *path = join_path(dir, name);
+  free(dir);
+  if (path && is_file(path)) {
+    return path;
+  }
+  free(path);
+  return NULL;
 }
 
 static char *resolve_bundle(const char *bundle, char **error)
@@ -2029,6 +2165,11 @@ static char *resolve_bundle(const char *bundle, char **error)
     return NULL;
   }
 
+  char *declared = plist_executable(bundle);
+  if (declared) {
+    return declared;
+  }
+
   const char *candidates[] = {
       "Contents/MacOS",
       "Contents/Linux-x86-64",
@@ -2042,20 +2183,27 @@ static char *resolve_bundle(const char *bundle, char **error)
       "lib",
       ".",
   };
-  for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-    char *dir = join_path(bundle, candidates[i]);
-    if (!dir) {
-      continue;
-    }
-    char *found = find_ofx_recursive(dir, 2);
-    free(dir);
-    if (found) {
-      return found;
+  /* Prefer an explicitly named .ofx file, then any executable-looking file
+   * (macOS bundles usually carry their CFBundleExecutable here). */
+  for (int want_ofx = 1; want_ofx >= 0; want_ofx--) {
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+      char *dir = join_path(bundle, candidates[i]);
+      if (!dir) {
+        continue;
+      }
+      char *found = find_entry_recursive(dir, 2, want_ofx);
+      free(dir);
+      if (found) {
+        return found;
+      }
     }
   }
   char *found = find_ofx_recursive(bundle, 6);
   if (!found) {
-    set_error(error, "没有在 %s 里找到 .ofx 二进制", bundle);
+    found = find_binary_recursive(bundle, 6);
+  }
+  if (!found) {
+    set_error(error, "没有在 %s 里找到 OFX 二进制", bundle);
   }
   return found;
 }
@@ -2098,6 +2246,7 @@ static int choose_depth(PropSet *props, const char **depth_string)
 {
   int count = 0;
   int has_float = 0;
+  int has_short = 0;
   int has_byte = 0;
   ps_get_dimension(props, kOfxImageEffectPropSupportedPixelDepths, &count);
   for (int i = 0; i < count; i++) {
@@ -2109,6 +2258,9 @@ static int choose_depth(PropSet *props, const char **depth_string)
     if (value && strcmp(value, kOfxBitDepthFloat) == 0) {
       has_float = 1;
     }
+    if (value && strcmp(value, kOfxBitDepthShort) == 0) {
+      has_short = 1;
+    }
     if (value && strcmp(value, kOfxBitDepthByte) == 0) {
       has_byte = 1;
     }
@@ -2116,6 +2268,10 @@ static int choose_depth(PropSet *props, const char **depth_string)
   if (has_float) {
     *depth_string = kOfxBitDepthFloat;
     return 4;
+  }
+  if (has_short) {
+    *depth_string = kOfxBitDepthShort;
+    return 2;
   }
   if (has_byte) {
     *depth_string = kOfxBitDepthByte;
@@ -2147,6 +2303,7 @@ static void session_free(OfxHostSession *session)
   if (!session) {
     return;
   }
+  g_session = session;
   if (session->plugin) {
     if (session->instance_created) {
       session->phase = 1;
@@ -2178,6 +2335,9 @@ static void session_free(OfxHostSession *session)
   if (session->lib) {
     OFX_LIB_CLOSE(session->lib);
   }
+  if (g_session == session) {
+    g_session = NULL;
+  }
   free(session);
 }
 
@@ -2199,6 +2359,24 @@ static void setup_instance_props(OfxHostSession *session)
   ps_set_double(props, kOfxImageEffectPropProjectPixelAspectRatio, 0, 1);
   ps_set_double(props, kOfxImageEffectInstancePropEffectDuration, 0, 0);
   ps_set_double(props, kOfxImageEffectPropFrameRate, 0, 24);
+}
+
+static void set_load_error(char **error, const char *binary, const char *reason)
+{
+#ifdef _WIN32
+  (void)reason;
+  set_error(error, "无法加载 OFX 插件：%s（Win32 错误 %lu）", binary,
+            (unsigned long)GetLastError());
+#else
+  if (reason && strstr(reason, "incompatible architecture")) {
+    set_error(error,
+              "无法加载 OFX 插件：%s（架构不兼容：请安装与 App 相同 CPU 架构的构建）",
+              binary);
+  } else {
+    set_error(error, "无法加载 OFX 插件：%s（%s）", binary,
+              reason ? reason : "未知错误");
+  }
+#endif
 }
 
 OfxHostSession *ofx_host_session_open(const char *bundle, const char *plugin_id,
@@ -2230,7 +2408,11 @@ OfxHostSession *ofx_host_session_open(const char *bundle, const char *plugin_id,
 
   session->lib = OFX_LIB_OPEN(binary);
   if (!session->lib) {
-    set_error(error, "无法加载 OFX 插件：%s", binary);
+#ifdef _WIN32
+    set_load_error(error, binary, NULL);
+#else
+    set_load_error(error, binary, dlerror());
+#endif
     free(binary);
     session_free(session);
     return NULL;
@@ -2281,6 +2463,7 @@ OfxHostSession *ofx_host_session_open(const char *bundle, const char *plugin_id,
     session_free(session);
     return NULL;
   }
+  session->loaded = 1;
 
   status = selected->mainEntry(kOfxActionDescribe, session, NULL, NULL);
   if (status != kOfxStatOK) {
@@ -2337,10 +2520,14 @@ OfxHostSession *ofx_host_session_open(const char *bundle, const char *plugin_id,
 
 void ofx_host_session_close(OfxHostSession *session)
 {
-  if (g_session == session) {
-    g_session = NULL;
+  if (!session) {
+    return;
   }
+  /* DestroyInstance still calls back into the property/param suites, so the
+   * global session must stay live until teardown has finished. */
+  g_session = session;
   session_free(session);
+  g_session = NULL;
 }
 
 static void prepare_input(OfxHostSession *session, const float *input)
@@ -2365,6 +2552,26 @@ static void prepare_input(OfxHostSession *session, const float *input)
              input + (size_t)(height - 1 - y) * row, row * sizeof(float));
     }
     session->input_native = flipped;
+  } else if (session->depth_bytes == 2) {
+    unsigned short *shorts =
+        (unsigned short *)malloc(pixels * sizeof(unsigned short));
+    if (!shorts) {
+      return;
+    }
+    for (int y = 0; y < height; y++) {
+      const float *src = input + (size_t)(height - 1 - y) * row;
+      unsigned short *dst = shorts + (size_t)y * row;
+      for (size_t i = 0; i < row; i++) {
+        float value = src[i];
+        if (value < 0) {
+          value = 0;
+        } else if (value > 1) {
+          value = 1;
+        }
+        dst[i] = (unsigned short)(value * 65535.0f + 0.5f);
+      }
+    }
+    session->input_native = shorts;
   } else {
     unsigned char *bytes = (unsigned char *)malloc(pixels);
     if (!bytes) {
@@ -2435,6 +2642,15 @@ int ofx_host_session_render(OfxHostSession *session, double time,
       return -1;
     }
     session->instance_created = 1;
+  }
+
+  /* Params changed since the previous frame: let the plugin refresh any
+   * private state it keeps outside the OFX parameter table. */
+  OfxStatus sync_status = session->plugin->mainEntry(
+      kOfxActionSyncPrivateData, session, NULL, NULL);
+  if (sync_status != kOfxStatOK && sync_status != kOfxStatReplyDefault) {
+    set_error(error, "插件 SyncPrivateData 失败（status=%d）", sync_status);
+    return -1;
   }
 
   PropSet begin;
@@ -2898,7 +3114,11 @@ OfxHostProbeResult *ofx_host_probe(const char *bundle, const char *plugin_id,
 
   OfxLibHandle lib = OFX_LIB_OPEN(binary);
   if (!lib) {
-    set_error(&result->error, "无法加载 OFX 插件：%s", binary);
+#ifdef _WIN32
+    set_load_error(&result->error, binary, NULL);
+#else
+    set_load_error(&result->error, binary, dlerror());
+#endif
     free(binary);
     return result;
   }
@@ -2916,6 +3136,7 @@ OfxHostProbeResult *ofx_host_probe(const char *bundle, const char *plugin_id,
   }
 
   int count = get_count();
+  char *first_error = NULL;
   for (int i = 0; i < count; i++) {
     OfxPlugin *plugin = get_plugin(i);
     if (!plugin) {
@@ -2940,7 +3161,8 @@ OfxHostProbeResult *ofx_host_probe(const char *bundle, const char *plugin_id,
     session->context = context ? dup_text(context) : NULL;
     session->phase = 0;
     g_session = session;
-    probe_one_plugin(bundle, session, result, &result->error);
+    char *plugin_error = NULL;
+    probe_one_plugin(bundle, session, result, &plugin_error);
     g_session = NULL;
     for (int p = 0; p < session->param_count; p++) {
       param_free(&session->params[p]);
@@ -2954,11 +3176,22 @@ OfxHostProbeResult *ofx_host_probe(const char *bundle, const char *plugin_id,
     prop_set_free(&session->inst_props);
     free(session->context);
     free(session);
-    if (result->error) {
-      break;
+    if (plugin_error) {
+      /* One unsupported effect in a multi-plugin bundle must not hide the
+       * effects that do work; keep the first message for the all-failed case. */
+      if (!first_error) {
+        first_error = plugin_error;
+      } else {
+        free(plugin_error);
+      }
     }
   }
 
+  if (result->count == 0 && first_error) {
+    result->error = first_error;
+    first_error = NULL;
+  }
+  free(first_error);
   OFX_LIB_CLOSE(lib);
   return result;
 }

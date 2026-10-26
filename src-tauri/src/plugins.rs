@@ -742,11 +742,13 @@ fn scan_external(app: &AppHandle) -> Vec<PluginStatus> {
             .follow_links(false)
             .into_iter()
             .filter_map(|entry| entry.ok())
+            .filter(|entry| !is_archive_noise(entry.path()))
         {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy();
-            let is_bundle = entry.file_type().is_dir() && name.ends_with(".ofx.bundle");
-            let is_ofx = entry.file_type().is_file() && name.ends_with(".ofx");
+            let is_bundle = is_ofx_bundle_dir(&entry);
+            let is_ofx =
+                entry.file_type().is_file() && name.ends_with(".ofx") && !name.starts_with("._");
             if !is_bundle && !is_ofx {
                 continue;
             }
@@ -757,12 +759,15 @@ fn scan_external(app: &AppHandle) -> Vec<PluginStatus> {
             {
                 continue;
             }
-            // 跳过 .ofx.bundle 内部的文件；bundle 本身已经是一个插件。
+            // 跳过 bundle 内部的文件；bundle 本身已经是一个插件。
             if path.ancestors().skip(1).any(|ancestor| {
                 ancestor
                     .file_name()
                     .and_then(|name| name.to_str())
-                    .map(|name| name.ends_with(".ofx.bundle"))
+                    .map(|name| {
+                        name.ends_with(".ofx.bundle")
+                            || (name.ends_with(".ofx") && ancestor.join("Contents").is_dir())
+                    })
                     .unwrap_or(false)
             }) {
                 continue;
@@ -1007,6 +1012,9 @@ fn extract_zip(archive: &Path, dest: &Path, cancel: &AtomicBool) -> Result<(), S
         let Some(relative) = entry.enclosed_name() else {
             continue;
         };
+        if is_archive_noise(&relative) {
+            continue;
+        }
         if relative.is_absolute()
             || relative
                 .components()
@@ -1095,6 +1103,7 @@ fn extract_tar_gz(archive: &Path, dest: &Path, cancel: &AtomicBool) -> Result<()
             || relative
                 .components()
                 .any(|component| matches!(component, Component::ParentDir))
+            || is_archive_noise(&relative)
         {
             continue;
         }
@@ -1137,16 +1146,41 @@ fn ensure_ofx_permissions(root: &Path) {
     }
 }
 
+fn is_archive_noise(path: &Path) -> bool {
+    path.components().any(|component| {
+        let name = component.as_os_str().to_string_lossy();
+        name == "__MACOSX" || name.starts_with("._")
+    })
+}
+
+/// A plugin bundle is either a `.ofx.bundle` directory or (on macOS/Linux)
+/// an `.ofx` directory with a `Contents` payload.  Some bundles ship the
+/// Mach-O executable without an `.ofx` suffix, so directory detection must
+/// not depend on finding a `*.ofx` file inside.
+fn is_ofx_bundle_dir(entry: &walkdir::DirEntry) -> bool {
+    if !entry.file_type().is_dir() {
+        return false;
+    }
+    let name = entry.file_name().to_string_lossy();
+    if name.ends_with(".ofx.bundle") {
+        return true;
+    }
+    name.ends_with(".ofx") && entry.path().join("Contents").is_dir()
+}
+
 fn collect_plugin_paths(root: &Path) -> Vec<PathBuf> {
     let mut candidates: Vec<PathBuf> = WalkDir::new(root)
         .max_depth(8)
         .follow_links(false)
         .into_iter()
         .filter_map(|entry| entry.ok())
+        .filter(|entry| !is_archive_noise(entry.path()))
         .filter(|entry| {
             let name = entry.file_name().to_string_lossy();
-            (entry.file_type().is_dir() && name.ends_with(".ofx.bundle"))
-                || (entry.file_type().is_file() && name.ends_with(".ofx"))
+            is_ofx_bundle_dir(entry)
+                || (entry.file_type().is_file()
+                    && name.ends_with(".ofx")
+                    && !name.starts_with("._"))
         })
         .map(|entry| entry.into_path())
         .collect();
@@ -1542,7 +1576,10 @@ pub fn plugin_import(app: AppHandle, path: String) -> Result<(), String> {
         && source
             .file_name()
             .and_then(|name| name.to_str())
-            .map(|name| name.ends_with(".ofx.bundle"))
+            .map(|name| {
+                name.ends_with(".ofx.bundle")
+                    || (name.ends_with(".ofx") && source.join("Contents").is_dir())
+            })
             .unwrap_or(false)
     {
         let (name, version) = bundle_info(&source);
@@ -1779,6 +1816,57 @@ mod tests {
         let paths = collect_plugin_paths(&staging);
         assert_eq!(paths.len(), 1);
         assert!(paths[0].ends_with("invert.ofx.bundle"));
+    }
+
+    #[test]
+    fn collect_finds_dot_ofx_directories_and_ignores_archive_noise() {
+        let dir = tempfile::tempdir().unwrap();
+        // macOS/Linux style bundle whose executable has no .ofx suffix.
+        let dot_ofx = dir.path().join("C.ofx");
+        fs::create_dir_all(dot_ofx.join("Contents").join("MacOS")).unwrap();
+        fs::write(dot_ofx.join("Contents").join("MacOS").join("C"), b"bin").unwrap();
+        // AppleDouble sidecars from a zip made on macOS must not be plugins.
+        let noise = dir.path().join("__MACOSX").join("D.ofx.bundle");
+        fs::create_dir_all(noise.join("Contents").join("MacOS")).unwrap();
+        fs::write(noise.join("Contents").join("MacOS").join("._D.ofx"), b"x").unwrap();
+        let real = dir.path().join("E.ofx.bundle");
+        fs::create_dir_all(real.join("Contents").join("MacOS")).unwrap();
+        fs::write(real.join("Contents").join("MacOS").join("._E.ofx"), b"x").unwrap();
+
+        let found = collect_plugin_paths(dir.path());
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(found.iter().any(|path| path.ends_with("C.ofx")));
+        assert!(found.iter().any(|path| path.ends_with("E.ofx.bundle")));
+    }
+
+    #[test]
+    fn zip_extraction_skips_macos_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("bundle.zip");
+        {
+            let file = fs::File::create(&archive).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("A.ofx.bundle/Contents/MacOS/A.ofx", options)
+                .unwrap();
+            zip.write_all(b"good").unwrap();
+            zip.start_file("__MACOSX/A.ofx.bundle/Contents/MacOS/._A.ofx", options)
+                .unwrap();
+            zip.write_all(b"junk").unwrap();
+            zip.start_file("._A.ofx", options).unwrap();
+            zip.write_all(b"junk").unwrap();
+            zip.finish().unwrap();
+        }
+        let dest = dir.path().join("out");
+        extract_zip(&archive, &dest, &AtomicBool::new(false)).unwrap();
+        assert!(dest
+            .join("A.ofx.bundle")
+            .join("Contents")
+            .join("MacOS")
+            .join("A.ofx")
+            .is_file());
+        assert!(!dest.join("__MACOSX").exists());
+        assert!(!dest.join("._A.ofx").exists());
     }
 
     #[tokio::test]

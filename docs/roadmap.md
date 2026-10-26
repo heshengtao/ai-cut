@@ -187,6 +187,8 @@ MCP 工具 ─┼─▶ apply_command / apply_commands ─▶ 纯函数 ops ─�
 - [x] `Clip.effects[]`、检查器效果链、独立「参数」面板、应用到选中片段、多选混合值。
 - [x] 预览：暂停时渲染当前帧并叠加；播放时隐藏。
 - [x] 导出：带效果片段先烘焙成 ProRes 4444 中间文件，再进入现有 ffmpeg 计划；音轨仍读原素材。
+- [x] 兼容性加固：参数 / 片段句柄不再因扩容失效；参数描述补齐 hint 等默认属性；支持 8/16/32 位像素深度；渲染前调用 `SyncPrivateData`；bundle 内可执行文件不再要求 `*.ofx` 后缀；安装时跳过 `__MACOSX` / AppleDouble 垃圾。
+- [x] 回归样例：Stoatworks 9 件套、FsPlugins、ME_OpenDRT、ODT N6、Anime Smoother、Nikita Blend、QR Coder、MakeHDR、Boilify、Macroblock、DomeWarp 均通过 probe + render。
 
 ## 3. 非目标
 
