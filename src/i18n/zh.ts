@@ -1050,6 +1050,7 @@ const zh: Record<string, string> = {
   "plugins.reveal": "在文件夹中显示",
   "plugins.cancel": "取消",
   "plugins.license": "许可",
+  "plugins.gplUpstream": "GPL 上游",
   "plugins.type.filter": "滤镜",
   "plugins.type.generator": "生成器",
   "plugins.type.transition": "转场",

@@ -1050,6 +1050,7 @@ const en: Record<string, string> = {
   "plugins.reveal": "Show in folder",
   "plugins.cancel": "Cancel",
   "plugins.license": "License",
+  "plugins.gplUpstream": "GPL upstream",
   "plugins.type.filter": "Filter",
   "plugins.type.generator": "Generator",
   "plugins.type.transition": "Transition",
