@@ -14,6 +14,25 @@ const NON_VALUE_TYPES: ReadonlySet<string> = new Set([
   "pushbutton",
 ]);
 
+/**
+ * 当前宿主能正确挂到单个片段上并预览的 OFX context。
+ *
+ * - filter / general：单输入滤镜；
+ * - generator：忽略输入、直接生成画面；
+ * - transition 需要 SourceFrom / SourceTo 两路输入和重叠时间轴；
+ *   paint / retimer 需要交互绘制或改变时基 —— 都不在挂载范围内。
+ */
+export const OFX_MOUNTABLE_CONTEXTS: ReadonlySet<string> = new Set([
+  "OfxImageEffectContextFilter",
+  "OfxImageEffectContextGeneral",
+  "OfxImageEffectContextGenerator",
+]);
+
+export function isMountablePlugin(plugin: OfxPluginInfo): boolean {
+  if (plugin.contexts.length === 0) return true;
+  return plugin.contexts.some((context) => OFX_MOUNTABLE_CONTEXTS.has(context));
+}
+
 export function isValueParam(param: OfxParamInfo): boolean {
   return !NON_VALUE_TYPES.has(param.type) && !param.secret;
 }

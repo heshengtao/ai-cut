@@ -296,6 +296,8 @@ export const PROJECT_VERSION = 1;
 export interface ProjectHistoryEntry {
   id: string;
   name: string;
+  /** 工程自身的创建时间（Unix 毫秒）；同一工程的多个版本共用。 */
+  project_created_at?: number;
   /** 记录时间（Unix 毫秒）。 */
   saved_at: number;
   /** 当时的工程文件路径；未保存过为 null。 */

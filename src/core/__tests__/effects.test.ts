@@ -14,6 +14,7 @@ import { createAsset, createClip, newProject } from "@/core/factory";
 import {
   clipEffectSpecs,
   defaultEffectParams,
+  isMountablePlugin,
   normalizeClipEffects,
 } from "@/core/effects";
 import { parseProject, serializeProject } from "@/core/serialize";
@@ -146,5 +147,39 @@ describe("clip effects", () => {
     expect(repaired.tracks[0].clips[0].effects).toHaveLength(1);
     expect(repaired.tracks[0].clips[0].effects?.[0].id).toBe("ok");
     expect(normalizeClipEffects(null)).toEqual([]);
+  });
+
+  it("only mounts filter, general and generator contexts", () => {
+    expect(
+      isMountablePlugin({ ...PLUGIN, contexts: ["OfxImageEffectContextFilter"] }),
+    ).toBe(true);
+    expect(
+      isMountablePlugin({ ...PLUGIN, contexts: ["OfxImageEffectContextGenerator"] }),
+    ).toBe(true);
+    expect(
+      isMountablePlugin({ ...PLUGIN, contexts: ["OfxImageEffectContextGeneral"] }),
+    ).toBe(true);
+    expect(
+      isMountablePlugin({
+        ...PLUGIN,
+        contexts: ["OfxImageEffectContextTransition"],
+      }),
+    ).toBe(false);
+    expect(
+      isMountablePlugin({ ...PLUGIN, contexts: ["OfxImageEffectContextPaint"] }),
+    ).toBe(false);
+    expect(
+      isMountablePlugin({ ...PLUGIN, contexts: ["OfxImageEffectContextRetimer"] }),
+    ).toBe(false);
+    // 同时支持滤镜和转场的插件仍然可以按滤镜挂载。
+    expect(
+      isMountablePlugin({
+        ...PLUGIN,
+        contexts: [
+          "OfxImageEffectContextTransition",
+          "OfxImageEffectContextFilter",
+        ],
+      }),
+    ).toBe(true);
   });
 });

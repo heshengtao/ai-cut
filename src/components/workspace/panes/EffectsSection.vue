@@ -27,7 +27,7 @@ import {
   removeClipEffect,
   setClipEffectEnabled,
 } from "@/core/ops";
-import { defaultEffectParams } from "@/core/effects";
+import { defaultEffectParams, isMountablePlugin } from "@/core/effects";
 import { toast } from "@/composables/useToast";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
@@ -202,11 +202,19 @@ async function onAddBundle(slug: string): Promise<void> {
   try {
     const found = await ofx.probe(status.installed_path);
     if (found.length === 0) throw new Error(i18n.t("effects.notFound"));
-    if (found.length === 1) {
-      addEffect(status, found[0]);
+    const supported = found.filter(isMountablePlugin);
+    const skipped = found.length - supported.length;
+    if (supported.length === 0) {
+      throw new Error(i18n.t("effects.unsupportedContext"));
+    }
+    if (skipped > 0) {
+      toast(i18n.t("effects.someUnsupported", { count: skipped }));
+    }
+    if (supported.length === 1) {
+      addEffect(status, supported[0]!);
     } else {
       pendingBundle.value = status;
-      pendingPlugins.value = found;
+      pendingPlugins.value = supported;
     }
   } catch (error) {
     toast(error instanceof Error ? error.message : String(error), "error");
@@ -218,13 +226,13 @@ async function onAddBundle(slug: string): Promise<void> {
 function onAddPlugin(identifier: string): void {
   const status = pendingBundle.value;
   const info = pendingPlugins.value.find((plugin) => plugin.identifier === identifier);
-  if (!status || !info) return;
+  if (!status || !info || !isMountablePlugin(info)) return;
   addEffect(status, info);
 }
 
 function addEffect(status: PluginStatus, info: OfxPluginInfo): void {
   const bundle = status.installed_path;
-  if (!bundle || targetClips.value.length === 0) return;
+  if (!bundle || !isMountablePlugin(info) || targetClips.value.length === 0) return;
   const effect: ClipEffect = {
     id: crypto.randomUUID(),
     plugin: info.identifier,

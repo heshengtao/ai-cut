@@ -18,7 +18,9 @@ import { fileUrl } from "@/core/media";
 import {
   deleteProjectHistory,
   flushHistoryRecords,
+  groupProjectHistory,
   listProjectHistory,
+  type ProjectHistoryGroup,
 } from "@/core/history";
 import { useProjectStore } from "@/stores/project";
 import { usePlaybackStore } from "@/stores/playback";
@@ -27,6 +29,7 @@ import { useI18n } from "@/i18n";
 import { displayProjectName } from "@/utils/projectName";
 import { toast } from "@/composables/useToast";
 import { confirm } from "@/composables/useConfirm";
+import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ (e: "update:open", value: boolean): void }>();
@@ -36,7 +39,9 @@ const project = useProjectStore();
 const playback = usePlaybackStore();
 const selection = useSelectionStore();
 
-const entries = ref<ProjectHistoryEntry[]>([]);
+const groups = ref<ProjectHistoryGroup[]>([]);
+/** 每张卡片当前选中的版本 id；默认最新版本。 */
+const selectedVersion = ref<Record<string, string>>({});
 const loading = ref(false);
 const restoring = ref<string | null>(null);
 const deleting = ref<string | null>(null);
@@ -66,7 +71,13 @@ async function load(): Promise<void> {
   failedThumbs.value = [];
   try {
     await flushHistoryRecords();
-    entries.value = await listProjectHistory();
+    groups.value = groupProjectHistory(await listProjectHistory());
+    const picks: Record<string, string> = {};
+    for (const group of groups.value) {
+      const latest = group.versions[0];
+      if (latest) picks[group.key] = latest.id;
+    }
+    selectedVersion.value = picks;
   } catch (error) {
     toast(
       i18n.t("history.failed", {
@@ -77,6 +88,26 @@ async function load(): Promise<void> {
   } finally {
     loading.value = false;
   }
+}
+
+/** 当前选中的版本；没有记录时退回最新版本。 */
+function currentEntry(group: ProjectHistoryGroup): ProjectHistoryEntry {
+  const wanted = selectedVersion.value[group.key];
+  return group.versions.find((entry) => entry.id === wanted) ?? group.versions[0]!;
+}
+
+function versionOptions(group: ProjectHistoryGroup): SelectOption[] {
+  return group.versions.map((entry) => ({
+    id: entry.id,
+    label: updatedAt(entry),
+    hint: entry.dirty ? i18n.t("history.dirty") : undefined,
+  }));
+}
+
+function pickVersion(group: ProjectHistoryGroup, id: string): void {
+  if (restoring.value || deleting.value) return;
+  if (!group.versions.some((entry) => entry.id === id)) return;
+  selectedVersion.value = { ...selectedVersion.value, [group.key]: id };
 }
 
 function formatDuration(seconds: number): string {
@@ -113,8 +144,9 @@ function onCoverError(entry: ProjectHistoryEntry): void {
   failedThumbs.value = [...failedThumbs.value, entry.id];
 }
 
-async function choose(entry: ProjectHistoryEntry): Promise<void> {
+async function choose(group: ProjectHistoryGroup): Promise<void> {
   if (restoring.value || deleting.value) return;
+  const entry = currentEntry(group);
   restoring.value = entry.id;
   try {
     playback.playing = false;
@@ -136,22 +168,31 @@ async function choose(entry: ProjectHistoryEntry): Promise<void> {
   }
 }
 
-async function remove(entry: ProjectHistoryEntry): Promise<void> {
+async function remove(group: ProjectHistoryGroup): Promise<void> {
   if (restoring.value || deleting.value) return;
+  const count = group.versions.length;
   const accepted = await confirm({
     title: i18n.t("history.deleteTitle"),
-    message: i18n.t("history.deleteMessage", {
-      name: displayProjectName(entry.name),
-    }),
+    message:
+      count > 1
+        ? i18n.t("history.deleteGroupMessage", {
+            name: displayProjectName(group.name),
+            count,
+          })
+        : i18n.t("history.deleteMessage", {
+            name: displayProjectName(group.name),
+          }),
     confirmText: i18n.t("common.delete"),
     destructive: true,
   });
   if (!accepted) return;
 
-  deleting.value = entry.id;
+  deleting.value = group.key;
   try {
-    await deleteProjectHistory(entry.id);
-    entries.value = entries.value.filter((item) => item.id !== entry.id);
+    for (const entry of group.versions) {
+      await deleteProjectHistory(entry.id);
+    }
+    groups.value = groups.value.filter((item) => item.key !== group.key);
     toast(i18n.t("history.deleted"));
   } catch (error) {
     toast(
@@ -160,6 +201,7 @@ async function remove(entry: ProjectHistoryEntry): Promise<void> {
       }),
       "error",
     );
+    await load();
   } finally {
     deleting.value = null;
   }
@@ -210,7 +252,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
               <p>{{ i18n.t("history.loading") }}</p>
             </div>
 
-            <div v-else-if="entries.length === 0" class="state">
+            <div v-else-if="groups.length === 0" class="state">
               <ClockIcon class="w-8 h-8 state-icon" />
               <p class="state-title">{{ i18n.t("history.empty") }}</p>
               <p class="state-hint">{{ i18n.t("history.emptyHint") }}</p>
@@ -218,11 +260,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
 
             <div v-else class="grid">
               <div
-                v-for="entry in entries"
-                :key="entry.id"
+                v-for="group in groups"
+                :key="group.key"
                 class="card"
                 :class="{
-                  restoring: restoring === entry.id,
+                  restoring: restoring === currentEntry(group).id,
                   busy: restoring !== null || deleting !== null,
                 }"
               >
@@ -230,40 +272,72 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
                   class="card-open"
                   type="button"
                   :disabled="restoring !== null || deleting !== null"
-                  :aria-label="displayProjectName(entry.name)"
-                  @click="choose(entry)"
+                  :aria-label="displayProjectName(group.name)"
+                  @click="choose(group)"
                 >
                   <span class="thumb">
                     <img
-                      v-if="cover(entry)"
+                      v-if="cover(currentEntry(group))"
                       class="thumb-img"
-                      :src="cover(entry) ?? undefined"
-                      :alt="displayProjectName(entry.name)"
-                      @error="onCoverError(entry)"
+                      :src="cover(currentEntry(group)) ?? undefined"
+                      :alt="displayProjectName(group.name)"
+                      @error="onCoverError(currentEntry(group))"
                     />
                     <span v-else class="thumb-empty">
                       <FilmIcon class="w-7 h-7" />
                     </span>
 
-                    <span v-if="entry.dirty" class="unsaved-badge">
+                    <span v-if="currentEntry(group).dirty" class="unsaved-badge">
                       {{ i18n.t("history.dirty") }}
+                    </span>
+                    <span
+                      v-if="group.versions.length > 1"
+                      class="version-badge"
+                    >
+                      {{ i18n.t("history.versions", { count: group.versions.length }) }}
                     </span>
                   </span>
 
                   <span class="card-body">
                     <span class="name-row">
-                      <span class="name">{{ displayProjectName(entry.name) }}</span>
-                      <span v-if="entry.dirty" class="dirty-dot" aria-hidden="true" />
+                      <span class="name">{{ displayProjectName(group.name) }}</span>
+                      <span
+                        v-if="currentEntry(group).dirty"
+                        class="dirty-dot"
+                        aria-hidden="true"
+                      />
                     </span>
-                    <span class="meta">{{ meta(entry) }}</span>
+                    <span class="meta">{{ meta(currentEntry(group)) }}</span>
                     <span class="foot-row">
-                      <span class="date">{{ updatedAt(entry) }}</span>
-                      <span class="path" :title="entry.path ?? undefined">
-                        {{ entry.path ? fileName(entry.path) : i18n.t("history.unsaved") }}
+                      <span class="date">{{ updatedAt(currentEntry(group)) }}</span>
+                      <span
+                        class="path"
+                        :title="currentEntry(group).path ?? undefined"
+                      >
+                        {{
+                          currentEntry(group).path
+                            ? fileName(currentEntry(group).path!)
+                            : i18n.t("history.unsaved")
+                        }}
                       </span>
                     </span>
                   </span>
                 </button>
+
+                <div
+                  v-if="group.versions.length > 1"
+                  class="version-row"
+                  @click.stop
+                >
+                  <Md3Select
+                    compact
+                    :model-value="selectedVersion[group.key]"
+                    :options="versionOptions(group)"
+                    :label="i18n.t('history.version')"
+                    :disabled="restoring !== null || deleting !== null"
+                    @update:model-value="pickVersion(group, $event)"
+                  />
+                </div>
 
                 <button
                   class="delete-btn"
@@ -271,7 +345,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
                   :disabled="restoring !== null || deleting !== null"
                   :aria-label="i18n.t('history.delete')"
                   :title="i18n.t('history.delete')"
-                  @click="remove(entry)"
+                  @click="remove(group)"
                 >
                   <TrashIcon class="w-[15px] h-[15px]" />
                 </button>
@@ -279,7 +353,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
             </div>
           </div>
 
-          <footer v-if="entries.length > 0 && !loading" class="foot">
+          <footer v-if="groups.length > 0 && !loading" class="foot">
             <ExclamationTriangleIcon class="foot-icon" />
             <span>{{ i18n.t("history.hint") }}</span>
           </footer>
@@ -491,6 +565,26 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
   line-height: 1.4;
   letter-spacing: 0.2px;
   backdrop-filter: blur(4px);
+}
+.version-badge {
+  position: absolute;
+  left: 7px;
+  bottom: 7px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background-color: rgba(10, 8, 13, 0.68);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 10px;
+  line-height: 1.4;
+  letter-spacing: 0.2px;
+  backdrop-filter: blur(4px);
+}
+.version-row {
+  padding: 0 10px 10px;
+}
+.version-row :deep(.md3-select-root),
+.version-row :deep(.md3-select) {
+  width: 100%;
 }
 .card-body {
   display: flex;

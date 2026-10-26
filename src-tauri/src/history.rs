@@ -18,6 +18,9 @@ pub const MAX_ENTRIES: usize = 30;
 pub struct HistoryEntry {
     pub id: String,
     pub name: String,
+    /// 工程自身的创建时间（Unix 毫秒）；用于把同一工程的多个版本归到一张卡片。
+    #[serde(default)]
+    pub project_created_at: i64,
     /// 记录时间（Unix 毫秒）。
     pub saved_at: i64,
     /// 当时的工程文件路径（未保存过为 `None`）。
@@ -101,6 +104,7 @@ fn rebuild_index(dir: &Path) -> Vec<HistoryEntry> {
         entries.push(HistoryEntry {
             id: id.to_string(),
             name,
+            project_created_at: project_created_at(&value),
             saved_at,
             path: None,
             dirty: true,
@@ -118,14 +122,40 @@ fn rebuild_index(dir: &Path) -> Vec<HistoryEntry> {
 }
 
 /// 读取索引；文件缺失或损坏时尝试从快照文件重建，历史功能坏了不该拖垮启动。
+///
+/// 旧版索引没有 `project_created_at`：首次读取时从快照里补齐并回写，已有用户的
+/// 历史才能按工程分组，而不是每份快照各占一张卡片。
 fn load_index(dir: &Path) -> Vec<HistoryEntry> {
-    let entries = std::fs::read_to_string(dir.join("index.json"))
+    let loaded = std::fs::read_to_string(dir.join("index.json"))
         .ok()
         .and_then(|text| serde_json::from_str::<Vec<HistoryEntry>>(&text).ok());
-    match entries {
+    let mut entries = match loaded {
         Some(entries) if !entries.is_empty() => entries,
         _ => rebuild_index(dir),
+    };
+
+    let mut changed = false;
+    for entry in entries.iter_mut() {
+        if entry.project_created_at != 0 {
+            continue;
+        }
+        let file = dir.join(format!("{}.json", entry.id));
+        let Ok(text) = std::fs::read_to_string(file) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
+        let created = project_created_at(&value);
+        if created > 0 {
+            entry.project_created_at = created;
+            changed = true;
+        }
     }
+    if changed {
+        let _ = write_index(dir, &entries);
+    }
+    entries
 }
 
 fn write_index(dir: &Path, entries: &[HistoryEntry]) -> Result<(), String> {
@@ -182,6 +212,11 @@ fn summarize(value: &Value) -> (String, usize, usize, f64) {
         }
     }
     (name, tracks.len(), clip_count, duration)
+}
+
+/// 工程自身的 `createdAt` 在多次保存 / 记录历史时保持不变，是分组的稳定键。
+fn project_created_at(value: &Value) -> i64 {
+    value.get("createdAt").and_then(Value::as_i64).unwrap_or(0)
 }
 
 fn is_empty_project(value: &Value, clip_count: usize) -> bool {
@@ -261,6 +296,7 @@ pub fn project_history_record<R: Runtime>(
     let entry = HistoryEntry {
         id,
         name,
+        project_created_at: project_created_at(&value),
         saved_at,
         path,
         dirty,
@@ -336,8 +372,54 @@ pub fn project_history_get<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::{fingerprint, is_empty_project, summarize, valid_id};
+    use super::{
+        fingerprint, is_empty_project, load_index, project_created_at, summarize, valid_id,
+        write_index, HistoryEntry,
+    };
     use serde_json::json;
+
+    #[test]
+    fn backfills_creation_time_for_a_legacy_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = json!({
+            "createdAt": 1_700_000_000_123_i64,
+            "name": "demo",
+            "assets": [],
+            "tracks": []
+        });
+        std::fs::write(dir.path().join("1.json"), project.to_string()).unwrap();
+        let legacy = HistoryEntry {
+            id: "1".into(),
+            name: "demo".into(),
+            project_created_at: 0,
+            saved_at: 1,
+            path: None,
+            dirty: true,
+            duration: 0.0,
+            thumbnail: None,
+            track_count: 0,
+            clip_count: 0,
+            fingerprint: "fp".into(),
+        };
+        write_index(dir.path(), &[legacy]).unwrap();
+
+        let loaded = load_index(dir.path());
+        assert_eq!(loaded[0].project_created_at, 1_700_000_000_123_i64);
+        // 回写后再次读取不应再扫快照。
+        assert_eq!(
+            load_index(dir.path())[0].project_created_at,
+            1_700_000_000_123_i64
+        );
+    }
+
+    #[test]
+    fn reads_the_stable_project_creation_time() {
+        assert_eq!(
+            project_created_at(&json!({ "createdAt": 1_700_000_000_000_i64 })),
+            1_700_000_000_000
+        );
+        assert_eq!(project_created_at(&json!({ "name": "legacy" })), 0);
+    }
 
     #[test]
     fn summarizes_tracks_and_timeline_length() {

@@ -69,3 +69,59 @@ export function deleteProjectHistory(id: string): Promise<void> {
   if (!isTauri()) return Promise.resolve();
   return invoke<void>("project_history_delete", { id });
 }
+
+/** 同一个工程的多次历史快照。 */
+export interface ProjectHistoryGroup {
+  key: string;
+  name: string;
+  path: string | null;
+  /** 按记录时间倒序：`versions[0]` 是最新版本。 */
+  versions: ProjectHistoryEntry[];
+}
+
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+/**
+ * 把同一工程的多份快照归到一组：优先用工程文件路径，未保存的工程用工程自身的
+ * `createdAt`，更老的快照没有这两项时各自成组，避免把无关工程误合并。
+ */
+export function groupProjectHistory(
+  entries: ProjectHistoryEntry[],
+): ProjectHistoryGroup[] {
+  const groups = new Map<string, ProjectHistoryGroup>();
+  for (const entry of entries) {
+    let key: string;
+    if (entry.path) {
+      key = `path:${normalizePath(entry.path)}`;
+    } else if ((entry.project_created_at ?? 0) > 0) {
+      key = `created:${entry.project_created_at}`;
+    } else {
+      key = `legacy:${entry.id}`;
+    }
+    const group = groups.get(key);
+    if (group) {
+      group.versions.push(entry);
+    } else {
+      groups.set(key, {
+        key,
+        name: entry.name,
+        path: entry.path,
+        versions: [entry],
+      });
+    }
+  }
+
+  const out = [...groups.values()];
+  for (const group of out) {
+    group.versions.sort((a, b) => b.saved_at - a.saved_at);
+    group.name = group.versions[0]?.name ?? group.name;
+    group.path = group.versions[0]?.path ?? group.path;
+  }
+  out.sort(
+    (a, b) =>
+      (b.versions[0]?.saved_at ?? 0) - (a.versions[0]?.saved_at ?? 0),
+  );
+  return out;
+}

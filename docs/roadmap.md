@@ -189,6 +189,11 @@ MCP 工具 ─┼─▶ apply_command / apply_commands ─▶ 纯函数 ops ─�
 - [x] 导出：带效果片段先烘焙成 ProRes 4444 中间文件，再进入现有 ffmpeg 计划；音轨仍读原素材。
 - [x] 兼容性加固：参数 / 片段句柄不再因扩容失效；参数描述补齐 hint 等默认属性；支持 8/16/32 位像素深度；渲染前调用 `SyncPrivateData`；bundle 内可执行文件不再要求 `*.ofx` 后缀；安装时跳过 `__MACOSX` / AppleDouble 垃圾。
 - [x] 回归样例：Stoatworks 9 件套、FsPlugins、ME_OpenDRT、ODT N6、Anime Smoother、Nikita Blend、QR Coder、MakeHDR、Boilify、Macroblock、DomeWarp 均通过 probe + render。
+- [x] OFX image effect context 支持矩阵：
+  - `filter` / `general`：单输入，可挂载到片段、暂停预览、整段烘焙、导出。
+  - `generator`：可挂载到有画面的片段（生成器覆盖画面），预览 / 烘焙流程相同；暂不支持单独创建「生成器片段」。
+  - `transition`：需要 `SourceFrom` / `SourceTo` 两路输入和重叠时间轴，当前不支持；添加入口会跳过并提示。
+  - `paint` / `retimer`：需要交互绘制或改变片段时基，当前不支持。
 
 ## 3. 非目标
 
