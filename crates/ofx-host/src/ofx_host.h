@@ -62,6 +62,14 @@ typedef struct OfxHostProbeResult {
   char *error;
 } OfxHostProbeResult;
 
+/* One named input image for a render.  `clip` is the OFX clip name
+ * ("Source", "SourceFrom", "SourceTo", or a custom General-context clip).
+ * Pixels are top-down RGBA floats, width * height * 4. */
+typedef struct OfxHostInput {
+  const char *clip;
+  const float *rgba;
+} OfxHostInput;
+
 /* A parameter value supplied to a render.  Only the field matching the
  * parameter type is read, so callers may populate all of them. */
 typedef struct OfxHostParamValue {
@@ -88,8 +96,8 @@ OfxHostSession *ofx_host_session_open(const char *bundle,
                                       int width,
                                       int height,
                                       char **error);
-/* Render one RGBA float frame.  `*output` is allocated with malloc and must be
- * freed with ofx_host_free. */
+/* Render one RGBA float frame from a single `Source` input.  `*output` is
+ * allocated with malloc and must be freed with ofx_host_free. */
 int ofx_host_session_render(OfxHostSession *session,
                             double time,
                             const float *input,
@@ -97,6 +105,42 @@ int ofx_host_session_render(OfxHostSession *session,
                             int param_count,
                             float **output,
                             char **error);
+
+/* Render with any number of named input clips.  This is what the transition
+ * context needs (`SourceFrom` + `SourceTo`); General-context plugins can bind
+ * their own custom clips.  `transition` drives the mandated `Transition`
+ * parameter for transition plugins and is ignored in other contexts. */
+int ofx_host_session_render_multi(OfxHostSession *session,
+                                  double time,
+                                  const OfxHostInput *inputs,
+                                  int input_count,
+                                  double transition,
+                                  const OfxHostParamValue *params,
+                                  int param_count,
+                                  float **output,
+                                  char **error);
+
+/* Ask a Retimer plugin which source time it needs for output `time`.  Calls
+ * OfxActionBeginInstanceChanged / InstanceChanged / EndInstanceChanged with
+ * kOfxChangeTime and reads the mandated `SourceTime` parameter.  Returns 0 on
+ * success; plugins without `SourceTime` report the current time unchanged. */
+int ofx_host_session_source_time(OfxHostSession *session,
+                                 double time,
+                                 const OfxHostParamValue *params,
+                                 int param_count,
+                                 double *source_time,
+                                 char **error);
+
+/* Duration of the clip being rendered, in seconds.  Transition and retimer
+ * plugins use it for clip frame ranges / time-domain sanity checks. */
+void ofx_host_session_set_duration(OfxHostSession *session, double duration);
+
+/* Project frame rate exposed to time-aware plugins (transition / retimer). */
+void ofx_host_session_set_frame_rate(OfxHostSession *session, double fps);
+
+/* Set the Retimer SourceTime parameter for the next render. */
+void ofx_host_session_set_source_time(OfxHostSession *session, double source_time);
+
 void ofx_host_session_close(OfxHostSession *session);
 
 /* One-shot convenience wrapper. */

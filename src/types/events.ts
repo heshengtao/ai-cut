@@ -2,6 +2,7 @@
 
 import type {
   Clip,
+  ClipEffect,
   MarkerKind,
   MediaAsset,
   Project,
@@ -221,9 +222,10 @@ export interface CommandPayloads {
     clipId: string;
     edge: "in" | "out";
     transition: {
-      type?: "fade" | "slide";
+      type?: "fade" | "slide" | "ofx";
       duration?: number;
       direction?: "left" | "right" | "up" | "down";
+      effect?: ClipEffect;
     } | null;
   };
   "clip.keyframes": {

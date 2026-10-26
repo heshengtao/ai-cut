@@ -9,7 +9,7 @@ import { computed } from "vue";
 import type { ClipEffect, Project } from "@/types/project";
 import type { OfxParamInfo, OfxParamType, OfxParamValue, OfxPluginInfo } from "@/types/plugins";
 import { useProjectStore } from "@/stores/project";
-import { setClipEffectParam } from "@/core/ops";
+import { setClipEffectParam, setClipTransitionEffectParam } from "@/core/ops";
 import { isValueParam, sameParamValue } from "@/core/effects";
 import NumberField from "@/components/common/NumberField.vue";
 import ColorField from "@/components/common/ColorField.vue";
@@ -21,10 +21,16 @@ const props = withDefaults(
   defineProps<{
     info: OfxPluginInfo;
     effect: ClipEffect;
-    targets: Array<{ clipId: string; effect: ClipEffect }>;
+    targets: Array<{
+      clipId: string;
+      effect: ClipEffect;
+      edge?: "in" | "out";
+    }>;
+    /** transition 模式隐藏由宿主驱动的 Transition 参数。 */
+    mode?: "effect" | "transition";
     readonly?: boolean;
   }>(),
-  { readonly: false },
+  { readonly: false, mode: "effect" },
 );
 
 const project = useProjectStore();
@@ -36,7 +42,14 @@ const activeTargets = computed(() =>
     : [{ clipId: "", effect: props.effect }],
 );
 
-const valueParams = computed(() => props.info.params.filter(isValueParam));
+const valueParams = computed(() =>
+  props.info.params.filter(
+    (param) =>
+      isValueParam(param) &&
+      param.name !== "SourceTime" &&
+      !(props.mode === "transition" && param.name === "Transition"),
+  ),
+);
 
 function valueOf(effect: ClipEffect, param: OfxParamInfo): OfxParamValue {
   return effect.params[param.name] ?? param.default;
@@ -59,13 +72,21 @@ function setParam(
   const apply = (doc: Project): Project => {
     let next = doc;
     for (const target of targets) {
-      next = setClipEffectParam(
-        next,
-        target.clipId,
-        target.effect.id,
-        param.name,
-        value,
-      );
+      next = target.edge
+        ? setClipTransitionEffectParam(
+            next,
+            target.clipId,
+            target.edge,
+            param.name,
+            value,
+          )
+        : setClipEffectParam(
+            next,
+            target.clipId,
+            target.effect.id,
+            param.name,
+            value,
+          );
     }
     return next;
   };
@@ -73,7 +94,7 @@ function setParam(
     project.dispatchCoalesced(
       apply,
       `ofx:${props.effect.id}:${param.name}:${targets
-        .map((target) => target.clipId)
+        .map((target) => `${target.clipId}:${target.edge ?? ""}`)
         .join(",")}`,
     );
   } else {

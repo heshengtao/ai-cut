@@ -54,7 +54,13 @@ import {
   resetClipAttributes,
   type ClipAttributes,
 } from "@/core/clipAttributes";
-import { DEFAULT_TRANSITION_DURATION } from "@/core/clipTransition";
+import {
+  DEFAULT_OFX_TRANSITION_DURATION,
+  DEFAULT_TRANSITION_DURATION,
+  MAX_OFX_TRANSITION_DURATION,
+} from "@/core/clipTransition";
+import { defaultEffectParams, isTransitionPlugin } from "@/core/effects";
+import type { OfxPluginInfo } from "@/types/plugins";
 import {
   keyframeAt,
   keyframeValuesAt,
@@ -91,6 +97,9 @@ import { useSelectionStore } from "@/stores/selection";
 import { useTextPresetsStore } from "@/stores/textPresets";
 import { useAudioAiStore } from "@/stores/audioAi";
 import { useVideoDspStore } from "@/stores/videoDsp";
+import { useOfxStore } from "@/stores/ofx";
+import { usePluginsStore } from "@/stores/plugins";
+import { useLayoutStore } from "@/stores/layout";
 import { useTimelineActions } from "@/composables/useTimelineActions";
 import { toast } from "@/composables/useToast";
 import NumberField from "@/components/common/NumberField.vue";
@@ -107,6 +116,9 @@ const selection = useSelectionStore();
 const textPresets = useTextPresetsStore();
 const audioAi = useAudioAiStore();
 const videoDsp = useVideoDspStore();
+const ofx = useOfxStore();
+const plugins = usePluginsStore();
+const layout = useLayoutStore();
 const i18n = useI18n();
 const timelineActions = useTimelineActions();
 
@@ -715,6 +727,10 @@ const transitionTypeOptions = computed<SelectOption[]>(() => [
   { id: "none", label: i18n.t("transition.none") },
   { id: "fade", label: i18n.t("transition.fade") },
   { id: "slide", label: i18n.t("transition.slide") },
+  // OFX 转场需要两侧都有可解码的画面素材；文字片段只保留内置转场。
+  ...(isText.value
+    ? []
+    : [{ id: "ofx", label: i18n.t("transition.ofx") }]),
 ]);
 
 const transitionDirectionOptions = computed<SelectOption[]>(() => [
@@ -733,12 +749,202 @@ function onTransition(
 
 function onTransitionType(edge: "in" | "out", value: string): void {
   if (value === "none") {
+    ofxPickEdge.value = null;
     onTransition(edge, null);
     return;
   }
   if (value === "fade" || value === "slide") {
+    ofxPickEdge.value = null;
     onTransition(edge, { type: value, duration: DEFAULT_TRANSITION_DURATION });
+    return;
   }
+  if (value === "ofx") void chooseOfxTransition(edge);
+}
+
+interface TransitionCandidate {
+  bundle: string;
+  info: OfxPluginInfo;
+}
+
+const transitionCandidates = ref<TransitionCandidate[]>([]);
+const transitionCandidatesLoading = ref(false);
+/** 刚选择 ofx、但还没挑插件的那一侧。 */
+const ofxPickEdge = ref<"in" | "out" | null>(null);
+
+const transitionPluginOptions = computed<SelectOption[]>(() =>
+  transitionCandidates.value.map((candidate) => ({
+    id: candidate.info.identifier,
+    label:
+      candidate.info.label ||
+      candidate.info.name ||
+      candidate.info.identifier,
+    hint: candidate.info.grouping,
+  })),
+);
+
+function transitionOf(edge: "in" | "out"): ClipTransition | null {
+  return edge === "in" ? transitionIn.value : transitionOut.value;
+}
+
+function transitionPluginId(edge: "in" | "out"): string | null {
+  const transition = transitionOf(edge);
+  if (transition?.type !== "ofx") return null;
+  return transition.effect?.plugin ?? null;
+}
+
+let transitionLoadTask: Promise<void> | null = null;
+
+async function loadTransitionCandidates(): Promise<void> {
+  if (transitionCandidates.value.length > 0) return;
+  if (transitionLoadTask) return transitionLoadTask;
+  transitionLoadTask = (async () => {
+    transitionCandidatesLoading.value = true;
+    try {
+      await plugins.loadInstalled();
+      const hinted = plugins.installedPlugins.filter((plugin) => {
+        if (!plugin.installed_path) return false;
+        const typeHint = plugin.plugin_types.some((type) =>
+          type.toLowerCase().includes("transition"),
+        );
+        const contextHint = plugin.contexts.some((context) =>
+          context.toLowerCase().includes("transition"),
+        );
+        return typeHint || contextHint;
+      });
+      const targets =
+        hinted.length > 0
+          ? hinted
+          : plugins.installedPlugins.filter((plugin) => plugin.installed_path);
+      for (const status of targets) {
+        if (!status.installed_path) continue;
+        try {
+          const found = await ofx.probe(
+            status.installed_path,
+            false,
+            "OfxImageEffectContextTransition",
+          );
+          for (const info of found) {
+            if (!isTransitionPlugin(info)) continue;
+            transitionCandidates.value.push({
+              bundle: status.installed_path,
+              info,
+            });
+          }
+        } catch {
+          // 单个插件探测失败不影响其它转场插件。
+        }
+      }
+    } finally {
+      transitionCandidatesLoading.value = false;
+      transitionLoadTask = null;
+    }
+  })();
+  return transitionLoadTask;
+}
+
+async function chooseOfxTransition(edge: "in" | "out"): Promise<void> {
+  ofxPickEdge.value = edge;
+  try {
+    await loadTransitionCandidates();
+  } catch (error) {
+    ofxPickEdge.value = null;
+    toast(error instanceof Error ? error.message : String(error), "error");
+    return;
+  }
+  if (ofxPickEdge.value !== edge) return;
+  if (transitionCandidates.value.length === 0) {
+    ofxPickEdge.value = null;
+    toast(i18n.t("transition.noOfxPlugins"), "error");
+    return;
+  }
+  if (transitionCandidates.value.length === 1) {
+    applyOfxTransition(edge, transitionCandidates.value[0]!);
+    return;
+  }
+  ofxPickEdge.value = edge;
+}
+
+function applyOfxTransition(
+  edge: "in" | "out",
+  candidate: TransitionCandidate,
+): void {
+  const current = transitionOf(edge);
+  const effect = {
+    id:
+      current?.type === "ofx" && current.effect
+        ? current.effect.id
+        : crypto.randomUUID(),
+    plugin: candidate.info.identifier,
+    name:
+      candidate.info.label ||
+      candidate.info.name ||
+      candidate.info.identifier,
+    bundle: candidate.bundle,
+    context: "OfxImageEffectContextTransition",
+    params: defaultEffectParams(candidate.info),
+    enabled: true,
+  };
+  onTransition(edge, {
+    type: "ofx",
+    duration:
+      current?.type === "ofx"
+        ? current.duration
+        : DEFAULT_OFX_TRANSITION_DURATION,
+    effect,
+  });
+  ofxPickEdge.value = null;
+}
+
+function onPickOfxPlugin(edge: "in" | "out", identifier: string): void {
+  const current = transitionOf(edge);
+  if (
+    current?.type === "ofx" &&
+    current.effect?.plugin === identifier
+  ) {
+    ofxPickEdge.value = null;
+    return;
+  }
+  const candidate = transitionCandidates.value.find(
+    (item) => item.info.identifier === identifier,
+  );
+  if (candidate) applyOfxTransition(edge, candidate);
+}
+
+watch(
+  () => clip.value?.id,
+  () => {
+    ofxPickEdge.value = null;
+  },
+);
+
+watch(
+  [transitionIn, transitionOut],
+  () => {
+    if (
+      transitionIn.value?.type === "ofx" ||
+      transitionOut.value?.type === "ofx"
+    ) {
+      void loadTransitionCandidates().catch((error) => {
+        console.warn("OFX transition plugin probe failed", error);
+      });
+    }
+  },
+  { immediate: true },
+);
+
+function openTransitionParams(edge: "in" | "out"): void {
+  const target = clip.value;
+  const transition = transitionOf(edge);
+  const effect = transition?.effect;
+  if (!target || transition?.type !== "ofx" || !effect) return;
+  ofx.openTransitionTarget({
+    bundle: effect.bundle,
+    plugin: effect.plugin,
+    name: effect.name,
+    clipId: target.id,
+    edge,
+  });
+  layout.openTab("pluginEditor");
 }
 
 function onTransitionDirection(edge: "in" | "out", value: string): void {
@@ -1334,10 +1540,28 @@ async function relink(): Promise<void> {
               <span>{{ i18n.t("transition.in") }}</span>
               <Md3Select
                 class="prop-select"
-                :model-value="transitionIn?.type ?? 'none'"
+                :model-value="ofxPickEdge === 'in' ? 'ofx' : transitionIn?.type ?? 'none'"
                 :options="transitionTypeOptions"
                 :label="i18n.t('transition.in')"
                 @update:model-value="onTransitionType('in', $event)"
+              />
+            </div>
+            <div
+              v-if="ofxPickEdge === 'in' && transitionIn?.type !== 'ofx'"
+              class="prop-row"
+            >
+              <span>{{ i18n.t("transition.ofxPlugin") }}</span>
+              <Md3Select
+                class="prop-select"
+                :model-value="null"
+                :options="transitionPluginOptions"
+                :label="i18n.t('transition.ofxPlugin')"
+                :placeholder="
+                  transitionCandidatesLoading
+                    ? i18n.t('effects.probing')
+                    : i18n.t('transition.ofxPlugin')
+                "
+                @update:model-value="onPickOfxPlugin('in', $event)"
               />
             </div>
             <template v-if="transitionIn">
@@ -1345,14 +1569,38 @@ async function relink(): Promise<void> {
                 <span>{{ i18n.t("transition.duration") }}</span>
                 <NumberField
                   :model-value="transitionIn.duration"
-                  :min="0"
-                  :max="clip.duration"
+                  :min="transitionIn.type === 'ofx' ? 0.1 : 0"
+                  :max="
+                    transitionIn.type === 'ofx'
+                      ? MAX_OFX_TRANSITION_DURATION
+                      : clip.duration
+                  "
                   :step="0.1"
                   :decimals="2"
                   :sr-label="i18n.t('transition.duration')"
                   input-width="44px"
                   @update:model-value="onTransition('in', { duration: $event })"
                 />
+              </div>
+              <div v-if="transitionIn.type === 'ofx'" class="prop-row">
+                <span>{{ i18n.t("transition.ofxPlugin") }}</span>
+                <Md3Select
+                  class="prop-select"
+                  :model-value="transitionPluginId('in')"
+                  :options="transitionPluginOptions"
+                  :label="i18n.t('transition.ofxPlugin')"
+                  @update:model-value="onPickOfxPlugin('in', $event)"
+                />
+              </div>
+              <div v-if="transitionIn.type === 'ofx'" class="prop-row">
+                <span>{{ i18n.t("transition.ofxParams") }}</span>
+                <button
+                  class="btn-text"
+                  type="button"
+                  @click="openTransitionParams('in')"
+                >
+                  {{ i18n.t("effects.openParams") }}
+                </button>
               </div>
               <div v-if="transitionIn.type === 'slide'" class="prop-row">
                 <span>{{ i18n.t("transition.direction") }}</span>
@@ -1370,10 +1618,28 @@ async function relink(): Promise<void> {
               <span>{{ i18n.t("transition.out") }}</span>
               <Md3Select
                 class="prop-select"
-                :model-value="transitionOut?.type ?? 'none'"
+                :model-value="ofxPickEdge === 'out' ? 'ofx' : transitionOut?.type ?? 'none'"
                 :options="transitionTypeOptions"
                 :label="i18n.t('transition.out')"
                 @update:model-value="onTransitionType('out', $event)"
+              />
+            </div>
+            <div
+              v-if="ofxPickEdge === 'out' && transitionOut?.type !== 'ofx'"
+              class="prop-row"
+            >
+              <span>{{ i18n.t("transition.ofxPlugin") }}</span>
+              <Md3Select
+                class="prop-select"
+                :model-value="null"
+                :options="transitionPluginOptions"
+                :label="i18n.t('transition.ofxPlugin')"
+                :placeholder="
+                  transitionCandidatesLoading
+                    ? i18n.t('effects.probing')
+                    : i18n.t('transition.ofxPlugin')
+                "
+                @update:model-value="onPickOfxPlugin('out', $event)"
               />
             </div>
             <template v-if="transitionOut">
@@ -1381,14 +1647,38 @@ async function relink(): Promise<void> {
                 <span>{{ i18n.t("transition.duration") }}</span>
                 <NumberField
                   :model-value="transitionOut.duration"
-                  :min="0"
-                  :max="clip.duration"
+                  :min="transitionOut.type === 'ofx' ? 0.1 : 0"
+                  :max="
+                    transitionOut.type === 'ofx'
+                      ? MAX_OFX_TRANSITION_DURATION
+                      : clip.duration
+                  "
                   :step="0.1"
                   :decimals="2"
                   :sr-label="i18n.t('transition.duration')"
                   input-width="44px"
                   @update:model-value="onTransition('out', { duration: $event })"
                 />
+              </div>
+              <div v-if="transitionOut.type === 'ofx'" class="prop-row">
+                <span>{{ i18n.t("transition.ofxPlugin") }}</span>
+                <Md3Select
+                  class="prop-select"
+                  :model-value="transitionPluginId('out')"
+                  :options="transitionPluginOptions"
+                  :label="i18n.t('transition.ofxPlugin')"
+                  @update:model-value="onPickOfxPlugin('out', $event)"
+                />
+              </div>
+              <div v-if="transitionOut.type === 'ofx'" class="prop-row">
+                <span>{{ i18n.t("transition.ofxParams") }}</span>
+                <button
+                  class="btn-text"
+                  type="button"
+                  @click="openTransitionParams('out')"
+                >
+                  {{ i18n.t("effects.openParams") }}
+                </button>
               </div>
               <div v-if="transitionOut.type === 'slide'" class="prop-row">
                 <span>{{ i18n.t("transition.direction") }}</span>

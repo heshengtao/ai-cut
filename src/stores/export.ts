@@ -94,7 +94,7 @@ export const useExportStore = defineStore("export", () => {
 
       // 文字片段先用 Canvas 渲染成透明 PNG，导出时作为叠层使用。
       const spec = outputSpec.value;
-      const { textImages, effectVideos } = await prepareLayers(
+      const { textImages, effectVideos, transitionVideos } = await prepareLayers(
         doc,
         spec.width,
         spec.height,
@@ -107,6 +107,8 @@ export const useExportStore = defineStore("export", () => {
         textImages,
         path,
         effectVideos,
+        undefined,
+        transitionVideos,
       );
       warnings.value = plan.warnings;
 

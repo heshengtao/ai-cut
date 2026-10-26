@@ -14,7 +14,10 @@ import { createAsset, createClip, newProject } from "@/core/factory";
 import {
   clipEffectSpecs,
   defaultEffectParams,
+  isClipEffectPlugin,
   isMountablePlugin,
+  isTransitionPlugin,
+  preferredClipContext,
   normalizeClipEffects,
 } from "@/core/effects";
 import { parseProject, serializeProject } from "@/core/serialize";
@@ -149,37 +152,48 @@ describe("clip effects", () => {
     expect(normalizeClipEffects(null)).toEqual([]);
   });
 
-  it("only mounts filter, general and generator contexts", () => {
+  it("classifies all six OFX contexts", () => {
+    for (const context of [
+      "OfxImageEffectContextFilter",
+      "OfxImageEffectContextGeneral",
+      "OfxImageEffectContextGenerator",
+      "OfxImageEffectContextPaint",
+      "OfxImageEffectContextRetimer",
+    ]) {
+      const plugin = { ...PLUGIN, contexts: [context] };
+      expect(isClipEffectPlugin(plugin)).toBe(true);
+      expect(isMountablePlugin(plugin)).toBe(true);
+      expect(isTransitionPlugin(plugin)).toBe(false);
+    }
+
+    const transition = {
+      ...PLUGIN,
+      contexts: ["OfxImageEffectContextTransition"],
+    };
+    expect(isTransitionPlugin(transition)).toBe(true);
+    expect(isMountablePlugin(transition)).toBe(true);
+    expect(isClipEffectPlugin(transition)).toBe(false);
+
+    // 同时支持滤镜和转场的插件：两个入口都能用。
+    const hybrid = {
+      ...PLUGIN,
+      contexts: [
+        "OfxImageEffectContextTransition",
+        "OfxImageEffectContextFilter",
+      ],
+    };
+    expect(isClipEffectPlugin(hybrid)).toBe(true);
+    expect(isTransitionPlugin(hybrid)).toBe(true);
+    expect(preferredClipContext(hybrid)).toBe("OfxImageEffectContextFilter");
     expect(
-      isMountablePlugin({ ...PLUGIN, contexts: ["OfxImageEffectContextFilter"] }),
-    ).toBe(true);
-    expect(
-      isMountablePlugin({ ...PLUGIN, contexts: ["OfxImageEffectContextGenerator"] }),
-    ).toBe(true);
-    expect(
-      isMountablePlugin({ ...PLUGIN, contexts: ["OfxImageEffectContextGeneral"] }),
-    ).toBe(true);
-    expect(
-      isMountablePlugin({
-        ...PLUGIN,
-        contexts: ["OfxImageEffectContextTransition"],
-      }),
-    ).toBe(false);
-    expect(
-      isMountablePlugin({ ...PLUGIN, contexts: ["OfxImageEffectContextPaint"] }),
-    ).toBe(false);
-    expect(
-      isMountablePlugin({ ...PLUGIN, contexts: ["OfxImageEffectContextRetimer"] }),
-    ).toBe(false);
-    // 同时支持滤镜和转场的插件仍然可以按滤镜挂载。
-    expect(
-      isMountablePlugin({
+      preferredClipContext({
         ...PLUGIN,
         contexts: [
           "OfxImageEffectContextTransition",
-          "OfxImageEffectContextFilter",
+          "OfxImageEffectContextPaint",
         ],
+        context: "OfxImageEffectContextTransition",
       }),
-    ).toBe(true);
+    ).toBe("OfxImageEffectContextPaint");
   });
 });

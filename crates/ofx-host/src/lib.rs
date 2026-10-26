@@ -82,6 +82,12 @@ struct RawParamValue {
 }
 
 #[repr(C)]
+struct RawInput {
+    clip: *const c_char,
+    rgba: *const f32,
+}
+
+#[repr(C)]
 pub struct OfxHostSession {
     _private: [u8; 0],
 }
@@ -103,15 +109,32 @@ extern "C" {
         error: *mut *mut c_char,
     ) -> *mut OfxHostSession;
 
-    fn ofx_host_session_render(
+    fn ofx_host_session_render_multi(
         session: *mut OfxHostSession,
         time: f64,
-        input: *const f32,
+        inputs: *const RawInput,
+        input_count: c_int,
+        transition: f64,
         params: *const RawParamValue,
         param_count: c_int,
         output: *mut *mut f32,
         error: *mut *mut c_char,
     ) -> c_int;
+
+    fn ofx_host_session_source_time(
+        session: *mut OfxHostSession,
+        time: f64,
+        params: *const RawParamValue,
+        param_count: c_int,
+        source_time: *mut f64,
+        error: *mut *mut c_char,
+    ) -> c_int;
+
+    fn ofx_host_session_set_duration(session: *mut OfxHostSession, duration: f64);
+
+    fn ofx_host_session_set_frame_rate(session: *mut OfxHostSession, fps: f64);
+
+    fn ofx_host_session_set_source_time(session: *mut OfxHostSession, source_time: f64);
 
     fn ofx_host_session_close(session: *mut OfxHostSession);
 
@@ -360,20 +383,38 @@ impl Session {
         (self.width, self.height)
     }
 
-    /// Render one frame.  `input` must be `width * height * 4` RGBA floats.
+    /// Render a single `Source` input (filter / generator / paint / retimer).
+    /// `input` must be `width * height * 4` RGBA floats.
     pub fn render(
         &mut self,
         time: f64,
         input: &[f32],
         params: &[ParamValue],
     ) -> Result<Vec<f32>, String> {
+        self.render_multi(time, &[("Source", input)], None, params)
+    }
+
+    /// Render one or more named input clips.  Transition plugins want
+    /// `SourceFrom` + `SourceTo`; General-context plugins may name their own.
+    pub fn render_multi(
+        &mut self,
+        time: f64,
+        inputs: &[(&str, &[f32])],
+        transition: Option<f64>,
+        params: &[ParamValue],
+    ) -> Result<Vec<f32>, String> {
         let _guard = HostGuard::acquire();
         let expected = (self.width as usize) * (self.height as usize) * 4;
-        if input.len() != expected {
-            return Err(format!(
-                "输入像素数量不匹配：期望 {expected}，实际 {}",
-                input.len()
-            ));
+        if inputs.is_empty() {
+            return Err("OFX 渲染至少需要一个输入".to_string());
+        }
+        for (name, pixels) in inputs {
+            if pixels.len() != expected {
+                return Err(format!(
+                    "输入 {name} 的像素数量不匹配：期望 {expected}，实际 {}",
+                    pixels.len()
+                ));
+            }
         }
 
         let names: Vec<CString> = params
@@ -400,13 +441,28 @@ impl Session {
             })
             .collect();
 
+        let clip_names: Vec<CString> = inputs
+            .iter()
+            .map(|(name, _)| cstring(name, "clip name"))
+            .collect::<Result<_, _>>()?;
+        let raw_inputs: Vec<RawInput> = inputs
+            .iter()
+            .enumerate()
+            .map(|(index, (_, pixels))| RawInput {
+                clip: clip_names[index].as_ptr(),
+                rgba: pixels.as_ptr(),
+            })
+            .collect();
+
         let mut output: *mut f32 = ptr::null_mut();
         let mut error: *mut c_char = ptr::null_mut();
         let status = unsafe {
-            ofx_host_session_render(
+            ofx_host_session_render_multi(
                 self.raw,
                 time,
-                input.as_ptr(),
+                raw_inputs.as_ptr(),
+                raw_inputs.len() as c_int,
+                transition.unwrap_or(-1.0),
                 raw_params.as_ptr(),
                 raw_params.len() as c_int,
                 &mut output,
@@ -423,6 +479,72 @@ impl Session {
         let pixels = unsafe { std::slice::from_raw_parts(output, expected).to_vec() };
         unsafe { ofx_host_free(output as *mut c_void) };
         Ok(pixels)
+    }
+
+    /// Ask a Retimer plugin which source time it wants for `time`.
+    pub fn source_time(&mut self, time: f64, params: &[ParamValue]) -> Result<f64, String> {
+        let _guard = HostGuard::acquire();
+        let names: Vec<CString> = params
+            .iter()
+            .map(|param| cstring(&param.name, "param name"))
+            .collect::<Result<_, _>>()?;
+        let strings: Vec<Option<CString>> = params
+            .iter()
+            .map(|param| match &param.string {
+                Some(value) => Ok(Some(cstring(value, "param value")?)),
+                None => Ok(None),
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let raw_params: Vec<RawParamValue> = params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| RawParamValue {
+                name: names[index].as_ptr(),
+                d: param.doubles,
+                i: param.int,
+                s: strings[index]
+                    .as_ref()
+                    .map_or(ptr::null(), |value| value.as_ptr()),
+            })
+            .collect();
+        let mut result = time;
+        let mut error: *mut c_char = ptr::null_mut();
+        let status = unsafe {
+            ofx_host_session_source_time(
+                self.raw,
+                time,
+                raw_params.as_ptr(),
+                raw_params.len() as c_int,
+                &mut result,
+                &mut error,
+            )
+        };
+        if status != 0 {
+            let message = unsafe { take_error(error) };
+            return Err(message.unwrap_or_else(|| format!("OFX SourceTime 查询失败（{status}）")));
+        }
+        Ok(result)
+    }
+
+    /// Inform transition / retimer plugins how long the clip is, in seconds.
+    pub fn set_duration(&mut self, duration: f64) {
+        let _guard = HostGuard::acquire();
+        unsafe { ofx_host_session_set_duration(self.raw, duration) };
+    }
+
+    /// Inform time-aware plugins of the project frame rate.
+    pub fn set_frame_rate(&mut self, fps: f64) {
+        if !(fps > 0.0) {
+            return;
+        }
+        let _guard = HostGuard::acquire();
+        unsafe { ofx_host_session_set_frame_rate(self.raw, fps) };
+    }
+
+    /// Set the Retimer SourceTime that the plugin should render this frame with.
+    pub fn set_source_time(&mut self, source_time: f64) {
+        let _guard = HostGuard::acquire();
+        unsafe { ofx_host_session_set_source_time(self.raw, source_time) };
     }
 }
 

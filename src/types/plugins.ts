@@ -143,13 +143,14 @@ export interface OfxFrame {
 }
 
 export interface OfxEditorTarget {
-  /** effect：编辑片段上的效果实例；plugin：只读查看插件默认参数。 */
-  kind: "effect" | "plugin";
+  /** effect：片段效果；transition：片段边缘的 OFX 转场；plugin：只读默认参数。 */
+  kind: "effect" | "transition" | "plugin";
   bundle: string;
   plugin: string;
   name?: string;
   clipId?: string;
   effectId?: string;
+  edge?: "in" | "out";
   selectedClipIds?: string[];
 }
 
@@ -158,6 +159,49 @@ export interface OfxEffectSpec {
   plugin: string;
   context?: string | null;
   params?: Record<string, OfxParamValue>;
+}
+
+/** 转场一侧的源：片段入点、时间线起点和完整素材时长（用于 handle 钳制）。 */
+export interface OfxTransitionSource {
+  source: string;
+  sourceIn: number;
+  start: number;
+  /** 片段播放速度；源时间 = in + (t - start) * speed。 */
+  speed: number;
+  assetDuration: number;
+  isImage: boolean;
+}
+
+export interface OfxBakeTransitionRequest {
+  id?: string | null;
+  preview?: boolean;
+  bundle: string;
+  plugin: string;
+  context?: string | null;
+  params?: Record<string, OfxParamValue> | null;
+  from: OfxTransitionSource | null;
+  to: OfxTransitionSource | null;
+  start: number;
+  duration: number;
+  fps: number;
+  width: number;
+  height: number;
+  fit?: "contain" | "cover" | "stretch" | null;
+  output: string;
+}
+
+export interface OfxBakeImageRequest {
+  id?: string | null;
+  source: string;
+  /** 图片没有时间轴；传 0 即可。 */
+  time?: number;
+  duration?: number;
+  fps?: number;
+  width: number;
+  height: number;
+  fit?: "contain" | "cover" | "stretch" | null;
+  effects: OfxEffectSpec[];
+  output: string;
 }
 
 export interface OfxBakeRequest {
@@ -173,6 +217,8 @@ export interface OfxBakeRequest {
   width: number;
   height: number;
   isImage?: boolean;
+  /** 完整素材时长；retimer 在素材末尾之后请求帧时用它钳制。 */
+  sourceDuration?: number;
   fit?: "contain" | "cover" | "stretch" | null;
   fitAnchor?:
     | "top-left"

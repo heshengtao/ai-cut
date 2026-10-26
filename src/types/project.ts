@@ -195,14 +195,21 @@ export interface Keyframe {
 /** 片段的关键帧列表，按 time 升序。 */
 export type ClipKeyframes = Keyframe[];
 
-export type ClipTransitionType = "fade" | "slide";
+export type ClipTransitionType = "fade" | "slide" | "ofx";
 export type ClipTransitionDirection = "left" | "right" | "up" | "down";
 
-/** 片段入/出转场；duration 以时间线秒为单位。 */
+/**
+ * 片段入/出转场；duration 以时间线秒为单位。
+ *
+ * `ofx` 转场以切点为中心，向前后两个片段各借用 duration/2 的 handle，
+ * 由 `effect` 指定的 OpenFX transition 插件合成两路画面。
+ */
 export interface ClipTransition {
   type: ClipTransitionType;
   duration: number;
   direction?: ClipTransitionDirection;
+  /** 仅 type === "ofx" 时存在。 */
+  effect?: ClipEffect;
 }
 
 /** 应用到片段画面上的 OFX 效果。 */

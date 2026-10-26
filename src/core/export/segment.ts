@@ -54,7 +54,7 @@ export async function renderSegment(
   };
 
   const { width, height, fps } = resolveDimensions(project, exportOptions);
-  const { textImages, effectVideos } = await prepareLayers(
+  const { textImages, effectVideos, transitionVideos } = await prepareLayers(
     project,
     width,
     height,
@@ -67,6 +67,7 @@ export async function renderSegment(
     options.outputPath,
     effectVideos,
     { start: options.start, end: options.end },
+    transitionVideos,
   );
 
   await startExport({

@@ -43,6 +43,7 @@ import {
   updateClip,
   updateMarker,
 } from "@/core/ops";
+import { normalizeClipEffect } from "@/core/effects";
 import type { MarkerPatch } from "@/core/ops";
 import { createClip } from "@/core/factory";
 import {
@@ -482,13 +483,24 @@ export function applyCommandToDoc(doc: Project, command: Command): ApplyResult {
       const clean: Partial<ClipTransition> = {};
       if (transition.type !== undefined) {
         const type = asString(transition.type, "type");
-        if (type !== "fade" && type !== "slide") invalid("type 必须是 fade / slide");
+        if (type !== "fade" && type !== "slide" && type !== "ofx") {
+          invalid("type 必须是 fade / slide / ofx");
+        }
         clean.type = type;
       }
       if (transition.duration !== undefined) {
         const duration = asNumber(transition.duration, "duration");
         if (duration < 0) invalid("duration 不能为负");
         clean.duration = duration;
+      }
+      if (transition.effect !== undefined) {
+        const effect = asRecord(transition.effect, "effect");
+        const normalized = normalizeClipEffect(effect);
+        if (!normalized) invalid("effect 必须是有效的 OFX 效果");
+        clean.effect = normalized;
+      }
+      if (transition.type === "ofx" && !clean.effect) {
+        invalid("ofx 转场必须带 effect");
       }
       if (transition.direction !== undefined) {
         const direction = asString(transition.direction, "direction");

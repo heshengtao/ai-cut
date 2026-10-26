@@ -1,13 +1,19 @@
 /** 片段入/出转场：归一化与预览状态。 */
 import type {
   Clip,
+  ClipEffect,
   ClipTransition,
   ClipTransitionDirection,
   ClipTransitionType,
 } from "@/types/project";
+import { OFX_TRANSITION_CONTEXT, normalizeClipEffect } from "@/core/effects";
 
-const TYPES: ClipTransitionType[] = ["fade", "slide"];
+const TYPES: ClipTransitionType[] = ["fade", "slide", "ofx"];
 const DIRECTIONS: ClipTransitionDirection[] = ["left", "right", "up", "down"];
+
+/** OFX 转场以切点为中心，时长不受单个片段限制。 */
+export const MAX_OFX_TRANSITION_DURATION = 10;
+export const DEFAULT_OFX_TRANSITION_DURATION = 1;
 
 export const DEFAULT_TRANSITION_DURATION = 0.5;
 
@@ -16,6 +22,18 @@ export function normalizeClipTransition(
   clipDuration: number,
 ): ClipTransition | null {
   if (!input?.type || !TYPES.includes(input.type)) return null;
+  if (input.type === "ofx") {
+    const effect = normalizeClipEffect(input.effect ?? null);
+    if (!effect) return null;
+    if (effect.context && effect.context !== OFX_TRANSITION_CONTEXT) {
+      return null;
+    }
+    const duration = Math.min(
+      Math.max(input.duration ?? DEFAULT_OFX_TRANSITION_DURATION, 0.1),
+      MAX_OFX_TRANSITION_DURATION,
+    );
+    return { type: "ofx", duration, effect };
+  }
   const duration = Math.min(
     Math.max(input.duration ?? DEFAULT_TRANSITION_DURATION, 0),
     Math.max(0, clipDuration),
@@ -33,6 +51,16 @@ export function normalizeClipTransition(
         }
       : {}),
   };
+}
+
+/** 取某个片段边缘的 OFX 转场效果。 */
+export function ofxTransitionEffect(
+  clip: Clip,
+  edge: "in" | "out",
+): ClipEffect | null {
+  const transition = edge === "in" ? clip.transitionIn : clip.transitionOut;
+  if (transition?.type !== "ofx") return null;
+  return transition.effect ?? null;
 }
 
 export interface TransitionState {
@@ -67,7 +95,7 @@ export function transitionState(clip: Clip, localTime: number): TransitionState 
   let offsetY = 0;
   const t = Math.min(clip.duration, Math.max(0, localTime));
 
-  if (clip.transitionIn) {
+  if (clip.transitionIn && clip.transitionIn.type !== "ofx") {
     const progress = Math.min(1, Math.max(0, t / clip.transitionIn.duration));
     if (clip.transitionIn.type === "fade") {
       opacity *= progress;
@@ -78,7 +106,7 @@ export function transitionState(clip: Clip, localTime: number): TransitionState 
     }
   }
 
-  if (clip.transitionOut) {
+  if (clip.transitionOut && clip.transitionOut.type !== "ofx") {
     const progress = Math.min(
       1,
       Math.max(0, (clip.duration - t) / clip.transitionOut.duration),

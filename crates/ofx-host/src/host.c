@@ -573,6 +573,14 @@ typedef struct ImageSlot
   int is_output;
 } ImageSlot;
 
+/* One decoded input clip, in host-native pixel layout (bottom-left rows). */
+typedef struct InputBuffer
+{
+  char *name;
+  const float *rgba;
+  void *native;
+} InputBuffer;
+
 struct OfxHostSession
 {
   OfxLibHandle lib;
@@ -586,6 +594,10 @@ struct OfxHostSession
   int phase; /* 0 = describe, 1 = instance */
   int loaded;
   int instance_created;
+  double duration;
+  double frame_rate;
+  double source_time;
+  int has_source_time;
 
   PropSet desc_props;
   PropSet inst_props;
@@ -598,9 +610,11 @@ struct OfxHostSession
   int clip_count;
   int clip_capacity;
 
-  const float *input;
-  void *input_native;
-  int input_native_owned;
+  InputBuffer *inputs;
+  int input_count;
+  int input_capacity;
+  void *blank_native;
+  int blank_native_owned;
 
   ImageSlot **images;
   int image_count;
@@ -1010,6 +1024,10 @@ static void init_host(void)
                 kOfxImageEffectContextGenerator);
   ps_set_string(&g_host_props, kOfxImageEffectPropSupportedContexts, 3,
                 kOfxImageEffectContextTransition);
+  ps_set_string(&g_host_props, kOfxImageEffectPropSupportedContexts, 4,
+                kOfxImageEffectContextPaint);
+  ps_set_string(&g_host_props, kOfxImageEffectPropSupportedContexts, 5,
+                kOfxImageEffectContextRetimer);
 
   ps_set_string(&g_host_props, kOfxImageEffectPropSupportedPixelDepths, 0,
                 kOfxBitDepthByte);
@@ -1268,6 +1286,11 @@ static void apply_param_values(const OfxHostParamValue *values, int count)
     if (!param) {
       continue;
     }
+    /* Retimer's SourceTime is computed by the plugin via InstanceChanged;
+     * a stale UI value must never overwrite it. */
+    if (strcmp(param->name, kOfxImageEffectRetimerParamName) == 0) {
+      continue;
+    }
     if (param_is_string_type(param->type)) {
       const char *text = values[i].s;
       if (!text && strcmp(param->type, kOfxParamTypeStrChoice) == 0) {
@@ -1490,8 +1513,28 @@ static OfxStatus param_set_value(OfxParamHandle param, ...)
 static OfxStatus param_set_value_at_time(OfxParamHandle param, double time,
                                          ...)
 {
-  (void)param;
   (void)time;
+  if (!param) {
+    return kOfxStatErrBadHandle;
+  }
+  Param *value = (Param *)param;
+  va_list args;
+  va_start(args, time);
+  if (param_is_string_type(value->type)) {
+    const char *text = va_arg(args, const char *);
+    param_assign_string(value, text);
+  } else if (param_is_double_type(value->type)) {
+    int count = param_component_count(value->type);
+    double values[4] = {0, 0, 0, 0};
+    for (int i = 0; i < count; i++) {
+      values[i] = va_arg(args, double);
+    }
+    param_assign_doubles(value, values, count);
+  } else {
+    int first = va_arg(args, int);
+    param_assign_int(value, first);
+  }
+  va_end(args);
   return kOfxStatOK;
 }
 
@@ -1641,7 +1684,10 @@ static void clip_ensure_instance_props(Clip *clip)
   ps_set_int(props, kOfxImageClipPropConnected, 0, 1);
   ps_set_int(props, kOfxImageClipPropContinuousSamples, 0, 0);
   ps_set_double(props, kOfxImagePropPixelAspectRatio, 0, 1);
-  ps_set_double(props, kOfxImageEffectPropFrameRate, 0, 24);
+  ps_set_double(props, kOfxImageEffectPropFrameRate, 0,
+                g_session->frame_rate > 0 ? g_session->frame_rate : 24.0);
+  ps_set_double(props, kOfxImageEffectPropUnmappedFrameRate, 0,
+                g_session->frame_rate > 0 ? g_session->frame_rate : 24.0);
   ps_set_double(props, kOfxImageEffectPropFrameRange, 0, 0);
   ps_set_double(props, kOfxImageEffectPropFrameRange, 1, 0);
   ps_set_double(props, kOfxImageEffectPropUnmappedFrameRate, 0, 24);
@@ -1787,6 +1833,20 @@ static void capture_output(ImageSlot *slot)
   g_session->last_output_valid = 1;
 }
 
+static InputBuffer *find_input_buffer(OfxHostSession *session, const char *name)
+{
+  if (!session || !name) {
+    return NULL;
+  }
+  for (int i = 0; i < session->input_count; i++) {
+    if (session->inputs[i].name &&
+        strcmp(session->inputs[i].name, name) == 0) {
+      return &session->inputs[i];
+    }
+  }
+  return NULL;
+}
+
 static OfxStatus ie_clip_get_image(OfxImageClipHandle clip, OfxTime time,
                                    const OfxRectD *region,
                                    OfxPropertySetHandle *image)
@@ -1816,11 +1876,25 @@ static OfxStatus ie_clip_get_image(OfxImageClipHandle clip, OfxTime time,
     }
     setup_image_props(slot, data, 1, 1);
   } else {
-    if (!g_session->input_native) {
+    InputBuffer *buffer = find_input_buffer(g_session, source->name);
+    /* A General-context plugin may name its clip something other than
+     * Source, while the app only has one picture to offer.  Fall back to the
+     * single Source frame instead of failing the render. */
+    if (!buffer) {
+      buffer = find_input_buffer(g_session, kOfxImageEffectSimpleSourceClipName);
+    }
+    if (!buffer && g_session->input_count > 0) {
+      buffer = &g_session->inputs[0];
+    }
+    void *data =
+        buffer && buffer->native ? buffer->native : g_session->blank_native;
+    if (!data) {
       free(slot);
       return kOfxStatErrValue;
     }
-    setup_image_props(slot, g_session->input_native, 0, 0);
+    setup_image_props(slot, data, 0, 0);
+    ps_set_string(&slot->props, kOfxImagePropUniqueIdentifier, 0,
+                  source->name);
   }
 
   if (g_session->image_count + 1 > g_session->image_capacity) {
@@ -2298,6 +2372,26 @@ static void session_free_images(OfxHostSession *session)
   session->image_capacity = 0;
 }
 
+static void release_inputs(OfxHostSession *session)
+{
+  if (!session) {
+    return;
+  }
+  for (int i = 0; i < session->input_count; i++) {
+    free(session->inputs[i].name);
+    free(session->inputs[i].native);
+  }
+  free(session->inputs);
+  session->inputs = NULL;
+  session->input_count = 0;
+  session->input_capacity = 0;
+  if (session->blank_native_owned) {
+    free(session->blank_native);
+    session->blank_native = NULL;
+    session->blank_native_owned = 0;
+  }
+}
+
 static void session_free(OfxHostSession *session)
 {
   if (!session) {
@@ -2326,9 +2420,7 @@ static void session_free(OfxHostSession *session)
   prop_set_free(&session->desc_props);
   prop_set_free(&session->inst_props);
   free(session->last_output);
-  if (session->input_native_owned) {
-    free(session->input_native);
-  }
+  release_inputs(session);
   free(session->bundle);
   free(session->context);
   free(session->error);
@@ -2358,7 +2450,8 @@ static void setup_instance_props(OfxHostSession *session)
   ps_set_double(props, kOfxImageEffectPropProjectOffset, 1, 0);
   ps_set_double(props, kOfxImageEffectPropProjectPixelAspectRatio, 0, 1);
   ps_set_double(props, kOfxImageEffectInstancePropEffectDuration, 0, 0);
-  ps_set_double(props, kOfxImageEffectPropFrameRate, 0, 24);
+  ps_set_double(props, kOfxImageEffectPropFrameRate, 0,
+                session->frame_rate > 0 ? session->frame_rate : 24.0);
 }
 
 static void set_load_error(char **error, const char *binary, const char *reason)
@@ -2402,6 +2495,7 @@ OfxHostSession *ofx_host_session_open(const char *bundle, const char *plugin_id,
   }
   session->width = width;
   session->height = height;
+  session->frame_rate = 24.0;
   session->bundle = dup_text(bundle);
   session->phase = 0;
   session->last_output_valid = 0;
@@ -2530,13 +2624,8 @@ void ofx_host_session_close(OfxHostSession *session)
   g_session = NULL;
 }
 
-static void prepare_input(OfxHostSession *session, const float *input)
+static void *make_native(OfxHostSession *session, const float *input)
 {
-  if (session->input_native_owned) {
-    free(session->input_native);
-    session->input_native = NULL;
-    session->input_native_owned = 0;
-  }
   int width = session->width;
   int height = session->height;
   size_t row = (size_t)width * 4;
@@ -2545,18 +2634,19 @@ static void prepare_input(OfxHostSession *session, const float *input)
   if (session->depth_bytes == 4) {
     float *flipped = (float *)malloc(pixels * sizeof(float));
     if (!flipped) {
-      return;
+      return NULL;
     }
     for (int y = 0; y < height; y++) {
       memcpy(flipped + (size_t)y * row,
              input + (size_t)(height - 1 - y) * row, row * sizeof(float));
     }
-    session->input_native = flipped;
-  } else if (session->depth_bytes == 2) {
+    return flipped;
+  }
+  if (session->depth_bytes == 2) {
     unsigned short *shorts =
         (unsigned short *)malloc(pixels * sizeof(unsigned short));
     if (!shorts) {
-      return;
+      return NULL;
     }
     for (int y = 0; y < height; y++) {
       const float *src = input + (size_t)(height - 1 - y) * row;
@@ -2571,28 +2661,166 @@ static void prepare_input(OfxHostSession *session, const float *input)
         dst[i] = (unsigned short)(value * 65535.0f + 0.5f);
       }
     }
-    session->input_native = shorts;
-  } else {
-    unsigned char *bytes = (unsigned char *)malloc(pixels);
-    if (!bytes) {
-      return;
-    }
-    for (int y = 0; y < height; y++) {
-      const float *src = input + (size_t)(height - 1 - y) * row;
-      unsigned char *dst = bytes + (size_t)y * row;
-      for (size_t i = 0; i < row; i++) {
-        float value = src[i];
-        if (value < 0) {
-          value = 0;
-        } else if (value > 1) {
-          value = 1;
-        }
-        dst[i] = (unsigned char)(value * 255.0f + 0.5f);
-      }
-    }
-    session->input_native = bytes;
+    return shorts;
   }
-  session->input_native_owned = 1;
+  unsigned char *bytes = (unsigned char *)malloc(pixels);
+  if (!bytes) {
+    return NULL;
+  }
+  for (int y = 0; y < height; y++) {
+    const float *src = input + (size_t)(height - 1 - y) * row;
+    unsigned char *dst = bytes + (size_t)y * row;
+    for (size_t i = 0; i < row; i++) {
+      float value = src[i];
+      if (value < 0) {
+        value = 0;
+      } else if (value > 1) {
+        value = 1;
+      }
+      dst[i] = (unsigned char)(value * 255.0f + 0.5f);
+    }
+  }
+  return bytes;
+}
+
+static void update_clip_connections(OfxHostSession *session)
+{
+  for (int i = 0; i < session->clip_count; i++) {
+    Clip *clip = &session->clips[i];
+    clip_ensure_instance_props(clip);
+    int connected =
+        strcmp(clip->name, kOfxImageEffectOutputClipName) == 0 ||
+        find_input_buffer(session, clip->name) != NULL;
+    ps_set_int(&clip->inst_props, kOfxImageClipPropConnected, 0, connected);
+    ps_set_double(&clip->inst_props, kOfxImageEffectPropFrameRange, 0, 0);
+    ps_set_double(&clip->inst_props, kOfxImageEffectPropFrameRange, 1,
+                  session->duration > 0 ? session->duration : 1.0e6);
+  }
+}
+
+static int prepare_inputs(OfxHostSession *session, const OfxHostInput *inputs,
+                          int input_count)
+{
+  release_inputs(session);
+  if (input_count <= 0 || !inputs) {
+    set_error(&session->error, "没有输入图像");
+    return -1;
+  }
+  session->inputs =
+      (InputBuffer *)calloc((size_t)input_count, sizeof(InputBuffer));
+  if (!session->inputs) {
+    set_error(&session->error, "内存不足");
+    return -1;
+  }
+  session->input_count = input_count;
+  session->input_capacity = input_count;
+
+  for (int i = 0; i < input_count; i++) {
+    const char *name = inputs[i].clip;
+    if (!name || !name[0]) {
+      name = kOfxImageEffectSimpleSourceClipName;
+    }
+    session->inputs[i].name = dup_text(name);
+    session->inputs[i].rgba = inputs[i].rgba;
+    if (!inputs[i].rgba) {
+      set_error(&session->error, "输入 %s 的像素为空", name);
+      release_inputs(session);
+      return -1;
+    }
+    session->inputs[i].native = make_native(session, inputs[i].rgba);
+    if (!session->inputs[i].native) {
+      set_error(&session->error, "无法准备输入像素");
+      release_inputs(session);
+      return -1;
+    }
+  }
+
+  /* Optional / unused clips still need a valid image if a plugin fetches
+   * them; feed transparent black rather than returning a bad handle.  Only
+   * allocate when a declared input clip has no frame, so a plain filter does
+   * not pay for an extra full-size buffer every frame. */
+  int need_blank = 0;
+  for (int i = 0; i < session->clip_count; i++) {
+    const char *name = session->clips[i].name;
+    if (strcmp(name, kOfxImageEffectOutputClipName) == 0) {
+      continue;
+    }
+    if (!find_input_buffer(session, name)) {
+      need_blank = 1;
+      break;
+    }
+  }
+  if (need_blank) {
+    size_t blank_bytes =
+        (size_t)session->width * (size_t)session->height * 4 *
+        (size_t)session->depth_bytes;
+    session->blank_native = calloc(1, blank_bytes ? blank_bytes : 1);
+    if (!session->blank_native) {
+      set_error(&session->error, "内存不足");
+      release_inputs(session);
+      return -1;
+    }
+    session->blank_native_owned = 1;
+  }
+
+  update_clip_connections(session);
+  return 0;
+}
+
+static int ensure_instance(OfxHostSession *session,
+                           const OfxHostParamValue *params, int param_count,
+                           double transition, char **error)
+{
+  g_session = session;
+  session->phase = 1;
+
+  if (!session->instance_created) {
+    OfxStatus create_status =
+        session->plugin->mainEntry(kOfxActionCreateInstance, session, NULL, NULL);
+    if (create_status != kOfxStatOK) {
+      set_error(error, "插件 CreateInstance 失败（status=%d）", create_status);
+      return -1;
+    }
+    session->instance_created = 1;
+  }
+
+  apply_param_values(params, param_count);
+  if (session->context &&
+      strcmp(session->context, kOfxImageEffectContextTransition) == 0) {
+    Param *param = find_param(kOfxImageEffectTransitionParamName);
+    if (param && param->count > 0) {
+      double progress = transition;
+      if (!(progress >= 0.0)) {
+        progress = 0.0;
+      } else if (progress > 1.0) {
+        progress = 1.0;
+      }
+      param_assign_doubles(param, &progress, 1);
+    }
+  }
+
+  /* Params changed since the previous frame: let the plugin refresh any
+   * private state it keeps outside the OFX parameter table. */
+  OfxStatus sync_status = session->plugin->mainEntry(
+      kOfxActionSyncPrivateData, session, NULL, NULL);
+  if (sync_status != kOfxStatOK && sync_status != kOfxStatReplyDefault) {
+    set_error(error, "插件 SyncPrivateData 失败（status=%d）", sync_status);
+    return -1;
+  }
+  /* Retimer plugins may reset private state in SyncPrivateData; re-apply the
+   * host-chosen SourceTime after the sync so the render sees it. */
+  if (session->has_source_time) {
+    Param *param = find_param(kOfxImageEffectRetimerParamName);
+    if (param && param->count > 0) {
+      param_assign_doubles(param, &session->source_time, 1);
+    }
+  }
+  return 0;
+}
+
+static void set_instance_time(OfxHostSession *session, double time)
+{
+  ps_set_double(&session->inst_props, kOfxPropTime, 0, time);
 }
 
 static void surface_error(OfxHostSession *session, OfxStatus status,
@@ -2608,12 +2836,14 @@ static void surface_error(OfxHostSession *session, OfxStatus status,
   }
 }
 
-int ofx_host_session_render(OfxHostSession *session, double time,
-                            const float *input,
-                            const OfxHostParamValue *params, int param_count,
-                            float **output, char **error)
+int ofx_host_session_render_multi(OfxHostSession *session, double time,
+                                  const OfxHostInput *inputs, int input_count,
+                                  double transition,
+                                  const OfxHostParamValue *params,
+                                  int param_count, float **output,
+                                  char **error)
 {
-  if (!session || !input || !output) {
+  if (!session || !output) {
     set_error(error, "渲染参数无效");
     return -1;
   }
@@ -2623,33 +2853,13 @@ int ofx_host_session_render(OfxHostSession *session, double time,
   session->last_output_valid = 0;
   free(session->last_output);
   session->last_output = NULL;
-  session->input = input;
-  prepare_input(session, input);
-  if (!session->input_native) {
-    set_error(error, "无法准备输入像素");
+
+  if (prepare_inputs(session, inputs, input_count) != 0) {
     return -1;
   }
-
-  g_session = session;
-  session->phase = 1;
-  apply_param_values(params, param_count);
-
-  if (!session->instance_created) {
-    OfxStatus create_status =
-        session->plugin->mainEntry(kOfxActionCreateInstance, session, NULL, NULL);
-    if (create_status != kOfxStatOK) {
-      set_error(error, "插件 CreateInstance 失败（status=%d）", create_status);
-      return -1;
-    }
-    session->instance_created = 1;
-  }
-
-  /* Params changed since the previous frame: let the plugin refresh any
-   * private state it keeps outside the OFX parameter table. */
-  OfxStatus sync_status = session->plugin->mainEntry(
-      kOfxActionSyncPrivateData, session, NULL, NULL);
-  if (sync_status != kOfxStatOK && sync_status != kOfxStatReplyDefault) {
-    set_error(error, "插件 SyncPrivateData 失败（status=%d）", sync_status);
+  set_instance_time(session, time);
+  if (ensure_instance(session, params, param_count, transition, error) != 0) {
+    release_inputs(session);
     return -1;
   }
 
@@ -2667,6 +2877,7 @@ int ofx_host_session_render(OfxHostSession *session, double time,
   prop_set_free(&begin);
   if (status != kOfxStatOK && status != kOfxStatReplyDefault) {
     set_error(error, "BeginSequenceRender 失败（status=%d）", status);
+    release_inputs(session);
     return -1;
   }
 
@@ -2722,12 +2933,127 @@ int ofx_host_session_render(OfxHostSession *session, double time,
   }
 
   session_free_images(session);
-  if (session->input_native_owned) {
-    free(session->input_native);
-    session->input_native = NULL;
-    session->input_native_owned = 0;
-  }
+  release_inputs(session);
   return result;
+}
+
+int ofx_host_session_render(OfxHostSession *session, double time,
+                            const float *input,
+                            const OfxHostParamValue *params, int param_count,
+                            float **output, char **error)
+{
+  OfxHostInput source = {kOfxImageEffectSimpleSourceClipName, input};
+  return ofx_host_session_render_multi(session, time, &source, 1, -1.0, params,
+                                       param_count, output, error);
+}
+
+int ofx_host_session_source_time(OfxHostSession *session, double time,
+                                 const OfxHostParamValue *params,
+                                 int param_count, double *source_time,
+                                 char **error)
+{
+  if (!session || !source_time) {
+    set_error(error, "SourceTime 参数无效");
+    return -1;
+  }
+  g_session = session;
+  session->phase = 1;
+  set_instance_time(session, time);
+  if (ensure_instance(session, params, param_count, -1.0, error) != 0) {
+    return -1;
+  }
+
+  /* Seed the mandated SourceTime with the identity mapping so plugins that
+   * only update it conditionally still produce a sensible frame. */
+  Param *seed = find_param(kOfxImageEffectRetimerParamName);
+  if (seed && seed->count > 0) {
+    param_assign_doubles(seed, &time, 1);
+  }
+
+  PropSet args;
+  memset(&args, 0, sizeof(args));
+  ps_set_string(&args, kOfxPropChangeReason, 0, kOfxChangeTime);
+  ps_set_double(&args, kOfxPropTime, 0, time);
+  ps_set_double(&args, kOfxImageEffectPropRenderScale, 0, 1);
+  ps_set_double(&args, kOfxImageEffectPropRenderScale, 1, 1);
+
+  OfxStatus status = session->plugin->mainEntry(
+      kOfxActionBeginInstanceChanged, session, &args, NULL);
+  if (status != kOfxStatOK && status != kOfxStatReplyDefault) {
+    prop_set_free(&args);
+    set_error(error, "BeginInstanceChanged 失败（status=%d）", status);
+    return -1;
+  }
+  status = session->plugin->mainEntry(kOfxActionInstanceChanged, session,
+                                      &args, NULL);
+  if (status != kOfxStatOK && status != kOfxStatReplyDefault) {
+    prop_set_free(&args);
+    set_error(error, "InstanceChanged 失败（status=%d）", status);
+    return -1;
+  }
+  session->plugin->mainEntry(kOfxActionEndInstanceChanged, session, &args, NULL);
+  prop_set_free(&args);
+
+  Param *param = find_param(kOfxImageEffectRetimerParamName);
+  if (!param || !param->doubles || param->count <= 0) {
+    /* Not a retimer (or a retimer that leaves the mandated parameter alone):
+     * identity mapping is the only safe answer. */
+    *source_time = time;
+    session->source_time = time;
+    session->has_source_time = 1;
+    return 0;
+  }
+  *source_time = param->doubles[0];
+  session->source_time = *source_time;
+  session->has_source_time = 1;
+  return 0;
+}
+
+void ofx_host_session_set_source_time(OfxHostSession *session,
+                                      double source_time)
+{
+  if (!session) {
+    return;
+  }
+  g_session = session;
+  session->source_time = source_time;
+  session->has_source_time = 1;
+  Param *param = find_param(kOfxImageEffectRetimerParamName);
+  if (param && param->count > 0) {
+    param_assign_doubles(param, &source_time, 1);
+  }
+}
+
+void ofx_host_session_set_frame_rate(OfxHostSession *session, double fps)
+{
+  if (!session || !(fps > 0.0)) {
+    return;
+  }
+  session->frame_rate = fps;
+  ps_set_double(&session->inst_props, kOfxImageEffectPropFrameRate, 0, fps);
+  for (int i = 0; i < session->clip_count; i++) {
+    ps_set_double(&session->clips[i].inst_props, kOfxImageEffectPropFrameRate,
+                  0, fps);
+  }
+}
+
+void ofx_host_session_set_duration(OfxHostSession *session, double duration)
+{
+  if (!session) {
+    return;
+  }
+  if (!(duration > 0.0)) {
+    duration = 0.0;
+  }
+  session->duration = duration;
+  ps_set_double(&session->inst_props, kOfxImageEffectInstancePropEffectDuration,
+                0, duration);
+  for (int i = 0; i < session->clip_count; i++) {
+    ps_set_double(&session->clips[i].inst_props, kOfxImageEffectPropFrameRange,
+                  0, 0);
+    ps_set_double(&session->clips[i].inst_props, kOfxImageEffectPropFrameRange,
+                  1, duration > 0 ? duration : 1.0e6);
+  }
 }
 
 int ofx_host_render_frame(const char *bundle, const char *plugin,
@@ -2998,8 +3324,9 @@ static OfxHostProbeResult *probe_one_plugin(const char *bundle,
     plugin->mainEntry(kOfxActionUnload, NULL, NULL, NULL);
     return result;
   }
+  char *chosen = dup_text(context);
   free(session->context);
-  session->context = dup_text(context);
+  session->context = chosen;
 
   PropSet in_args;
   memset(&in_args, 0, sizeof(in_args));

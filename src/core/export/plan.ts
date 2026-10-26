@@ -350,6 +350,10 @@ export function buildExportPlan(
   outputPath: string,
   effectVideos: ReadonlyMap<string, string> = new Map(),
   window?: ExportWindow,
+  transitionVideos: ReadonlyMap<
+    string,
+    { path: string; start: number; duration: number }
+  > = new Map(),
 ): ExportPlan {
   const fullDuration = projectDuration(project);
   if (!(fullDuration > 0)) throw new Error(t("export.emptyTimeline"));
@@ -500,11 +504,80 @@ export function buildExportPlan(
     (a, b) => b.trackIndex - a.trackIndex || a.clip.start - b.clip.start,
   );
 
+  // ---- OFX 转场叠加层 ----
+  // 转场输出是整帧合成结果，但必须留在它所属轨道的层级：压住同轨片段，
+  // 又不能让上方轨道的字幕 / 角标被它遮掉。
+  interface TransitionLayer {
+    path: string;
+    start: number;
+    duration: number;
+    trackIndex: number;
+  }
+
+  const transitionLayers: TransitionLayer[] = [];
+  for (const [key, video] of transitionVideos) {
+    const separator = key.lastIndexOf(":");
+    const clipId = separator >= 0 ? key.slice(0, separator) : key;
+    const trackIndex = project.tracks.findIndex((track) =>
+      track.clips.some((clip) => clip.id === clipId),
+    );
+    transitionLayers.push({
+      path: video.path,
+      start: video.start,
+      duration: video.duration,
+      trackIndex,
+    });
+  }
+  transitionLayers.sort((a, b) => b.trackIndex - a.trackIndex);
+
+  let transitionCount = 0;
+  let transitionCursor = 0;
+  const emitTransition = (video: TransitionLayer): void => {
+    const visibleStart = Math.max(video.start, windowStart);
+    const visibleEnd = Math.min(
+      video.start + video.duration,
+      windowStart + duration,
+    );
+    if (!(visibleEnd > visibleStart + 1e-6)) return;
+    const offset = visibleStart - video.start;
+    const inputIndex = pushInput([
+      "-ss",
+      formatSeconds(offset),
+      "-t",
+      formatSeconds(visibleEnd - visibleStart),
+      "-i",
+      video.path,
+    ]);
+    const start = formatSeconds(visibleStart - windowStart);
+    const end = formatSeconds(visibleEnd - windowStart);
+    filters.push(
+      `[${inputIndex}:v]format=yuva420p,setsar=1,fps=${fps},` +
+        `setpts=PTS-STARTPTS+${start}/TB[tr${transitionCount}]`,
+    );
+    filters.push(
+      `${videoLabel}[tr${transitionCount}]overlay=eof_action=pass:` +
+        `enable='between(t,${start},${end})'[vtr${transitionCount}]`,
+    );
+    videoLabel = `[vtr${transitionCount}]`;
+    transitionCount += 1;
+  };
+  /** 在画到 trackIndex 这一层之前，先把所有位于它下方的转场叠上。 */
+  const emitTransitionsAbove = (trackIndex: number): void => {
+    while (
+      transitionCursor < transitionLayers.length &&
+      transitionLayers[transitionCursor]!.trackIndex > trackIndex
+    ) {
+      emitTransition(transitionLayers[transitionCursor]!);
+      transitionCursor += 1;
+    }
+  };
+
   let videoLabel = "[b0]";
   let videoCount = 0;
   let textCount = 0;
 
   for (const layer of visualLayers) {
+    emitTransitionsAbove(layer.trackIndex);
     const { clip, inputIndex, window: win } = layer;
     const start = formatSeconds(win.localStart);
     const end = formatSeconds(win.localStart + win.localDuration);
@@ -575,6 +648,8 @@ export function buildExportPlan(
     videoLabel = `[vtext${textCount}]`;
     textCount += 1;
   }
+
+  emitTransitionsAbove(-2);
 
   // ---- 音频 ----
   // 静帧渲染只 map 视频：必须整段跳过音频链，否则未连接的 anullsrc/anull 会让 ffmpeg 报错。

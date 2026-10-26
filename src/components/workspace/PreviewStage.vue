@@ -52,8 +52,21 @@ import {
   TEXT_BACKGROUND_RADIUS,
 } from "@/core/clipStyle";
 import { setClipKeyframes, setClipTransform } from "@/core/ops";
-import { clipEffectSpecs, clipHasEffects } from "@/core/effects";
-import { ofxRenderPreview } from "@/core/ofxApi";
+import {
+  clipEffectSpecs,
+  clipHasEffects,
+  OFX_RETIMER_CONTEXT,
+} from "@/core/effects";
+import {
+  ofxRenderPreview,
+  ofxRenderTransition,
+  ofxSourceTime,
+} from "@/core/ofxApi";
+import {
+  activeOfxTransition,
+  transitionProgress,
+  type OfxTransitionSide,
+} from "@/core/ofxTransition";
 import { isTauri } from "@/utils/platform";
 import { usePlaybackStore } from "@/stores/playback";
 import { useProjectStore } from "@/stores/project";
@@ -551,6 +564,13 @@ const videoItem = computed(
 const imageItems = computed(() =>
   visualItems.value.filter((item) => item.kind === "image"),
 );
+
+/** 带 OFX 效果的图片优先使用已烘焙的 PNG；烘焙期间退回原图。 */
+function imageSource(item: VisualItem): string {
+  if (!item.asset) return "";
+  const baked = effectRender.sourceFor(item.clip.id);
+  return fileUrl(baked ?? item.asset.src);
+}
 const textItems = computed(() =>
   visualItems.value.filter((item) => item.kind === "text"),
 );
@@ -634,8 +654,41 @@ async function renderEffectPreviews(): Promise<void> {
       const asset = item.asset;
       if (!asset) continue;
       const local = Math.max(0, playback.playhead - item.clip.start);
-      const sourceTime =
+      let sourceTime =
         item.kind === "image" ? 0 : (item.clip.in ?? 0) + local * (item.clip.speed ?? 1);
+      let retimerSourceTime: number | null = null;
+      const specs = clipEffectSpecs(item.clip);
+      // Retimer 决定源时间：必须在解码前问插件要哪一帧。只支持链首的 retimer。
+      const retimer = specs[0];
+      if (
+        retimer &&
+        retimer.context === OFX_RETIMER_CONTEXT &&
+        item.kind !== "image"
+      ) {
+        try {
+          const mapped = await ofxSourceTime({
+            bundle: retimer.bundle,
+            plugin: retimer.plugin,
+            context: retimer.context,
+            time: local,
+            duration: item.clip.duration,
+            fps: project.doc.fps,
+            width: project.doc.width,
+            height: project.doc.height,
+            params: retimer.params ?? {},
+          });
+          sourceTime = (item.clip.in ?? 0) + mapped;
+          if (asset.duration > 0) {
+            sourceTime = Math.min(
+              asset.duration - 0.001,
+              Math.max(0, sourceTime),
+            );
+          }
+          retimerSourceTime = mapped;
+        } catch (error) {
+          console.warn("OFX SourceTime failed", error);
+        }
+      }
       try {
         const frame = await ofxRenderPreview({
           source: asset.src,
@@ -645,7 +698,10 @@ async function renderEffectPreviews(): Promise<void> {
           height,
           isImage: item.kind === "image",
           fit: "contain",
-          effects: clipEffectSpecs(item.clip),
+          fps: project.doc.fps,
+          duration: item.clip.duration,
+          retimerSourceTime,
+          effects: specs,
         });
         if (token !== effectToken) break;
         next[item.clip.id] = {
@@ -666,6 +722,158 @@ async function renderEffectPreviews(): Promise<void> {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// OFX 转场预览（暂停时叠加整帧转场，播放时交给烘焙文件 / 暂不叠加）
+// ---------------------------------------------------------------------------
+
+interface TransitionPreview {
+  key: string;
+  url: string;
+  time: number;
+}
+
+const transitionPreview = ref<TransitionPreview | null>(null);
+let transitionToken = 0;
+let transitionTimer: number | null = null;
+let transitionRendering = false;
+let transitionQueued = false;
+
+const activeTransition = computed(() =>
+  activeOfxTransition(project.doc, playback.playhead),
+);
+
+const transitionSignature = computed(() => {
+  const range = activeTransition.value;
+  if (!range) return "";
+  return JSON.stringify({
+    clipId: range.clipId,
+    edge: range.edge,
+    start: range.start,
+    end: range.end,
+    effect: range.effect,
+    from: range.from?.asset?.src ?? "",
+    to: range.to?.asset?.src ?? "",
+  });
+});
+
+function transitionSideArgs(side: OfxTransitionSide | null) {
+  if (!side?.asset || side.asset.offline) return null;
+  // 片段自身的效果已经烘焙好时，转场应该吃最终画面而不是原始素材。
+  const baked = effectRender.sourceFor(side.clip.id);
+  if (baked) {
+    return {
+      source: baked,
+      sourceIn: 0,
+      start: side.clip.start,
+      speed: 1,
+      assetDuration: side.clip.duration,
+      isImage: side.asset.kind === "image",
+    };
+  }
+  return {
+    source: side.asset.src,
+    sourceIn: side.clip.in ?? 0,
+    start: side.clip.start,
+    speed: side.clip.speed ?? 1,
+    assetDuration: side.asset.duration ?? 0,
+    isImage: side.asset.kind === "image",
+  };
+}
+
+async function renderTransitionPreview(): Promise<void> {
+  if (transitionRendering) {
+    transitionQueued = true;
+    return;
+  }
+  if (!isTauri() || playback.playing) {
+    transitionPreview.value = null;
+    return;
+  }
+  const range = activeTransition.value;
+  if (!range) {
+    transitionPreview.value = null;
+    return;
+  }
+  transitionRendering = true;
+  try {
+    const token = ++transitionToken;
+    const fromSide = range.from;
+    const toSide = range.to;
+    const from = transitionSideArgs(fromSide);
+    const to = transitionSideArgs(toSide);
+    if (!from && !to) {
+      transitionPreview.value = null;
+      return;
+    }
+    const frame = await ofxRenderTransition({
+      bundle: range.effect.bundle,
+      plugin: range.effect.plugin,
+      context: range.effect.context ?? "OfxImageEffectContextTransition",
+      params: { ...range.effect.params },
+      from,
+      to,
+      timelineTime: playback.playhead,
+      progress: transitionProgress(range, playback.playhead),
+      duration: range.duration,
+      width: project.doc.width,
+      height: project.doc.height,
+      fps: project.doc.fps,
+      fit: "contain",
+    });
+    if (token !== transitionToken || playback.playing) return;
+    transitionPreview.value = {
+      key: `${range.clipId}:${range.edge}`,
+      url: `data:image/png;base64,${frame.pngBase64}`,
+      time: playback.playhead,
+    };
+  } catch (error) {
+    // 单帧失败不打断编辑；导出时会明确报错。
+    console.warn("OFX transition preview failed", error);
+  } finally {
+    transitionRendering = false;
+    if (transitionQueued) {
+      transitionQueued = false;
+      void renderTransitionPreview();
+    }
+  }
+}
+
+const transitionPreviewLayer = computed(
+  () => activeTransition.value?.layer ?? 9999,
+);
+
+const transitionPreviewUrl = computed(() => {
+  const preview = transitionPreview.value;
+  if (!preview || playback.playing) return null;
+  if (Math.abs(preview.time - playback.playhead) > 1e-3) return null;
+  return preview.url;
+});
+
+watch(
+  [
+    () => playback.playhead,
+    () => playback.playing,
+    () => transitionSignature.value,
+    () => project.doc.width,
+    () => project.doc.height,
+  ],
+  () => {
+    if (transitionTimer !== null) {
+      window.clearTimeout(transitionTimer);
+      transitionTimer = null;
+    }
+    if (playback.playing || !activeTransition.value) {
+      transitionPreview.value = null;
+      return;
+    }
+    transitionTimer = window.setTimeout(() => {
+      transitionTimer = null;
+      void renderTransitionPreview();
+    }, 120);
+  },
+  { immediate: true },
+);
 
 watch(
   [
@@ -1493,7 +1701,7 @@ watch(
             v-for="item in imageItems"
             :key="item.clip.id"
             class="overlay-image"
-            :src="item.asset ? fileUrl(item.asset.src) : ''"
+            :src="imageSource(item)"
             :style="imageStyle(item)"
             alt=""
             draggable="false"
@@ -1528,6 +1736,15 @@ watch(
               draggable="false"
             />
           </template>
+
+          <img
+            v-if="transitionPreviewUrl"
+            class="effect-overlay ofx-transition-overlay"
+            :style="{ zIndex: transitionPreviewLayer }"
+            :src="transitionPreviewUrl"
+            alt=""
+            draggable="false"
+          />
 
           <div v-if="projectIsEmpty" class="black-frame">
             <span>{{ i18n.t("preview.importHint") }}</span>
@@ -1859,6 +2076,11 @@ watch(
   user-select: none;
   -webkit-user-drag: none;
   will-change: transform;
+}
+
+/* 转场输出已经是整帧合成结果，不再按单个片段变换。 */
+.ofx-transition-overlay {
+  object-fit: contain;
 }
 
 .video-hit {

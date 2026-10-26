@@ -199,6 +199,48 @@
       ]
     },
     {
+      "slug": "natron/openfx-braw",
+      "name": "Blackmagic RAW",
+      "vendor": "Natron",
+      "version": "2.4.0",
+      "description": "OpenFX reader for Blackmagic RAW footage in Natron. Requires the Blackmagic RAW SDK to be installed.",
+      "homepage": "https://github.com/NatronGitHub/openfx-braw",
+      "source": "https://github.com/NatronGitHub/openfx-braw",
+      "license": "GPL-2.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "generator"
+      ],
+      "contexts": [
+        "generator"
+      ],
+      "tags": [
+        "braw",
+        "blackmagic",
+        "raw",
+        "reader",
+        "natron",
+        "gpl"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/NatronGitHub/openfx-braw/releases/download/Natron-2.4.0/openfx-braw-Natron-2.4.0-Win64.zip",
+          "sha256": "c1419f74509c63530c9ab985b703e8fb0e1e8e77a848715287f53a1b87065e90",
+          "size": 255118,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
       "slug": "microck/boilify",
       "name": "Boilify",
       "vendor": "microck",
@@ -665,6 +707,44 @@
       ]
     },
     {
+      "slug": "oldandangry/film-juicer",
+      "name": "Film Juicer",
+      "vendor": "Old and Angry",
+      "version": "1.1.1",
+      "description": "GPU film emulation with negative/print stocks, halation, grain and lab processing for Resolve on Windows and Linux.",
+      "homepage": "https://github.com/oldandangry/Film-Juicer",
+      "source": "https://github.com/oldandangry/Film-Juicer",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "film-emulation",
+        "grain",
+        "halation",
+        "print",
+        "gpu",
+        "gpl"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/oldandangry/Film-Juicer/releases/tag/v1.1.1",
+          "systems": [
+            "win",
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
       "slug": "stoatworks/gaffer",
       "name": "Gaffer",
       "vendor": "Stoatworks Labs",
@@ -736,6 +816,73 @@
       ]
     },
     {
+      "slug": "wbarreto00/glasspectrum",
+      "name": "Glasspectrum",
+      "vendor": "Wagner Barreto",
+      "version": "1.0.7",
+      "description": "GPU lens emulation with 50 cinema lens presets, bokeh and flare controls for DaVinci Resolve.",
+      "homepage": "https://github.com/wbarreto00/Glasspectrum",
+      "source": "https://github.com/wbarreto00/Glasspectrum",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "lens",
+        "emulation",
+        "bokeh",
+        "presets",
+        "gpu",
+        "resolve"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/wbarreto00/Glasspectrum/releases/download/v1.0.7/Glasspectrum-v1.0.7-macOS.pkg",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "install": "external"
+        },
+        {
+          "url": "https://github.com/wbarreto00/Glasspectrum/releases/download/v1.0.7/Glasspectrum-v1.0.7-Windows.zip",
+          "sha256": "2ff3c173660d1d08fff19858013e8c1126a3f96e04fab337b1511eceb22f30be",
+          "size": 31286,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/wbarreto00/Glasspectrum/releases/download/v1.0.7/Glasspectrum-v1.0.7-Linux.zip",
+          "sha256": "c28565ee16462bdcd91a136309614a85ec7278c03d5a9abbe5c23dd6d16e9067",
+          "size": 29703,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
       "slug": "gyroflow/gyroflow-ofx",
       "name": "Gyroflow",
       "vendor": "Gyroflow",
@@ -772,6 +919,117 @@
             "ofx"
           ],
           "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "samhodge-tokgan/humbaba",
+      "name": "Humbaba",
+      "vendor": "Sam Hodge",
+      "version": "0.9.0",
+      "description": "Depth, distortion and focal-length prediction from scene-referred colour, exposed as an OpenFX plugin with CoreML/CUDA acceleration.",
+      "homepage": "https://github.com/samhodge-tokgan/humbaba",
+      "source": "https://github.com/samhodge-tokgan/humbaba",
+      "license": "Apache-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "depth",
+        "ai",
+        "distortion",
+        "focal-length",
+        "resolve"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/samhodge-tokgan/humbaba/releases/download/v0.9.0/DepthAnything3-0.9.0-macos-arm64.pkg",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "arm64"
+          ],
+          "install": "external"
+        },
+        {
+          "url": "https://github.com/samhodge-tokgan/humbaba/releases/download/v0.9.0/DepthAnything3-0.9.0-windows-x64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "install": "external"
+        },
+        {
+          "url": "https://github.com/samhodge-tokgan/humbaba/releases/download/v0.9.0/DepthAnything3-0.9.0-linux-x86_64.tar.xz",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "amateurmenace/hush-opennr",
+      "name": "Hush OpenNR",
+      "vendor": "Weird Machine",
+      "version": "3.7.2",
+      "description": "Motion-adaptive temporal noise reduction for DaVinci Resolve's free edition, with luma/chroma separation and detail preservation.",
+      "homepage": "https://github.com/amateurmenace/Hush-OpenNR",
+      "source": "https://github.com/amateurmenace/Hush-OpenNR",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "denoise",
+        "noise-reduction",
+        "temporal",
+        "resolve"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/amateurmenace/Hush-OpenNR/releases/download/v3.7.2/OpenNR-3.7.2-macOS.zip",
+          "sha256": "4b97aa98da059706182108c903b365a7920ca8316e1019512864bcfc0bc9948f",
+          "size": 482338,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/amateurmenace/Hush-OpenNR/releases/download/v3.7.2/OpenNR-3.7.2-Windows.zip",
+          "sha256": "4d6205870ff27c83f15c217d5b13b139959de51360cd2115ed707fd3988171bc",
+          "size": 171846,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
         }
       ]
     },
@@ -823,6 +1081,42 @@
           ],
           "contains": [
             "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "murtazatunio/lenscorrect-ofx",
+      "name": "LensCorrect",
+      "vendor": "Murtaza Tunio",
+      "version": "0.1.0",
+      "description": "Lens correction and projection conversion (rectilinear, fisheye, equirectangular, stereographic) for Resolve on Apple Silicon.",
+      "homepage": "https://github.com/murtazatunio/lenscorrect-ofx",
+      "source": "https://github.com/murtazatunio/lenscorrect-ofx",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "lens",
+        "distortion",
+        "projection",
+        "equirectangular",
+        "resolve"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/murtazatunio/lenscorrect-ofx",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "arm64"
           ],
           "install": "external"
         }
@@ -1218,6 +1512,62 @@
       ]
     },
     {
+      "slug": "opendefocus/opendefocus",
+      "name": "OpenDefocus",
+      "vendor": "OpenDefocus",
+      "version": "0.2.1",
+      "description": "Physically based defocus and bokeh with depth-aware convolution, catseye, barndoors and astigmatism. GPU (Vulkan/Metal) OpenFX plugin.",
+      "homepage": "https://opendefocus.github.io/opendefocus/",
+      "source": "https://github.com/opendefocus/opendefocus",
+      "license": "EUPL-1.2",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "defocus",
+        "bokeh",
+        "depth",
+        "lens",
+        "gpu"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/opendefocus/opendefocus/releases/download/v0.2.1/OpenDefocus-OFX-0.2.1-linux-x86_64.tar.gz",
+          "sha256": "6580d8c691d426220df767b0ea3a0f394226377a097628dd1f794776cb5da4d2",
+          "size": 2552116,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/opendefocus/opendefocus/releases/download/v0.2.1/OpenDefocus-OFX-0.2.1-linux-aarch64.tar.gz",
+          "sha256": "29a2539c0805eceeebfbd71479bb6706330b9ffe25e5af4bb3a19d9831ac1453",
+          "size": 2555996,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "arm64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
       "slug": "natron/openfx-arena",
       "name": "OpenFX Arena",
       "vendor": "Natron",
@@ -1253,6 +1603,41 @@
           ],
           "contains": [
             "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "natron/openfx-community",
+      "name": "OpenFX Community",
+      "vendor": "Natron",
+      "version": "1.0.0",
+      "description": "Natron community OpenFX bundle: Looks film emulation, Opacity, ChannelMath and the INK keyer.",
+      "homepage": "https://github.com/NatronGitHub/openfx-community",
+      "source": "https://github.com/NatronGitHub/openfx-community",
+      "license": "GPL-2.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "natron",
+        "film-emulation",
+        "keyer",
+        "math",
+        "gpl"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/NatronGitHub/openfx-community/tree/master/Bundle",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
           ],
           "install": "external"
         }
@@ -1426,6 +1811,79 @@
       ]
     },
     {
+      "slug": "purzbeats/purzos-ofx",
+      "name": "purzOS OFX",
+      "vendor": "purzbeats",
+      "version": "0.2.0",
+      "description": "64 deterministic retro, analog, glitch, pixel-art and CRT/VHS effects for Resolve, Natron and other OpenFX hosts.",
+      "homepage": "https://github.com/purzbeats/purzos-ofx",
+      "source": "https://github.com/purzbeats/purzos-ofx",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "retro",
+        "analog",
+        "glitch",
+        "crt",
+        "vhs",
+        "pixel-art"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/purzbeats/purzos-ofx/releases/download/v0.2.0/purzos-ofx-macos-arm64.zip",
+          "sha256": "2318b965dc330a45de74cc0a910c9f557b6b98e303a0274b4e48641456cf8ebd",
+          "size": 6427352,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "arm64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/purzbeats/purzos-ofx/releases/download/v0.2.0/purzos-ofx-windows-x64.zip",
+          "sha256": "ec707e12e6474e5512ecc3935abc233ec4d5f205d42d14dec5424d0cadc18625",
+          "size": 3436652,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/purzbeats/purzos-ofx/releases/download/v0.2.0/purzos-ofx-linux-x64.zip",
+          "sha256": "1c3afb450024606ed4c2e6f39ef46cc432659ef98e2ece2b59a4b59d219b641e",
+          "size": 10037206,
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
       "slug": "nikita-petrovich/ofx-qrcoder",
       "name": "QRcoder",
       "vendor": "Nikita Petrovich",
@@ -1457,6 +1915,48 @@
           ],
           "arch": [
             "arm64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "saog0721/resolve-dlss5",
+      "name": "Resolve DLSS5",
+      "vendor": "SAOG0721",
+      "version": "0.4.1",
+      "description": "Experimental NVIDIA DLSS neural rendering and denoising for DaVinci Resolve on RTX GPUs.",
+      "homepage": "https://github.com/SAOG0721/DaVinci-Resolve-DLSS5",
+      "source": "https://github.com/SAOG0721/DaVinci-Resolve-DLSS5",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "dlss",
+        "nvidia",
+        "upscale",
+        "denoise",
+        "resolve",
+        "experimental"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/SAOG0721/DaVinci-Resolve-DLSS5/releases/download/v0.4.1/ResolveDLSS5-0.4.1-win64.zip",
+          "sha256": "2530f58cf4694b54abf122ec01454b8e263c0b8bd618960d334bd3e30f4accc9",
+          "size": 112195459,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
           ],
           "contains": [
             "ofx"
@@ -1502,6 +2002,62 @@
             "ofx"
           ],
           "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "amateurmenace/speak",
+      "name": "Speak",
+      "vendor": "Weird Machine",
+      "version": "1.0.0",
+      "description": "Film emulation with H&D tone curves, subtractive colour, halation and grain for DaVinci Resolve.",
+      "homepage": "https://github.com/amateurmenace/Speak",
+      "source": "https://github.com/amateurmenace/Speak",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "film-emulation",
+        "halation",
+        "grain",
+        "tone",
+        "resolve"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/amateurmenace/Speak/releases/download/v1.0.0/Speak-1.0.0-macOS-ci-unsigned.zip",
+          "sha256": "adab365c94173d4b5b577c95dee67a83a4d2f3c5d32b4c478d76f94da7b4ec90",
+          "size": 366573,
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        },
+        {
+          "url": "https://github.com/amateurmenace/Speak/releases/download/v1.0.0/Speak-1.0.0-Windows.zip",
+          "sha256": "06e71d3864689425e013132d3bea17ce16a23f1edba4727932fd7d97a0563f3c",
+          "size": 120407,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
         }
       ]
     },
@@ -1577,6 +2133,48 @@
       ]
     },
     {
+      "slug": "tuttleofx/tuttleofx",
+      "name": "TuttleOFX",
+      "vendor": "TuttleOFX",
+      "version": "0.13.6",
+      "description": "Suite of OpenFX plugins and a batch host covering image processing, colour, compositing and video I/O.",
+      "homepage": "https://github.com/tuttleofx/TuttleOFX",
+      "source": "https://github.com/tuttleofx/TuttleOFX",
+      "license": "LGPL-2.1-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter",
+        "generator",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "generator",
+        "general"
+      ],
+      "tags": [
+        "suite",
+        "image-processing",
+        "io",
+        "batch",
+        "tuttle"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/tuttleofx/TuttleOFX/releases/tag/v0.13.6",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
       "slug": "stoatworks/vertigo",
       "name": "Vertigo",
       "vendor": "Stoatworks Labs",
@@ -1644,6 +2242,41 @@
             "ofx"
           ],
           "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "zzzeffects/zzzfx",
+      "name": "zzzFX",
+      "vendor": "zzzEffects",
+      "version": "0.1.0",
+      "description": "Open-source retro, glitch and CRT effects with OpenFX, After Effects, Premiere and AviUtl2 builds.",
+      "homepage": "https://github.com/zzzEffects/zzzFX",
+      "source": "https://github.com/zzzEffects/zzzFX",
+      "license": "GPL-3.0-or-later",
+      "redistributable": false,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "retro",
+        "glitch",
+        "crt",
+        "analog",
+        "gpl"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/zzzEffects/zzzFX",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
         }
       ]
     }

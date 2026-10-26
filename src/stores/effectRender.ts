@@ -1,18 +1,23 @@
 /**
  * OFX 效果的整段预渲染队列。
  *
- * 逐帧实时渲染太慢（1080p 一帧就要几十毫秒），所以打开效果后直接在后台把整个
- * 片段烘焙成 H.264 预览文件：期间显示进度，完成后播放引擎改用这个文件当源，
- * 播放和暂停都能看到效果，拖动也只取决于文件的 seek 速度。
+ * 逐帧实时渲染太慢（1080p 一帧就要几十毫秒），所以打开效果后直接在后台烘焙：
+ * 视频片段烤成 H.264 预览文件，图片片段烤成带效果的 PNG。期间显示进度，
+ * 完成后预览改用缓存文件当源，播放和暂停都能看到效果。
  */
 import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
-import type { Clip, Project } from "@/types/project";
+import type { Clip, MediaAsset, Project } from "@/types/project";
 import type { OfxEffectSpec } from "@/types/plugins";
 import { clipEffectSpecs, clipHasEffects } from "@/core/effects";
 import { isVisible } from "@/core/playback/activeClips";
 import { cacheFilePath, pathExists } from "@/core/media";
-import { ofxBakeClip, ofxCancelBake, onOfxBakeProgress } from "@/core/ofxApi";
+import {
+  ofxBakeClip,
+  ofxBakeImage,
+  ofxCancelBake,
+  onOfxBakeProgress,
+} from "@/core/ofxApi";
 import { stableHash } from "@/utils/hash";
 import { useProjectStore } from "@/stores/project";
 import { isTauri } from "@/utils/platform";
@@ -23,6 +28,8 @@ export interface EffectRenderJob {
   clipId: string;
   signature: string;
   output: string;
+  /** 参数改动后、新预览就绪前，继续显示上一版结果，避免效果闪回原片。 */
+  previousOutput?: string;
   status: EffectRenderStatus;
   done: number;
   total: number;
@@ -45,6 +52,13 @@ function previewSize(width: number, height: number): { width: number; height: nu
   return { width: even(width), height: even(height) };
 }
 
+/** 图片按自身画幅烘焙，避免把 4:3 图片塞进 16:9 画布后多出黑边。 */
+function imagePreviewSize(asset: MediaAsset): { width: number; height: number } {
+  const width = asset.width && asset.width > 0 ? asset.width : 1920;
+  const height = asset.height && asset.height > 0 ? asset.height : 1080;
+  return previewSize(width, height);
+}
+
 /** 参数对象的键顺序不稳定，先排序再参与哈希。 */
 function canonicalSpecs(effects: OfxEffectSpec[]): unknown {
   return effects.map((effect) => ({
@@ -57,11 +71,16 @@ function canonicalSpecs(effects: OfxEffectSpec[]): unknown {
 
 function signatureFor(project: Project, clip: Clip): string {
   const asset = project.assets.find((item) => item.id === clip.assetId);
-  const size = previewSize(project.width, project.height);
+  const size =
+    asset?.kind === "image"
+      ? imagePreviewSize(asset)
+      : previewSize(project.width, project.height);
   return stableHash(
     JSON.stringify({
       clip: clip.id,
       source: asset?.src ?? "",
+      sourceWidth: asset?.width ?? 0,
+      sourceHeight: asset?.height ?? 0,
       in: clip.in ?? 0,
       duration: clip.duration,
       speed: clip.speed ?? 1,
@@ -119,7 +138,9 @@ export const useEffectRenderStore = defineStore("effectRender", () => {
   /** 已烘焙完成的预览文件；播放引擎用它替换素材源。 */
   function sourceFor(clipId: string): string | null {
     const job = jobs.value[clipId];
-    return job && job.status === "ready" ? job.output : null;
+    if (!job) return null;
+    if (job.status === "ready") return job.output;
+    return job.previousOutput ?? null;
   }
 
   function listenProgress(): void {
@@ -162,7 +183,8 @@ export const useEffectRenderStore = defineStore("effectRender", () => {
       for (const clip of track.clips) {
         if (!(clip.duration > 0) || clip.audioOnly || !clipHasEffects(clip)) continue;
         const asset = doc.assets.find((item) => item.id === clip.assetId);
-        if (!asset || asset.kind !== "video" || asset.offline) continue;
+        if (!asset || asset.offline) continue;
+        if (asset.kind !== "video" && asset.kind !== "image") continue;
 
         const signature = signatureFor(doc, clip);
         const current = jobs.value[clip.id];
@@ -171,13 +193,23 @@ export const useEffectRenderStore = defineStore("effectRender", () => {
           continue;
         }
         if (current?.status === "rendering") void ofxCancelBake(clip.id);
+        const extension = asset.kind === "image" ? "png" : "mp4";
         const output = await cacheFilePath(
-          `ofx-preview-${safeId(clip.id)}-${signature}.mp4`,
+          `ofx-preview-${safeId(clip.id)}-${signature}.${extension}`,
         );
+        const sameKind = (path: string | undefined) =>
+          Boolean(path?.endsWith(`.${extension}`));
+        const fallback =
+          current?.status === "ready" && sameKind(current.output)
+            ? current.output
+            : sameKind(current.previousOutput)
+              ? current.previousOutput
+              : undefined;
         next[clip.id] = {
           clipId: clip.id,
           signature,
           output,
+          ...(fallback ? { previousOutput: fallback } : {}),
           status: "queued",
           done: 0,
           total: 0,
@@ -194,6 +226,7 @@ export const useEffectRenderStore = defineStore("effectRender", () => {
     const job = jobs.value[clipId];
     if (!job || job.signature !== signature) return;
     job.output = output;
+    job.previousOutput = undefined;
     job.status = "ready";
     job.done = job.total;
     job.error = null;
@@ -227,6 +260,23 @@ export const useEffectRenderStore = defineStore("effectRender", () => {
         return;
       }
 
+      if (asset.kind === "image") {
+        current.total = 1;
+        const output = await ofxBakeImage({
+          id: clipId,
+          source: asset.src,
+          time: 0,
+          duration: clip.duration,
+          fps: project.doc.fps,
+          ...imagePreviewSize(asset),
+          fit: "stretch",
+          effects: clipEffectSpecs(clip),
+          output: current.output,
+        });
+        finish(clipId, signature, output);
+        return;
+      }
+
       const output = await ofxBakeClip({
         id: clipId,
         preview: true,
@@ -237,6 +287,7 @@ export const useEffectRenderStore = defineStore("effectRender", () => {
         fps: project.doc.fps,
         ...previewSize(project.doc.width, project.doc.height),
         isImage: false,
+        sourceDuration: asset.duration,
         fit: "contain",
         fitAnchor: "center",
         timeOffset: 0,

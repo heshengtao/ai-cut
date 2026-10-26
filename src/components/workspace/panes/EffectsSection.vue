@@ -27,7 +27,11 @@ import {
   removeClipEffect,
   setClipEffectEnabled,
 } from "@/core/ops";
-import { defaultEffectParams, isMountablePlugin } from "@/core/effects";
+import {
+  defaultEffectParams,
+  isClipEffectPlugin,
+  preferredClipContext,
+} from "@/core/effects";
 import { toast } from "@/composables/useToast";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
@@ -47,6 +51,23 @@ const layout = useLayoutStore();
 const i18n = useI18n();
 
 const effects = computed(() => props.clip?.effects ?? []);
+const effectNotes = computed(() => {
+  const notes: string[] = [];
+  if (effects.value.some((effect) => effect.context === "OfxImageEffectContextPaint")) {
+    notes.push(i18n.t("effects.paintHint"));
+  }
+  const retimerIndex = effects.value.findIndex(
+    (effect) => effect.context === "OfxImageEffectContextRetimer",
+  );
+  if (retimerIndex >= 0) {
+    notes.push(
+      i18n.t(
+        retimerIndex === 0 ? "effects.retimerHint" : "effects.retimerOrder",
+      ),
+    );
+  }
+  return notes;
+});
 
 /** 当前片段的整段预渲染状态（打开效果后自动排队）。 */
 const renderJob = computed(() => effectRender.jobFor(props.clip?.id ?? null));
@@ -159,8 +180,12 @@ const installedBundles = computed(() =>
   plugins.installedPlugins.filter((plugin) => {
     if (!plugin.installed_path) return false;
     if (plugin.plugin_types.length === 0) return true;
-    return plugin.plugin_types.some(
-      (type) => type === "filter" || type === "generator" || type === "general",
+    const allowed = ["filter", "generator", "general", "paint", "retimer"];
+    return (
+      plugin.plugin_types.some((type) => allowed.includes(type)) ||
+      plugin.contexts.some((context) =>
+        allowed.some((type) => context.toLowerCase().includes(type)),
+      )
     );
   }),
 );
@@ -202,7 +227,7 @@ async function onAddBundle(slug: string): Promise<void> {
   try {
     const found = await ofx.probe(status.installed_path);
     if (found.length === 0) throw new Error(i18n.t("effects.notFound"));
-    const supported = found.filter(isMountablePlugin);
+    const supported = found.filter(isClipEffectPlugin);
     const skipped = found.length - supported.length;
     if (supported.length === 0) {
       throw new Error(i18n.t("effects.unsupportedContext"));
@@ -226,19 +251,20 @@ async function onAddBundle(slug: string): Promise<void> {
 function onAddPlugin(identifier: string): void {
   const status = pendingBundle.value;
   const info = pendingPlugins.value.find((plugin) => plugin.identifier === identifier);
-  if (!status || !info || !isMountablePlugin(info)) return;
+  if (!status || !info || !isClipEffectPlugin(info)) return;
   addEffect(status, info);
 }
 
 function addEffect(status: PluginStatus, info: OfxPluginInfo): void {
   const bundle = status.installed_path;
-  if (!bundle || !isMountablePlugin(info) || targetClips.value.length === 0) return;
+  if (!bundle || !isClipEffectPlugin(info) || targetClips.value.length === 0) return;
+  const context = preferredClipContext(info);
   const effect: ClipEffect = {
     id: crypto.randomUUID(),
     plugin: info.identifier,
     name: info.label || info.name || info.identifier,
     bundle,
-    ...(info.context ? { context: info.context } : {}),
+    ...(context ? { context } : {}),
     params: defaultEffectParams(info),
     enabled: true,
   };
@@ -329,6 +355,10 @@ onMounted(() => {
       <button class="btn-text" type="button" @click="cancelPick">
         {{ i18n.t("common.cancel") }}
       </button>
+    </div>
+
+    <div v-if="effectNotes.length > 0" class="effect-notes">
+      <p v-for="note in effectNotes" :key="note">{{ note }}</p>
     </div>
 
     <p v-if="effects.length === 0" class="effect-empty">
@@ -501,6 +531,21 @@ onMounted(() => {
 .picker-select {
   width: 140px;
 }
+.effect-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background-color: rgb(var(--md-surface-container-high));
+  color: rgb(var(--md-on-surface-variant));
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+.effect-notes p {
+  margin: 0;
+}
+
 .effect-empty {
   margin: 0;
   padding: 10px 12px;

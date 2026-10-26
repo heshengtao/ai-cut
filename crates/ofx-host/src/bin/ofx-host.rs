@@ -67,6 +67,21 @@ enum Command {
         /// Height for raw .rgba input (PPM carries its own size).
         #[arg(long)]
         height: Option<u32>,
+        /// Transition 'from' image (SourceFrom); enables two-input rendering.
+        #[arg(long)]
+        from: Option<PathBuf>,
+        /// Transition 'to' image (SourceTo).
+        #[arg(long)]
+        to: Option<PathBuf>,
+        /// Transition progress 0..1.
+        #[arg(long, default_value_t = 0.5)]
+        progress: f64,
+        /// Clip duration exposed to transition / retimer plugins.
+        #[arg(long, default_value_t = 0.0)]
+        duration: f64,
+        /// Print the Retimer SourceTime for --time instead of rendering.
+        #[arg(long)]
+        source_time: bool,
     },
 }
 
@@ -113,6 +128,11 @@ fn run(cli: Cli) -> Result<(), String> {
             time,
             width,
             height,
+            from,
+            to,
+            progress,
+            duration,
+            source_time,
         } => {
             let bundle_text = path_text(&bundle);
             let image = ofx_host::ppm::read(&input, width, height)?;
@@ -127,7 +147,40 @@ fn run(cli: Cli) -> Result<(), String> {
                 image.width,
                 image.height,
             )?;
-            let rendered = session.render(time, &image.rgba, &values)?;
+            session.set_duration(duration);
+            if source_time {
+                let mapped = session.source_time(time, &values)?;
+                println!("{mapped}");
+                return Ok(());
+            }
+            let blank = || {
+                Image::new(
+                    image.width,
+                    image.height,
+                    vec![0.0; image.rgba.len()],
+                )
+            };
+            let rendered = if from.is_some() || to.is_some() {
+                let from_image = match from {
+                    Some(path) => ofx_host::ppm::read(&path, width, height)?,
+                    None => blank(),
+                };
+                let to_image = match to {
+                    Some(path) => ofx_host::ppm::read(&path, width, height)?,
+                    None => blank(),
+                };
+                session.render_multi(
+                    time,
+                    &[
+                        ("SourceFrom", &from_image.rgba),
+                        ("SourceTo", &to_image.rgba),
+                    ],
+                    Some(progress),
+                    &values,
+                )?
+            } else {
+                session.render(time, &image.rgba, &values)?
+            };
             let result = Image::new(image.width, image.height, rendered);
             ofx_host::ppm::write(&output, &result)?;
             let elapsed = started.elapsed().as_millis();

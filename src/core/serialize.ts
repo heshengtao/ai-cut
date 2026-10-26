@@ -2,6 +2,7 @@
 import type { Clip, ClipKeyframes, Project, Track } from "@/types/project";
 import { PROJECT_VERSION } from "@/types/project";
 import { normalizeClipEffects } from "@/core/effects";
+import { normalizeClipTransition } from "@/core/clipTransition";
 import {
   baseKeyframeValues,
   KEYFRAME_PROPERTIES,
@@ -140,6 +141,15 @@ function normalizeProject(project: Project): Project {
       const effects = normalizeClipEffects(normalized.effects);
       if (effects.length === 0) delete normalized.effects;
       else normalized.effects = effects;
+
+      for (const edge of ["in", "out"] as const) {
+        const key = edge === "in" ? "transitionIn" : "transitionOut";
+        const current = normalized[key];
+        if (!current) continue;
+        const transition = normalizeClipTransition(current, normalized.duration);
+        if (transition) normalized[key] = transition;
+        else delete normalized[key];
+      }
       return normalized;
     });
     return { ...(record as unknown as Track), visible, clips };

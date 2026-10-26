@@ -3,6 +3,7 @@ import type {
   BlendMode,
   Clip,
   ClipColor,
+  ClipEffect,
   ClipShadow,
   ClipStroke,
   ClipTextStyle,
@@ -500,13 +501,44 @@ export function setClipTransition(
     current &&
     current.type === next.type &&
     current.duration === next.duration &&
-    current.direction === next.direction
+    current.direction === next.direction &&
+    JSON.stringify(current.effect ?? null) === JSON.stringify(next.effect ?? null)
   ) {
     return doc;
   }
   return edge === "in"
     ? updateClip(doc, clipId, { transitionIn: next })
     : updateClip(doc, clipId, { transitionOut: next });
+}
+
+/** 修改 OFX 转场效果的一个参数。 */
+export function setClipTransitionEffectParam(
+  doc: Project,
+  clipId: string,
+  edge: "in" | "out",
+  name: string,
+  value: ClipEffect["params"][string],
+): Project {
+  const found = findClip(doc, clipId);
+  if (!found) return doc;
+  const transition = edge === "in" ? found.clip.transitionIn : found.clip.transitionOut;
+  if (transition?.type !== "ofx" || !transition.effect) return doc;
+  return setClipTransition(doc, clipId, edge, {
+    effect: {
+      ...transition.effect,
+      params: { ...transition.effect.params, [name]: value },
+    },
+  });
+}
+
+/** 整体替换 OFX 转场效果（选择插件 / 重置默认值）。 */
+export function setClipTransitionEffect(
+  doc: Project,
+  clipId: string,
+  edge: "in" | "out",
+  effect: ClipEffect,
+): Project {
+  return setClipTransition(doc, clipId, edge, { type: "ofx", effect });
 }
 
 /** 整组替换片段关键帧；传 null 清空。每帧记录该时刻的全部动画参数。 */

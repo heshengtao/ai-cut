@@ -11,25 +11,34 @@ export const useOfxStore = defineStore("ofx", () => {
   const error = ref<string | null>(null);
   const editorTarget = ref<OfxEditorTarget | null>(null);
 
-  function cached(bundle: string): OfxPluginInfo[] | null {
-    return cache.get(bundle) ?? null;
+  function cacheKey(bundle: string, context?: string | null): string {
+    return `${bundle}\u0000${context ?? ""}`;
+  }
+
+  function cached(bundle: string, context?: string | null): OfxPluginInfo[] | null {
+    return cache.get(cacheKey(bundle, context)) ?? null;
   }
 
   function find(bundle: string, plugin: string): OfxPluginInfo | null {
-    return cache.get(bundle)?.find((item) => item.identifier === plugin) ?? null;
+    return cache.get(cacheKey(bundle))?.find((item) => item.identifier === plugin) ?? null;
   }
 
-  async function probe(bundle: string, force = false): Promise<OfxPluginInfo[]> {
+  async function probe(
+    bundle: string,
+    force = false,
+    context?: string | null,
+  ): Promise<OfxPluginInfo[]> {
+    const key = cacheKey(bundle, context);
     if (!force) {
-      const hit = cache.get(bundle);
+      const hit = cache.get(key);
       if (hit) return hit;
-      const running = pending.get(bundle);
+      const running = pending.get(key);
       if (running) return running;
     }
     loadingBundle.value = bundle;
-    const task = ofxProbe(bundle)
+    const task = ofxProbe(bundle, null, context ?? null)
       .then((plugins) => {
-        cache.set(bundle, plugins);
+        cache.set(key, plugins);
         error.value = null;
         return plugins;
       })
@@ -39,15 +48,18 @@ export const useOfxStore = defineStore("ofx", () => {
         throw reason;
       })
       .finally(() => {
-        pending.delete(bundle);
+        pending.delete(key);
         if (loadingBundle.value === bundle) loadingBundle.value = null;
       });
-    pending.set(bundle, task);
+    pending.set(key, task);
     return task;
   }
 
-  async function ensure(bundle: string): Promise<OfxPluginInfo[]> {
-    return cache.get(bundle) ?? probe(bundle);
+  async function ensure(
+    bundle: string,
+    context?: string | null,
+  ): Promise<OfxPluginInfo[]> {
+    return cache.get(cacheKey(bundle, context)) ?? probe(bundle, false, context);
   }
 
   /** 从特效卡片打开：可编辑该片段（以及多选片段）上的效果实例。 */
@@ -60,6 +72,17 @@ export const useOfxStore = defineStore("ofx", () => {
     selectedClipIds?: string[];
   }): void {
     editorTarget.value = { kind: "effect", ...target };
+  }
+
+  /** 从检查器转场块打开：编辑片段边缘的 OFX 转场实例。 */
+  function openTransitionTarget(target: {
+    bundle: string;
+    plugin: string;
+    name?: string;
+    clipId: string;
+    edge: "in" | "out";
+  }): void {
+    editorTarget.value = { kind: "transition", ...target };
   }
 
   /** 从插件列表打开：只读查看插件默认参数。 */
@@ -92,6 +115,7 @@ export const useOfxStore = defineStore("ofx", () => {
     probe,
     ensure,
     openEffectTarget,
+    openTransitionTarget,
     openPluginTarget,
     closeEditorTarget,
     clear,

@@ -64,7 +64,21 @@ const effectIndex = computed(() => {
   );
 });
 
+const transitionEdge = computed<"in" | "out" | null>(() =>
+  target.value?.kind === "transition" ? target.value.edge ?? "in" : null,
+);
+
+const transition = computed(() => {
+  const current = clip.value;
+  const edge = transitionEdge.value;
+  if (!current || !edge) return null;
+  return edge === "in" ? current.transitionIn ?? null : current.transitionOut ?? null;
+});
+
 const effect = computed<ClipEffect | null>(() => {
+  if (transitionEdge.value) {
+    return transition.value?.type === "ofx" ? transition.value.effect ?? null : null;
+  }
   if (effectIndex.value < 0) return null;
   return clip.value?.effects?.[effectIndex.value] ?? null;
 });
@@ -81,7 +95,23 @@ const targetClips = computed(() => {
 
 /** 多选时按 effect.id 匹配；缺失时退回链序号。 */
 const targets = computed(() => {
-  const out: Array<{ clipId: string; effect: ClipEffect }> = [];
+  const out: Array<{
+    clipId: string;
+    effect: ClipEffect;
+    edge?: "in" | "out";
+  }> = [];
+  if (transitionEdge.value) {
+    const current = clip.value;
+    const currentEffect = effect.value;
+    if (current && currentEffect) {
+      out.push({
+        clipId: current.id,
+        effect: currentEffect,
+        edge: transitionEdge.value,
+      });
+    }
+    return out;
+  }
   const index = effectIndex.value;
   const effectId = target.value?.effectId;
   for (const current of targetClips.value) {
@@ -115,15 +145,22 @@ const pluginOptions = computed<SelectOption[]>(() =>
 
 const subtitle = computed(() => {
   if (!target.value) return "";
-  if (target.value.kind === "effect") {
+  if (target.value.kind === "effect" || target.value.kind === "transition") {
     const name = effect.value?.name || target.value.name || target.value.plugin;
-    return clip.value ? `${name} · ${clipLabel(clip.value)}` : name;
+    const suffix = clip.value ? clipLabel(clip.value) : "";
+    const edge =
+      target.value.kind === "transition"
+        ? i18n.t(target.value.edge === "out" ? "transition.out" : "transition.in")
+        : "";
+    return [name, edge, suffix].filter(Boolean).join(" · ");
   }
   return info.value?.label || info.value?.name || target.value.name || target.value.plugin;
 });
 
 const effectMissing = computed(
-  () => target.value?.kind === "effect" && !effect.value,
+  () =>
+    (target.value?.kind === "effect" || target.value?.kind === "transition") &&
+    !effect.value,
 );
 
 async function loadTarget(): Promise<void> {
@@ -134,7 +171,13 @@ async function loadTarget(): Promise<void> {
   if (!target.value) return;
   loading.value = true;
   try {
-    const found = await ofx.ensure(target.value.bundle);
+    const context =
+      target.value.kind === "transition"
+        ? "OfxImageEffectContextTransition"
+        : target.value.kind === "effect"
+          ? effect.value?.context ?? null
+          : null;
+    const found = await ofx.ensure(target.value.bundle, context);
     if (token !== loadToken) return;
     plugins.value = found;
     const requested = target.value?.plugin ?? "";
@@ -224,14 +267,23 @@ function openInspector(): void {
           />
         </div>
 
-        <div v-if="target.kind === 'effect' && effectMissing" class="empty">
+        <div
+          v-if="(target.kind === 'effect' || target.kind === 'transition') && effectMissing"
+          class="empty"
+        >
           <p class="empty-title">{{ i18n.t("plugins.editorTargetMissing") }}</p>
           <button class="primary-btn" type="button" @click="openInspector">
             {{ i18n.t("plugins.editorOpenInspector") }}
           </button>
         </div>
 
-        <template v-else-if="target.kind === 'effect' && info && effect">
+        <template
+          v-else-if="
+            (target.kind === 'effect' || target.kind === 'transition') &&
+            info &&
+            effect
+          "
+        >
           <div class="meta">
             <span class="meta-chip">{{ info.label || info.name }}</span>
             <span class="meta-chip">{{ info.context }}</span>
@@ -243,6 +295,7 @@ function openInspector(): void {
             :info="info"
             :effect="effect"
             :targets="targets"
+            :mode="target.kind === 'transition' ? 'transition' : 'effect'"
           />
         </template>
 

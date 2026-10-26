@@ -54,7 +54,7 @@ export async function renderFrame(
     audio: false,
   };
   const { width, height, fps } = resolveDimensions(project, exportOptions);
-  const { textImages, effectVideos } = await prepareLayers(
+  const { textImages, effectVideos, transitionVideos } = await prepareLayers(
     project,
     width,
     height,
@@ -67,6 +67,8 @@ export async function renderFrame(
     textImages,
     options.outputPath,
     effectVideos,
+    undefined,
+    transitionVideos,
   );
   if (!(options.time >= 0 && options.time <= plan.duration)) {
     throw new Error(t("export.frameTimeInvalid"));

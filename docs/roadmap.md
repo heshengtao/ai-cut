@@ -185,15 +185,17 @@ MCP 工具 ─┼─▶ apply_command / apply_commands ─▶ 纯函数 ops ─�
 - [x] `ofx-host` CLI：`probe <bundle>` 输出插件与参数表（类型 / 范围 / 默认值 / 枚举）；`render <bundle> <plugin> <input.ppm|rgba> <params.json> <output.ppm|rgba>`。
 - [x] Rust 命令：`ofx_probe` / `ofx_render_frame` / `ofx_render_preview` / `ofx_bake_clip`。
 - [x] `Clip.effects[]`、检查器效果链、独立「参数」面板、应用到选中片段、多选混合值。
-- [x] 预览：暂停时渲染当前帧并叠加；播放时隐藏。
+- [x] 预览：挂载效果即后台预烘焙并显示进度；视频替换为烘焙预览文件，图片烘焙成带效果的 PNG，播放 / 暂停都常驻显示。
 - [x] 导出：带效果片段先烘焙成 ProRes 4444 中间文件，再进入现有 ffmpeg 计划；音轨仍读原素材。
 - [x] 兼容性加固：参数 / 片段句柄不再因扩容失效；参数描述补齐 hint 等默认属性；支持 8/16/32 位像素深度；渲染前调用 `SyncPrivateData`；bundle 内可执行文件不再要求 `*.ofx` 后缀；安装时跳过 `__MACOSX` / AppleDouble 垃圾。
 - [x] 回归样例：Stoatworks 9 件套、FsPlugins、ME_OpenDRT、ODT N6、Anime Smoother、Nikita Blend、QR Coder、MakeHDR、Boilify、Macroblock、DomeWarp 均通过 probe + render。
-- [x] OFX image effect context 支持矩阵：
+- [x] OFX image effect context 支持矩阵（全部 6 种）：
   - `filter` / `general`：单输入，可挂载到片段、暂停预览、整段烘焙、导出。
   - `generator`：可挂载到有画面的片段（生成器覆盖画面），预览 / 烘焙流程相同；暂不支持单独创建「生成器片段」。
-  - `transition`：需要 `SourceFrom` / `SourceTo` 两路输入和重叠时间轴，当前不支持；添加入口会跳过并提示。
-  - `paint` / `retimer`：需要交互绘制或改变片段时基，当前不支持。
+  - `transition`：挂到片段入 / 出边；以切点为中心借用两侧 handle，暂停时逐帧合成，导出时烘焙成整帧叠加视频（`ofx_bake_transition`），按轨道层级叠在 A/B 之上、字幕之下。
+  - `paint`：可挂载、预览、烘焙；宿主不提供交互画笔 / overlay，只支持参数驱动的绘制结果。
+  - `retimer`：可挂载、预览、烘焙；通过 `SourceTime` 询问插件源时间，必须放在效果链第一位，逐帧 seek 解码（烘焙比普通滤镜慢）。
+  - 宿主 `Session::render_multi` 支持任意命名输入；`ClipTransition.type = "ofx"` 携带 `ClipEffect`。
 
 ## 3. 非目标
 
