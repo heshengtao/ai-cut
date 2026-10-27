@@ -1287,7 +1287,7 @@ const zh: Record<string, string> = {
   "backend.directml.note": "DirectX 12 硬件加速（Windows）",
   "settings.cli.group": "命令行",
   "settings.cli.mount": "在终端使用 aicut",
-  "settings.cli.mountHint": "打开后可在任意终端直接敲 aicut；会请求一次管理员授权",
+  "settings.cli.mountHint": "打开后可在任意终端直接敲 aicut；macOS / Linux 会请求一次管理员授权",
   "settings.cli.status": "挂载状态",
   "settings.cli.state.installed": "已挂载",
   "settings.cli.state.missing": "未挂载",

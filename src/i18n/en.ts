@@ -1287,7 +1287,7 @@ const en: Record<string, string> = {
   "backend.directml.note": "DirectX 12 hardware acceleration (Windows)",
   "settings.cli.group": "Command line",
   "settings.cli.mount": "Use aicut in a terminal",
-  "settings.cli.mountHint": "When enabled, aicut is available on PATH; asks for admin permission once.",
+  "settings.cli.mountHint": "When enabled, aicut is available in any terminal; macOS / Linux asks for admin permission once.",
   "settings.cli.status": "Mount status",
   "settings.cli.state.installed": "Mounted",
   "settings.cli.state.missing": "Not mounted",
