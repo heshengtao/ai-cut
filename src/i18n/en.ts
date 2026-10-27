@@ -1232,7 +1232,7 @@ const en: Record<string, string> = {
   "settings.tts.customHint": "For self-hosted CosyVoice, IndexTTS, GPT-SoVITS, Fish-Speech and similar: pick GET or POST, build the request with {{text}} / {{voice}} / {{speed}} / {{format}} placeholders, and return raw audio or JSON base64.",
   "settings.proxy.group": "Proxy",
   "settings.proxy.mode": "Proxy mode",
-  "settings.proxy.modeHint": "The clip agent, speech synthesis and model downloads all use it. “System” reads the OS proxy settings directly.",
+  "settings.proxy.modeHint": "The clip agent, speech synthesis and model downloads all use it. “System” follows the Windows / macOS system proxy settings automatically (including environment variables and bypass rules); PAC scripts are not supported.",
   "settings.proxy.modeDirect": "Direct",
   "settings.proxy.modeSystem": "System",
   "settings.proxy.modeManual": "Manual",

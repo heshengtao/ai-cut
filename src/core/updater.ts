@@ -8,6 +8,7 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { networkConfig } from "@/core/agentApi";
 import { isTauri } from "@/utils/platform";
 
 /** 一次更新检查的结果（供界面展示；不含插件内部句柄）。 */
@@ -34,7 +35,7 @@ export async function currentVersion(): Promise<string> {
 /** 查一次更新；返回 `null` 表示已是最新。 */
 export async function checkUpdate(): Promise<UpdateInfo | null> {
   if (!isTauri()) return null;
-  const found = await check();
+  const found = await check(await proxyOption());
   pending = found;
   if (!found) return null;
   return {
@@ -43,6 +44,18 @@ export async function checkUpdate(): Promise<UpdateInfo | null> {
     notes: found.body ?? null,
     date: found.date ?? null,
   };
+}
+
+/**
+ * 更新请求的代理：手动模式把地址交给插件；系统 / 直连模式交给 reqwest
+ * （插件启用了 `system-proxy`，会自己跟随系统设置）。
+ */
+async function proxyOption(): Promise<{ proxy: string } | undefined> {
+  const config = await networkConfig();
+  if (config.proxy_mode !== "manual") return undefined;
+  const proxy = config.proxy_url.trim();
+  if (!proxy) return undefined;
+  return { proxy: proxy.includes("://") ? proxy : `http://${proxy}` };
 }
 
 /**

@@ -25,7 +25,8 @@ tauri-plugin-dialog = "2.8.3"
 tauri-plugin-shell = "2.5.0"
 # 自动更新：从 GitHub Releases 的 latest.json 取新版本，验签后安装；
 # 装完用 process 插件重启到新版本。端点与公钥在 tauri.conf.json 的 plugins.updater。
-tauri-plugin-updater = "2"
+# `system-proxy`：更新检查 / 下载也跟随系统代理。
+tauri-plugin-updater = { version = "2", features = ["system-proxy"] }
 tauri-plugin-process = "2"
 # 用系统默认浏览器打开外链（顶栏 GitHub 按钮）。
 open = "5"
@@ -34,7 +35,9 @@ tokio = { version = "1", features = ["net", "sync", "time", "rt", "macros"] }
 tokio-util = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
 uuid = { version = "1", features = ["v4"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "native-tls", "socks"] }
+# `system-proxy`：让 reqwest 自己也能读 Windows / macOS 的系统代理（Windows 注册表、
+# macOS SystemConfiguration、环境变量），作为我们解析结果之外的兜底。
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "native-tls", "socks", "system-proxy"] }
 futures-util = { version = "0.3", default-features = false }
 sha2 = "0.10"
 sherpa-onnx = "1.13.8"
@@ -60,6 +63,8 @@ ort = { version = "=2.0.0-rc.13", features = ["coreml"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ort = { version = "=2.0.0-rc.13", features = ["directml"] }
+# 读 `Internet Settings` 里的系统代理（ProxyEnable / ProxyServer / ProxyOverride）。
+windows-registry = "0.6"
 
 [target.'cfg(all(not(target_os = "macos"), not(target_os = "windows")))'.dependencies]
 ort = { version = "=2.0.0-rc.13" }

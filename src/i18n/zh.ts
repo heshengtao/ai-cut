@@ -1232,7 +1232,7 @@ const zh: Record<string, string> = {
   "settings.tts.customHint": "适用于 CosyVoice、IndexTTS、GPT-SoVITS、Fish-Speech 等自建服务：选择 GET 或 POST，用 {{text}} / {{voice}} / {{speed}} / {{format}} 占位符拼请求，响应是原始音频或 JSON base64 都支持。",
   "settings.proxy.group": "代理",
   "settings.proxy.mode": "代理方式",
-  "settings.proxy.modeHint": "剪辑智能体、语音合成与模型下载都走它；「系统代理」会直接读取操作系统的代理设置。",
+  "settings.proxy.modeHint": "剪辑智能体、语音合成与模型下载都走它；「系统代理」会自动跟随 Windows / macOS 的系统代理设置（含环境变量与绕过列表），PAC 脚本暂不支持。",
   "settings.proxy.modeDirect": "直连",
   "settings.proxy.modeSystem": "系统代理",
   "settings.proxy.modeManual": "手动",

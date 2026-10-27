@@ -62,6 +62,7 @@ dependencies = [
  "tower-http",
  "uuid",
  "walkdir",
+ "windows-registry",
  "zip 2.6.1",
 ]
 
