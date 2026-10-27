@@ -1,6 +1,6 @@
 [package]
 name = "ai-cut"
-version = "0.2.3"
+version = "0.2.4"
 description = "AI Cut — AI 视频剪辑器（原型）"
 authors = ["you"]
 edition = "2021"
