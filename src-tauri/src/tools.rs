@@ -212,7 +212,12 @@ pub fn definitions() -> Vec<ToolDef> {
                     "modelId": { "type": "string", "description": "语音识别模型，省略时用 SenseVoice" },
                     "minPause": { "type": "number", "description": "长停顿阈值（秒），默认 0.8" },
                     "includeSoft": { "type": "boolean", "description": "是否也剪「那个 / 就是」这类口头禅，默认 true" },
-                    "dryRun": { "type": "boolean", "description": "只返回建议，不改时间线" }
+                    "dryRun": { "type": "boolean", "description": "只返回建议，不改时间线" },
+                    "customWords": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "自定义过滤词（任意语言），命中就剪"
+                    }
                 }
             }),
         },

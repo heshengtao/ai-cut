@@ -87,6 +87,15 @@ const cutModelReady = computed(
   () => Boolean(cutModel.value?.installed) && cutReview.alignerReady(),
 );
 const cutMissing = computed(() => cutReview.missingBytesNow());
+const customWordDraft = ref("");
+
+/** 追加一个自定义过滤词。 */
+function addCustomWord(): void {
+  const value = customWordDraft.value.trim();
+  if (!value) return;
+  cutReview.addCustomWord(value);
+  customWordDraft.value = "";
+}
 const cutAsrOptions = computed<SelectOption[]>(() =>
   models
     .ofFeature("asr")
@@ -2334,6 +2343,30 @@ onMounted(() => {
           />
         </div>
 
+        <div class="param-field">
+          <span class="param-name">{{ i18n.t("cutReview.filterWords") }}</span>
+          <div class="filter-words">
+            <span v-for="word in cutReview.options.custom" :key="word" class="filter-chip">
+              {{ word }}
+              <button
+                class="chip-remove"
+                :aria-label="i18n.t('common.remove')"
+                @click="cutReview.removeCustomWord(word)"
+              >
+                ×
+              </button>
+            </span>
+            <input
+              v-model="customWordDraft"
+              class="filter-input"
+              :placeholder="i18n.t('cutReview.filterPlaceholder')"
+              @keydown.enter.prevent="addCustomWord"
+              @blur="addCustomWord"
+            />
+          </div>
+        </div>
+        <span class="item-note">{{ i18n.t("cutReview.filterWordsHint") }}</span>
+
         <div v-if="cutReview.running" class="progress">
           <div class="progress-fill" :style="{ width: `${cutReview.progressPct}%` }" />
         </div>
@@ -2535,6 +2568,58 @@ onMounted(() => {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 2px;
 }
+.filter-words {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 999px;
+  background: rgb(var(--md-secondary-container));
+  color: rgb(var(--md-on-secondary-container));
+  font-size: 11px;
+}
+
+.chip-remove {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.chip-remove:hover {
+  opacity: 1;
+}
+
+.filter-input {
+  flex: 1 1 90px;
+  min-width: 80px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid rgb(var(--md-outline-variant));
+  border-radius: 6px;
+  background: rgb(var(--md-surface));
+  color: rgb(var(--md-on-surface));
+  font-size: 11px;
+  outline: none;
+}
+
+.filter-input:focus {
+  border-color: rgb(var(--md-primary));
+}
+
 .run-btn {
   flex: 0 0 auto;
   height: 30px;

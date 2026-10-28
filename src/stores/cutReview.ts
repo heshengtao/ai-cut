@@ -31,7 +31,7 @@ import {
 } from "@/core/cuts";
 import { buildCutCues, placeCueTrack } from "@/core/cutSubtitles";
 import type { ModelStatus } from "@/types/models";
-import type { Clip, CutScope, MediaAsset, Project } from "@/types/project";
+import type { Clip, CutKind, CutScope, MediaAsset, Project } from "@/types/project";
 import { t } from "@/i18n";
 
 /** 默认识别模型：SenseVoice（自带标点、短句稳），时间交给对齐器。 */
@@ -45,6 +45,8 @@ export interface CutReviewOptions {
   minPause: number;
   /** 是否也剪「那个 / 就是」这类软口癖。 */
   includeSoft: boolean;
+  /** 用户自己加的过滤词（多语言、个人口癖）。 */
+  custom: string[];
 }
 
 const OPTIONS_KEY = "ai-cut-cut-review-options";
@@ -55,9 +57,12 @@ function loadOptions(): CutReviewOptions {
     return {
       minPause: typeof raw.minPause === "number" ? raw.minPause : 0.8,
       includeSoft: raw.includeSoft !== false,
+      custom: Array.isArray(raw.custom)
+        ? raw.custom.filter((word): word is string => typeof word === "string")
+        : [],
     };
   } catch {
-    return { minPause: 0.8, includeSoft: true };
+    return { minPause: 0.8, includeSoft: true, custom: [] };
   }
 }
 
@@ -123,6 +128,18 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     } catch {
       // 隐私模式写不了 localStorage，只影响下次记住选择。
     }
+  }
+
+  /** 加一个自定义过滤词（去重、去空白）。 */
+  function addCustomWord(word: string): void {
+    const value = word.trim();
+    if (!value) return;
+    if (options.value.custom.includes(value)) return;
+    setOptions({ custom: [...options.value.custom, value] });
+  }
+
+  function removeCustomWord(word: string): void {
+    setOptions({ custom: options.value.custom.filter((item) => item !== word) });
   }
 
   function setOptions(patch: Partial<CutReviewOptions>): void {
@@ -223,7 +240,10 @@ export const useCutReviewStore = defineStore("cutReview", () => {
       }));
 
       const pauseOptions: Partial<PauseOptions> = { minPause: options.value.minPause };
-      const fillerOptions: Partial<FillerOptions> = { includeSoft: options.value.includeSoft };
+      const fillerOptions: Partial<FillerOptions> = {
+        includeSoft: options.value.includeSoft,
+        custom: options.value.custom,
+      };
       const proposals = mergeProposals(
         [
           detectFillers(words.value, fillerOptions),
@@ -313,13 +333,13 @@ export const useCutReviewStore = defineStore("cutReview", () => {
   }
 
   /** 在文稿里手动剪掉一段。 */
-  function cutWords(from: number, to: number, text: string): boolean {
+  function cutWords(from: number, to: number, text: string, kind: CutKind = "manual"): boolean {
     const targetClip = clipId.value;
     if (!targetClip) return false;
     let changed = false;
     useProjectStore().dispatch(
       (doc) => {
-        const next = cutSourceRange(doc, targetClip, from, to, "manual", text);
+        const next = cutSourceRange(doc, targetClip, from, to, kind, text);
         if (next === doc) return doc;
         changed = true;
         const current = scopeOfClip(next, targetClip);
@@ -398,6 +418,8 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     removedSeconds,
     timelineCuts,
     setOptions,
+    addCustomWord,
+    removeCustomWord,
     asrModelId,
     setAsrModel,
     candidateModel,

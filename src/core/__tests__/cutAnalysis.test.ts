@@ -123,6 +123,20 @@ describe("detectFillers", () => {
     expect(soft?.wordIds).toEqual(["w1", "w2"]);
   });
 
+  it("自定义过滤词按字匹配，不需要停顿隔离", () => {
+    const list = words([
+      ["我们", 0, 0.4],
+      ["啊", 0.4, 0.6],
+      ["就", 0.6, 0.8],
+      ["这样", 0.8, 1.2],
+    ]);
+    // 「啊就」在词表里是「啊」「就」两个字，按自定义词逐字拼起来匹配。
+    const cuts = detectFillers(list, { custom: ["啊就"] });
+    expect(cuts).toHaveLength(1);
+    expect(cuts[0].srcStart).toBeCloseTo(0.4, 6);
+    expect(cuts[0].wordIds).toEqual(["w1", "w2"]);
+  });
+
   it("关掉软口癖后只留硬口癖", () => {
     const list = words([
       ["我们", 0, 0.4],

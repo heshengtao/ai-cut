@@ -40,21 +40,21 @@ const aligner = computed(() => cut.alignerModel());
 const modelReady = computed(() => Boolean(model.value?.installed) && cut.alignerReady());
 const modelMissing = computed(() => cut.missingBytesNow());
 
-interface Entry {
+interface SilencePiece {
+  kind: "silence";
+  start: number;
+  end: number;
+  cut: CutRecord | null;
+  label: string;
+}
+
+interface WordPiece {
+  kind: "word";
   word: { id: string; text: string; start: number; end: number };
   index: number;
 }
 
-interface Gap {
-  cuts: CutRecord[];
-  label: string;
-}
-
-interface Row {
-  entries: Entry[];
-  /** 与 `entries` 同长：这一格前面夹着的停顿剪口（第 0 格为 null）。 */
-  gaps: (Gap | null)[];
-}
+type Piece = SilencePiece | WordPiece;
 
 /** 当前选中的片段与素材（只在启动识别时用）。 */
 const target = computed(() => {
@@ -101,29 +101,52 @@ function cutOfWord(word: { start: number; end: number }): CutRecord | null {
   return scope.cuts.find((item) => middle >= item.srcStart && middle < item.srcEnd) ?? null;
 }
 
-/** 落在两个词之间的停顿剪口。 */
-function pauseCutsBetween(previous: { end: number }, next: { start: number }): CutRecord[] {
+/** 一段静音：剪过的显示「已剪」，没剪的可以直接点掉。 */
+function silencePiece(start: number, end: number): SilencePiece {
   const scope = cut.scope;
-  if (!scope) return [];
-  return scope.cuts.filter(
-    (item) => item.srcStart >= previous.end - 1e-6 && item.srcEnd <= next.start + 1e-6,
-  );
+  const hit =
+    scope?.cuts.find(
+      (item) => item.srcEnd > start + 1e-6 && item.srcStart < end - 1e-6,
+    ) ?? null;
+  return {
+    kind: "silence",
+    start,
+    end,
+    cut: hit,
+    label: i18n.t("cutReview.silenceLabel", { value: (end - start).toFixed(1) }),
+  };
 }
 
-const rows = computed<Row[]>(() => {
-  let cursor = 0;
-  return cut.paragraphs.map((paragraph) => {
-    const entries = paragraph.map((word) => ({ word, index: cursor++ }));
-    const gaps = entries.map((entry, index) => {
-      if (index === 0) return null;
-      const found = pauseCutsBetween(entries[index - 1].word, entry.word);
-      if (found.length === 0) return null;
-      const removed = found.reduce((sum, item) => sum + (item.srcEnd - item.srcStart), 0);
-      return { cuts: found, label: seconds(removed) };
-    });
-    return { entries, gaps };
+/**
+ * 连续文稿：词和静音按时间顺序铺在同一条流里，靠自动换行折行，
+ * 不再一句一行。静音是行内胶囊，剪没剪一眼能看出来。
+ */
+const pieces = computed<Piece[]>(() => {
+  const out: Piece[] = [];
+  let previousEnd: number | null = null;
+  const first = cut.words[0];
+  if (first && first.start >= 0.5) out.push(silencePiece(0, first.start));
+  cut.words.forEach((word, index) => {
+    if (previousEnd !== null && word.start - previousEnd >= 0.5) {
+      out.push(silencePiece(previousEnd, word.start));
+    }
+    out.push({ kind: "word", word, index });
+    previousEnd = word.end;
   });
+  return out;
 });
+
+/** 点静音：剪过的还原，没剪的按「留 0.3 秒」剪掉。 */
+function toggleSilence(piece: SilencePiece): void {
+  if (piece.cut) {
+    cut.restoreCut(piece.cut.id);
+    return;
+  }
+  const keep = 0.3;
+  const from = piece.start + keep / 2;
+  const to = Math.max(from + 0.15, piece.end - keep / 2);
+  cut.cutWords(from, to, "", "pause");
+}
 
 function wordIndexFromEvent(event: PointerEvent): number | null {
   const element = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-index]");
@@ -348,26 +371,27 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
       @pointerup="onPointerUp"
       @pointercancel="onPointerUp"
     >
-      <p v-for="(row, pIndex) in rows" :key="pIndex" class="paragraph">
-        <template v-for="(entry, wIndex) in row.entries" :key="entry.index">
-          <span
-            v-if="wIndex > 0 && row.gaps[wIndex]"
-            class="pause-chip"
-            :title="i18n.t('cutReview.restoreOne')"
-            @click.stop="row.gaps[wIndex]?.cuts.forEach((item) => cut.restoreCut(item.id))"
+      <p class="flow">
+        <template v-for="(piece, pieceIndex) in pieces" :key="pieceIndex">
+          <button
+            v-if="piece.kind === 'silence'"
+            class="silence"
+            :class="{ cut: piece.cut }"
+            @click.stop="toggleSilence(piece)"
           >
-            ◷ {{ row.gaps[wIndex]?.label }}
-          </span>
+            {{ piece.label }}
+          </button>
           <span
+            v-else
             class="word"
-            :data-index="entry.index"
+            :data-index="piece.index"
             :class="{
-              cut: cutOfWord(entry.word),
-              selected: range && entry.index >= range.from && entry.index <= range.to,
+              cut: cutOfWord(piece.word),
+              selected: range && piece.index >= range.from && piece.index <= range.to,
             }"
-            :title="cutOfWord(entry.word) ? i18n.t('cutReview.restoreOne') : ''"
-            @pointerdown="onPointerDown($event, entry.index)"
-          >{{ entry.word.text }}</span>
+            :title="cutOfWord(piece.word) ? i18n.t('cutReview.restoreOne') : ''"
+            @pointerdown="onPointerDown($event, piece.index)"
+          >{{ piece.word.text }}</span>
         </template>
       </p>
     </div>
@@ -528,10 +552,45 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
   user-select: none;
 }
 
-.paragraph {
-  margin: 0 0 12px;
-  font-size: 15.5px;
-  line-height: 2.05;
+.flow {
+  margin: 0;
+  font-size: 17px;
+  line-height: 2.15;
+  word-break: break-word;
+}
+
+/* 静音：行内胶囊，不打断阅读节奏。 */
+.silence {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  margin: 0 5px;
+  padding: 0 9px;
+  border: 1px solid rgb(var(--md-outline-variant));
+  border-radius: 999px;
+  background: rgb(var(--md-surface-container-high));
+  color: rgb(var(--md-on-surface-muted));
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.silence:hover {
+  border-color: rgb(var(--md-primary));
+  color: rgb(var(--md-on-surface-variant));
+}
+
+.silence.cut {
+  border-color: rgb(var(--md-error) / 0.55);
+  background: rgb(var(--md-error-container) / 0.35);
+  color: rgb(var(--md-error));
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.silence.cut:hover {
+  background: rgb(var(--md-error-container));
 }
 
 .word {
@@ -561,16 +620,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 .word.cut:hover {
   background: rgb(var(--md-error-container));
   color: rgb(var(--md-on-error-container));
-}
-
-.pause-chip {
-  margin: 0 4px;
-  padding: 0 5px;
-  border-radius: 4px;
-  font-size: 11.5px;
-  color: rgb(var(--md-error));
-  background: rgb(var(--md-error-container) / 0.35);
-  cursor: pointer;
 }
 
 .action-bar {

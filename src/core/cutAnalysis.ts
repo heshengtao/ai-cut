@@ -51,11 +51,14 @@ export interface FillerOptions {
   lang: "zh" | "en" | "both";
   /** 也命中「那个 / 就是 / you know」这类软口癖（要求前后有停顿）。 */
   includeSoft: boolean;
+  /** 用户自己加的过滤词：多字也算，命中就剪，不做停顿要求。 */
+  custom?: string[];
 }
 
 export const DEFAULT_FILLER: FillerOptions = {
   lang: "both",
   includeSoft: true,
+  custom: [],
 };
 
 /** 硬口癖：几乎只作语气词，命中就剪。 */
@@ -201,6 +204,15 @@ export function detectFillers(
     for (const lang of langs) {
       if ((HARD[lang] ?? []).includes(normalized)) {
         matched = { length: 1, text: normalized, soft: false };
+        break;
+      }
+    }
+
+    if (!matched && opts.custom && opts.custom.length > 0) {
+      for (const phrase of opts.custom) {
+        const span = matchSoft(phrase, words, index);
+        if (!span) continue;
+        matched = { length: span.length, text: span.text, soft: true };
         break;
       }
     }

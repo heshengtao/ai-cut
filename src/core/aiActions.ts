@@ -1043,6 +1043,8 @@ export interface CutFillerParams {
   includeSoft?: boolean;
   /** 只返回建议、不改时间线。 */
   dryRun?: boolean;
+  /** 自定义过滤词（任意语言），命中就剪。 */
+  customWords?: string[];
 }
 
 /**
@@ -1087,7 +1089,10 @@ export async function cutFillerWords(params: CutFillerParams, ctx: JobContext) {
   }));
   const proposals = mergeProposals(
     [
-      detectFillers(words, { includeSoft: params.includeSoft ?? true }),
+      detectFillers(words, {
+        includeSoft: params.includeSoft ?? true,
+        custom: params.customWords ?? [],
+      }),
       detectPauses(words, { minPause: params.minPause ?? 0.8 }),
     ],
     taken,
