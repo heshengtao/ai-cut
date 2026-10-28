@@ -537,6 +537,7 @@ async function handle(
 
 const AI_JOB_KINDS = [
   "transcribe",
+  "cut",
   "separate",
   "denoise",
   "process_audio",
@@ -593,6 +594,8 @@ function runAiJob(kind: AiJobKind, params: Record<string, unknown>, job: AiJob):
   switch (kind) {
     case "transcribe":
       return ai.transcribe(args, ctx);
+    case "cut":
+      return ai.cutFillerWords(args, ctx);
     case "separate":
       return ai.separate(args, ctx);
     case "denoise":
@@ -676,6 +679,7 @@ function startAiJob(payload: unknown): { jobId: string } {
 function aiJobProgress(kind: AiJobKind): number {
   switch (kind) {
     case "transcribe":
+    case "cut":
       return useAsrStore().progress;
     case "separate":
     case "denoise":

@@ -194,6 +194,9 @@ export const useCutReviewStore = defineStore("cutReview", () => {
    */
   async function run(asset: MediaAsset, clip: Clip): Promise<number> {
     if (running.value) return 0;
+    // 面板可能比模型清单加载得更早；先确保清单到位再判断「装没装」。
+    const models = useModelsStore();
+    if (models.catalog.length === 0) await models.load();
     const model = pickModel();
     if (!model) throw new Error(t("cutReview.noModel"));
     if (!alignerReady()) throw new Error(t("cutReview.noAligner"));

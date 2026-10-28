@@ -28,6 +28,15 @@ import { mapCueToTimeline } from "@/core/subtitles";
 import { replaceClipVideo } from "@/core/videoEdit";
 import { placeVoiceover } from "@/core/voiceover";
 import { useAsrStore } from "@/stores/asr";
+import { asrTranscribeWords } from "@/core/modelApi";
+import {
+  detectFillers,
+  detectPauses,
+  mergeProposals,
+  withWordIds,
+} from "@/core/cutAnalysis";
+import { applyCuts, scopeOfClip } from "@/core/cuts";
+import { buildCutCues, placeCueTrack } from "@/core/cutSubtitles";
 import { useAudioAiStore } from "@/stores/audioAi";
 import { useExportStore } from "@/stores/export";
 import { useModelsStore } from "@/stores/models";
@@ -1022,4 +1031,117 @@ export async function downloadModel(params: { id: string }, ctx: JobContext) {
   await models.download(model.id);
   if (ctx.cancelled()) throw new Error("已取消");
   return { id: model.id, installed: models.byId(model.id)?.installed ?? false };
+}
+
+export interface CutFillerParams {
+  clipId?: string;
+  assetId?: string;
+  modelId?: string;
+  /** 长停顿阈值（秒），默认 0.8。 */
+  minPause?: number;
+  /** 是否也剪「那个 / 就是」这类软口癖，默认 true。 */
+  includeSoft?: boolean;
+  /** 只返回建议、不改时间线。 */
+  dryRun?: boolean;
+}
+
+/**
+ * 智能剪口播：ASR 出文本 → 强制对齐器出词级时间 → 本地检测口癖/停顿 → 落成剪口。
+ *
+ * 对齐器是必选：没有它就只有估算时间，剪口会偏，所以直接拒绝执行。
+ */
+export async function cutFillerWords(params: CutFillerParams, ctx: JobContext) {
+  const models = useModelsStore();
+  await ensureCatalog();
+  const model = await pickInstalledModel("asr", params.modelId, "语音识别");
+  const aligner = models.byId("qwen3-aligner-0.6b-q4");
+  if (!aligner?.installed) {
+    throw new Error("剪口播需要强制对齐器：请先下载「Qwen3 强制对齐器」");
+  }
+
+  let clipId: string;
+  let asset: MediaAsset;
+  if (params.clipId) {
+    const found = requireMediaClip(params.clipId);
+    clipId = found.clip.id;
+    asset = found.asset;
+  } else if (params.assetId) {
+    asset = findAsset(params.assetId);
+    const clip = project()
+      .doc.tracks.flatMap((track) => track.clips)
+      .find((candidate) => candidate.assetId === asset.id);
+    if (!clip) throw new Error("素材还没有放到时间线上：先 append_clip");
+    clipId = clip.id;
+  } else {
+    throw new Error("需要 clipId 或 assetId");
+  }
+
+  const result = await asrTranscribeWords(asset.src, model.id);
+  if (ctx.cancelled()) throw new Error("已取消");
+
+  const words = withWordIds(result.words);
+  const existing = scopeOfClip(project().doc, clipId);
+  const taken = (existing?.cuts ?? []).map((cut) => ({
+    srcStart: cut.srcStart,
+    srcEnd: cut.srcEnd,
+  }));
+  const proposals = mergeProposals(
+    [
+      detectFillers(words, { includeSoft: params.includeSoft ?? true }),
+      detectPauses(words, { minPause: params.minPause ?? 0.8 }),
+    ],
+    taken,
+  );
+
+  const removed = proposals.reduce(
+    (sum, proposal) => sum + (proposal.srcEnd - proposal.srcStart),
+    0,
+  );
+  const summary = {
+    model: model.id,
+    aligned: result.timed,
+    wordCount: words.length,
+    cutCount: proposals.length,
+    removedSeconds: Math.round(removed * 100) / 100,
+    proposals: proposals.map((proposal) => ({
+      kind: proposal.kind,
+      start: proposal.srcStart,
+      end: proposal.srcEnd,
+      text: proposal.text,
+      reason: proposal.reason,
+    })),
+  };
+  if (params.dryRun || proposals.length === 0 || words.length === 0) {
+    return { ...summary, applied: false, revision: revision() };
+  }
+
+  project().dispatch(
+    (doc) => {
+      const cutDoc = applyCuts(
+        doc,
+        clipId,
+        proposals.map((proposal) => ({
+          kind: proposal.kind,
+          srcStart: proposal.srcStart,
+          srcEnd: proposal.srcEnd,
+          text: proposal.text,
+        })),
+        words.map((word) => ({ text: word.text, start: word.start, end: word.end })),
+        result.timed,
+      );
+      // 剪完把剩下的词落成「口播字幕」，改字去时间线上改。
+      const scope = scopeOfClip(cutDoc, clipId);
+      if (!scope) return cutDoc;
+      const cues = buildCutCues(
+        scope,
+        words,
+        cutDoc.tracks.flatMap((track) => track.clips),
+        cutDoc.fps,
+      );
+      return placeCueTrack(cutDoc, cues, t("cutReview.cueTrack"));
+    },
+    jobMeta(ctx, t("cutReview.commandLabel", { count: proposals.length })),
+  );
+
+  return { ...summary, applied: true, revision: revision() };
 }

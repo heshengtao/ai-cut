@@ -202,6 +202,21 @@ pub fn definitions() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
+            name: "cut_filler_words",
+            description: "智能剪口播：识别 → 强制对齐器给词级时间 → 剪掉口癖与长停顿，并生成「口播字幕」轨供改字。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "clipId": { "type": "string", "description": "要剪的片段；省略时按 assetId 找时间线上引用它的片段" },
+                    "assetId": { "type": "string" },
+                    "modelId": { "type": "string", "description": "语音识别模型，省略时用 SenseVoice" },
+                    "minPause": { "type": "number", "description": "长停顿阈值（秒），默认 0.8" },
+                    "includeSoft": { "type": "boolean", "description": "是否也剪「那个 / 就是」这类口头禅，默认 true" },
+                    "dryRun": { "type": "boolean", "description": "只返回建议，不改时间线" }
+                }
+            }),
+        },
+        ToolDef {
             name: "separate_stems",
             description: "对片段做音源/人声分离（UVR / HTDemucs），生成分轨轨道并静音源片段。",
             parameters: json!({
@@ -691,7 +706,7 @@ pub fn definitions() -> Vec<ToolDef> {
                 "properties": {
                     "kind": {
                         "enum": [
-                            "transcribe", "separate", "denoise", "process_audio",
+                            "transcribe", "cut", "separate", "denoise", "process_audio",
                             "loudness", "translate", "voiceover", "upscale",
                             "interpolate", "reframe", "process_video", "export",
                             "download_model", "render_range", "render_manifest",
@@ -1500,6 +1515,7 @@ pub async fn dispatch_with_cancel(
         "job_status" => bridge.request("ai.job.status", args).await,
         "job_cancel" => bridge.request("ai.job.cancel", args).await,
         "transcribe" => run_ai_job(bridge, actor, "transcribe", args, cancel).await,
+        "cut_filler_words" => run_ai_job(bridge, actor, "cut", args, cancel).await,
         "separate_stems" => run_ai_job(bridge, actor, "separate", args, cancel).await,
         "denoise_audio" => run_ai_job(bridge, actor, "denoise", args, cancel).await,
         "process_audio" => run_ai_job(bridge, actor, "process_audio", args, cancel).await,
