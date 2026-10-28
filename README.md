@@ -111,6 +111,7 @@ The AI features are built for real sessions, not demos. Point them at a clip and
 
 - **Captions** — local speech recognition into an editable caption track
 - **Voiceover** — local TTS plus OpenAI, ElevenLabs, Azure, Google, Baidu, MiniMax, Volcengine, or custom HTTP
+- **Smart cut** — Paraformer word-level timestamps find filler words and long pauses and cut them in one pass; the transcript strikes every removed word, one click restores it, and the timeline marks each cut
 - **Audio AI** — loudness matching, denoise, vocal polish, source separation, audio translation
 - **Video AI** — super resolution, frame interpolation, smart reframing, camera tracking
 - **Media probe** — one call returns metadata, motion/cut samples, face/person boxes, and a local transcript

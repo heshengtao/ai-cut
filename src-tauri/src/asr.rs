@@ -47,6 +47,29 @@ pub struct SubtitleCue {
     pub text: String,
 }
 
+/// 一个带素材内时间的词。剪口播只认这一层，字幕仍按 [`SubtitleCue`] 走。
+#[derive(Debug, Clone, Serialize)]
+pub struct TranscriptWord {
+    pub text: String,
+    pub start: f64,
+    pub end: f64,
+}
+
+/// 一次「剪口播」用的转录结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct Transcription {
+    pub words: Vec<TranscriptWord>,
+    /// 词时间是否来自识别模型的 token 时间戳；`false` 表示按字数估算，只能做粗剪。
+    pub timed: bool,
+}
+
+/// 识别结果：字幕与词时间同源，避免跑两遍模型。
+struct Transcript {
+    cues: Vec<SubtitleCue>,
+    words: Vec<TranscriptWord>,
+    timed: bool,
+}
+
 struct AsrRuntime {
     running: AtomicBool,
     cancel: AtomicBool,
@@ -68,15 +91,61 @@ pub async fn asr_transcribe(
     model_id: String,
     language: Option<String>,
 ) -> Result<Vec<SubtitleCue>, String> {
-    let entry = models::by_id(&model_id).ok_or_else(|| format!("未知模型：{model_id}"))?;
+    let result = transcribe_file(&app, &path, &model_id, language, false).await;
+    match &result {
+        Ok(transcript) => emit(
+            &app,
+            "done",
+            1.0,
+            Some(format!("已生成 {} 条字幕", transcript.cues.len())),
+        ),
+        Err(error) => emit(&app, "error", 0.0, Some(error.clone())),
+    }
+    result.map(|transcript| transcript.cues)
+}
+
+/// 转写每个词的素材内时间，供「剪口播」检测口癖与停顿。
+///
+/// 与 [`asr_transcribe`] 共用同一把运行锁：两个功能不会同时占用识别模型。
+#[tauri::command]
+pub async fn asr_transcribe_words(
+    app: AppHandle,
+    path: String,
+    model_id: String,
+    language: Option<String>,
+) -> Result<Transcription, String> {
+    let result = transcribe_file(&app, &path, &model_id, language, true).await;
+    match &result {
+        Ok(transcript) => emit(
+            &app,
+            "done",
+            1.0,
+            Some(format!("已识别 {} 个词", transcript.words.len())),
+        ),
+        Err(error) => emit(&app, "error", 0.0, Some(error.clone())),
+    }
+    result.map(|transcript| Transcription {
+        words: transcript.words,
+        timed: transcript.timed,
+    })
+}
+
+async fn transcribe_file(
+    app: &AppHandle,
+    path: &str,
+    model_id: &str,
+    language: Option<String>,
+    want_words: bool,
+) -> Result<Transcript, String> {
+    let entry = models::by_id(model_id).ok_or_else(|| format!("未知模型：{model_id}"))?;
     if entry.feature != "asr" {
         return Err(format!("{} 不是语音识别模型", entry.name));
     }
-    if models::installed_dir(&app, entry).is_none() {
+    if models::installed_dir(app, entry).is_none() {
         return Err(format!("模型尚未安装：{}", entry.name));
     }
     let vad_entry = models::by_id("silero-vad").ok_or("清单里缺少 VAD 模型")?;
-    if models::installed_dir(&app, vad_entry).is_none() {
+    if models::installed_dir(app, vad_entry).is_none() {
         return Err("语音检测模型尚未安装".into());
     }
 
@@ -86,18 +155,8 @@ pub async fn asr_transcribe(
     }
     runtime.cancel.store(false, Ordering::Relaxed);
 
-    let result = run(&app, entry, vad_entry, &path, language).await;
-
+    let result = run(app, entry, vad_entry, path, language, want_words).await;
     runtime.running.store(false, Ordering::SeqCst);
-    match &result {
-        Ok(cues) => emit(
-            &app,
-            "done",
-            1.0,
-            Some(format!("已生成 {} 条字幕", cues.len())),
-        ),
-        Err(error) => emit(&app, "error", 0.0, Some(error.clone())),
-    }
     result
 }
 
@@ -113,7 +172,8 @@ async fn run(
     vad_entry: &'static ModelEntry,
     source: &str,
     language: Option<String>,
-) -> Result<Vec<SubtitleCue>, String> {
+    want_words: bool,
+) -> Result<Transcript, String> {
     emit(app, "extracting", 0.02, Some("正在提取音频".into()));
 
     let wav_path = temp_wav_path(app)?;
@@ -139,6 +199,7 @@ async fn run(
             &thread_wav,
             &language,
             cancel,
+            want_words,
         )
     })
     .await
@@ -185,7 +246,8 @@ fn transcribe(
     wav_path: &PathBuf,
     language: &str,
     cancel: &AtomicBool,
-) -> Result<Vec<SubtitleCue>, String> {
+    want_words: bool,
+) -> Result<Transcript, String> {
     let wav_name = wav_path
         .to_str()
         .ok_or_else(|| "音频路径不是 UTF-8".to_string())?;
@@ -226,12 +288,21 @@ fn transcribe(
     drain_segments(&vad, &mut segments);
 
     if segments.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Transcript {
+            cues: Vec::new(),
+            words: Vec::new(),
+            timed: false,
+        });
     }
 
     emit(app, "transcribing", 0.15, Some("正在识别语音".into()));
-    let recognizer = create_recognizer(family, model_dir, language)?;
+    // 只有 Whisper 需要显式打开 token 时间戳；Paraformer 的结果自带时间戳。
+    // 生成字幕时不打开：那条路径保持「按标点切句」的原有形态，避免字幕回归。
+    let want_timestamps = want_words && matches!(family, ModelFamily::Whisper);
+    let recognizer = create_recognizer(family, model_dir, language, want_timestamps)?;
     let mut cues = Vec::new();
+    let mut words: Vec<TranscriptWord> = Vec::new();
+    let mut timed = false;
     let total = segments.len();
 
     for (index, (start, end, audio)) in segments.into_iter().enumerate() {
@@ -244,14 +315,28 @@ fn transcribe(
         if let Some(result) = stream.get_result() {
             let text = clean_text(&result.text);
             if !text.is_empty() {
-                cues.extend(split_cues(&text, start, end));
+                let mut handled = false;
+                if want_words {
+                    let segment_words = word_times(&result, &text, start, end);
+                    if segment_words.aligned {
+                        timed = true;
+                    }
+                    if !segment_words.words.is_empty() {
+                        cues.extend(cues_from_words(&segment_words.words));
+                        words.extend(segment_words.words);
+                        handled = true;
+                    }
+                }
+                if !handled {
+                    cues.extend(split_cues(&text, start, end));
+                }
             }
         }
         let progress = 0.15 + 0.83 * ((index + 1) as f32 / total as f32);
         emit(app, "transcribing", progress, None);
     }
 
-    Ok(cues)
+    Ok(Transcript { cues, words, timed })
 }
 
 fn drain_segments(vad: &VoiceActivityDetector, out: &mut Vec<(f64, f64, Vec<f32>)>) {
@@ -262,6 +347,231 @@ fn drain_segments(vad: &VoiceActivityDetector, out: &mut Vec<(f64, f64, Vec<f32>
         out.push((start, end, audio));
         vad.pop();
     }
+}
+
+/// 一个识别段里的词时间：优先用模型给的 token 时间戳，没有就按字数估算。
+struct WordTimes {
+    words: Vec<TranscriptWord>,
+    /// 是否真的用了模型时间戳（估算的词只能做粗剪）。
+    aligned: bool,
+}
+
+fn word_times(
+    result: &sherpa_onnx::OfflineRecognizerResult,
+    text: &str,
+    segment_start: f64,
+    segment_end: f64,
+) -> WordTimes {
+    if let Some(stamps) = result.timestamps.as_ref() {
+        let words = words_from_tokens(&result.tokens, stamps, segment_start, segment_end);
+        if !words.is_empty() {
+            return WordTimes {
+                words,
+                aligned: true,
+            };
+        }
+    }
+    WordTimes {
+        words: estimate_words(text, segment_start, segment_end),
+        aligned: false,
+    }
+}
+
+/// 模型 token（中文逐字、英文 BPE）→ 词。
+///
+/// 时间戳是 token 的起点（相对本段音频），词的结束时间取下一个词的起点，末词收在段尾。
+fn words_from_tokens(
+    tokens: &[String],
+    stamps: &[f32],
+    segment_start: f64,
+    segment_end: f64,
+) -> Vec<TranscriptWord> {
+    let count = tokens.len().min(stamps.len());
+    let mut starts: Vec<(String, f64)> = Vec::new();
+    for index in 0..count {
+        let raw = tokens[index].as_str();
+        if raw.is_empty() || raw.starts_with('<') || raw.starts_with('[') {
+            continue;
+        }
+        let when = segment_start + stamps[index] as f64;
+        let piece = raw.strip_prefix('▁').unwrap_or(raw);
+        if piece.trim().is_empty() {
+            continue;
+        }
+        let begins_word = raw.starts_with('▁');
+        // 中文 token 一律独立成词；拉丁 BPE 的后续片段与标点贴到前一个词。
+        let cjk = piece.chars().all(is_cjk);
+        match starts.last_mut() {
+            Some(last) if !cjk && !begins_word => {
+                last.0.push_str(piece);
+            }
+            _ => starts.push((piece.to_string(), when)),
+        }
+    }
+
+    let mut words = Vec::with_capacity(starts.len());
+    for index in 0..starts.len() {
+        let (text, start) = (starts[index].0.clone(), starts[index].1);
+        let end = starts
+            .get(index + 1)
+            .map_or(segment_end, |next| next.1)
+            .max(start + 0.02);
+        words.push(TranscriptWord {
+            text,
+            start: round(start),
+            end: round(end.min(segment_end.max(start + 0.02))),
+        });
+    }
+    words
+}
+
+/// 没有 token 时间戳时按字符数把段时长分给每个词。
+fn estimate_words(text: &str, start: f64, end: f64) -> Vec<TranscriptWord> {
+    let pieces = word_pieces(text);
+    if pieces.is_empty() {
+        return Vec::new();
+    }
+    let weights: Vec<f64> = pieces
+        .iter()
+        .map(|piece| piece.chars().count().max(1) as f64)
+        .collect();
+    let total: f64 = weights.iter().sum();
+    let span = (end - start).max(0.2);
+    let mut cursor = start;
+    let mut consumed = 0.0;
+    let mut words = Vec::with_capacity(pieces.len());
+    for (index, (piece, weight)) in pieces.iter().zip(&weights).enumerate() {
+        consumed += weight;
+        let word_end = if index + 1 == weights.len() {
+            end
+        } else {
+            (start + span * consumed / total).min(end)
+        };
+        words.push(TranscriptWord {
+            text: piece.clone(),
+            start: round(cursor),
+            end: round(word_end.max(cursor + 0.02)),
+        });
+        cursor = word_end;
+    }
+    words
+}
+
+/// 把一段文本切成词：中文逐字、英文按空白与标点、标点贴前一个词。
+fn word_pieces(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let flush = |current: &mut String, out: &mut Vec<String>| {
+        let trimmed = current.trim();
+        if !trimmed.is_empty() {
+            out.push(trimmed.to_string());
+        }
+        current.clear();
+    };
+    for ch in text.chars() {
+        if is_cjk(ch) {
+            flush(&mut current, &mut out);
+            out.push(ch.to_string());
+        } else if ch.is_whitespace() {
+            flush(&mut current, &mut out);
+        } else if is_punct(ch) {
+            if !current.is_empty() {
+                current.push(ch);
+            } else if let Some(last) = out.last_mut() {
+                last.push(ch);
+            } else {
+                current.push(ch);
+            }
+        } else {
+            current.push(ch);
+        }
+    }
+    flush(&mut current, &mut out);
+    out
+}
+
+/// 有词时间后按停顿与长度切字幕，不再按字符比例硬分。
+fn cues_from_words(words: &[TranscriptWord]) -> Vec<SubtitleCue> {
+    let mut cues: Vec<SubtitleCue> = Vec::new();
+    let mut start: Option<f64> = None;
+    let mut text = String::new();
+    let mut last_end = 0.0;
+    for word in words {
+        let gap = start.is_some() && (word.start - last_end) > 0.6;
+        let too_long = text.chars().count() >= MAX_CUE_CHARS;
+        if start.is_some() && (gap || too_long) {
+            cues.push(SubtitleCue {
+                start: round(start.unwrap_or(last_end)),
+                end: round(last_end),
+                text: text.trim().to_string(),
+            });
+            text.clear();
+            start = None;
+        }
+        if start.is_none() {
+            start = Some(word.start);
+        }
+        text.push_str(&word.text);
+        last_end = word.end;
+        if ends_sentence(&word.text) {
+            cues.push(SubtitleCue {
+                start: round(start.unwrap_or(word.start)),
+                end: round(word.end),
+                text: text.trim().to_string(),
+            });
+            text.clear();
+            start = None;
+        }
+    }
+    if let Some(begin) = start {
+        if !text.trim().is_empty() {
+            cues.push(SubtitleCue {
+                start: round(begin),
+                end: round(last_end.max(begin + 0.1)),
+                text: text.trim().to_string(),
+            });
+        }
+    }
+    cues
+}
+
+fn is_punct(ch: char) -> bool {
+    matches!(
+        ch,
+        '，' | '。'
+            | '！'
+            | '？'
+            | '；'
+            | '：'
+            | '、'
+            | '（'
+            | '）'
+            | '《'
+            | '》'
+            | '“'
+            | '”'
+            | '‘'
+            | '’'
+            | '…'
+            | '—'
+            | ','
+            | '.'
+            | '!'
+            | '?'
+            | ';'
+            | ':'
+            | '"'
+            | '\''
+            | '('
+            | ')'
+    )
+}
+
+fn ends_sentence(text: &str) -> bool {
+    text.trim_end_matches(['”', '’', '"', '\'', '」', '』'])
+        .chars()
+        .last()
+        .is_some_and(|ch| matches!(ch, '。' | '！' | '？' | '.' | '!' | '?' | '…' | ';' | '；'))
 }
 
 /// Whisper 只接受模型内置的语言码；`auto` / 空串表示自动检测。
@@ -309,6 +619,7 @@ fn create_recognizer(
     family: ModelFamily,
     dir: &PathBuf,
     language: &str,
+    want_token_timestamps: bool,
 ) -> Result<OfflineRecognizer, String> {
     let mut config = OfflineRecognizerConfig::default();
     config.model_config.num_threads = 2;
@@ -346,7 +657,7 @@ fn create_recognizer(
                 language: Some(whisper_language(language)),
                 task: Some("transcribe".into()),
                 tail_paddings: 0,
-                enable_token_timestamps: false,
+                enable_token_timestamps: want_token_timestamps,
                 enable_segment_timestamps: true,
             };
         }
@@ -583,5 +894,62 @@ mod tests {
         assert_eq!(whisper_language("klingon"), "");
         // base/small 的语言表里没有粤语码，不能直接传给 sherpa-onnx。
         assert_eq!(whisper_language("yue"), "");
+    }
+}
+
+#[cfg(test)]
+mod word_tests {
+    use super::*;
+
+    fn tokens(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| (*item).to_string()).collect()
+    }
+
+    #[test]
+    fn chinese_tokens_become_one_word_per_character() {
+        let words = words_from_tokens(&tokens(&["你", "好", "世", "界"]), &[0.0, 0.2, 0.5, 0.9], 1.0, 2.0);
+        assert_eq!(words.len(), 4);
+        assert_eq!(words[0].text, "你");
+        assert_eq!(words[0].start, 1.0);
+        assert_eq!(words[0].end, 1.2);
+        assert_eq!(words[3].end, 2.0);
+    }
+
+    #[test]
+    fn latin_bpe_pieces_are_glued_into_words() {
+        let words = words_from_tokens(
+            &tokens(&["▁HEL", "LO", "▁WORLD"]),
+            &[0.0, 0.1, 0.5],
+            0.0,
+            1.0,
+        );
+        assert_eq!(words.len(), 2);
+        assert_eq!(words[0].text, "HELLO");
+        assert_eq!(words[1].text, "WORLD");
+        assert_eq!(words[1].start, 0.5);
+    }
+
+    #[test]
+    fn special_tokens_are_skipped() {
+        let words = words_from_tokens(&tokens(&["<blank>", "嗯", "</s>"]), &[0.0, 0.3, 0.6], 0.0, 1.0);
+        assert_eq!(words.len(), 1);
+        assert_eq!(words[0].text, "嗯");
+        assert_eq!(words[0].start, 0.3);
+    }
+
+    #[test]
+    fn estimate_splits_by_character_count() {
+        let words = estimate_words("你好世界", 0.0, 4.0);
+        assert_eq!(words.len(), 4);
+        assert_eq!(words[1].start, 1.0);
+        assert_eq!(words[3].end, 4.0);
+    }
+
+    #[test]
+    fn cues_break_on_sentence_end_and_gaps() {
+        let words = estimate_words("你好。我们开始", 0.0, 3.0);
+        let cues = cues_from_words(&words);
+        assert_eq!(cues.len(), 2);
+        assert_eq!(cues[0].text, "你好。");
     }
 }

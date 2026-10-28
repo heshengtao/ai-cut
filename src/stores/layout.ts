@@ -14,6 +14,7 @@ export type PaneId =
   | "ai"
   | "models"
   | "plugins"
+  | "cutReview"
   | "pluginEditor";
 
 /** 设置页分区。 */
@@ -78,6 +79,7 @@ export const PANES: {
   { id: "ai", labelKey: "panel.ai", hintKey: "panel.aiHint" },
   { id: "models", labelKey: "panel.models", hintKey: "panel.modelsHint" },
   { id: "plugins", labelKey: "panel.plugins", hintKey: "panel.pluginsHint" },
+  { id: "cutReview", labelKey: "panel.cutReview", hintKey: "panel.cutReviewHint" },
   {
     id: "pluginEditor",
     labelKey: "panel.pluginEditor",

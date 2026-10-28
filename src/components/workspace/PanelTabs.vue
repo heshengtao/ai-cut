@@ -14,6 +14,7 @@ import {
   CpuChipIcon,
   ListBulletIcon,
   PuzzlePieceIcon,
+  ScissorsIcon,
 } from "@heroicons/vue/24/outline";
 import Tooltip from "@/components/common/Tooltip.vue";
 import { PANES, useLayoutStore, type PaneId } from "@/stores/layout";
@@ -53,6 +54,7 @@ const ICONS: Record<PaneId, unknown> = {
   ai: SparklesIcon,
   models: CpuChipIcon,
   plugins: PuzzlePieceIcon,
+  cutReview: ScissorsIcon,
   pluginEditor: AdjustmentsHorizontalIcon,
 };
 

@@ -32,6 +32,7 @@ import { createClip } from "@/core/factory";
 import { placeVoiceover } from "@/core/voiceover";
 import { useAsrStore } from "@/stores/asr";
 import { useAudioAiStore } from "@/stores/audioAi";
+import { useCutReviewStore } from "@/stores/cutReview";
 import { useModelsStore } from "@/stores/models";
 import { useVideoAiStore } from "@/stores/videoAi";
 import { useTtsStore } from "@/stores/tts";
@@ -63,6 +64,59 @@ const audioAi = useAudioAiStore();
 const videoAi = useVideoAiStore();
 
 const activeTag = ref<AiTag>("all");
+
+// ---- 智能剪口播 ----
+const cutReview = useCutReviewStore();
+
+/** 当前选中的片段与它引用的素材；没有选中就返回 null。 */
+const cutTarget = computed(() => {
+  const id = selection.selectedClipIds[0];
+  if (!id) return null;
+  for (const track of project.doc.tracks) {
+    const clip = track.clips.find((candidate) => candidate.id === id);
+    if (!clip?.assetId) continue;
+    const asset = project.doc.assets.find((candidate) => candidate.id === clip.assetId);
+    if (asset) return { clip, asset };
+  }
+  return null;
+});
+
+const cutModelReady = computed(() => cutReview.pickModel() !== null);
+
+/** 识别 → 剪口落地 → 跳到审查面板。 */
+async function startCutReview(): Promise<void> {
+  const target = cutTarget.value;
+  if (!target) {
+    toast(i18n.t("cutReview.selectClip"));
+    return;
+  }
+  layout.openTab("cutReview");
+  if (!cutModelReady.value) {
+    toast(i18n.t("cutReview.noModel"), "error");
+    layout.openTab("models");
+    return;
+  }
+  try {
+    const count = await cutReview.run(target.asset, target.clip);
+    if (cutReview.words.length === 0) {
+      toast(i18n.t("cutReview.noSpeech"));
+      return;
+    }
+    if (count === 0) {
+      toast(i18n.t("cutReview.nothingFound"));
+      return;
+    }
+    toast(
+      i18n.t("cutReview.done", {
+        count,
+        seconds: i18n.t("cutReview.seconds", { value: cutReview.removedSeconds.toFixed(1) }),
+      }),
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    toast(i18n.t("cutReview.failed", { error: message }), "error");
+  }
+}
 
 // ---- MCP ----
 const status = ref<McpStatus | null>(null);
@@ -2191,6 +2245,42 @@ onMounted(() => {
 
         <div v-if="translationRunning" class="progress">
           <div class="progress-fill" :style="{ width: `${translationProgress}%` }" />
+        </div>
+      </li>
+
+      <li class="item">
+        <div class="item-row">
+          <div class="item-main">
+            <span class="item-name">
+              {{ i18n.t("audio.cutFillers") }}
+              <span class="badge" :class="{ on: cutModelReady }">
+                {{ i18n.t(cutModelReady ? "ai.modelReady" : "ai.modelMissing") }}
+              </span>
+            </span>
+            <span class="item-note">{{ i18n.t("audio.cutFillersHint") }}</span>
+          </div>
+          <button
+            v-if="cutReview.running"
+            class="run-btn"
+            @click="cutReview.cancel()"
+          >
+            {{ i18n.t("ai.stop") }}
+          </button>
+          <button
+            v-else
+            class="run-btn"
+            :disabled="asr.running || tts.running || audioAi.running"
+            @click="startCutReview"
+          >
+            {{
+              cutReview.cuts.length > 0
+                ? i18n.t("audio.cutFillersReview")
+                : i18n.t("audio.cutFillersRun")
+            }}
+          </button>
+        </div>
+        <div v-if="cutReview.running" class="progress">
+          <div class="progress-fill" :style="{ width: `${cutReview.progressPct}%` }" />
         </div>
       </li>
     </ul>

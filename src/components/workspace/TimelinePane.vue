@@ -26,6 +26,7 @@ import { useSelectionStore } from "@/stores/selection";
 import { useLayoutStore } from "@/stores/layout";
 import { projectDuration } from "@/core/playback/activeClips";
 import { formatTimecode, snapToFrame } from "@/core/time";
+import { cutTimelineLength, cutTimelineStart, removeCut } from "@/core/cuts";
 import {
   addClip,
   addTrack,
@@ -55,6 +56,28 @@ import { useI18n } from "@/i18n";
 
 const project = useProjectStore();
 const playback = usePlaybackStore();
+
+/** 时间轴上的剪口：每条一行细竖线，点一下还原。 */
+const cutMarks = computed(() =>
+  (project.doc.cutScopes ?? []).flatMap((scope) =>
+    scope.cuts.map((cut) => ({
+      id: cut.id,
+      scopeId: scope.id,
+      kind: cut.kind,
+      label: cut.kind === "pause" ? i18n.t("cutReview.pauseText") : cut.text || "",
+      start: cutTimelineStart(scope, cut),
+      length: cutTimelineLength(scope, cut),
+    })),
+  ),
+);
+
+function restoreCutMark(mark: { id: string; scopeId: string; label: string }): void {
+  project.dispatch((doc) => removeCut(doc, mark.scopeId, mark.id), {
+    kind: "ui.dispatch",
+    actor: "human",
+    label: i18n.t("cutReview.restoreLabel", { text: mark.label || i18n.t("cutReview.pauseText") }),
+  });
+}
 const selection = useSelectionStore();
 const layout = useLayoutStore();
 const actions = useTimelineActions();
@@ -1016,6 +1039,18 @@ function onLaneDrop(event: DragEvent): void {
               <span class="insert-dot" />
             </div>
 
+            <button
+              v-for="mark in cutMarks"
+              :key="mark.id"
+              class="cut-mark"
+              :style="{ left: `${mark.start * playback.zoom}px` }"
+              :title="i18n.t('cutReview.restoreLabel', { text: mark.label || i18n.t('cutReview.pauseText') })"
+              @pointerdown.stop
+              @click.stop="restoreCutMark(mark)"
+            >
+              <span class="cut-tag">−{{ mark.length.toFixed(1) }}s</span>
+            </button>
+
             <div v-if="hasNoTracks" class="empty-lanes">
               <FolderOpenIcon class="w-[18px] h-[18px]" />
               <span>{{ i18n.t("timeline.dropHint") }}</span>
@@ -1171,6 +1206,42 @@ function onLaneDrop(event: DragEvent): void {
   overflow: auto;
   background-color: var(--app-card);
 }
+.cut-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  padding: 0;
+  border: none;
+  background: rgb(var(--md-error) / 0.75);
+  cursor: pointer;
+  z-index: 6;
+}
+
+.cut-mark:hover {
+  width: 3px;
+  background: rgb(var(--md-error));
+}
+
+.cut-tag {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9px;
+  line-height: 14px;
+  white-space: nowrap;
+  color: rgb(var(--md-on-error));
+  background: rgb(var(--md-error) / 0.85);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.cut-mark:hover .cut-tag {
+  opacity: 1;
+}
+
 .content {
   position: relative;
   min-height: 100%;

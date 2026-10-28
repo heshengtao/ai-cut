@@ -110,6 +110,20 @@ export interface SubtitleCue {
   text: string;
 }
 
+/** 识别出的一个词，时间是素材内秒。 */
+export interface TranscriptWord {
+  text: string;
+  start: number;
+  end: number;
+}
+
+/** 剪口播用的转录结果：词表 + 时间戳是否可信。 */
+export interface AsrTranscription {
+  words: TranscriptWord[];
+  /** `false` = 模型没给 token 时间戳，词时间按字数估算，只能粗剪。 */
+  timed: boolean;
+}
+
 export interface TtsProgress {
   state: "loading" | "synthesizing" | "done" | "error";
   progress: number;

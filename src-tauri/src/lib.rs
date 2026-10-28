@@ -136,6 +136,7 @@ pub fn run() {
             ofx::ofx_bake_image,
             ofx::ofx_cancel_bake,
             asr::asr_transcribe,
+            asr::asr_transcribe_words,
             asr::asr_cancel,
             tts::tts_voices,
             tts::tts_synthesize,

@@ -12,6 +12,7 @@ import {
   CpuChipIcon,
   ListBulletIcon,
   PuzzlePieceIcon,
+  ScissorsIcon,
 } from "@heroicons/vue/24/outline";
 import MediaPane from "./panes/MediaPane.vue";
 import InspectorPane from "./panes/InspectorPane.vue";
@@ -21,6 +22,7 @@ import ModelsPane from "./panes/ModelsPane.vue";
 import PluginsPane from "./panes/PluginsPane.vue";
 import PluginEditorPane from "./panes/PluginEditorPane.vue";
 import ClipAgentPanel from "./agent/ClipAgentPanel.vue";
+import CutReviewPane from "./panes/CutReviewPane.vue";
 import { PANES, useLayoutStore, type PaneId } from "@/stores/layout";
 import { useI18n } from "@/i18n";
 
@@ -35,6 +37,7 @@ const ICONS: Record<PaneId, unknown> = {
   ai: SparklesIcon,
   models: CpuChipIcon,
   plugins: PuzzlePieceIcon,
+  cutReview: ScissorsIcon,
   pluginEditor: AdjustmentsHorizontalIcon,
 };
 
@@ -68,6 +71,7 @@ const panes = computed(() => PANES.filter((pane) => !pane.hidden));
       <AiPane v-else-if="layout.activeTab === 'ai'" />
       <ModelsPane v-else-if="layout.activeTab === 'models'" />
       <PluginsPane v-else-if="layout.activeTab === 'plugins'" />
+      <CutReviewPane v-else-if="layout.activeTab === 'cutReview'" />
       <PluginEditorPane v-else-if="layout.activeTab === 'pluginEditor'" />
     </div>
   </aside>

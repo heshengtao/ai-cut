@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AsrProgress,
+  AsrTranscription,
   ModelProgress,
   ModelSourceConfig,
   ModelSourcePreference,
@@ -81,6 +82,24 @@ export function asrTranscribe(
 ): Promise<SubtitleCue[]> {
   if (!isTauri()) return Promise.reject(new Error("字幕生成需要在桌面应用中使用"));
   return invoke<SubtitleCue[]>("asr_transcribe", {
+    path,
+    modelId,
+    language: language ?? null,
+  });
+}
+
+/**
+ * 转写每个词的素材内时间，给「智能剪口播」用。
+ *
+ * 与 [`asrTranscribe`] 走同一把运行锁，两个功能不会同时占用识别模型。
+ */
+export function asrTranscribeWords(
+  path: string,
+  modelId: string,
+  language?: string,
+): Promise<AsrTranscription> {
+  if (!isTauri()) return Promise.reject(new Error("剪口播需要在桌面应用中使用"));
+  return invoke<AsrTranscription>("asr_transcribe_words", {
     path,
     modelId,
     language: language ?? null,

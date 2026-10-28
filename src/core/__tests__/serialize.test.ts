@@ -89,3 +89,45 @@ describe("parseProject validation", () => {
     expect(() => parseProject(broken)).toThrow(/clips/i);
   });
 });
+
+describe("cut scopes", () => {
+  it("往返后剪口与词表都还在", () => {
+    let p = newProject("剪口");
+    p = addTrack(p);
+    const trackId = p.tracks[0].id;
+    const clip = createClip({ assetId: "a1", trackId, start: 0, duration: 10 });
+    p = {
+      ...p,
+      cutScopes: [
+        {
+          id: "s1",
+          assetId: "a1",
+          trackId,
+          baseIn: 0,
+          baseOut: 10,
+          baseStart: 0,
+          template: clip,
+          pieces: [clip.id],
+          cuts: [
+            { id: "c1", srcStart: 2, srcEnd: 3, kind: "filler", text: "嗯", createdAt: 1 },
+          ],
+          words: [{ text: "嗯", start: 2, end: 3 }],
+          timed: true,
+        },
+      ],
+    };
+    const parsed = parseProject(serializeProject(p));
+    expect(parsed.cutScopes).toHaveLength(1);
+    expect(parsed.cutScopes?.[0].cuts[0].kind).toBe("filler");
+    expect(parsed.cutScopes?.[0].words).toEqual([{ text: "嗯", start: 2, end: 3 }]);
+  });
+
+  it("坏掉的剪口组会被丢掉，不拖垮整个工程", () => {
+    let p = newProject("坏剪口");
+    p = addTrack(p);
+    const raw = JSON.parse(serializeProject(p));
+    raw.cutScopes = [{ id: "x" }, null, { id: "y", cuts: "nope" }];
+    const parsed = parseProject(JSON.stringify(raw));
+    expect(parsed.cutScopes).toBeUndefined();
+  });
+});

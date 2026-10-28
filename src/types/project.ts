@@ -282,6 +282,57 @@ export interface Marker {
   updatedAt?: number;
 }
 
+/** 剪口类别。`manual` 是用户在文稿里自己拖选剪掉的。 */
+export type CutKind = "filler" | "pause" | "retake" | "manual";
+
+/**
+ * 一条剪口：素材内时间的一段。
+ *
+ * 剪口是「剪口播」的真相：时间线上的片段是它投影出来的结果，删掉这条记录就还原。
+ * 源时间是素材自己的时钟，片段被移动、变速都不影响它。
+ */
+export interface CutRecord {
+  id: string;
+  /** 素材内起点（秒）。 */
+  srcStart: number;
+  /** 素材内终点（秒）。 */
+  srcEnd: number;
+  kind: CutKind;
+  /** 被剪掉的原文，只用于审查面板展示；词表才是真相。 */
+  text: string;
+  createdAt: number;
+}
+
+/**
+ * 一组剪口：一段连续的口播素材 + 它当前投影出的片段。
+ *
+ * `baseIn..baseOut` 是这组剪口负责的素材范围，`baseStart` 是它在时间线上的起点。
+ * 每次增删剪口都按这三个值重新投影，所以还原、改范围都不依赖「删之前长什么样」。
+ */
+export interface CutScope {
+  id: string;
+  assetId: string;
+  trackId: string;
+  /** 素材内起点（秒）。 */
+  baseIn: number;
+  /** 素材内终点（秒）。 */
+  baseOut: number;
+  /** 时间线起点（秒）。 */
+  baseStart: number;
+  /** 重建片段时套用的属性模板（调色、特效、变速等）。 */
+  template: Clip;
+  /** 当前时间线上由这组剪口投影出的片段 id，按顺序。 */
+  pieces: string[];
+  cuts: CutRecord[];
+  /**
+   * 识别出的词表（素材内秒）。存进工程，重新打开后仍能逐字审查与还原；
+   * 没有它就只剩时间轴上的剪口标记。
+   */
+  words?: { text: string; start: number; end: number }[];
+  /** 词时间是否来自模型 token 时间戳；缺省按 `true` 处理。 */
+  timed?: boolean;
+}
+
 /** 工程文档，可直接序列化为 .json。 */
 export interface Project {
   version: number;
@@ -294,6 +345,8 @@ export interface Project {
   assets: MediaAsset[];
   tracks: Track[];
   markers: Marker[];
+  /** 剪口组。缺省表示这个工程没剪过口播。 */
+  cutScopes?: CutScope[];
 }
 
 /** 当前工程文档版本。 */

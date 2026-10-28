@@ -1,5 +1,5 @@
 /** 工程文档 ↔ JSON。解析时做结构校验，避免坏文件把内存里的工程搞崩。 */
-import type { Clip, ClipKeyframes, Project, Track } from "@/types/project";
+import type { Clip, ClipKeyframes, CutRecord, CutScope, Project, Track } from "@/types/project";
 import { PROJECT_VERSION } from "@/types/project";
 import { normalizeClipEffects } from "@/core/effects";
 import { normalizeClipTransition } from "@/core/clipTransition";
@@ -124,6 +124,70 @@ function migrateClipKeyframes(clip: Clip): ClipKeyframes | undefined {
   return frames.length > 0 ? frames : undefined;
 }
 
+
+/** 读旧工程 / 手改坏了的剪口组：只保留字段齐全的，坏条目直接丢。 */
+function normalizeCutScopes(project: Project): CutScope[] | undefined {
+  const raw = (project as unknown as { cutScopes?: unknown }).cutScopes;
+  if (!Array.isArray(raw)) return undefined;
+  const scopes: CutScope[] = [];
+  for (const item of raw) {
+    if (!isObject(item)) continue;
+    if (
+      typeof item.id !== "string" ||
+      typeof item.assetId !== "string" ||
+      typeof item.trackId !== "string" ||
+      !isNumber(item.baseIn) ||
+      !isNumber(item.baseOut) ||
+      !isNumber(item.baseStart) ||
+      !isObject(item.template) ||
+      !Array.isArray(item.pieces) ||
+      !Array.isArray(item.cuts)
+    ) {
+      continue;
+    }
+    const cuts: CutRecord[] = [];
+    for (const cut of item.cuts) {
+      if (!isObject(cut) || !isNumber(cut.srcStart) || !isNumber(cut.srcEnd)) continue;
+      cuts.push({
+        id: typeof cut.id === "string" && cut.id ? cut.id : crypto.randomUUID(),
+        srcStart: cut.srcStart,
+        srcEnd: cut.srcEnd,
+        kind:
+          cut.kind === "pause" || cut.kind === "retake" || cut.kind === "manual"
+            ? cut.kind
+            : "filler",
+        text: typeof cut.text === "string" ? cut.text : "",
+        createdAt: isNumber(cut.createdAt) ? cut.createdAt : Date.now(),
+      });
+    }
+    const words = Array.isArray(item.words)
+      ? item.words
+          .filter(
+            (word): word is { text: string; start: number; end: number } =>
+              isObject(word) &&
+              typeof word.text === "string" &&
+              isNumber(word.start) &&
+              isNumber(word.end),
+          )
+          .map((word) => ({ text: word.text, start: word.start, end: word.end }))
+      : [];
+    scopes.push({
+      id: item.id,
+      assetId: item.assetId,
+      trackId: item.trackId,
+      baseIn: item.baseIn,
+      baseOut: item.baseOut,
+      baseStart: item.baseStart,
+      template: item.template as unknown as Clip,
+      pieces: item.pieces.filter((id): id is string => typeof id === "string"),
+      cuts,
+      ...(words.length > 0 ? { words } : {}),
+      ...(typeof item.timed === "boolean" ? { timed: item.timed } : {}),
+    });
+  }
+  return scopes.length > 0 ? scopes : undefined;
+}
+
 /** 兼容旧工程：缺省 visible 视为 true，旧的 solo / mask 字段丢弃，迁移关键帧格式。 */
 function normalizeProject(project: Project): Project {
   const tracks = project.tracks.map((track) => {
@@ -210,7 +274,13 @@ function normalizeProject(project: Project): Project {
           };
         })
     : [];
-  return { ...project, tracks, markers };
+  const cutScopes = normalizeCutScopes(project);
+  return {
+    ...project,
+    tracks,
+    markers,
+    ...(cutScopes ? { cutScopes } : { cutScopes: undefined }),
+  };
 }
 
 export function parseProject(json: string): Project {
