@@ -2,6 +2,7 @@
 
 mod agent;
 mod analysis;
+mod aligner;
 mod asr;
 mod audio_ai;
 mod backend;
