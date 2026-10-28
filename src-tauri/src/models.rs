@@ -321,21 +321,35 @@ pub static CATALOG: &[ModelEntry] = &[
                 filename: "model_q4.onnx",
                 approx_bytes: 1_048_397_349,
                 sha256: "59b528896d70b34e57838e160d16d5f7cfc02d86c7c6ad46cdc57c25c15497b7",
-                sources: &[official(
-                    "hf",
-                    "intl",
-                    "https://huggingface.co/valoomba/Qwen3-ForcedAligner-0.6B-ONNX/resolve/main/onnx/model_q4.onnx",
-                )],
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/master/qwen3-aligner-0.6b-q4/model_q4.onnx",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/valoomba/Qwen3-ForcedAligner-0.6B-ONNX/resolve/main/onnx/model_q4.onnx",
+                    ),
+                ],
             },
             ModelFile {
                 filename: "tokenizer.json",
                 approx_bytes: 11_429_733,
                 sha256: "e95e4127f5ea82f89695f00bb3c143eb7edd411e6096e27ff56319397f481e77",
-                sources: &[official(
-                    "hf",
-                    "intl",
-                    "https://huggingface.co/valoomba/Qwen3-ForcedAligner-0.6B-ONNX/resolve/main/tokenizer.json",
-                )],
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/master/qwen3-aligner-0.6b-q4/tokenizer.json",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/valoomba/Qwen3-ForcedAligner-0.6B-ONNX/resolve/main/tokenizer.json",
+                    ),
+                ],
             },
         ],
     },
@@ -2160,12 +2174,7 @@ mod tests {
     #[test]
     fn every_downloadable_model_has_a_modelscope_source() {
         // 随包小模型（如 LocalVQE）已经躺在磁盘上，下载源只作兜底，不强制双源。
-        // 对齐器是社区导出的 ONNX，只有 HuggingFace 一份，没有魔搭镜像可用。
-        const HF_ONLY: &[&str] = &["qwen3-aligner-0.6b-q4"];
-        for entry in all()
-            .iter()
-            .filter(|entry| !entry.bundled && !HF_ONLY.contains(&entry.id))
-        {
+        for entry in all().iter().filter(|entry| !entry.bundled) {
             for file in entry.files {
                 assert!(
                     file.sources
