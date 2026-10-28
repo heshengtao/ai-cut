@@ -81,7 +81,10 @@ const cutTarget = computed(() => {
   return null;
 });
 
-const cutModelReady = computed(() => cutReview.pickModel() !== null);
+/** 这个功能该用的识别模型；没装也返回，按钮据此显示「下载 XX MB」。 */
+const cutModel = computed(() => cutReview.candidateModel());
+const cutModelReady = computed(() => Boolean(cutModel.value?.installed));
+const cutMissing = computed(() => (cutModel.value ? missingBytes(cutModel.value) : 0));
 
 /** 识别 → 剪口落地 → 跳到审查面板。 */
 async function startCutReview(): Promise<void> {
@@ -90,12 +93,16 @@ async function startCutReview(): Promise<void> {
     toast(i18n.t("cutReview.selectClip"));
     return;
   }
-  layout.openTab("cutReview");
-  if (!cutModelReady.value) {
+  if (!cutModel.value) {
     toast(i18n.t("cutReview.noModel"), "error");
     layout.openTab("models");
     return;
   }
+  if (!cutModelReady.value) {
+    // 与其它卡片一致：缺模型时按钮就是「下载 XX MB」，点一下先下再跑。
+    if (!(await ensureInstalled(cutModel.value, cutMissing.value))) return;
+  }
+  layout.openTab("cutReview");
   try {
     const count = await cutReview.run(target.asset, target.clip);
     if (cutReview.words.length === 0) {
@@ -2273,9 +2280,11 @@ onMounted(() => {
             @click="startCutReview"
           >
             {{
-              cutReview.cuts.length > 0
-                ? i18n.t("audio.cutFillersReview")
-                : i18n.t("audio.cutFillersRun")
+              !cutModelReady
+                ? i18n.t("audio.downloadModel", { size: humanSize(cutMissing) })
+                : cutReview.cuts.length > 0
+                  ? i18n.t("audio.cutFillersReview")
+                  : i18n.t("audio.cutFillersRun")
             }}
           </button>
         </div>

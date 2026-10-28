@@ -10,6 +10,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { ScissorsIcon } from "@heroicons/vue/24/outline";
 import { useCutReviewStore } from "@/stores/cutReview";
+import { useModelsStore } from "@/stores/models";
 import { useProjectStore } from "@/stores/project";
 import { useSelectionStore } from "@/stores/selection";
 import { usePlaybackStore } from "@/stores/playback";
@@ -17,9 +18,12 @@ import { useLayoutStore } from "@/stores/layout";
 import { toast } from "@/composables/useToast";
 import { useI18n } from "@/i18n";
 import { cutSourceRange } from "@/core/cuts";
+import { humanSize, missingBytes } from "@/utils/size";
+import { confirm } from "@/composables/useConfirm";
 import type { CutRecord } from "@/types/project";
 
 const cut = useCutReviewStore();
+const models = useModelsStore();
 const project = useProjectStore();
 const selection = useSelectionStore();
 const playback = usePlaybackStore();
@@ -93,7 +97,10 @@ const target = computed(() => {
   return null;
 });
 
-const readyModel = computed(() => cut.pickModel());
+/** 该用的识别模型（没装也返回，按钮据此显示「下载 XX MB」）。 */
+const model = computed(() => cut.candidateModel());
+const modelReady = computed(() => Boolean(model.value?.installed));
+const modelMissing = computed(() => (model.value ? missingBytes(model.value) : 0));
 
 // 打开工程或换选片段时，把工程里存的词表接回来。
 watch(
@@ -239,10 +246,29 @@ async function run(): Promise<void> {
     toast(i18n.t("cutReview.selectClip"));
     return;
   }
-  if (!readyModel.value) {
+  if (!model.value) {
     toast(i18n.t("cutReview.noModel"), "error");
     layout.openTab("models");
     return;
+  }
+  if (!modelReady.value) {
+    // 与 AI 面板其它卡片一致：缺模型先确认再下载，下完继续识别。
+    const accepted = await confirm({
+      title: i18n.t("dialog.downloadModelTitle"),
+      message: i18n.t("dialog.downloadModelMessage", {
+        name: model.value.name,
+        size: humanSize(modelMissing.value),
+      }),
+      confirmText: i18n.t("dialog.downloadModelOk"),
+      cancelText: i18n.t("common.cancel"),
+    });
+    if (!accepted) return;
+    layout.openTab("models");
+    try {
+      await models.download(model.value.id);
+    } catch {
+      return;
+    }
   }
   try {
     const count = await cut.run(current.asset, current.clip);
@@ -292,10 +318,6 @@ function seconds(value: number): string {
   return i18n.t("cutReview.seconds", { value: value.toFixed(1) });
 }
 
-function openModels(): void {
-  layout.openTab("models");
-}
-
 onMounted(() => window.addEventListener("pointerup", onPointerUp));
 onBeforeUnmount(() => window.removeEventListener("pointerup", onPointerUp));
 </script>
@@ -335,11 +357,15 @@ onBeforeUnmount(() => window.removeEventListener("pointerup", onPointerUp));
       <ScissorsIcon class="empty-icon" />
       <p>{{ i18n.t("cutReview.empty") }}</p>
       <button class="run-btn" :disabled="cut.running" @click="run">
-        {{ cut.running ? i18n.t("cutReview.running") : i18n.t("cutReview.start") }}
+        {{
+          cut.running
+            ? i18n.t("cutReview.running")
+            : modelReady
+              ? i18n.t("cutReview.start")
+              : i18n.t("audio.downloadModel", { size: humanSize(modelMissing) })
+        }}
       </button>
-      <button v-if="!readyModel" class="link-btn" @click="openModels">
-        {{ i18n.t("cutReview.noModel") }}
-      </button>
+      <p v-if="!modelReady" class="empty-note">{{ i18n.t("cutReview.noModel") }}</p>
     </div>
 
     <div
@@ -408,7 +434,13 @@ onBeforeUnmount(() => window.removeEventListener("pointerup", onPointerUp));
 
     <footer v-if="cut.words.length > 0" class="foot">
       <button class="run-btn small" :disabled="cut.running" @click="run">
-        {{ cut.running ? i18n.t("cutReview.running") : i18n.t("cutReview.rerun") }}
+        {{
+          cut.running
+            ? i18n.t("cutReview.running")
+            : modelReady
+              ? i18n.t("cutReview.rerun")
+              : i18n.t("audio.downloadModel", { size: humanSize(modelMissing) })
+        }}
       </button>
       <span class="foot-hint">{{ i18n.t("cutReview.selectHint") }}</span>
     </footer>
@@ -518,6 +550,14 @@ onBeforeUnmount(() => window.removeEventListener("pointerup", onPointerUp));
 .empty-icon {
   width: 26px;
   height: 26px;
+  color: rgb(var(--md-on-surface-muted));
+}
+
+.empty-note {
+  margin: 0;
+  max-width: 30em;
+  font-size: 10.5px;
+  line-height: 1.5;
   color: rgb(var(--md-on-surface-muted));
 }
 

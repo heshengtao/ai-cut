@@ -32,8 +32,11 @@ import type { ModelStatus } from "@/types/models";
 import type { Clip, CutScope, MediaAsset } from "@/types/project";
 import { t } from "@/i18n";
 
-/** 默认识别模型偏好：Paraformer 有原生 token 时间戳，是剪口播的主力。 */
+/** 已安装时优先用这两个：Paraformer 有原生 token 时间戳，是剪口播的主力。 */
 const PREFERRED_MODELS = ["paraformer-trilingual-int8", "paraformer-zh-small-int8"];
+
+/** 要下载时的顺序：先小后大，81MB 那个够用就不必下 244MB。 */
+const DOWNLOAD_ORDER = ["paraformer-zh-small-int8", "paraformer-trilingual-int8"];
 
 export interface CutReviewOptions {
   /** 超过多少秒算长停顿。 */
@@ -110,15 +113,34 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     }
   }
 
-  /** 可用的识别模型：优先 Paraformer，其次任意已安装的 ASR。 */
-  function pickModel(): ModelStatus | null {
+  /**
+   * 这个功能该用哪个识别模型（**没装也返回**，界面据此显示「下载 XX MB」）。
+   *
+   * 顺序：已装的偏好模型 → 已装的任意 Paraformer → 待下载的小 Paraformer
+   * → 待下载的三语 Paraformer → 已装的其它 ASR → 清单里第一个。
+   */
+  function candidateModel(): ModelStatus | null {
     const models = useModelsStore();
-    const installed = models.ofFeature("asr").filter((model) => model.installed);
+    const asr = models.ofFeature("asr");
     for (const id of PREFERRED_MODELS) {
-      const hit = installed.find((model) => model.id === id);
+      const hit = asr.find((model) => model.id === id && model.installed);
       if (hit) return hit;
     }
-    return installed.find((model) => model.family === "paraformer") ?? installed[0] ?? null;
+    const installedParaformer = asr.find(
+      (model) => model.installed && model.family === "paraformer",
+    );
+    if (installedParaformer) return installedParaformer;
+    for (const id of DOWNLOAD_ORDER) {
+      const hit = asr.find((model) => model.id === id);
+      if (hit) return hit;
+    }
+    return asr.find((model) => model.installed) ?? asr[0] ?? null;
+  }
+
+  /** 真正能跑的模型：必须已经装好。 */
+  function pickModel(): ModelStatus | null {
+    const model = candidateModel();
+    return model?.installed ? model : null;
   }
 
   function watch(): void {
@@ -305,6 +327,7 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     removedSeconds,
     timelineCuts,
     setOptions,
+    candidateModel,
     pickModel,
     adopt,
     run,
