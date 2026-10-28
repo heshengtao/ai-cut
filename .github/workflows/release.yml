@@ -102,6 +102,24 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      # 回归防线：bundle 若没有签名，macOS 会直接判「已损坏」，连「仍要打开」都不给
+      # （tauri 在 `bundle.macOS.signingIdentity` 为空时会完全跳过 codesign）。
+      # 这里在打包后立刻校验签名完整性，签名缺失/损坏就构建失败，而不是等用户装完才发现。
+      - name: Verify macOS bundle signature
+        if: startsWith(matrix.platform, 'macos')
+        shell: bash
+        run: |
+          app="src-tauri/target/${{ matrix.target }}/release/bundle/macos/${{ env.APP_NAME }}.app"
+          test -d "$app" || { echo "❌ 缺少 app bundle: $app"; exit 1; }
+          test -f "$app/Contents/_CodeSignature/CodeResources" || {
+            echo "❌ $app 没有 Contents/_CodeSignature，说明打包期签名没执行"
+            exit 1
+          }
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv --verbose=2 "$app" 2>&1 | tee /tmp/codesign.txt
+          grep -q 'Signature=adhoc' /tmp/codesign.txt || { echo "❌ 期望 ad-hoc 签名（signingIdentity: \"-\"）"; exit 1; }
+          echo "✅ macOS 包签名完整（ad-hoc，未公证：首次打开需「仍要打开」）"
+
       - name: Collect Linux bundles
         if: startsWith(matrix.platform, 'ubuntu')
         shell: bash

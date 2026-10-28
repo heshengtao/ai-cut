@@ -107,15 +107,22 @@ const body = `${downloads}
 
 ${changelog}
 
-## ⚠️ macOS: "App is damaged" / 「App 已损坏，无法打开」
+## 🍎 macOS：首次打开提示 / First launch
 
-**EN:** The app is ad-hoc signed (not notarized), so macOS quarantines downloads. Run this in Terminal, then open the app normally:
+**中文：** 应用为 ad-hoc 签名（未使用 Apple 开发者证书、未公证）。首次打开时 macOS 会提示「Apple 无法验证此 App」，这是正常现象：
 
-**中文：** 应用为自签名（未公证），从网络下载会带隔离属性。在终端执行以下命令后即可正常打开：
+1. 在「访达」里**右键**点 App →「打开」→ 再点一次「打开」；
+2. 或打开「系统设置 → 隐私与安全性」，在下方点「仍要打开」。
 
-\`\`\`bash
-xattr -cr "/Applications/AI Cut.app"
-\`\`\`
+**EN:** The app is ad-hoc signed (not notarized), so macOS asks for confirmation on first launch. Right-click the app in Finder → **Open** → **Open** again, or go to System Settings → Privacy & Security → **Open Anyway**.
+
+> 只有在提示「App 已损坏，无法打开」（弹窗里没有「仍要打开」按钮）时，才需要执行：
+>
+> \`\`\`bash
+> xattr -cr "/Applications/AI Cut.app"
+> \`\`\`
+>
+> 执行后仍然报「已损坏」，说明安装包本身的签名是残缺的（打包期没签名）：请确认下载的是最新版本。
 
 ## 🔄 Auto-update
 
