@@ -3,7 +3,7 @@ import type { CutScope } from "@/types/project";
 import { createAsset, createClip, newProject } from "@/core/factory";
 import { addAsset } from "@/core/ops/assets";
 import { addTrack } from "@/core/ops/tracks";
-import { addClip } from "@/core/ops/clips";
+import { addClip, setClipText } from "@/core/ops/clips";
 import { buildCutCues, placeCueTrack } from "@/core/cutSubtitles";
 
 function scopeWith(overrides: Partial<CutScope> = {}): CutScope {
@@ -98,8 +98,8 @@ describe("placeCueTrack", () => {
     const next = placeCueTrack(
       doc,
       [
-        { start: 0, end: 1, text: "第一句" },
-        { start: 1.2, end: 2, text: "第二句" },
+        { start: 0, end: 1, text: "第一句", key: "0-2" },
+        { start: 1.2, end: 2, text: "第二句", key: "3-5" },
       ],
       "口播字幕",
     );
@@ -109,10 +109,26 @@ describe("placeCueTrack", () => {
     expect(track?.clips[0].text).toBe("第一句");
   });
 
+  it("同一句重铺时保留改过的文案，换句才重新生成", () => {
+    const doc = setup();
+    const first = placeCueTrack(doc, [{ start: 0, end: 1, text: "原来的", key: "0-2" }], "口播字幕");
+    const track = first.tracks.find((item) => item.name === "口播字幕")!;
+    const edited = setClipText(first, track.clips[0].id, "改过的"); 
+    // 同一句（key 相同），时间整体后移：文案保留
+    const shifted = placeCueTrack(edited, [{ start: 2, end: 3, text: "自动生成", key: "0-2" }], "口播字幕");
+    const nextTrack = shifted.tracks.find((item) => item.name === "口播字幕")!;
+    expect(nextTrack.clips[0].text).toBe("改过的");
+    expect(nextTrack.clips[0].start).toBe(2);
+    // 句子被切开（key 变了）：用新生成的文案
+    const split = placeCueTrack(shifted, [{ start: 2, end: 3, text: "新句子", key: "0-1" }], "口播字幕");
+    const splitTrack = split.tracks.find((item) => item.name === "口播字幕")!;
+    expect(splitTrack.clips[0].text).toBe("新句子");
+  });
+
   it("再次生成时替换同名轨，不叠加", () => {
     const doc = setup();
-    const once = placeCueTrack(doc, [{ start: 0, end: 1, text: "第一句" }], "口播字幕");
-    const twice = placeCueTrack(once, [{ start: 0, end: 1, text: "新的" }], "口播字幕");
+    const once = placeCueTrack(doc, [{ start: 0, end: 1, text: "第一句", key: "0-2" }], "口播字幕");
+    const twice = placeCueTrack(once, [{ start: 0, end: 1, text: "新的", key: "3-5" }], "口播字幕");
     const tracks = twice.tracks.filter((item) => item.name === "口播字幕");
     expect(tracks).toHaveLength(1);
     expect(tracks[0].clips).toHaveLength(1);

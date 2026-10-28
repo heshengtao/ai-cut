@@ -20,6 +20,8 @@ export interface CutCue {
   start: number;
   end: number;
   text: string;
+  /** 这一句覆盖的词表下标范围（`起始-结束`），重铺时用来认「还是同一句」。 */
+  key: string;
 }
 
 interface Word {
@@ -73,16 +75,28 @@ export function buildCutCues(
     piece.start + (time - piece.in) / speedOf(piece);
 
   const cues: CutCue[] = [];
-  let open: { pieceId: string; start: number; end: number; text: string } | null = null;
+  let open: {
+    pieceId: string;
+    start: number;
+    end: number;
+    text: string;
+    first: number;
+    last: number;
+  } | null = null;
   const flush = (): void => {
     if (!open) return;
     if (open.end - open.start >= minDuration && open.text.trim()) {
-      cues.push({ start: open.start, end: open.end, text: open.text.trim() });
+      cues.push({
+        start: open.start,
+        end: open.end,
+        text: open.text.trim(),
+        key: `${open.first}-${open.last}`,
+      });
     }
     open = null;
   };
 
-  for (const word of words) {
+  for (const [position, word] of words.entries()) {
     if (cut(word)) {
       flush();
       continue;
@@ -103,10 +117,11 @@ export function buildCutCues(
       flush();
     }
     if (!open) {
-      open = { pieceId: piece.id, start, end, text: word.text };
+      open = { pieceId: piece.id, start, end, text: word.text, first: position, last: position };
     } else {
       open.end = Math.max(open.end, end);
       open.text = appendText(open.text, word.text);
+      open.last = position;
     }
   }
   flush();
@@ -125,6 +140,21 @@ export function buildCutCues(
 /** 建一条「口播字幕」轨：先删掉上一次生成的同名轨，再把条目放进去。 */
 export function placeCueTrack(doc: Project, cues: CutCue[], name: string): Project {
   const pattern = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s+\\d+)?$`);
+
+  // 先记住上一版同名字幕的文案：句子没被剪口切成/并成别的句子时，保留用户改过的字。
+  const previous = new Map<string, { text: string; textStyle?: Clip["textStyle"] }>();
+  for (const track of doc.tracks) {
+    if (!pattern.test(track.name)) continue;
+    for (const clip of track.clips) {
+      if (clip.cueRange) {
+        previous.set(clip.cueRange, {
+          text: clip.text ?? "",
+          ...(clip.textStyle ? { textStyle: clip.textStyle } : {}),
+        });
+      }
+    }
+  }
+
   let next = doc;
   for (const track of doc.tracks) {
     if (pattern.test(track.name)) next = removeTrack(next, track.id);
@@ -136,17 +166,17 @@ export function placeCueTrack(doc: Project, cues: CutCue[], name: string): Proje
   const track = next.tracks[index];
   for (const cue of cues) {
     const duration = Math.max(1 / next.fps, cue.end - cue.start);
-    next = addClip(
-      next,
-      track.id,
-      createClip({
-        assetId: "",
-        trackId: track.id,
-        start: cue.start,
-        duration,
-        text: cue.text,
-      }),
-    );
+    const kept = previous.get(cue.key);
+    const clip = createClip({
+      assetId: "",
+      trackId: track.id,
+      start: cue.start,
+      duration,
+      text: kept?.text ?? cue.text,
+    });
+    clip.cueRange = cue.key;
+    if (kept?.textStyle) clip.textStyle = kept.textStyle;
+    next = addClip(next, track.id, clip);
   }
   return next;
 }
