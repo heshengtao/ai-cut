@@ -18,7 +18,6 @@ import { useLayoutStore } from "@/stores/layout";
 import { toast } from "@/composables/useToast";
 import { confirm } from "@/composables/useConfirm";
 import { useI18n } from "@/i18n";
-import { cutSourceRange } from "@/core/cuts";
 import { humanSize, missingBytes } from "@/utils/size";
 import type { CutRecord } from "@/types/project";
 
@@ -191,19 +190,10 @@ function clearSelection(): void {
 /** 剪掉当前选中的词。用的是「这次识别的片段」，不是时间线上当前选中的片段。 */
 function cutSelection(): void {
   const picked = selectedWords.value;
-  const clipId = cut.clipId;
-  if (picked.length === 0 || !clipId) return;
+  if (picked.length === 0) return;
   const from = picked[0].start;
   const to = picked[picked.length - 1].end;
-  const changed = project.dispatch(
-    (doc) =>
-      cutSourceRange(doc, clipId, from, to, "manual", picked.map((word) => word.text).join("")),
-    {
-      kind: "ui.dispatch",
-      actor: "human",
-      label: i18n.t("cutReview.cutSelection", { value: seconds(to - from) }),
-    },
-  );
+  const changed = cut.cutWords(from, to, picked.map((word) => word.text).join(""));
   clearSelection();
   if (!changed) toast(i18n.t("cutReview.cutNoop"));
 }
@@ -426,14 +416,14 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 
 .head-title {
   display: block;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.3;
 }
 
 .head-sub {
   margin: 2px 0 0;
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.4;
   color: rgb(var(--md-on-surface-muted));
   font-variant-numeric: tabular-nums;
@@ -468,8 +458,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 }
 
 .icon {
-  width: 15px;
-  height: 15px;
+  width: 17px;
+  height: 17px;
 }
 
 .progress {
@@ -492,7 +482,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
   margin: 0 12px 8px;
   padding: 8px 10px;
   border-radius: 8px;
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.5;
   color: rgb(var(--md-on-tertiary-container));
   background: rgb(var(--md-tertiary-container));
@@ -513,7 +503,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 .empty p {
   margin: 0;
   max-width: 26em;
-  font-size: 11.5px;
+  font-size: 13px;
   line-height: 1.6;
   color: rgb(var(--md-on-surface-variant));
 }
@@ -533,9 +523,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 }
 
 .paragraph {
-  margin: 0 0 10px;
-  font-size: 13px;
-  line-height: 1.95;
+  margin: 0 0 12px;
+  font-size: 15.5px;
+  line-height: 2.05;
 }
 
 .word {
@@ -568,10 +558,10 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 }
 
 .pause-chip {
-  margin: 0 3px;
-  padding: 0 4px;
+  margin: 0 4px;
+  padding: 0 5px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 11.5px;
   color: rgb(var(--md-error));
   background: rgb(var(--md-error-container) / 0.35);
   cursor: pointer;
@@ -592,7 +582,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10.5px;
+  font-size: 12px;
   color: rgb(var(--md-on-surface-variant));
 }
 
@@ -601,7 +591,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
   background: transparent;
   padding: 0 4px;
   color: rgb(var(--md-primary));
-  font-size: 11px;
+  font-size: 12.5px;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -612,15 +602,15 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 
 .run-btn {
   flex: 0 0 auto;
-  height: 30px;
-  padding: 0 14px;
+  height: 32px;
+  padding: 0 16px;
   display: inline-flex;
   align-items: center;
   border: 0;
   border-radius: 999px;
   background-color: rgb(var(--md-primary));
   color: rgb(var(--md-on-primary));
-  font-size: 11.5px;
+  font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
   transition: filter 0.14s ease;
@@ -636,9 +626,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 }
 
 .run-btn.small {
-  height: 26px;
-  padding: 0 12px;
-  font-size: 11px;
+  height: 28px;
+  padding: 0 13px;
+  font-size: 12.5px;
 }
 
 .foot {
@@ -648,7 +638,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 }
 
 .foot-hint {
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.4;
   color: rgb(var(--md-on-surface-muted));
 }

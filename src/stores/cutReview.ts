@@ -22,14 +22,16 @@ import {
 import {
   applyCuts,
   clearScope,
+  cutSourceRange,
   cutTimelineLength,
   cutTimelineStart,
   removeCut,
+  scopeById,
   scopeOfClip,
 } from "@/core/cuts";
 import { buildCutCues, placeCueTrack } from "@/core/cutSubtitles";
 import type { ModelStatus } from "@/types/models";
-import type { Clip, CutScope, MediaAsset } from "@/types/project";
+import type { Clip, CutScope, MediaAsset, Project } from "@/types/project";
 import { t } from "@/i18n";
 
 /** 已安装时优先用这两个：Paraformer 有原生 token 时间戳，是剪口播的主力。 */
@@ -262,17 +264,60 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     }
   }
 
+  /**
+   * 按当前剪口重铺「口播字幕」轨。
+   *
+   * 剪口一变，字幕就要跟着合并 / 拆开：恢复一段之后原来被切开的句子要接回去，
+   * 新剪掉的字要从字幕里消失。每次改剪口都在同一个 dispatch 里调它。
+   */
+  function refreshCues(doc: Project, scopeId: string): Project {
+    const current = scopeById(doc, scopeId);
+    if (!current?.words?.length) return doc;
+    const cues = buildCutCues(
+      current,
+      current.words,
+      doc.tracks.flatMap((track) => track.clips),
+      doc.fps,
+    );
+    return placeCueTrack(doc, cues, t("cutReview.cueTrack"));
+  }
+
+  /** 在文稿里手动剪掉一段。 */
+  function cutWords(from: number, to: number, text: string): boolean {
+    const targetClip = clipId.value;
+    if (!targetClip) return false;
+    let changed = false;
+    useProjectStore().dispatch(
+      (doc) => {
+        const next = cutSourceRange(doc, targetClip, from, to, "manual", text);
+        if (next === doc) return doc;
+        changed = true;
+        const current = scopeOfClip(next, targetClip);
+        return current ? refreshCues(next, current.id) : next;
+      },
+      {
+        kind: "ui.dispatch",
+        actor: "human",
+        label: t("cutReview.cutSelection", { value: `${(to - from).toFixed(1)}s` }),
+      },
+    );
+    return changed;
+  }
+
   /** 还原一条剪口。 */
   function restoreCut(cutId: string): void {
     const current = scope.value;
     if (!current) return;
     const cut = current.cuts.find((item) => item.id === cutId);
     if (!cut) return;
-    useProjectStore().dispatch((doc) => removeCut(doc, current.id, cutId), {
-      kind: "ui.dispatch",
-      actor: "human",
-      label: t("cutReview.restoreLabel", { text: cut.text || t("cutReview.pauseText") }),
-    });
+    useProjectStore().dispatch(
+      (doc) => refreshCues(removeCut(doc, current.id, cutId), current.id),
+      {
+        kind: "ui.dispatch",
+        actor: "human",
+        label: t("cutReview.restoreLabel", { text: cut.text || t("cutReview.pauseText") }),
+      },
+    );
   }
 
   /** 还原这一组剪口的全部剪口。 */
@@ -280,11 +325,14 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     const current = scope.value;
     if (!current || current.cuts.length === 0) return;
     const count = current.cuts.length;
-    useProjectStore().dispatch((doc) => clearScope(doc, current.id), {
-      kind: "ui.dispatch",
-      actor: "human",
-      label: t("cutReview.restoreAllLabel", { count }),
-    });
+    useProjectStore().dispatch(
+      (doc) => refreshCues(clearScope(doc, current.id), current.id),
+      {
+        kind: "ui.dispatch",
+        actor: "human",
+        label: t("cutReview.restoreAllLabel", { count }),
+      },
+    );
   }
 
   /** 放弃当前审查（不动文档）。 */
@@ -324,6 +372,7 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     pickModel,
     adopt,
     run,
+    cutWords,
     restoreCut,
     restoreAll,
     reset,
