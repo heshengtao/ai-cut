@@ -80,6 +80,11 @@ function restoreCutMark(mark: { id: string; scopeId: string; label: string }): v
 }
 const selection = useSelectionStore();
 const layout = useLayoutStore();
+
+/** 剪口标记只在「剪口播」页签可见：切到别的面板时隐藏，避免误点还原。 */
+const showCutMarks = computed(
+  () => layout.showPanel && layout.activeTab === "cutReview",
+);
 const actions = useTimelineActions();
 const textPresets = useTextPresetsStore();
 const i18n = useI18n();
@@ -1039,17 +1044,19 @@ function onLaneDrop(event: DragEvent): void {
               <span class="insert-dot" />
             </div>
 
-            <button
-              v-for="mark in cutMarks"
-              :key="mark.id"
-              class="cut-mark"
-              :style="{ left: `${mark.start * playback.zoom}px` }"
-              :title="i18n.t('cutReview.restoreLabel', { text: mark.label || i18n.t('cutReview.pauseText') })"
-              @pointerdown.stop
-              @click.stop="restoreCutMark(mark)"
-            >
-              <span class="cut-tag">−{{ mark.length.toFixed(1) }}s</span>
-            </button>
+            <template v-if="showCutMarks">
+              <button
+                v-for="mark in cutMarks"
+                :key="mark.id"
+                class="cut-mark"
+                :style="{ left: `${mark.start * playback.zoom}px` }"
+                :title="i18n.t('cutReview.restoreLabel', { text: mark.label || i18n.t('cutReview.pauseText') })"
+                @pointerdown.stop
+                @click.stop="restoreCutMark(mark)"
+              >
+                <span class="cut-tag">−{{ mark.length.toFixed(1) }}s</span>
+              </button>
+            </template>
 
             <div v-if="hasNoTracks" class="empty-lanes">
               <FolderOpenIcon class="w-[18px] h-[18px]" />
