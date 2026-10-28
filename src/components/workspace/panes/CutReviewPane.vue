@@ -18,7 +18,7 @@ import { useLayoutStore } from "@/stores/layout";
 import { toast } from "@/composables/useToast";
 import { confirm } from "@/composables/useConfirm";
 import { useI18n } from "@/i18n";
-import { humanSize, missingBytes } from "@/utils/size";
+import { humanSize } from "@/utils/size";
 import type { CutRecord } from "@/types/project";
 
 const cut = useCutReviewStore();
@@ -36,8 +36,9 @@ const moved = ref(false);
 
 /** 该用的识别模型（没装也返回，按钮据此显示「下载 XX MB」）。 */
 const model = computed(() => cut.candidateModel());
-const modelReady = computed(() => Boolean(model.value?.installed));
-const modelMissing = computed(() => (model.value ? missingBytes(model.value) : 0));
+const aligner = computed(() => cut.alignerModel());
+const modelReady = computed(() => Boolean(model.value?.installed) && cut.alignerReady());
+const modelMissing = computed(() => cut.missingBytesNow());
 
 interface Entry {
   word: { id: string; text: string; start: number; end: number };
@@ -229,10 +230,13 @@ async function run(): Promise<void> {
     return;
   }
   if (!modelReady.value) {
+    const targets = [model.value, aligner.value].filter(
+      (entry): entry is NonNullable<typeof entry> => Boolean(entry) && !entry!.installed,
+    );
     const accepted = await confirm({
       title: i18n.t("dialog.downloadModelTitle"),
-      message: i18n.t("dialog.downloadModelMessage", {
-        name: model.value.name,
+      message: i18n.t("cutReview.downloadMany", {
+        names: targets.map((entry) => entry.name).join(i18n.t("common.listSeparator")),
         size: humanSize(modelMissing.value),
       }),
       confirmText: i18n.t("dialog.downloadModelOk"),
@@ -240,10 +244,12 @@ async function run(): Promise<void> {
     });
     if (!accepted) return;
     layout.openTab("models");
-    try {
-      await models.download(model.value.id);
-    } catch {
-      return;
+    for (const entry of targets) {
+      try {
+        await models.download(entry.id);
+      } catch {
+        return;
+      }
     }
   }
   clearSelection();

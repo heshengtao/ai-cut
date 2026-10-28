@@ -16,7 +16,8 @@ export type ModelFamily =
   | "real_esrgan_general"
   | "real_esrgan_x4plus"
   | "yolox_nano"
-  | "yunet";
+  | "yunet"
+  | "qwen3_aligner";
 export type ModelFeature =
   | "asr"
   | "vad"
@@ -27,7 +28,8 @@ export type ModelFeature =
   | "interpolate"
   | "superres"
   | "track"
-  | "reframe";
+  | "reframe"
+  | "align";
 export type ModelTag = "text" | "audio" | "visual";
 export type ModelRegion = "intl" | "cn";
 /** 模型下载源区域偏好。 */

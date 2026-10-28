@@ -81,10 +81,47 @@ const cutTarget = computed(() => {
   return null;
 });
 
-/** 这个功能该用的识别模型；没装也返回，按钮据此显示「下载 XX MB」。 */
+/** 剪口播：识别模型（下拉框，默认 SenseVoice）+ 必选的对齐器。 */
 const cutModel = computed(() => cutReview.candidateModel());
-const cutModelReady = computed(() => Boolean(cutModel.value?.installed));
-const cutMissing = computed(() => (cutModel.value ? missingBytes(cutModel.value) : 0));
+const cutModelReady = computed(
+  () => Boolean(cutModel.value?.installed) && cutReview.alignerReady(),
+);
+const cutMissing = computed(() => cutReview.missingBytesNow());
+const cutAsrOptions = computed<SelectOption[]>(() =>
+  models
+    .ofFeature("asr")
+    .map((model) => ({
+      id: model.id,
+      label: model.installed ? model.name : `${model.name} · ${humanSize(missingBytes(model))}`,
+    })),
+);
+
+/** 缺的模型一次性确认、按顺序下载。 */
+async function downloadCutModels(): Promise<boolean> {
+  const targets = [cutModel.value, cutReview.alignerModel()].filter(
+    (model): model is ModelStatus => Boolean(model) && !model!.installed,
+  );
+  if (targets.length === 0) return true;
+  const accepted = await confirm({
+    title: i18n.t("dialog.downloadModelTitle"),
+    message: i18n.t("cutReview.downloadMany", {
+      names: targets.map((model) => model.name).join(i18n.t("common.listSeparator")),
+      size: humanSize(cutMissing.value),
+    }),
+    confirmText: i18n.t("dialog.downloadModelOk"),
+    cancelText: i18n.t("common.cancel"),
+  });
+  if (!accepted) return false;
+  layout.openTab("models");
+  for (const model of targets) {
+    try {
+      await models.download(model.id);
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
 
 /** 识别 → 剪口落地 → 跳到审查面板。 */
 async function startCutReview(): Promise<void> {
@@ -98,10 +135,8 @@ async function startCutReview(): Promise<void> {
     layout.openTab("models");
     return;
   }
-  if (!cutModelReady.value) {
-    // 与其它卡片一致：缺模型时按钮就是「下载 XX MB」，点一下先下再跑。
-    if (!(await ensureInstalled(cutModel.value, cutMissing.value))) return;
-  }
+  // 与其它卡片一致：缺模型时按钮就是「下载 XX MB」，点一下先下再跑。
+  if (!cutModelReady.value && !(await downloadCutModels())) return;
   layout.openTab("cutReview");
   try {
     const count = await cutReview.run(target.asset, target.clip);
@@ -2288,6 +2323,17 @@ onMounted(() => {
             }}
           </button>
         </div>
+        <div class="param-field">
+          <span class="param-name">{{ i18n.t("cutReview.asrModel") }}</span>
+          <Md3Select
+            :model-value="cutModel?.id ?? ''"
+            :options="cutAsrOptions"
+            :label="i18n.t('cutReview.asrModel')"
+            :disabled="cutReview.running"
+            @update:model-value="cutReview.setAsrModel(String($event))"
+          />
+        </div>
+
         <div v-if="cutReview.running" class="progress">
           <div class="progress-fill" :style="{ width: `${cutReview.progressPct}%` }" />
         </div>

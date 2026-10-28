@@ -343,6 +343,18 @@ fn transcribe(
         emit(app, "transcribing", progress, None);
     }
 
+    // 剪口播要的是「每个词到底什么时候说」：装了 Qwen3 对齐器就用它换掉估算时间。
+    // 对齐器没装、加载失败或某一窗对不上，都保留估算值——功能不会因此不可用。
+    if want_words && !words.is_empty() {
+        if let Some(entry) = models::by_id("qwen3-aligner-0.6b-q4") {
+            if let Some(dir) = models::installed_dir(app, entry) {
+                if refine_with_aligner(&dir, &mut words, samples).is_ok() {
+                    timed = true;
+                }
+            }
+        }
+    }
+
     Ok(Transcript { cues, words, timed })
 }
 
@@ -382,6 +394,91 @@ fn word_times(
         words: estimate_words(text, segment_start, segment_end),
         aligned: false,
     }
+}
+
+/// 对齐器常驻：1 GB 权重复用，别每段重载一次。
+static ALIGNER: std::sync::OnceLock<
+    std::sync::Mutex<Option<(PathBuf, crate::aligner::Aligner)>>,
+> = std::sync::OnceLock::new();
+
+fn with_aligner<T>(
+    dir: &PathBuf,
+    run: impl FnOnce(&mut crate::aligner::Aligner) -> Result<T, String>,
+) -> Result<T, String> {
+    let cache = ALIGNER.get_or_init(|| std::sync::Mutex::new(None));
+    let mut guard = cache
+        .lock()
+        .map_err(|_| "对齐器状态锁失效".to_string())?;
+    let stale = guard.as_ref().is_none_or(|(path, _)| path != dir);
+    if stale {
+        *guard = Some((dir.clone(), crate::aligner::Aligner::load(dir)?));
+    }
+    match guard.as_mut() {
+        Some((_, aligner)) => run(aligner),
+        None => Err("对齐器未加载".into()),
+    }
+}
+
+/// 用对齐器把识别出来的词时间换成真实时间。
+///
+/// 按「一口气」切窗口（最多 28 秒），每窗单独对齐；任何一窗失败就保留那一窗的估算时间，
+/// 功能不会因此不可用。
+fn refine_with_aligner(
+    dir: &PathBuf,
+    words: &mut [TranscriptWord],
+    samples: &[f32],
+) -> Result<(), String> {
+    if words.is_empty() {
+        return Ok(());
+    }
+    let sample_rate = SAMPLE_RATE as f64;
+    let mut cursor = 0usize;
+    while cursor < words.len() {
+        let window_start = words[cursor].start.max(0.0);
+        let mut end = cursor + 1;
+        while end < words.len() && words[end].end - window_start <= 28.0 {
+            end += 1;
+        }
+        let window_end = words[end - 1].end.max(window_start + 0.2);
+        let from = (((window_start - 0.2).max(0.0)) * sample_rate) as usize;
+        let to = (((window_end + 0.2) * sample_rate) as usize).min(samples.len());
+        if to > from + SAMPLE_RATE as usize / 4 {
+            let text = join_words(&words[cursor..end]);
+            let offset = from as f32 / sample_rate as f32;
+            if let Ok(aligned) = with_aligner(dir, |aligner| aligner.align(&samples[from..to], &text))
+            {
+                if aligned.len() == end - cursor {
+                    for (word, hit) in words[cursor..end].iter_mut().zip(aligned.iter()) {
+                        word.start = (offset + hit.start).max(0.0) as f64;
+                        word.end = ((offset + hit.end) as f64).max(word.start + 0.02);
+                    }
+                }
+            }
+        }
+        cursor = end;
+    }
+    Ok(())
+}
+
+/// 拼接一段词：中文直接连，两侧都是拉丁字母时补一个空格，交给对齐器按空格切。
+fn join_words(words: &[TranscriptWord]) -> String {
+    let mut text = String::new();
+    for word in words {
+        let latin_join = text
+            .chars()
+            .last()
+            .is_some_and(|last| last.is_ascii_alphanumeric())
+            && word
+                .text
+                .chars()
+                .next()
+                .is_some_and(|first| first.is_ascii_alphanumeric());
+        if latin_join {
+            text.push(' ');
+        }
+        text.push_str(&word.text);
+    }
+    text
 }
 
 /// 模型 token（中文逐字、英文 BPE）→ 词。
@@ -682,6 +779,7 @@ fn create_recognizer(
             };
         }
         ModelFamily::Vad => return Err("VAD 模型不能用于识别".into()),
+        ModelFamily::Qwen3Aligner => return Err("对齐器不能用于识别".into()),
         ModelFamily::MossTtsNano | ModelFamily::MossAudioTokenizerNano => {
             return Err("朗读模型不能用于语音识别".into())
         }
