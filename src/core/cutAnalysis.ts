@@ -132,6 +132,36 @@ export function detectPauses(
   return out;
 }
 
+
+/**
+ * 软口癖匹配：返回从 `index` 起要吃掉的词数与归一化后的文本。
+ *
+ * 中文词表是逐字的（「那」「个」），英文是整词的（you / know），两条路子都走一遍。
+ */
+function matchSoft(
+  phrase: string,
+  words: TranscriptWord[],
+  index: number,
+): { length: number; text: string } | null {
+  const target = normalizeWord(phrase);
+  if (!target) return null;
+
+  if (phrase.includes(" ")) {
+    const parts = phrase.split(" ").filter(Boolean);
+    if (index + parts.length > words.length) return null;
+    const hit = parts.every((part, offset) => normalizeWord(words[index + offset].text) === part);
+    return hit ? { length: parts.length, text: target } : null;
+  }
+
+  let text = "";
+  let count = 0;
+  while (index + count < words.length && text.length < target.length) {
+    text += normalizeWord(words[index + count].text);
+    count += 1;
+  }
+  return text === target ? { length: count, text } : null;
+}
+
 /**
  * 一段词（可能是多词口癖）是否被停顿或标点隔离。
  *
@@ -178,14 +208,12 @@ export function detectFillers(
     if (!matched && opts.includeSoft) {
       for (const lang of langs) {
         for (const item of SOFT[lang] ?? []) {
-          const parts = item.split(" ").filter(Boolean);
-          if (index + parts.length > words.length) continue;
-          const hit = parts.every(
-            (part, offset) => normalizeWord(words[index + offset].text) === part,
-          );
-          if (!hit) continue;
-          if (!isolatedSpan(words, index, index + parts.length - 1)) continue;
-          matched = { length: parts.length, text: parts.join(""), soft: true };
+          // 中文口癖（那个 / 就是 / 其实）在词表里是逐字的，要按字拼起来比；
+          // 英文（you know）按空格分词比。
+          const span = matchSoft(item, words, index);
+          if (!span) continue;
+          if (!isolatedSpan(words, index, index + span.length - 1)) continue;
+          matched = { length: span.length, text: span.text, soft: true };
           break;
         }
         if (matched) break;

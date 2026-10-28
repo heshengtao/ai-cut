@@ -265,22 +265,6 @@ export function clearScope(doc: Project, scopeId: string): Project {
   return next;
 }
 
-/**
- * 改写词表里的一个词（改错别字）。
- *
- * 只动文本、不动时间，也不会重铺片段——所以「改字」永远不触发剪切。
- */
-export function updateScopeWords(
-  doc: Project,
-  scopeId: string,
-  words: { text: string; start: number; end: number }[],
-): Project {
-  const scopes = cutScopes(doc);
-  if (!scopes.some((scope) => scope.id === scopeId)) return doc;
-  const next = scopes.map((scope) => (scope.id === scopeId ? { ...scope, words } : scope));
-  return withTouch(doc, { cutScopes: next });
-}
-
 /** 摘掉一组片段（重建前先清场，避免中间产物与旧片段重叠）。 */
 function detachPieces(doc: Project, ids: string[]): Project {
   if (ids.length === 0) return doc;

@@ -109,6 +109,20 @@ describe("detectFillers", () => {
     expect(cuts[0].wordIds).toEqual(["w0", "w1"]);
   });
 
+  it("中文逐字词表也能命中多字软口癖", () => {
+    const list = words([
+      ["嗯", 0, 0.2],
+      ["那", 1.1, 1.35],
+      ["个", 1.35, 1.6],
+      ["大", 1.8, 2.1],
+    ]);
+    const cuts = detectFillers(list);
+    const soft = cuts.find((cut) => cut.kind === "filler" && cut.text === "那个");
+    expect(soft).toBeTruthy();
+    expect(soft?.srcStart).toBeCloseTo(1.1, 6);
+    expect(soft?.wordIds).toEqual(["w1", "w2"]);
+  });
+
   it("关掉软口癖后只留硬口癖", () => {
     const list = words([
       ["我们", 0, 0.4],

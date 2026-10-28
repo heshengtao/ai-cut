@@ -26,8 +26,8 @@ import {
   cutTimelineStart,
   removeCut,
   scopeOfClip,
-  updateScopeWords,
 } from "@/core/cuts";
+import { buildCutCues, placeCueTrack } from "@/core/cutSubtitles";
 import type { ModelStatus } from "@/types/models";
 import type { Clip, CutScope, MediaAsset } from "@/types/project";
 import { t } from "@/i18n";
@@ -202,8 +202,8 @@ export const useCutReviewStore = defineStore("cutReview", () => {
       if (proposals.length === 0) return 0;
 
       const applied = project.dispatch(
-        (doc) =>
-          applyCuts(
+        (doc) => {
+          const cutDoc = applyCuts(
             doc,
             clip.id,
             proposals.map((proposal) => ({
@@ -218,7 +218,18 @@ export const useCutReviewStore = defineStore("cutReview", () => {
               end: word.end,
             })),
             result.timed,
-          ),
+          );
+          // 剪完把剩下的词落成字幕片段：改字去时间线上改，这里只负责剪和还原。
+          const scope = scopeOfClip(cutDoc, clip.id);
+          if (!scope) return cutDoc;
+          const cues = buildCutCues(
+            scope,
+            words.value,
+            cutDoc.tracks.flatMap((track) => track.clips),
+            cutDoc.fps,
+          );
+          return placeCueTrack(cutDoc, cues, t("cutReview.cueTrack"));
+        },
         {
           kind: "ui.dispatch",
           actor: "human",
@@ -237,36 +248,18 @@ export const useCutReviewStore = defineStore("cutReview", () => {
    */
   function adopt(clip: Clip): void {
     const current = scopeOfClip(useProjectStore().doc, clip.id);
+    // 只有落在剪口组里的片段才是这段文稿的一部分；点到字幕片段或别的素材时不动当前审查。
+    if (!current) return;
     if (clipId.value !== clip.id) {
-      // 换了片段：清掉上一段的词表，免得审查到别的素材上。
       if (words.value.length > 0) words.value = [];
       timed.value = true;
     }
     clipId.value = clip.id;
-    assetId.value = current?.assetId ?? clip.assetId;
-    if (current?.words && current.words.length > 0 && words.value.length === 0) {
+    assetId.value = current.assetId;
+    if (current.words && current.words.length > 0 && words.value.length === 0) {
       words.value = withWordIds(current.words);
       timed.value = current.timed !== false;
     }
-  }
-
-  /**
-   * 改一个词的文本（改错别字）。只写词表，不碰时间线，因此不会触发剪切。
-   */
-  function renameWord(index: number, text: string): void {
-    const word = words.value[index];
-    const current = scope.value;
-    const value = text.trim();
-    if (!word || !current?.words || !value || word.text === value) return;
-    word.text = value;
-    const next = current.words.map((item, at) =>
-      at === index ? { ...item, text: value } : item,
-    );
-    useProjectStore().dispatch((doc) => updateScopeWords(doc, current.id, next), {
-      kind: "ui.dispatch",
-      actor: "human",
-      label: t("cutReview.editLabel"),
-    });
   }
 
   /** 还原一条剪口。 */
@@ -331,7 +324,6 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     pickModel,
     adopt,
     run,
-    renameWord,
     restoreCut,
     restoreAll,
     reset,

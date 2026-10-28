@@ -174,6 +174,8 @@ async fn run(
     language: Option<String>,
     want_words: bool,
 ) -> Result<Transcript, String> {
+    // 剪口播要按「一口气」切段：段边就是真实语音边界，口癖会被单独成段。
+    let fine = want_words;
     emit(app, "extracting", 0.02, Some("正在提取音频".into()));
 
     let wav_path = temp_wav_path(app)?;
@@ -200,6 +202,7 @@ async fn run(
             &language,
             cancel,
             want_words,
+            fine,
         )
     })
     .await
@@ -247,6 +250,7 @@ fn transcribe(
     language: &str,
     cancel: &AtomicBool,
     want_words: bool,
+    fine: bool,
 ) -> Result<Transcript, String> {
     let wav_name = wav_path
         .to_str()
@@ -263,8 +267,11 @@ fn transcribe(
     vad_config.silero_vad = SileroVadModelConfig {
         model: Some(vad_model.to_string_lossy().into_owned()),
         threshold: 0.5,
-        min_silence_duration: 0.35,
-        min_speech_duration: 0.25,
+        // 细粒度：0.15 秒静音就断开、0.1 秒语音也留下。
+        // 这样「嗯 / 呃 / 那个」这类短口癖会独立成段，剪口直接落在真实语音边界上；
+        // 字幕那条路径仍用原来的 0.35 / 0.25，避免字幕被切得过碎。
+        min_silence_duration: if fine { 0.15 } else { 0.35 },
+        min_speech_duration: if fine { 0.1 } else { 0.25 },
         window_size: VAD_WINDOW as i32,
         max_speech_duration: 15.0,
     };

@@ -13,7 +13,6 @@ import {
   removeCut,
   scopeOfClip,
   updateCutRange,
-  updateScopeWords,
 } from "@/core/cuts";
 
 /** 一条 10 秒的口播素材 + 一条字幕轨，便于检查跨轨联动。 */
@@ -249,24 +248,6 @@ describe("applyCuts", () => {
       { kind: "filler", srcStart: 5, srcEnd: 5.5, text: "呃" },
     ]);
     expect(second.cutScopes?.[0].cuts).toHaveLength(2);
-  });
-});
-
-describe("updateScopeWords", () => {
-  it("改字只动文本，不动片段与时间", () => {
-    const { doc, videoTrack, main } = setup();
-    const words = [
-      { text: "那个", start: 0, end: 0.4 },
-      { text: "东西", start: 0.4, end: 0.8 },
-    ];
-    const cut = applyCuts(doc, main.id, [{ kind: "pause", srcStart: 2, srcEnd: 3, text: "" }], words, true);
-    const before = mainClips(cut, videoTrack).map((clip) => ({ ...clip }));
-    const edited = updateScopeWords(cut, cut.cutScopes![0].id, [
-      { text: "这个", start: 0, end: 0.4 },
-      { text: "东西", start: 0.4, end: 0.8 },
-    ]);
-    expect(mainClips(edited, videoTrack)).toEqual(before);
-    expect(edited.cutScopes?.[0].words?.[0].text).toBe("这个");
   });
 });
 
