@@ -53,25 +53,36 @@ export interface FillerOptions {
   includeSoft: boolean;
   /** 用户自己加的过滤词：多字也算，命中就剪，不做停顿要求。 */
   custom?: string[];
+  /** 用户在设置里移除的默认过滤词，命中时跳过（按归一化文本比对）。 */
+  disabled?: string[];
 }
 
 export const DEFAULT_FILLER: FillerOptions = {
   lang: "both",
   includeSoft: true,
   custom: [],
+  disabled: [],
 };
 
 /** 硬口癖：几乎只作语气词，命中就剪。 */
-const HARD: Record<string, string[]> = {
+export const HARD_FILLERS: Record<"zh" | "en", readonly string[]> = {
   zh: ["嗯", "呃", "额", "唔", "唉", "哎"],
   en: ["um", "umm", "uh", "uhh", "er", "erm", "hmm", "mhm", "ah"],
 };
 
 /** 软口癖：也可能是正常词汇，要求前后有停顿或标点才剪。 */
-const SOFT: Record<string, string[]> = {
+export const SOFT_FILLERS: Record<"zh" | "en", readonly string[]> = {
   zh: ["那个", "这个", "就是", "然后", "其实", "反正", "对吧", "你知道吧", "怎么说"],
   en: ["you know", "i mean", "kind of", "sort of", "like", "basically", "actually", "literally", "honestly"],
 };
+
+/** 设置里展示的默认过滤词：中英合并，按「直接剪 / 有停顿才剪」分组。 */
+export function defaultFillerWords(): { hard: string[]; soft: string[] } {
+  return {
+    hard: [...HARD_FILLERS.zh, ...HARD_FILLERS.en],
+    soft: [...SOFT_FILLERS.zh, ...SOFT_FILLERS.en],
+  };
+}
 
 /** 停顿上的两个词之间小于这个值就不算「隔离」。 */
 const ISOLATION_GAP = 0.12;
@@ -150,7 +161,8 @@ function matchSoft(
   if (!target) return null;
 
   if (phrase.includes(" ")) {
-    const parts = phrase.split(" ").filter(Boolean);
+    // 英文短语按空格分词，词表大小写不敏感（I mean / i mean 都行）。
+    const parts = phrase.split(" ").filter(Boolean).map(normalizeWord);
     if (index + parts.length > words.length) return null;
     const hit = parts.every((part, offset) => normalizeWord(words[index + offset].text) === part);
     return hit ? { length: parts.length, text: target } : null;
@@ -193,16 +205,21 @@ export function detectFillers(
   options: Partial<FillerOptions> = {},
 ): ProposedCut[] {
   const opts = { ...DEFAULT_FILLER, ...options };
-  const langs = opts.lang === "both" ? ["zh", "en"] : [opts.lang];
+  const langs: ("zh" | "en")[] = opts.lang === "both" ? ["zh", "en"] : [opts.lang];
+  const disabled = new Set(
+    (opts.disabled ?? []).map((word) => normalizeWord(word)).filter(Boolean),
+  );
   const out: ProposedCut[] = [];
 
   for (let index = 0; index < words.length; index += 1) {
     const normalized = normalizeWord(words[index].text);
     if (!normalized) continue;
+    // 设置里被移除的默认词：整词命中也不剪。
+    if (disabled.has(normalized)) continue;
 
     let matched: { length: number; text: string; soft: boolean } | null = null;
     for (const lang of langs) {
-      if ((HARD[lang] ?? []).includes(normalized)) {
+      if ((HARD_FILLERS[lang] ?? []).includes(normalized)) {
         matched = { length: 1, text: normalized, soft: false };
         break;
       }
@@ -210,6 +227,7 @@ export function detectFillers(
 
     if (!matched && opts.custom && opts.custom.length > 0) {
       for (const phrase of opts.custom) {
+        if (disabled.has(normalizeWord(phrase))) continue;
         const span = matchSoft(phrase, words, index);
         if (!span) continue;
         matched = { length: span.length, text: span.text, soft: true };
@@ -219,7 +237,8 @@ export function detectFillers(
 
     if (!matched && opts.includeSoft) {
       for (const lang of langs) {
-        for (const item of SOFT[lang] ?? []) {
+        for (const item of SOFT_FILLERS[lang] ?? []) {
+          if (disabled.has(normalizeWord(item))) continue;
           // 中文口癖（那个 / 就是 / 其实）在词表里是逐字的，要按字拼起来比；
           // 英文（you know）按空格分词比。
           const span = matchSoft(item, words, index);
@@ -250,8 +269,159 @@ export function detectFillers(
   return out;
 }
 
+export interface TrimOptions {
+  /** 切点向两侧静音最多扩展多少秒（0 = 不扩展）。 */
+  pad: number;
+  /** 与相邻词之间至少保留的安全间隔（秒），避免切到相邻字的起音。 */
+  guard: number;
+}
+
+export const DEFAULT_TRIM: TrimOptions = { pad: 0.12, guard: 0.02 };
+
+function trimLimits(
+  words: TranscriptWord[],
+  first: number,
+  last: number,
+  guard: number,
+): { floor: number; ceil: number } {
+  const prev = words[first - 1];
+  const next = words[last + 1];
+  // 留出 guard，避免切到相邻字的起音；相邻词本身要被剪时，
+  // 两条剪口在 mergeProposals 里会按很近的间隔合并，不必在这里吃穿。
+  return {
+    floor: prev ? prev.end + guard : 0,
+    ceil: next ? next.start - guard : Number.POSITIVE_INFINITY,
+  };
+}
+
+/**
+ * 把口癖剪口向两侧的静音扩展。
+ *
+ * ASR 的词时间戳常常停在字音的峰值上：按时间戳直接切，字的起音 / 尾音会留在切点外，
+ * 剪完还能听到半声「嗯」。这里向相邻词之间的静音多吃 `pad` 秒，让切点落在安静处；
+ * 扩展不会越过相邻词，且只扩不缩。
+ */
+export function padFillerCuts(
+  cuts: ProposedCut[],
+  words: TranscriptWord[],
+  options: Partial<TrimOptions> = {},
+): ProposedCut[] {
+  const opts = { ...DEFAULT_TRIM, ...options };
+  const pad = Math.max(0, opts.pad);
+  const guard = Math.max(0, opts.guard);
+  if (pad <= 0 || words.length === 0) return cuts;
+
+  const indexes = new Map(words.map((word, index) => [word.id, index]));
+
+  return cuts.map((cut) => {
+    if (cut.kind !== "filler" || cut.wordIds.length === 0) return cut;
+    const first = indexes.get(cut.wordIds[0]);
+    const last = indexes.get(cut.wordIds[cut.wordIds.length - 1]);
+    if (first === undefined || last === undefined) return cut;
+    const { floor, ceil } = trimLimits(words, first, last, guard);
+    // 只扩不缩：时间戳互相重叠时也不能把剪口改短。
+    const srcStart = Math.min(cut.srcStart, Math.max(floor, cut.srcStart - pad));
+    const srcEnd = Math.max(cut.srcEnd, Math.min(ceil, cut.srcEnd + pad));
+    if (srcStart === cut.srcStart && srcEnd === cut.srcEnd) return cut;
+    return { ...cut, srcStart, srcEnd };
+  });
+}
+
+/**
+ * 手动剪掉一段词时，同样向两侧静音扩展一点，避免切点卡在字音峰值上。
+ * `from` / `to` 一般是所选词的首尾时间。
+ */
+export function padCutRange(
+  words: TranscriptWord[],
+  from: number,
+  to: number,
+  options: Partial<TrimOptions> = {},
+): { start: number; end: number } {
+  const opts = { ...DEFAULT_TRIM, ...options };
+  const pad = Math.max(0, opts.pad);
+  if (pad <= 0 || words.length === 0) return { start: from, end: to };
+
+  let first = -1;
+  let last = -1;
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index];
+    if (word.end <= from + 1e-6) continue;
+    if (word.start >= to - 1e-6) break;
+    if (first < 0) first = index;
+    last = index;
+  }
+  if (first < 0 || last < 0) return { start: from, end: to };
+
+  const { floor, ceil } = trimLimits(words, first, last, Math.max(0, opts.guard));
+  return {
+    start: Math.min(from, Math.max(floor, from - pad)),
+    end: Math.max(to, Math.min(ceil, to + pad)),
+  };
+}
+
+function overlaps(
+  a: { srcStart: number; srcEnd: number },
+  b: { srcStart: number; srcEnd: number },
+): boolean {
+  return a.srcStart < b.srcEnd && b.srcStart < a.srcEnd;
+}
+
+/** 两条口癖剪口间隔小于这个值时直接并成一条（避免中间漏 10ms 的气口）。 */
+const FILLER_MERGE_GAP = 0.03;
+
+/** 把互相重叠 / 相邻的口癖剪口并成一条（扩展后很容易碰到一起）。 */
+function unionFillerCuts(cuts: ProposedCut[]): ProposedCut[] {
+  const ordered = cuts
+    .slice()
+    .sort((a, b) => a.srcStart - b.srcStart || a.srcEnd - b.srcEnd);
+  const out: ProposedCut[] = [];
+  for (const cut of ordered) {
+    const last = out[out.length - 1];
+    if (last && cut.srcStart <= last.srcEnd + FILLER_MERGE_GAP) {
+      last.srcEnd = Math.max(last.srcEnd, cut.srcEnd);
+      for (const id of cut.wordIds) {
+        if (!last.wordIds.includes(id)) last.wordIds.push(id);
+      }
+      last.text += cut.text;
+      continue;
+    }
+    out.push({ ...cut, wordIds: [...cut.wordIds] });
+  }
+  return out;
+}
+
+/** 从一条建议里挖掉口癖已经占用的区间，剩下的部分照常剪。 */
+function subtractCut(
+  cut: ProposedCut,
+  holes: { srcStart: number; srcEnd: number }[],
+): ProposedCut[] {
+  let segments = [{ start: cut.srcStart, end: cut.srcEnd }];
+  for (const hole of holes) {
+    const next: { start: number; end: number }[] = [];
+    for (const segment of segments) {
+      if (hole.srcEnd <= segment.start + 1e-6 || hole.srcStart >= segment.end - 1e-6) {
+        next.push(segment);
+        continue;
+      }
+      if (hole.srcStart > segment.start + 1e-6) {
+        next.push({ start: segment.start, end: hole.srcStart });
+      }
+      if (hole.srcEnd < segment.end - 1e-6) {
+        next.push({ start: hole.srcEnd, end: segment.end });
+      }
+    }
+    segments = next;
+  }
+  return segments
+    .filter((segment) => segment.end - segment.start > 0.05)
+    .map((segment) => ({ ...cut, srcStart: segment.start, srcEnd: segment.end }));
+}
+
 /**
  * 合并三类建议：重叠的只留一条（口癖优先于停顿），并按时间排序。
+ *
+ * 口癖先合并成并集，再把停顿从口癖区间里挖掉——扩展切点后两者很容易重叠，
+ * 若简单丢掉后一条，会把口癖的后半段或停顿的剩余部分留进时间线。
  *
  * `taken` 是已经剪掉的素材区间，命中的建议不再提出（重复扫描时不会越剪越多）。
  */
@@ -259,19 +429,19 @@ export function mergeProposals(
   groups: ProposedCut[][],
   taken: { srcStart: number; srcEnd: number }[] = [],
 ): ProposedCut[] {
-  const ordered = groups
-    .flat()
-    .sort((a, b) => a.srcStart - b.srcStart || b.srcEnd - b.srcStart - (a.srcEnd - a.srcStart));
-  const out: ProposedCut[] = [];
-  const overlaps = (a: { srcStart: number; srcEnd: number }, b: { srcStart: number; srcEnd: number }) =>
-    a.srcStart < b.srcEnd && b.srcStart < a.srcEnd;
+  const fresh = groups.flat().filter((proposal) => !taken.some((range) => overlaps(proposal, range)));
+  const fillers = unionFillerCuts(fresh.filter((proposal) => proposal.kind === "filler"));
+  const holes = fillers.map((cut) => ({ srcStart: cut.srcStart, srcEnd: cut.srcEnd }));
+  const out: ProposedCut[] = [...fillers];
 
-  for (const proposal of ordered) {
-    if (taken.some((range) => overlaps(proposal, range))) continue;
-    if (out.some((item) => overlaps(item, proposal))) continue;
-    out.push(proposal);
+  for (const proposal of fresh) {
+    if (proposal.kind === "filler") continue;
+    for (const piece of subtractCut(proposal, holes)) {
+      if (out.some((item) => overlaps(item, piece))) continue;
+      out.push(piece);
+    }
   }
-  return out;
+  return out.sort((a, b) => a.srcStart - b.srcStart || a.srcEnd - b.srcEnd);
 }
 
 /** 词是否落在某条剪口里（按词中点判断，与引擎侧的判定一致）。 */

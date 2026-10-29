@@ -30,9 +30,12 @@ import { placeVoiceover } from "@/core/voiceover";
 import { useAsrStore } from "@/stores/asr";
 import { asrTranscribeWords } from "@/core/modelApi";
 import {
+  DEFAULT_PAUSE,
+  DEFAULT_TRIM,
   detectFillers,
   detectPauses,
   mergeProposals,
+  padFillerCuts,
   withWordIds,
 } from "@/core/cutAnalysis";
 import { applyCuts, scopeOfClip } from "@/core/cuts";
@@ -1039,12 +1042,20 @@ export interface CutFillerParams {
   modelId?: string;
   /** 长停顿阈值（秒），默认 0.8。 */
   minPause?: number;
+  /** 剪停顿后段中保留多少秒，默认 0.3。 */
+  pauseKeep?: number;
+  /** 剪停顿后句末保留多少秒，默认 0.4。 */
+  sentenceKeep?: number;
   /** 是否也剪「那个 / 就是」这类软口癖，默认 true。 */
   includeSoft?: boolean;
   /** 只返回建议、不改时间线。 */
   dryRun?: boolean;
   /** 自定义过滤词（任意语言），命中就剪。 */
   customWords?: string[];
+  /** 从默认过滤词里移除的词。 */
+  disabledWords?: string[];
+  /** 切点向两侧静音扩展多少秒，默认 0.12。 */
+  trimPad?: number;
 }
 
 /**
@@ -1087,13 +1098,23 @@ export async function cutFillerWords(params: CutFillerParams, ctx: JobContext) {
     srcStart: cut.srcStart,
     srcEnd: cut.srcEnd,
   }));
+  const fillerCuts = padFillerCuts(
+    detectFillers(words, {
+      includeSoft: params.includeSoft ?? true,
+      custom: params.customWords ?? [],
+      disabled: params.disabledWords ?? [],
+    }),
+    words,
+    { pad: params.trimPad ?? DEFAULT_TRIM.pad },
+  );
   const proposals = mergeProposals(
     [
-      detectFillers(words, {
-        includeSoft: params.includeSoft ?? true,
-        custom: params.customWords ?? [],
+      fillerCuts,
+      detectPauses(words, {
+        minPause: params.minPause ?? DEFAULT_PAUSE.minPause,
+        keep: params.pauseKeep ?? DEFAULT_PAUSE.keep,
+        sentenceKeep: params.sentenceKeep ?? DEFAULT_PAUSE.sentenceKeep,
       }),
-      detectPauses(words, { minPause: params.minPause ?? 0.8 }),
     ],
     taken,
   );

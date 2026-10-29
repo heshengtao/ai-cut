@@ -7,7 +7,12 @@
  * - 文字修改不在这一层做：剪完会生成「口播字幕」轨，改字去时间线上的字幕片段改。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ArrowPathIcon, ArrowUturnLeftIcon, ScissorsIcon } from "@heroicons/vue/24/outline";
+import {
+  ArrowPathIcon,
+  ArrowUturnLeftIcon,
+  Cog6ToothIcon,
+  ScissorsIcon,
+} from "@heroicons/vue/24/outline";
 import Tooltip from "@/components/common/Tooltip.vue";
 import { useCutReviewStore } from "@/stores/cutReview";
 import { useModelsStore } from "@/stores/models";
@@ -229,6 +234,8 @@ function locateSelection(): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
+  // 设置模态框打开时，Delete / Escape 交给它处理。
+  if (cut.settingsOpen) return;
   const target = event.target as HTMLElement | null;
   if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
   if (target?.isContentEditable) return;
@@ -329,6 +336,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
         </p>
       </div>
       <div class="head-actions">
+        <Tooltip :text="i18n.t('cutReview.settings')">
+          <button class="icon-btn" @click="cut.openSettings()">
+            <Cog6ToothIcon class="icon" />
+          </button>
+        </Tooltip>
         <Tooltip :text="i18n.t('cutReview.rerun')">
           <button class="icon-btn" :disabled="cut.running" @click="run">
             <ArrowPathIcon class="icon" />

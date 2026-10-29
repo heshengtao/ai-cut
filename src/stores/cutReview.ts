@@ -14,11 +14,21 @@ import {
   detectFillers,
   detectPauses,
   mergeProposals,
+  padCutRange,
+  padFillerCuts,
   withWordIds,
   type FillerOptions,
   type PauseOptions,
   type TranscriptWord,
 } from "@/core/cutAnalysis";
+import {
+  DEFAULT_CUT_OPTIONS,
+  addFilterWord,
+  normalizeCutOptions,
+  removeFilterWord,
+  restoreFilterWords,
+  type CutReviewOptions,
+} from "@/core/cutOptions";
 import {
   applyCuts,
   clearScope,
@@ -40,29 +50,14 @@ const DEFAULT_ASR = "sense-voice-int8";
 const ALIGNER_ID = "qwen3-aligner-0.6b-q4";
 const ASR_KEY = "ai-cut-cut-review-asr";
 
-export interface CutReviewOptions {
-  /** 超过多少秒算长停顿。 */
-  minPause: number;
-  /** 是否也剪「那个 / 就是」这类软口癖。 */
-  includeSoft: boolean;
-  /** 用户自己加的过滤词（多语言、个人口癖）。 */
-  custom: string[];
-}
-
 const OPTIONS_KEY = "ai-cut-cut-review-options";
 
 function loadOptions(): CutReviewOptions {
   try {
     const raw = JSON.parse(localStorage.getItem(OPTIONS_KEY) ?? "{}") as Partial<CutReviewOptions>;
-    return {
-      minPause: typeof raw.minPause === "number" ? raw.minPause : 0.8,
-      includeSoft: raw.includeSoft !== false,
-      custom: Array.isArray(raw.custom)
-        ? raw.custom.filter((word): word is string => typeof word === "string")
-        : [],
-    };
+    return normalizeCutOptions(raw);
   } catch {
-    return { minPause: 0.8, includeSoft: true, custom: [] };
+    return { ...DEFAULT_CUT_OPTIONS };
   }
 }
 
@@ -78,6 +73,8 @@ export const useCutReviewStore = defineStore("cutReview", () => {
   const clipId = ref<string | null>(null);
   const modelId = ref<string | null>(null);
   const options = ref<CutReviewOptions>(loadOptions());
+  /** 设置模态框：AI 功能与剪口播面板右上角的齿轮共用同一个。 */
+  const settingsOpen = ref(false);
   /** 下拉框里选的识别模型。 */
   const asrModelId = ref<string | null>(
     (() => {
@@ -130,20 +127,41 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     }
   }
 
-  /** 加一个自定义过滤词（去重、去空白）。 */
-  function addCustomWord(word: string): void {
-    const value = word.trim();
-    if (!value) return;
-    if (options.value.custom.includes(value)) return;
-    setOptions({ custom: [...options.value.custom, value] });
+  function openSettings(): void {
+    settingsOpen.value = true;
   }
 
-  function removeCustomWord(word: string): void {
-    setOptions({ custom: options.value.custom.filter((item) => item !== word) });
+  function closeSettings(): void {
+    settingsOpen.value = false;
+  }
+
+  /** 加一个自定义过滤词；返回 false 表示空白或已经在列表里。 */
+  function addCustomWord(word: string): boolean {
+    const next = addFilterWord(options.value, word);
+    if (next === options.value) return false;
+    setOptions(next);
+    return true;
+  }
+
+  /** 移除过滤词：自定义词删掉，默认词记进禁用列表。 */
+  function removeWord(word: string): void {
+    const next = removeFilterWord(options.value, word);
+    if (next !== options.value) setOptions(next);
+  }
+
+  /** 恢复默认过滤词（清空自定义与禁用，其它设置不动）。 */
+  function restoreDefaultWords(): void {
+    const next = restoreFilterWords(options.value);
+    if (next !== options.value) setOptions(next);
+  }
+
+  /** 所有剪口播设置恢复默认。 */
+  function resetOptions(): void {
+    setOptions({ ...DEFAULT_CUT_OPTIONS });
   }
 
   function setOptions(patch: Partial<CutReviewOptions>): void {
-    options.value = { ...options.value, ...patch };
+    options.value = normalizeCutOptions({ ...options.value, ...patch });
     try {
       localStorage.setItem(OPTIONS_KEY, JSON.stringify(options.value));
     } catch {
@@ -239,14 +257,22 @@ export const useCutReviewStore = defineStore("cutReview", () => {
         srcEnd: cut.srcEnd,
       }));
 
-      const pauseOptions: Partial<PauseOptions> = { minPause: options.value.minPause };
+      const pauseOptions: Partial<PauseOptions> = {
+        minPause: options.value.minPause,
+        keep: options.value.keep,
+        sentenceKeep: options.value.sentenceKeep,
+      };
       const fillerOptions: Partial<FillerOptions> = {
         includeSoft: options.value.includeSoft,
         custom: options.value.custom,
+        disabled: options.value.disabled,
       };
+      // 先扩口癖的切点再合并：扩展后重叠的两个口癖会合成一条，避免中间留缝。
       const proposals = mergeProposals(
         [
-          detectFillers(words.value, fillerOptions),
+          padFillerCuts(detectFillers(words.value, fillerOptions), words.value, {
+            pad: options.value.trimPad,
+          }),
           detectPauses(words.value, pauseOptions),
         ],
         taken,
@@ -332,14 +358,18 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     return placeCueTrack(doc, cues, t("cutReview.cueTrack"));
   }
 
-  /** 在文稿里手动剪掉一段。 */
+  /** 在文稿里手动剪掉一段；非停顿的剪口会向两侧静音多切一点。 */
   function cutWords(from: number, to: number, text: string, kind: CutKind = "manual"): boolean {
     const targetClip = clipId.value;
     if (!targetClip) return false;
+    const padded =
+      kind === "pause"
+        ? { start: from, end: to }
+        : padCutRange(words.value, from, to, { pad: options.value.trimPad });
     let changed = false;
     useProjectStore().dispatch(
       (doc) => {
-        const next = cutSourceRange(doc, targetClip, from, to, kind, text);
+        const next = cutSourceRange(doc, targetClip, padded.start, padded.end, kind, text);
         if (next === doc) return doc;
         changed = true;
         const current = scopeOfClip(next, targetClip);
@@ -348,7 +378,9 @@ export const useCutReviewStore = defineStore("cutReview", () => {
       {
         kind: "ui.dispatch",
         actor: "human",
-        label: t("cutReview.cutSelection", { value: `${(to - from).toFixed(1)}s` }),
+        label: t("cutReview.cutSelection", {
+          value: `${(padded.end - padded.start).toFixed(1)}s`,
+        }),
       },
     );
     return changed;
@@ -413,13 +445,18 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     clipId,
     modelId,
     options,
+    settingsOpen,
     scope,
     cuts,
     removedSeconds,
     timelineCuts,
+    openSettings,
+    closeSettings,
     setOptions,
     addCustomWord,
-    removeCustomWord,
+    removeWord,
+    restoreDefaultWords,
+    resetOptions,
     asrModelId,
     setAsrModel,
     candidateModel,

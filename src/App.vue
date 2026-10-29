@@ -6,6 +6,7 @@ import AppShell from "@/components/layout/AppShell.vue";
 import Toast from "@/components/common/Toast.vue";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
 import ExportModal from "@/components/common/ExportModal.vue";
+import CutSettingsDialog from "@/components/common/CutSettingsDialog.vue";
 import { releaseNotesUrl, takeUpdateNotice } from "@/core/updateNotice";
 import { useLayoutStore } from "@/stores/layout";
 import { useAgentStore } from "@/stores/agent";
@@ -81,4 +82,5 @@ onUnmounted(() => {
   <Toast />
   <ConfirmDialog />
   <ExportModal />
+  <CutSettingsDialog />
 </template>

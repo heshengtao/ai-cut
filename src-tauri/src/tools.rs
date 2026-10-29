@@ -211,13 +211,21 @@ pub fn definitions() -> Vec<ToolDef> {
                     "assetId": { "type": "string" },
                     "modelId": { "type": "string", "description": "语音识别模型，省略时用 SenseVoice" },
                     "minPause": { "type": "number", "description": "长停顿阈值（秒），默认 0.8" },
+                    "pauseKeep": { "type": "number", "description": "剪停顿后段中保留多少秒，默认 0.3" },
+                    "sentenceKeep": { "type": "number", "description": "剪停顿后句末保留多少秒，默认 0.4" },
                     "includeSoft": { "type": "boolean", "description": "是否也剪「那个 / 就是」这类口头禅，默认 true" },
                     "dryRun": { "type": "boolean", "description": "只返回建议，不改时间线" },
                     "customWords": {
                         "type": "array",
                         "items": { "type": "string" },
                         "description": "自定义过滤词（任意语言），命中就剪"
-                    }
+                    },
+                    "disabledWords": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "从默认过滤词里移除的词"
+                    },
+                    "trimPad": { "type": "number", "description": "切点向两侧静音扩展多少秒，默认 0.12；时间戳卡在字音峰值时可避免残留尾音" }
                 }
             }),
         },
