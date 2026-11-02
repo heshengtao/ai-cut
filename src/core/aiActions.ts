@@ -21,9 +21,9 @@ import type { Clip, MediaAsset, Project } from "@/types/project";
 import type { VideoAiAspect, VideoAiSubject, VideoDspOptions } from "@/types/video";
 import { audioExtractReference } from "@/core/audioAiApi";
 import { addStemTracks, applyProcessedAudio, loudnessGain } from "@/core/audioEdit";
-import { createClip } from "@/core/factory";
 import { importAssetAt } from "@/core/media";
-import { addAsset, addClip, addTrackAt, setClipGain, setClipMuted } from "@/core/ops";
+import { addAsset, setClipGain, setClipMuted } from "@/core/ops";
+import { insertCueTrack as insertSubtitleTrack } from "@/core/subtitleTrack";
 import { mapCueToTimeline } from "@/core/subtitles";
 import { replaceClipVideo } from "@/core/videoEdit";
 import { placeVoiceover } from "@/core/voiceover";
@@ -178,13 +178,6 @@ function stemLabel(name: string): string {
   return label === key ? name : label;
 }
 
-function uniqueTrackName(doc: Project, base: string): string {
-  let name = base;
-  let index = 2;
-  while (doc.tracks.some((track) => track.name === name)) name = `${base} ${index++}`;
-  return name;
-}
-
 function createdTracks(before: Project): TrackRef[] {
   const previous = new Set(before.tracks.map((track) => track.id));
   return project()
@@ -214,28 +207,7 @@ function insertCueTrack(
 ): TrackRef | null {
   if (cues.length === 0) return null;
   const before = project().doc;
-  project().dispatch(
-    (doc) => {
-      const name = uniqueTrackName(doc, baseName);
-      let next = addTrackAt(doc, 0, name);
-      const trackId = next.tracks[0].id;
-      for (const cue of cues) {
-        next = addClip(
-          next,
-          trackId,
-          createClip({
-            assetId: "",
-            trackId,
-            start: cue.start,
-            duration: cue.duration,
-            text: cue.text,
-          }),
-        );
-      }
-      return next;
-    },
-    jobMeta(ctx, label),
-  );
+  project().dispatch((doc) => insertSubtitleTrack(doc, cues, baseName), jobMeta(ctx, label));
   return createdTracks(before)[0] ?? null;
 }
 

@@ -7,6 +7,7 @@
  */
 import { computed, onMounted, ref } from "vue";
 import {
+  AdjustmentsHorizontalIcon,
   ArrowDownTrayIcon,
   ArrowPathIcon,
   ExclamationTriangleIcon,
@@ -14,31 +15,106 @@ import {
   TrashIcon,
 } from "@heroicons/vue/24/outline";
 import { useModelsStore } from "@/stores/models";
+import { useRuntimesStore } from "@/stores/runtimes";
+import { useSdcppStore } from "@/stores/sdcpp";
+import { usePluginsStore } from "@/stores/plugins";
 import { useLayoutStore } from "@/stores/layout";
-import PluginManager from "./PluginManager.vue";
+import PluginList from "./PluginList.vue";
+import PluginImportButton from "./PluginImportButton.vue";
 import { useI18n } from "@/i18n";
 import { humanSize, missingBytes } from "@/utils/size";
+import { appRestart } from "@/core/runtimeApi";
+import { toast } from "@/composables/useToast";
 import { regionsLabel, sourceKindLabel } from "@/utils/modelSource";
 import type { ModelSourceStatus } from "@/types/models";
+import type { PluginStatus } from "@/types/plugins";
 
-type Filter = "all" | "installed" | "available";
+type Tab = "installed" | "available";
+type Kind = "all" | "plugin" | "model" | "runtime";
 
 const models = useModelsStore();
+const runtimes = useRuntimesStore();
+const sdcpp = useSdcppStore();
+const plugins = usePluginsStore();
 const layout = useLayoutStore();
 const i18n = useI18n();
-const filter = ref<Filter>("all");
+const tab = ref<Tab>("installed");
+const kind = ref<Kind>("all");
+const query = ref("");
 const confirming = ref<string | null>(null);
+const confirmingRuntime = ref<string | null>(null);
+const confirmingSdcpp = ref<string | null>(null);
 
-const installedCount = computed(
-  () => models.catalog.filter((model) => model.installed).length,
+function matches(text: string): boolean {
+  const needle = query.value.trim().toLowerCase();
+  return needle === "" || text.toLowerCase().includes(needle);
+}
+
+/** 运行时本体（CUDA 12 / CUDA 13 的 ONNX Runtime）；随包基线不在这里出现。 */
+const coreRuntimes = computed(() =>
+  runtimes.items
+    .filter((runtime) => runtime.core && !runtime.bundled)
+    // 两个页签都显示：设置页「补齐运行库」会直接跳到这里下载，进度必须看得见。
+    .filter((runtime) => matches(i18n.t(runtime.label))),
+);
+
+/** CUDA 12 / CUDA 13 的组件：和本体分开、也不算随包基线。 */
+const cudaParts = computed(() =>
+  runtimes.items.filter((runtime) => runtime.group === "cuda12" || runtime.group === "cuda13"),
+);
+
+/**
+ * 当前页签下要显示的组件。
+ *
+ * 「已安装」只列真的装好的（和 ai-daw 一致）；「可下载」列全部，缺的给下载按钮。
+ */
+const visibleParts = computed(() =>
+  cudaParts.value
+    .filter((part) => (tab.value === "installed" ? part.installed : true))
+    .filter((part) => matches(i18n.t(part.label))),
+);
+
+/** CUDA 12 / CUDA 13 的组件各一张卡片，别把两套版本挤在一起。 */
+const componentGroups = computed(() =>
+  [
+    { key: "cuda12", titleKey: "runtime.cuda12Parts", hintKey: "runtime.cuda12PartsHint" },
+    { key: "cuda13", titleKey: "runtime.cuda13Parts", hintKey: "runtime.cuda13PartsHint" },
+  ]
+    .map((group) => ({
+      ...group,
+      items: visibleParts.value.filter((part) => part.group === group.key),
+    }))
+    .filter((group) => group.items.length > 0),
 );
 
 const visible = computed(() =>
-  models.catalog.filter((model) => {
-    if (filter.value === "installed") return model.installed;
-    if (filter.value === "available") return !model.installed;
-    return true;
-  }),
+  models.catalog
+    .filter((model) => (tab.value === "installed" ? model.installed : !model.installed))
+    .filter((model) => matches(model.name)),
+);
+
+/** 插件：已安装 = 管理器装的 + 外部目录里的；可下载 = 注册表里兼容的。 */
+const visiblePlugins = computed<PluginStatus[]>(() => {
+  const rows =
+    tab.value === "installed"
+      ? [...plugins.managedInstalled, ...plugins.externalPlugins]
+      : plugins.availablePlugins.filter((plugin) => plugin.compatible);
+  return rows.filter((plugin) => plugins.matches(plugin, query.value));
+});
+
+const installedTotal = computed(
+  () =>
+    models.catalog.filter((model) => model.installed).length +
+    runtimes.items.filter((runtime) => runtime.installed && !runtime.bundled).length +
+    sdcpp.items.filter((pack) => pack.installed).length +
+    plugins.managedInstalled.length,
+);
+const availableTotal = computed(
+  () =>
+    models.catalog.filter((model) => !model.installed).length +
+    runtimes.items.filter((runtime) => !runtime.installed && !runtime.bundled).length +
+    sdcpp.items.filter((pack) => !pack.installed).length +
+    plugins.availablePlugins.filter((plugin) => plugin.compatible).length,
 );
 
 function featureLabel(feature: string): string {
@@ -68,6 +144,39 @@ async function remove(id: string): Promise<void> {
   await models.remove(id);
 }
 
+/** 运行时（CUDA）下载 / 重新安装 / 删除；随包基线只有「内置」状态，没有按钮。 */
+async function installRuntime(id: string, force = false): Promise<void> {
+  await runtimes.install(id, force);
+}
+
+async function removeRuntime(id: string): Promise<void> {
+  confirmingRuntime.value = null;
+  await runtimes.remove(id);
+}
+
+async function installSdcpp(id: string, force = false): Promise<void> {
+  await sdcpp.install(id, force);
+}
+
+async function removeSdcpp(id: string): Promise<void> {
+  confirmingSdcpp.value = null;
+  await sdcpp.remove(id);
+}
+
+/**
+ * 装 / 删了运行库（含 CUDA 组件）之后，本进程还没生效。
+ *
+ * 开发模式下后端拒绝自动重启：提示完就把横幅收掉，别让它一直挂着。
+ */
+async function restartNow(): Promise<void> {
+  try {
+    await appRestart();
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error));
+    runtimes.consumeRestartPrompt();
+  }
+}
+
 function currentSource(): string {
   return sourceKindLabel(
     i18n.t,
@@ -88,24 +197,37 @@ function sourceLabels(sources: ModelSourceStatus[]): string {
 onMounted(() => {
   models.watchProgress();
   if (models.catalog.length === 0) void models.load();
+  runtimes.watchProgress();
+  if (runtimes.items.length === 0) void runtimes.load();
+  sdcpp.watchProgress();
+  if (sdcpp.items.length === 0) void sdcpp.load();
+  plugins.watchProgress();
+  if (!plugins.loaded) void plugins.load();
+  void plugins.loadInstalled();
 });
 </script>
 
 <template>
   <div class="pane">
+    <!--
+      运行库变了（含 CUDA 组件）：新的 dylib / 组件只在下次启动时加载。
+      这里用常驻横幅而不是弹框——从设置页「补齐组件」回来时本面板会被卸载，
+      弹框会跟着消失，横幅则一直留到用户重启。
+    -->
+    <div v-if="runtimes.restartPrompt" class="restart-banner">
+      <span class="restart-text">{{ i18n.t("runtime.restartBody") }}</span>
+      <button class="mini-btn primary" @click="restartNow()">
+        {{ i18n.t("runtime.restartNow") }}
+      </button>
+      <button class="mini-btn" @click="runtimes.consumeRestartPrompt()">
+        {{ i18n.t("runtime.restartLater") }}
+      </button>
+    </div>
     <header class="head">
       <div class="head-main">
         <h2 class="title">{{ i18n.t("models.title") }}</h2>
         <p class="sub">
-          <template v-if="layout.downloadSection === 'models'">
-            {{
-              i18n.t("models.sub", {
-                installed: installedCount,
-                total: models.catalog.length,
-              })
-            }}
-          </template>
-          <template v-else>{{ i18n.t("models.subPlugins") }}</template>
+          {{ i18n.t("models.subCounts", { installed: installedTotal, available: availableTotal }) }}
         </p>
       </div>
       <button
@@ -113,58 +235,362 @@ onMounted(() => {
         :title="i18n.t('models.refresh')"
         :aria-label="i18n.t('models.refresh')"
         :disabled="models.loading"
-        @click="models.load()"
+        @click="models.load(); runtimes.load(); sdcpp.load(); plugins.refresh()"
       >
         <ArrowPathIcon class="w-[16px] h-[16px]" :class="{ spinning: models.loading }" />
       </button>
     </header>
 
-    <div class="download-tabs" role="tablist">
+    <!-- 标签 + 显眼的「导入插件」按钮（对齐 AI DAW 的下载管理器）。 -->
+    <div class="manager-bar">
+      <div class="tabs" role="tablist">
+        <button
+          class="tab"
+          :class="{ on: tab === 'installed' }"
+          role="tab"
+          :aria-selected="tab === 'installed'"
+          @click="tab = 'installed'"
+        >
+          {{ i18n.t("models.tab.installed") }}
+          <span v-if="installedTotal" class="tab-count">{{ installedTotal }}</span>
+        </button>
+        <button
+          class="tab"
+          :class="{ on: tab === 'available' }"
+          role="tab"
+          :aria-selected="tab === 'available'"
+          @click="tab = 'available'"
+        >
+          {{ i18n.t("models.tab.available") }}
+          <span v-if="availableTotal" class="tab-count">{{ availableTotal }}</span>
+        </button>
+      </div>
+      <PluginImportButton />
+    </div>
+
+    <input
+      v-model="query"
+      class="search"
+      type="search"
+      :placeholder="i18n.t('models.searchPlaceholder')"
+      :aria-label="i18n.t('models.searchPlaceholder')"
+    />
+
+    <div class="chips" role="group" :aria-label="i18n.t('models.kindFilter')">
       <button
-        class="download-tab"
-        :class="{ on: layout.downloadSection === 'models' }"
-        role="tab"
-        :aria-selected="layout.downloadSection === 'models'"
-        @click="layout.setDownloadSection('models')"
+        v-for="item in (['all', 'plugin', 'model', 'runtime'] as const)"
+        :key="item"
+        class="chip"
+        :class="{ on: kind === item }"
+        :aria-pressed="kind === item"
+        @click="kind = item"
       >
-        {{ i18n.t("models.tab.models") }}
+        {{ i18n.t(`models.kind.${item}`) }}
       </button>
       <button
-        class="download-tab"
-        :class="{ on: layout.downloadSection === 'plugins' }"
-        role="tab"
-        :aria-selected="layout.downloadSection === 'plugins'"
-        @click="layout.setDownloadSection('plugins')"
+        class="chip source-chip"
+        :title="i18n.t('models.sourceSettingsHint')"
+        @click="layout.openSettings('network')"
       >
-        {{ i18n.t("models.tab.plugins") }}
+        <AdjustmentsHorizontalIcon class="w-[13px] h-[13px]" />
+        {{ i18n.t("models.sourceSettings") }}
       </button>
     </div>
 
-    <template v-if="layout.downloadSection === 'models'">
+    <!-- 运行时：本体 + CUDA/cuDNN 组件，都在这里下载。 -->
+    <div v-if="kind === 'all' || kind === 'runtime'" class="runtime-section">
+      <div class="runtime-head">
+        <span class="runtime-title">{{ i18n.t("runtime.title") }}</span>
+        <span class="runtime-hint">{{ i18n.t("runtime.hint") }}</span>
+      </div>
+      <p v-if="runtimes.error" class="runtime-error">{{ runtimes.error }}</p>
+      <ul v-if="coreRuntimes.length > 0" class="list">
+        <li
+          v-for="runtime in coreRuntimes"
+          :key="runtime.id"
+          class="card"
+          :class="{
+            busy: runtimes.installing(runtime.id),
+            focus: runtimes.focus === runtime.id,
+          }"
+        >
+          <div class="card-top">
+            <span class="card-name">{{ i18n.t(runtime.label) }}</span>
+            <span v-if="runtime.installed" class="badge ok">
+              {{ i18n.t("runtime.installed") }}
+            </span>
+            <span v-else class="badge">{{ i18n.t("runtime.notInstalled") }}</span>
+          </div>
+          <p class="card-meta">{{ i18n.t(runtime.note) }}</p>
+          <p class="card-meta">
+            {{ humanSize(runtime.bytes) }} · {{ i18n.t("models.license") }}
+            {{ runtime.license }}
+          </p>
+
+          <div v-if="!runtime.bundled" class="card-actions">
+            <button
+              v-if="runtimes.installing(runtime.id)"
+              class="mini-btn danger"
+              @click="runtimes.cancel()"
+            >
+              {{ i18n.t("models.cancel") }}
+            </button>
+            <template v-else-if="runtime.installed">
+              <template v-if="tab === 'available'">
+                <button
+                  class="mini-btn"
+                  :disabled="runtimes.busyId !== null"
+                  @click="installRuntime(runtime.id, true)"
+                >
+                  {{ i18n.t("models.reinstall") }}
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  class="mini-btn"
+                  :disabled="runtimes.busyId !== null"
+                  @click="runtimes.reveal(runtime.id)"
+                >
+                  <FolderOpenIcon class="w-[13px] h-[13px]" />
+                  {{ i18n.t("models.reveal") }}
+                </button>
+                <template v-if="confirmingRuntime !== runtime.id">
+                  <button
+                    class="mini-btn danger"
+                    :disabled="runtimes.busyId !== null"
+                    @click="confirmingRuntime = runtime.id"
+                  >
+                    <TrashIcon class="w-[13px] h-[13px]" />
+                    {{ i18n.t("models.remove") }}
+                  </button>
+                </template>
+                <template v-else>
+                  <button class="mini-btn danger" @click="removeRuntime(runtime.id)">
+                    {{ i18n.t("models.confirmRemove") }}
+                  </button>
+                  <button class="mini-btn" @click="confirmingRuntime = null">
+                    {{ i18n.t("common.cancel") }}
+                  </button>
+                </template>
+              </template>
+            </template>
+            <button
+              v-else
+              class="mini-btn primary"
+              :disabled="runtimes.busyId !== null"
+              @click="installRuntime(runtime.id)"
+            >
+              <ArrowDownTrayIcon class="w-[13px] h-[13px]" />
+              {{ i18n.t("models.download", { size: humanSize(runtime.bytes) }) }}
+            </button>
+          </div>
+
+          <div v-if="runtimes.installing(runtime.id)" class="progress">
+            <div
+              class="progress-fill"
+              :class="{ indeterminate: runtimes.progressPct === null }"
+              :style="
+                runtimes.progressPct === null
+                  ? undefined
+                  : { width: `${runtimes.progressPct}%` }
+              "
+            />
+          </div>
+        </li>
+      </ul>
+
+      <!-- CUDA 12 / CUDA 13 的组件各一张卡片：切哪套就自动装哪套，也可以单独下载。 -->
+      <div
+        v-for="group in componentGroups"
+        :key="group.key"
+        class="card cuda-parts-card"
+      >
+        <div class="parts-head">
+          <span class="parts-title">{{ i18n.t(group.titleKey) }}</span>
+          <span class="parts-note">{{ i18n.t(group.hintKey) }}</span>
+        </div>
+        <div
+          v-for="part in group.items"
+          :key="part.id"
+          class="part-row"
+          :class="{ busy: runtimes.installing(part.id) }"
+        >
+          <div class="part-main">
+            <span class="part-name">{{ i18n.t(part.label) }}</span>
+            <span class="part-size">{{ humanSize(part.bytes) }}</span>
+            <span v-if="part.installed" class="badge ok">
+              {{ i18n.t("runtime.installed") }}
+            </span>
+          </div>
+          <div class="part-actions">
+            <button
+              v-if="runtimes.installing(part.id)"
+              class="mini-btn danger"
+              @click="runtimes.cancel()"
+            >
+              {{ i18n.t("models.cancel") }}
+            </button>
+            <button
+              v-else-if="part.installed && tab === 'available'"
+              class="mini-btn"
+              :disabled="runtimes.busyId !== null"
+              @click="installRuntime(part.id, true)"
+            >
+              {{ i18n.t("models.reinstall") }}
+            </button>
+            <button
+              v-else-if="part.installed"
+              class="mini-btn"
+              :disabled="runtimes.busyId !== null"
+              @click="runtimes.remove(part.id)"
+            >
+              {{ i18n.t("models.remove") }}
+            </button>
+            <button
+              v-else
+              class="mini-btn primary"
+              :disabled="runtimes.busyId !== null"
+              @click="installRuntime(part.id)"
+            >
+              <ArrowDownTrayIcon class="w-[13px] h-[13px]" />
+              {{ i18n.t("models.download", { size: humanSize(part.bytes) }) }}
+            </button>
+          </div>
+          <div v-if="runtimes.installing(part.id)" class="progress">
+            <div
+              class="progress-fill"
+              :class="{ indeterminate: runtimes.progressPct === null }"
+              :style="
+                runtimes.progressPct === null
+                  ? undefined
+                  : { width: `${runtimes.progressPct}%` }
+              "
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- sd.cpp 视频引擎：与 ONNX Runtime 分开的一组 -->
+      <div class="runtime-head models-head">
+        <span class="runtime-title">{{ i18n.t("sdcpp.group") }}</span>
+        <span class="runtime-hint">{{ i18n.t("sdcpp.groupHint") }}</span>
+      </div>
+      <p class="policy">{{ i18n.t("sdcpp.officialOnly") }}</p>
+      <p v-if="sdcpp.error" class="runtime-error">{{ sdcpp.error }}</p>
+      <ul v-if="sdcpp.items.length > 0" class="list">
+        <li
+          v-for="pack in sdcpp.items"
+          :key="pack.id"
+          class="card"
+          :class="{
+            busy: sdcpp.installing(pack.id),
+            focus: sdcpp.focus === pack.id,
+          }"
+        >
+          <div class="card-top">
+            <span class="card-name">{{ i18n.t(pack.label) }}</span>
+            <span v-if="pack.installed" class="badge ok">
+              {{ i18n.t("runtime.installed") }}
+            </span>
+            <span v-else class="badge">{{ i18n.t("runtime.notInstalled") }}</span>
+            <span v-if="pack.selected" class="badge on">{{ i18n.t("sdcpp.current") }}</span>
+          </div>
+          <p class="card-meta">{{ i18n.t(pack.note) }}</p>
+          <p class="card-meta">
+            {{ humanSize(pack.bytes) }} · {{ i18n.t("models.license") }}
+            {{ pack.license }}
+          </p>
+          <div class="card-actions">
+            <button
+              v-if="sdcpp.installing(pack.id)"
+              class="mini-btn danger"
+              @click="sdcpp.cancel()"
+            >
+              {{ i18n.t("models.cancel") }}
+            </button>
+            <template v-else-if="pack.installed">
+              <template v-if="tab === 'available'">
+                <button
+                  class="mini-btn"
+                  :disabled="sdcpp.busyId !== null"
+                  @click="installSdcpp(pack.id, true)"
+                >
+                  {{ i18n.t("models.reinstall") }}
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  class="mini-btn"
+                  :disabled="sdcpp.busyId !== null"
+                  @click="sdcpp.reveal(pack.id)"
+                >
+                  <FolderOpenIcon class="w-[13px] h-[13px]" />
+                  {{ i18n.t("models.reveal") }}
+                </button>
+                <template v-if="confirmingSdcpp !== pack.id">
+                  <button
+                    class="mini-btn danger"
+                    :disabled="sdcpp.busyId !== null"
+                    @click="confirmingSdcpp = pack.id"
+                  >
+                    <TrashIcon class="w-[13px] h-[13px]" />
+                    {{ i18n.t("models.remove") }}
+                  </button>
+                </template>
+                <template v-else>
+                  <button class="mini-btn danger" @click="removeSdcpp(pack.id)">
+                    {{ i18n.t("models.confirmRemove") }}
+                  </button>
+                  <button class="mini-btn" @click="confirmingSdcpp = null">
+                    {{ i18n.t("common.cancel") }}
+                  </button>
+                </template>
+              </template>
+            </template>
+            <button
+              v-else
+              class="mini-btn primary"
+              :disabled="sdcpp.busyId !== null"
+              @click="installSdcpp(pack.id)"
+            >
+              <ArrowDownTrayIcon class="w-[13px] h-[13px]" />
+              {{ i18n.t("models.download", { size: humanSize(pack.bytes) }) }}
+            </button>
+          </div>
+          <div v-if="sdcpp.installing(pack.id)" class="progress">
+            <div
+              class="progress-fill"
+              :class="{ indeterminate: sdcpp.progressPct === null }"
+              :style="
+                sdcpp.progressPct === null ? undefined : { width: `${sdcpp.progressPct}%` }
+              "
+            />
+          </div>
+        </li>
+      </ul>
+
+      <div
+        v-if="coreRuntimes.length === 0 && visibleParts.length === 0 && sdcpp.items.length === 0"
+        class="empty"
+      >
+        <p class="empty-text">{{ i18n.t("runtime.empty") }}</p>
+      </div>
+    </div>
+
+    <!-- 模型 -->
+    <template v-if="kind === 'all' || kind === 'model'">
+    <div class="runtime-head models-head">
+      <span class="runtime-title">{{ i18n.t("models.tab.models") }}</span>
+    </div>
+
     <div class="policy-row">
       <p class="policy">{{ i18n.t("models.bundlePolicy") }}</p>
-      <button class="mini-btn" @click="layout.openSettings('network')">
-        {{ i18n.t("models.sourceSettings") }}
-      </button>
     </div>
 
     <div v-if="models.error" class="banner">
       <ExclamationTriangleIcon class="banner-icon" />
       <span class="banner-text">{{ models.error }}</span>
       <button class="banner-close" @click="models.error = null">×</button>
-    </div>
-
-    <div class="chips" role="group" :aria-label="i18n.t('models.filter')">
-      <button
-        v-for="item in (['all', 'installed', 'available'] as const)"
-        :key="item"
-        class="chip"
-        :class="{ on: filter === item }"
-        :aria-pressed="filter === item"
-        @click="filter = item"
-      >
-        {{ i18n.t(`models.filter.${item}`) }}
-      </button>
     </div>
 
     <ul v-if="visible.length > 0" class="list">
@@ -310,9 +736,13 @@ onMounted(() => {
     </div>
     </template>
 
-    <template v-else>
-      <PluginManager />
-    </template>
+    <!-- 插件 -->
+    <div v-if="kind === 'all' || kind === 'plugin'" class="plugin-section">
+      <div class="runtime-head models-head">
+        <span class="runtime-title">{{ i18n.t("models.tab.plugins") }}</span>
+      </div>
+      <PluginList :plugins="visiblePlugins" mode="manage" />
+    </div>
   </div>
 </template>
 
@@ -346,30 +776,130 @@ onMounted(() => {
   font-size: 11px;
   color: rgb(var(--md-on-surface-variant));
 }
-.download-tabs {
+.manager-bar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px 0;
+  flex: 0 0 auto;
+}
+/* 标签栏右侧：导入插件（窄面板里会换到下一行）。 */
+/* 「下载源」：和筛选胶囊同一行的一个动作胶囊（点了跳设置页的「网络」）。 */
+.chip.source-chip {
+  display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin: 10px 14px 0;
-  padding: 3px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-surface-container-high));
 }
-.download-tab {
-  flex: 1 1 0;
+.tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.tab {
   height: 28px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: rgb(var(--md-on-surface-variant));
-  font-size: 11.5px;
-  font-weight: 500;
+  font-size: 12px;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
-.download-tab.on {
+.tab.on {
   background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
+}
+.tab-count {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background-color: rgb(var(--md-primary) / 0.16);
+  color: rgb(var(--md-primary));
+  font-size: 10px;
+}
+.search {
+  flex: 0 0 auto;
+  height: 32px;
+  min-height: 32px;
+  margin: 8px 14px 0;
+  padding: 0 12px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.7);
+  border-radius: 999px;
+  background: var(--app-inset);
+  color: rgb(var(--md-on-surface));
+  font-size: 12px;
+  outline: none;
+}
+.search:focus {
+  outline: 2px solid rgb(var(--md-primary));
+  outline-offset: 0;
+}
+.cuda-parts-card {
+  margin: 8px 14px 0;
+}
+/* CUDA / cuDNN 组件列表（挂在 CUDA 本体卡片里）。 */
+.runtime-parts {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgb(var(--md-outline-variant) / 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.parts-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: rgb(var(--md-on-surface-muted));
+}
+.parts-note {
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgb(var(--md-on-surface-muted));
+}
+.part-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background-color: rgb(var(--md-surface-container-high) / 0.5);
+}
+.part-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.part-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgb(var(--md-on-surface));
+}
+.part-size {
+  font-size: 11px;
+  color: rgb(var(--md-on-surface-muted));
+}
+.part-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
 }
 .plugin-head {
   display: flex;
@@ -455,6 +985,7 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 6px;
   padding: 12px 14px 4px;
+  flex: 0 0 auto;
 }
 .chip {
   height: 26px;
@@ -493,6 +1024,10 @@ onMounted(() => {
   padding: 12px;
   border-radius: 14px;
   background-color: var(--app-inset);
+}
+/* 从设置页跳到运行时区时的短暂高亮。 */
+.card.focus {
+  box-shadow: 0 0 0 2px rgb(var(--md-primary) / 0.65);
 }
 .card-top {
   display: flex;
@@ -625,6 +1160,59 @@ onMounted(() => {
   bottom: 0;
   height: 3px;
   background-color: rgb(var(--md-primary) / 0.15);
+}
+/* ---- 运行时 / 「重启后生效」横幅 ---- */
+.restart-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 12px 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background-color: rgb(var(--md-primary) / 0.1);
+  color: rgb(var(--md-primary));
+}
+.restart-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+/* 运行时分区：和模型同一个列表样式，单独一段标题。 */
+.runtime-section {
+  margin-top: 10px;
+}
+.models-head {
+  margin-top: 12px;
+  padding-bottom: 0;
+}
+.runtime-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 14px 6px;
+}
+.runtime-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: rgb(var(--md-on-surface-muted));
+}
+.runtime-hint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgb(var(--md-on-surface-muted));
+}
+.runtime-error {
+  margin: 0 14px 6px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background-color: rgb(var(--md-error) / 0.12);
+  color: rgb(var(--md-error));
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 .progress-fill {
   height: 100%;

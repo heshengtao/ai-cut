@@ -11,6 +11,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   ExclamationTriangleIcon,
+  FilmIcon,
   PlusIcon,
   TrashIcon,
 } from "@heroicons/vue/24/outline";
@@ -69,13 +70,70 @@ const effectNotes = computed(() => {
   return notes;
 });
 
-/** 当前片段的整段预渲染状态（打开效果后自动排队）。 */
+/**
+ * 当前片段的预渲染状态。加特效时不会自动开烤，必须用户点「预渲染」；
+ * 参数一改旧结果就作废，按钮会回到可点状态。
+ */
 const renderJob = computed(() => effectRender.jobFor(props.clip?.id ?? null));
 const renderPct = computed(() => {
   const job = renderJob.value;
   if (!job || job.total <= 0) return 0;
   return Math.min(100, Math.round((job.done / job.total) * 100));
 });
+const renderBusy = computed(
+  () => renderJob.value?.status === "queued" || renderJob.value?.status === "rendering",
+);
+const renderReady = computed(() => renderJob.value?.status === "ready");
+const renderFailed = computed(() => renderJob.value?.status === "error");
+/** 只有启用中的效果会被烘焙；全关掉时预渲染没有意义。 */
+const canPrerender = computed(() =>
+  effects.value.some((effect) => effect.enabled !== false),
+);
+const renderLabel = computed(() => {
+  const job = renderJob.value;
+  if (!job) return i18n.t("effects.prerender");
+  if (job.status === "queued") return i18n.t("effects.prerenderQueued");
+  if (job.status === "rendering") return i18n.t("common.cancel");
+  if (job.status === "ready") return i18n.t("effects.prerenderReady");
+  return i18n.t("effects.prerenderRetry");
+});
+const renderHint = computed(() => {
+  const job = renderJob.value;
+  if (job?.status === "error") {
+    return i18n.t("effects.renderFailed", { error: job.error ?? "" });
+  }
+  if (job?.status === "rendering") {
+    return i18n.t("effects.rendering", { pct: renderPct.value });
+  }
+  if (job?.status === "queued") return i18n.t("effects.renderQueued");
+  return i18n.t("effects.prerenderHint");
+});
+
+/**
+ * 预渲染整个片段（多选时按当前选择批量排队）。
+ * 正在排队 / 渲染中的按钮此时是「取消」。
+ */
+async function prerender(): Promise<void> {
+  const clip = props.clip;
+  if (!clip || props.disabled) return;
+  const job = renderJob.value;
+  if (job && (job.status === "queued" || job.status === "rendering")) {
+    effectRender.cancel(clip.id);
+    return;
+  }
+  if (job?.status === "ready") return;
+
+  try {
+    // 多选时按当前选择批量排队；当前片段一定包含在内。
+    const ids = new Set(targetClips.value.map((item) => item.id));
+    ids.add(clip.id);
+    for (const id of ids) {
+      await effectRender.request(id);
+    }
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  }
+}
 
 /** 只有画面素材能进 OFX；文字与纯音频片段跳过。 */
 const targetClips = computed(() =>
@@ -318,30 +376,10 @@ onMounted(() => {
       </div>
     </div>
 
-    <div
-      v-if="renderJob && renderJob.status !== 'ready'"
-      class="render-state"
-      :class="{ error: renderJob.status === 'error' }"
-    >
-      <template v-if="renderJob.status === 'error'">
-        <ExclamationTriangleIcon class="render-icon" />
-        <span class="render-text">
-          {{ i18n.t("effects.renderFailed", { error: renderJob.error ?? "" }) }}
-        </span>
-      </template>
-      <template v-else>
-        <span class="render-text">
-          {{
-            renderJob.status === "queued"
-              ? i18n.t("effects.renderQueued")
-              : i18n.t("effects.rendering", { pct: renderPct })
-          }}
-        </span>
-        <div class="render-bar">
-          <div class="render-fill" :style="{ width: `${renderPct}%` }" />
-        </div>
-      </template>
-    </div>
+    <p v-if="renderFailed" class="render-error">
+      <ExclamationTriangleIcon class="render-icon" />
+      <span>{{ i18n.t("effects.renderFailed", { error: renderJob?.error ?? "" }) }}</span>
+    </p>
 
     <div v-if="pendingPlugins.length > 0" class="plugin-picker">
       <span class="picker-label">{{ i18n.t("effects.choosePlugin") }}</span>
@@ -414,6 +452,16 @@ onMounted(() => {
           <span>{{ i18n.t("effects.openParams") }}</span>
         </button>
         <button
+          class="effect-prerender-btn"
+          type="button"
+          :title="renderHint"
+          :disabled="disabled || renderReady || !canPrerender"
+          @click="prerender"
+        >
+          <FilmIcon class="action-icon" />
+          <span>{{ renderLabel }}</span>
+        </button>
+        <button
           class="effect-remove"
           type="button"
           :aria-label="i18n.t('effects.remove')"
@@ -422,6 +470,15 @@ onMounted(() => {
         >
           <TrashIcon class="remove-icon" />
         </button>
+      </div>
+
+      <!-- 预渲染进度：贴在特效卡片下边缘（和 AI 功能里的进度条同一写法）。 -->
+      <div
+        v-if="renderBusy && index === effects.length - 1"
+        class="render-progress"
+        :title="renderHint"
+      >
+        <div class="render-progress-fill" :style="{ width: `${renderPct}%` }" />
       </div>
     </div>
   </div>
@@ -473,29 +530,19 @@ onMounted(() => {
   width: 13px;
   height: 13px;
 }
-.render-state {
+/* 预渲染失败：给一段能读的说明，而不是只把进度条变红。 */
+.render-error {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background-color: rgb(var(--md-surface-container-high));
-}
-.render-state.error {
-  flex-direction: row;
   align-items: flex-start;
   gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
   background-color: rgb(var(--md-error) / 0.12);
   color: rgb(var(--md-error));
-}
-.render-text {
   font-size: 10.5px;
-  line-height: 1.4;
-  color: rgb(var(--md-on-surface-variant));
+  line-height: 1.45;
   overflow-wrap: anywhere;
-}
-.render-state.error .render-text {
-  color: inherit;
 }
 .render-icon {
   width: 13px;
@@ -503,17 +550,21 @@ onMounted(() => {
   flex: 0 0 auto;
   margin-top: 1px;
 }
-.render-bar {
+/* 预渲染进度：和 AI 功能一致，贴在模块下边缘的 3px 进度条。 */
+.render-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   height: 3px;
-  border-radius: 999px;
   overflow: hidden;
   background-color: rgb(var(--md-primary) / 0.15);
 }
-.render-fill {
+.render-progress-fill {
   height: 100%;
   width: 0;
   background-color: rgb(var(--md-primary));
-  transition: width 140ms linear;
+  transition: width 120ms linear;
 }
 .plugin-picker {
   display: flex;
@@ -556,6 +607,8 @@ onMounted(() => {
   color: rgb(var(--md-on-surface-variant));
 }
 .effect-card {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -648,6 +701,29 @@ onMounted(() => {
 }
 .effect-foot .effect-remove {
   margin-left: auto;
+}
+.effect-prerender-btn {
+  height: 27px;
+  padding: 0 11px 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.8);
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--md-primary));
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.14s ease, opacity 0.14s ease;
+}
+.effect-prerender-btn:hover:not(:disabled) {
+  background-color: rgb(var(--md-primary) / 0.08);
+}
+.effect-prerender-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .effect-params-btn:hover:not(:disabled) {
   filter: brightness(1.06);

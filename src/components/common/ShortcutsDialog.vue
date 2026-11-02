@@ -37,6 +37,9 @@ const groups = computed<Group[]>(() => [
     items: [
       { keys: [mod, "Z"], labelKey: "shortcuts.undo" },
       { keys: [mod, shift, "Z"], labelKey: "shortcuts.redo" },
+      { keys: [mod, "C"], labelKey: "shortcuts.copy" },
+      { keys: [mod, "X"], labelKey: "shortcuts.cut" },
+      { keys: [mod, "V"], labelKey: "shortcuts.paste" },
       { keys: ["S"], labelKey: "shortcuts.split" },
       { keys: ["Delete"], labelKey: "shortcuts.delete" },
     ],

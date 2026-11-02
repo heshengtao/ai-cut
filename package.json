@@ -16,6 +16,7 @@
     "test": "vitest run",
     "tauri": "tauri",
     "fetch:sidecars": "bash scripts/fetch-sidecars.sh",
+    "fetch:ort": "node tools/fetch-ort-runtime.mjs",
     "build:aicut": "bash scripts/build-aicut.sh",
     "build:ofx-host": "cargo build --release --manifest-path crates/ofx-host/Cargo.toml",
     "sync:ofx": "node scripts/sync-ofx-registry.mjs"

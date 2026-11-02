@@ -1,4 +1,4 @@
-/** 视频 AI 任务：进度事件 + 统一忙碌状态。 */
+/** 视频 AI 任务：进度事�?+ 统一忙碌状态�?*/
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import {
@@ -153,7 +153,7 @@ export const useVideoAiStore = defineStore("videoAi", () => {
     try {
       await videoAiCancel();
     } catch {
-      // 终态事件会纠正状态。
+      // 终态事件会纠正状态�?
     }
   }
 

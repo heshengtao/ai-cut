@@ -3,7 +3,7 @@
  * 设置页：自带一条侧栏 + 居中内容列，视觉与 ai-daw 一致。
  * 应用内全屏页（layout.settingsOpen），不引入路由。
  */
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ArrowLeftIcon } from "@heroicons/vue/24/outline";
 import NumberField from "@/components/common/NumberField.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
@@ -28,12 +28,15 @@ import {
 import { useProjectStore } from "@/stores/project";
 import { useAgentStore } from "@/stores/agent";
 import { useModelsStore } from "@/stores/models";
+import { useRuntimesStore } from "@/stores/runtimes";
+import { useSdcppStore } from "@/stores/sdcpp";
 import { useUpdaterStore } from "@/stores/updater";
 import { displayProjectName } from "@/utils/projectName";
 import { useI18n } from "@/i18n";
 import type {
   AgentProbe,
   BackendInfo,
+  BackendOption,
   BackendPreference,
   CliStatus,
   McpStatus,
@@ -93,11 +96,22 @@ import { copyText } from "@/utils/clipboard";
 import { toast } from "@/composables/useToast";
 import { confirm } from "@/composables/useConfirm";
 import { isTauri } from "@/utils/platform";
+import { humanSize } from "@/utils/size";
+import { appRestart } from "@/core/runtimeApi";
+import {
+  dataDirCleanupPrevious,
+  dataDirInfo,
+  dataDirMigrate,
+  onDataDirProgress,
+  pickDataDir,
+} from "@/core/storageApi";
+import type { DataDirInfo, DataDirProgress, DataDirSource } from "@/types/storage";
 
 type Section = SettingsSection;
 
 const SECTIONS: { id: Section; labelKey: string; captionKey: string }[] = [
   { id: "general", labelKey: "settings.section.general", captionKey: "settings.section.general.caption" },
+  { id: "storage", labelKey: "settings.section.storage", captionKey: "settings.section.storage.caption" },
   {
     id: "appearance",
     labelKey: "settings.section.appearance",
@@ -133,6 +147,8 @@ const APP_VERSION = "0.2.3";
 
 const i18n = useI18n();
 const layout = useLayoutStore();
+const runtimes = useRuntimesStore();
+const sdcpp = useSdcppStore();
 const project = useProjectStore();
 const agentStore = useAgentStore();
 const models = useModelsStore();
@@ -243,10 +259,190 @@ const agentSaved = ref(false);
 // ---- 本地 AI 执行后端 ----
 const backendInfo = ref<BackendInfo | null>(null);
 const backendSaving = ref(false);
-const backendOptions = computed(() => backendInfo.value?.options ?? []);
-const backendRuntimeLimited = computed(() =>
-  backendOptions.value.some((option) => !option.available),
-);
+/** 只列本机平台支持的项（CUDA 还要求本机有 NVIDIA 驱动）。 */
+const backendOptions = computed(() => (backendInfo.value?.options ?? []).filter((option) => option.available));
+/** CUDA provider 硬依赖的四个组件（后端没下发 `missing` 时的兜底清单）。 */
+function cudaParts(runtime: string): string[] {
+  const suffix = runtime === "cuda13" ? "13" : "";
+  return [`cudart${suffix}`, `cublas${suffix}`, `cufft${suffix}`, `cudnn${suffix}`];
+}
+
+/** 组件 id → 界面上显示的名字（清单还没加载时退回 id 本身）。 */
+function partName(id: string): string {
+  const item = runtimes.items.find((entry) => entry.id === id);
+  return item ? i18n.t(item.label) : id;
+}
+
+/**
+ * 「看起来能用、实际在跑 CPU」的提示。
+ *
+ * 两种情况都必须说出来，否则用户只会看到「CUDA 已选」，然后发现显卡闲着：
+ * 1. 组件缺（provider 载不进来）；
+ * 2. provider 没注册成功（本次会话建的会话只能是 CPU）。
+ */
+const backendWarning = computed(() => {
+  const info = backendInfo.value;
+  if (!info || (info.preference !== "cuda12" && info.preference !== "cuda13")) return "";
+  const cuda = info.options.find((option) => option.kind === info.preference);
+  if (!cuda || !cuda.available) return "";
+  // 本体都没装：先说本体，别把「组件齐了」当成能跑。
+  if (!cuda.runtime_installed) {
+    return i18n.t("settings.ai.cudaCoreMissing", {
+      version: info.preference === "cuda13" ? "13" : "12",
+    });
+  }
+  const missing = cuda.missing ?? [];
+  if (missing.length > 0) {
+    return i18n.t("settings.ai.cudaPartsMissing", {
+      parts: missing.map(partName).join("、"),
+    });
+  }
+  // 运行时还没被加载过（启动后尚未建会话）时 `ep_ready` 必然是 false：
+  // 这不是失败，只有加载过、注册仍失败才提示。
+  if (!info.ep_ready && info.loaded_runtime) {
+    return i18n.t("settings.ai.cudaNotActive");
+  }
+  return "";
+});
+
+/** 后端按钮的 tooltip：运行时没装 → 提示先去下载。 */
+function backendTitle(option: BackendOption): string | undefined {
+  return option.runtime_installed ? undefined : i18n.t("settings.ai.runtimeMissing");
+}
+
+/** 跳到下载管理器 → 运行时（与 ai-daw 设置页的「打开下载管理器」一致）。 */
+function openRuntimeManager(): void {
+  const id = backendInfo.value?.preference === "cuda13" ? "cuda13" : "cuda";
+  runtimes.requestFocus(id);
+  layout.closeSettings();
+  layout.openDownloads("models");
+}
+
+/** 重启应用；开发模式下后端会拒绝并返回说明，这里用 toast 告诉用户手动重启。 */
+async function restartApp(): Promise<void> {
+  try {
+    await appRestart();
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** 确认框里的重启说明：开发模式下补一句「不会自动重启」，别让人点完才发现。 */
+function restartBody(): string {
+  const body = i18n.t("settings.ai.restartBody");
+  return import.meta.env.DEV ? `${body} ${i18n.t("settings.ai.restartDevHint")}` : body;
+}
+
+/** 等运行时装完（下载命令本身是等装完才返回的；这里只核对一次落盘状态）。 */
+async function waitForInstalled(id: string): Promise<boolean> {
+  const item = runtimes.items.find((entry) => entry.id === id);
+  if (item?.installed) return true;
+  // 清单可能还没刷新（事件晚到一步）：再取一次。
+  await runtimes.load();
+  return runtimes.items.find((entry) => entry.id === id)?.installed === true;
+}
+
+/**
+ * 点后端按钮：
+ * - 缺运行时 / 组件 → 先弹框确认，跳到下载管理器**自动补齐**（CUDA 本体带同版本组件），
+ *   装完再切换并提示重启；
+ * - 已在磁盘上 → 直接切换，需要重启时弹框询问。
+ */
+async function setBackend(preference: BackendPreference): Promise<void> {
+  if (backendSaving.value || backendInfo.value?.preference === preference) return;
+  const option = backendInfo.value?.options.find((entry) => entry.kind === preference);
+  if (!option) return;
+
+  // 缺口 = 本体 +（CUDA 时）同大版本的全套组件。**本体已装、组件缺**也要先补：
+  // provider 硬依赖 cudart / cuBLAS / cuFFT / cuDNN，缺一个就载不进来并静默回落 CPU。
+  if (runtimes.items.length === 0) await runtimes.load();
+  const pending: string[] = [];
+  const isCuda = option.kind === "cuda12" || option.kind === "cuda13";
+  if (isCuda) {
+    const core = runtimes.items.find((entry) => entry.id === option.runtime);
+    if (!core || !core.installed) pending.push(option.runtime);
+    for (const id of [...(option.missing ?? []), ...cudaParts(option.runtime)]) {
+      const item = runtimes.items.find((entry) => entry.id === id);
+      if (item && !item.installed && !pending.includes(id)) pending.push(id);
+    }
+  }
+
+  if (pending.length > 0) {
+    const total = pending.reduce(
+      (sum, id) => sum + (runtimes.items.find((entry) => entry.id === id)?.bytes ?? 0),
+      0,
+    );
+    const accepted = await confirm({
+      title: i18n.t("settings.ai.runtimeMissingTitle"),
+      message:
+        total > 0
+          ? i18n.t("settings.ai.runtimeMissingBody", {
+              backend: backendText(option.kind, "label", option.label),
+              size: humanSize(total),
+            })
+          : i18n.t("settings.ai.runtimeMissingBodyUnknown", {
+              backend: backendText(option.kind, "label", option.label),
+            }),
+      confirmText: i18n.t("settings.ai.runtimeMissingGo"),
+    });
+    if (!accepted) return;
+
+    backendSaving.value = true;
+    runtimes.requestFocus(option.runtime);
+    // 下载管理器在这期间是前台：进度、取消都在那里，和 ai-daw 的流程一致。
+    layout.closeSettings();
+    layout.openDownloads("models");
+    for (const id of pending) {
+      // 下 CUDA 本体时会顺带补齐同大版本的全部组件；轮到后面的组件 id 时它已经装好了。
+      if (runtimes.items.find((entry) => entry.id === id)?.installed) continue;
+      await runtimes.install(id);
+      if (!(await waitForInstalled(id))) {
+        backendSaving.value = false;
+        toast(i18n.t("settings.ai.cudaDownloadFailed"));
+        return;
+      }
+    }
+    try {
+      backendInfo.value = await aiSetBackend(preference);
+    } catch (error) {
+      backendSaving.value = false;
+      toast(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    backendSaving.value = false;
+    // 装完再回设置页：重启提示由 onMounted 的 `consumeRestartPrompt` 弹出来，
+    // 期间离开设置页也不会丢（管理器里还有常驻横幅）。
+    if (backendInfo.value.restart_required) runtimes.requestRestartPrompt();
+    layout.openSettings("ai");
+    return;
+  }
+
+  backendSaving.value = true;
+  try {
+    backendInfo.value = await aiSetBackend(preference);
+    if (backendInfo.value.restart_required) {
+      const accepted = await confirm({
+        title: i18n.t("settings.ai.restartTitle"),
+        message: restartBody(),
+        confirmText: i18n.t("settings.ai.restartNow"),
+      });
+      if (accepted) void restartApp();
+    } else {
+      const label = backendText(option.kind, "label", option.label);
+      const loaded = backendInfo.value.loaded_runtime === option.runtime;
+      toast(
+        i18n.t(
+          loaded ? "settings.ai.backendAppliedCurrent" : "settings.ai.backendAppliedNext",
+          { backend: label },
+        ),
+      );
+    }
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    backendSaving.value = false;
+  }
+}
 
 /**
  * 后端文案：后端目录里的中文只作兜底，界面优先用 i18n（英文界面才不会出现中文）。
@@ -271,17 +467,60 @@ async function loadBackend(): Promise<void> {
     // 旧版桌面端没有新命令 / 预览环境：保留完整选项，只把非 CPU 标为不可用。
     backendInfo.value = backendFallback();
   }
+  // 运行时清单用于弹框里的体积 / 状态文案。
+  if (runtimes.items.length === 0) void runtimes.load();
+  void sdcpp.load();
+  void sdcpp.loadInfo();
 }
 
-async function setBackend(preference: BackendPreference): Promise<void> {
-  if (backendInfo.value?.preference === preference) return;
-  backendSaving.value = true;
+// ---- sd.cpp 视频后端（与 ONNX Runtime 分开） ----
+const sdcppSaving = ref(false);
+const sdcppOptions = computed(() =>
+  (sdcpp.info?.options ?? []).filter((option) => option.available),
+);
+
+function openSdcppManager(): void {
+  const raw = sdcpp.info?.preference;
+  const target =
+    raw && raw !== "auto" ? raw : sdcpp.info?.recommended ?? "cpu";
+  sdcpp.requestFocus(`sdcpp-${target}`);
+  layout.closeSettings();
+  layout.openDownloads("models");
+}
+
+async function setSdcppBackend(kind: string): Promise<void> {
+  if (sdcppSaving.value || sdcpp.info?.preference === kind) return;
+  const option = sdcpp.info?.options.find((item) => item.kind === kind);
+  if (!option) return;
+  const label = i18n.t(option.label);
+  if (!option.installed) {
+    if (kind === "auto") {
+      openSdcppManager();
+      return;
+    }
+    const accepted = await confirm({
+      title: i18n.t("aiVideo.engineMissingTitle"),
+      message: i18n.t("settings.ai.sdcppNeedDownload", {
+        backend: label,
+        size: humanSize(option.bytes),
+      }),
+      confirmText: i18n.t("settings.ai.sdcppDownloadGo"),
+    });
+    if (accepted) {
+      sdcpp.requestFocus(`sdcpp-${kind}`);
+      layout.closeSettings();
+      layout.openDownloads("models");
+    }
+    return;
+  }
+  sdcppSaving.value = true;
   try {
-    backendInfo.value = await aiSetBackend(preference);
+    await sdcpp.setBackend(kind);
+    toast(i18n.t("settings.ai.sdcppApplied", { backend: label }));
   } catch (error) {
     toast(error instanceof Error ? error.message : String(error), "error");
   } finally {
-    backendSaving.value = false;
+    sdcppSaving.value = false;
   }
 }
 
@@ -1218,6 +1457,125 @@ function onAccent(id: AccentColor): void {
   setAccent(id);
 }
 
+// ---- 存储：数据目录 ----
+const dataDir = ref<DataDirInfo | null>(null);
+const dataDirLoading = ref(false);
+const dataDirBusy = ref(false);
+const dataDirError = ref("");
+const dataDirProgress = ref<DataDirProgress | null>(null);
+/** 迁移进度监听：页面卸载时一定要解绑，否则回调会写进已销毁的组件。 */
+let offDataDir: (() => void) | null = null;
+
+const dataDirSize = computed(() => humanSize(dataDir.value?.size_bytes ?? 0));
+const dataDirSource = computed(() => {
+  const source: DataDirSource = dataDir.value?.source ?? "default";
+  return i18n.t(`settings.storage.source.${source}`);
+});
+/** 已迁移、等重启时的新目录；没有则为空串。 */
+const dataDirNext = computed(() =>
+  dataDir.value?.restart_required ? dataDir.value.next ?? "" : "",
+);
+const dataDirPrevious = computed(() => dataDir.value?.previous ?? []);
+
+/** 迁移进度文案：扫描阶段不知道总量，复制阶段按字节报百分比。 */
+const dataDirProgressText = computed(() => {
+  const progress = dataDirProgress.value;
+  if (!progress || progress.phase === "scan") return i18n.t("settings.storage.scanning");
+  if (progress.phase === "write" || progress.phase === "done") {
+    return i18n.t("settings.storage.writing");
+  }
+  if (progress.total <= 0) {
+    return i18n.t("settings.storage.copying", { done: humanSize(progress.done) });
+  }
+  const percent = Math.min(100, Math.round((progress.done / progress.total) * 100));
+  return `${i18n.t("settings.storage.copying", {
+    done: `${humanSize(progress.done)} / ${humanSize(progress.total)}`,
+  })} · ${percent}%`;
+});
+
+const dataDirPercent = computed(() => {
+  const progress = dataDirProgress.value;
+  if (!progress || progress.total <= 0) return 0;
+  return Math.min(100, Math.round((progress.done / progress.total) * 100));
+});
+
+async function loadDataDir(): Promise<void> {
+  dataDirLoading.value = true;
+  dataDirError.value = "";
+  try {
+    const info = await dataDirInfo();
+    dataDir.value = info;
+    if (!info) dataDirError.value = i18n.t("settings.storage.desktopOnly");
+  } catch (error) {
+    dataDirError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    dataDirLoading.value = false;
+  }
+}
+
+/** 选一个**空**目录 → 确认 → 复制 + 写指针；旧目录留到重启后清理。 */
+async function chooseDataDir(): Promise<void> {
+  if (dataDirBusy.value || dataDir.value?.portable) return;
+  const target = await pickDataDir();
+  if (!target) return;
+  const accepted = await confirm({
+    title: i18n.t("settings.storage.confirmTitle"),
+    message: i18n.t("settings.storage.confirmBody", { path: target }),
+    confirmText: i18n.t("settings.storage.confirmGo"),
+  });
+  if (!accepted) return;
+  dataDirBusy.value = true;
+  dataDirError.value = "";
+  dataDirProgress.value = { phase: "scan", done: 0, total: 0, files: 0, message: null };
+  try {
+    offDataDir = await onDataDirProgress((progress) => {
+      dataDirProgress.value = progress;
+    });
+    await dataDirMigrate(target);
+    await loadDataDir();
+    toast(i18n.t("settings.storage.done", { path: target }));
+  } catch (error) {
+    dataDirError.value = error instanceof Error ? error.message : String(error);
+    toast(i18n.t("settings.storage.failed", { error: dataDirError.value }), "error");
+  } finally {
+    offDataDir?.();
+    offDataDir = null;
+    dataDirBusy.value = false;
+    dataDirProgress.value = null;
+  }
+}
+
+/** 重启后清理上一次迁移留下的旧目录（指针与发现文件会保留）。 */
+async function cleanupPreviousDataDir(): Promise<void> {
+  if (dataDirBusy.value || dataDirPrevious.value.length === 0) return;
+  const accepted = await confirm({
+    title: i18n.t("settings.storage.cleanupTitle"),
+    message: i18n.t("settings.storage.cleanupBody", {
+      path: dataDirPrevious.value.join(", "),
+    }),
+    confirmText: i18n.t("settings.storage.cleanupGo"),
+    destructive: true,
+  });
+  if (!accepted) return;
+  dataDirBusy.value = true;
+  dataDirError.value = "";
+  try {
+    const removed = await dataDirCleanupPrevious();
+    toast(
+      removed.length
+        ? i18n.t("settings.storage.cleaned", { path: removed.join(", ") })
+        : i18n.t("settings.storage.nothingToClean"),
+    );
+    await loadDataDir();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    dataDirError.value = message;
+    toast(i18n.t("settings.storage.cleanupFailed", { error: message }), "error");
+  } finally {
+    dataDirBusy.value = false;
+  }
+}
+
 function back(): void {
   layout.closeSettings();
 }
@@ -1232,6 +1590,22 @@ onMounted(() => {
   void loadPluginRegistry();
   void loadCloudTts();
   void loadCli();
+  void loadDataDir();
+  // 从下载管理器装完运行库回来：弹一次「重启后生效」（和 ai-daw 一样）。
+  if (runtimes.consumeRestartPrompt()) {
+    void confirm({
+      title: i18n.t("settings.ai.restartTitle"),
+      message: restartBody(),
+      confirmText: i18n.t("settings.ai.restartNow"),
+    }).then((accepted) => {
+      if (accepted) void restartApp();
+    });
+  }
+});
+
+onUnmounted(() => {
+  offDataDir?.();
+  offDataDir = null;
 });
 </script>
 
@@ -1362,6 +1736,129 @@ onMounted(() => {
                     @update:model-value="onProjectFps"
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 存储：数据目录（模型 / 运行时 / OFX 插件 / 工程历史） -->
+        <template v-else-if="active === 'storage'">
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.storage.location") }}</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.storage.current") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.storage.currentHint") }}</span>
+                  <span class="row-sub mono">{{ dataDir?.current ?? i18n.t("common.loading") }}</span>
+                </div>
+                <span class="row-value">{{ dataDirSize }}</span>
+              </div>
+              <div v-if="dataDir?.on_system_drive && !dataDirNext" class="col-row">
+                <span class="row-sub warn">
+                  {{ i18n.t("settings.storage.systemDrive", { size: dataDirSize }) }}
+                </span>
+              </div>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.storage.source.label") }}</span>
+                  <span class="row-sub">{{ dataDirSource }}</span>
+                </div>
+              </div>
+              <div v-if="dataDir && dataDir.default !== dataDir.current" class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.storage.default") }}</span>
+                  <span class="row-sub mono">{{ dataDir.default }}</span>
+                </div>
+              </div>
+              <div v-if="dataDir" class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.storage.cache") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.storage.cacheHint") }}</span>
+                  <span class="row-sub mono">{{ dataDir.cache }}</span>
+                </div>
+              </div>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.storage.move") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.storage.moveHint") }}</span>
+                </div>
+                <button
+                  class="scan-btn"
+                  :disabled="
+                    dataDirBusy ||
+                    dataDirLoading ||
+                    dataDir?.portable === true ||
+                    dataDirNext !== ''
+                  "
+                  @click="chooseDataDir"
+                >
+                  {{ i18n.t("settings.storage.choose") }}
+                </button>
+              </div>
+              <div v-if="dataDir?.portable" class="col-row">
+                <span class="row-sub warn">{{ i18n.t("settings.storage.portable") }}</span>
+              </div>
+              <div v-if="dataDirBusy" class="col-row">
+                <div
+                  class="update-progress"
+                  role="progressbar"
+                  :aria-valuenow="dataDirPercent"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                >
+                  <div class="update-progress-fill" :style="{ width: `${dataDirPercent}%` }" />
+                </div>
+                <span class="row-sub">{{ dataDirProgressText }}</span>
+              </div>
+              <div v-if="dataDirError" class="col-row">
+                <span class="row-sub warn">{{ dataDirError }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 迁移完成：重启前当前进程仍写旧目录，必须显眼地提醒。 -->
+          <div v-if="dataDirNext" class="group">
+            <div class="group-title">{{ i18n.t("settings.storage.migratedTitle") }}</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">
+                    {{ i18n.t("settings.storage.migrated", { path: dataDirNext }) }}
+                  </span>
+                  <span class="row-sub">{{ i18n.t("settings.storage.migratedHint") }}</span>
+                </div>
+                <button class="scan-btn primary" @click="restartApp">
+                  {{ i18n.t("settings.storage.restartNow") }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 旧目录清理：重启后才有意义；指针与发现文件留在默认目录，不受影响。 -->
+          <div
+            v-if="dataDirPrevious.length > 0 && !dataDir?.restart_required"
+            class="group"
+          >
+            <div class="group-title">{{ i18n.t("settings.storage.previousTitle") }}</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.storage.previous") }}</span>
+                  <span
+                    v-for="path in dataDirPrevious"
+                    :key="path"
+                    class="row-sub mono"
+                  >{{ path }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.storage.previousHint") }}</span>
+                </div>
+                <button
+                  class="scan-btn"
+                  :disabled="dataDirBusy"
+                  @click="cleanupPreviousDataDir"
+                >
+                  {{ i18n.t("settings.storage.cleanup") }}
+                </button>
               </div>
             </div>
           </div>
@@ -1559,7 +2056,7 @@ onMounted(() => {
 
           <!-- 本地 AI 执行后端 -->
           <div class="group">
-            <div class="group-title">{{ i18n.t("settings.ai.backendGroup") }}</div>
+            <div class="group-title">{{ i18n.t("settings.ai.ortGroup") }}</div>
             <div class="card">
               <div class="row">
                 <div class="row-text">
@@ -1573,12 +2070,8 @@ onMounted(() => {
                     class="m3-seg-btn"
                     :class="{ on: backendInfo?.preference === option.kind }"
                     :aria-pressed="backendInfo?.preference === option.kind"
-                    :disabled="backendSaving || !option.available"
-                    :title="
-                      option.available
-                        ? undefined
-                        : i18n.t('settings.ai.backendUnsupported')
-                    "
+                    :disabled="backendSaving"
+                    :title="backendTitle(option)"
                     @click="setBackend(option.kind)"
                   >
                     {{ backendText(option.kind, "label", option.label) }}
@@ -1590,12 +2083,83 @@ onMounted(() => {
                 <span class="row-sub">
                   {{ i18n.t("settings.ai.platform", { platform: backendInfo?.platform ?? "…" }) }}
                 </span>
-                <span v-if="backendOptions.length > 1" class="row-sub">
-                  {{ i18n.t("settings.ai.backendCpuFaster") }}
+              </div>
+              <div v-if="backendWarning" class="col-row">
+                <span class="row-sub warn">{{ backendWarning }}</span>
+              </div>
+            </div>
+
+            <!-- 运行库：与 ai-daw 一样单独一张卡片；装 / 删之后提示重启 -->
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.ai.runtimes") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.ai.runtimesHint") }}</span>
+                </div>
+                <div class="row-actions">
+                  <span v-if="backendInfo?.restart_required" class="row-sub restart-hint">
+                    {{ i18n.t("settings.ai.restartRequired") }}
+                  </span>
+                  <button class="scan-btn" @click="openRuntimeManager">
+                    {{ i18n.t("settings.ai.runtimeOpen") }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- sd.cpp 视频后端：与上面的 ONNX Runtime 完全分开 -->
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.ai.sdcppGroup") }}</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("aiVideo.backend") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.ai.sdcppHint") }}</span>
+                </div>
+                <div class="m3-seg" role="group" :aria-label="i18n.t('aiVideo.backend')">
+                  <button
+                    v-for="option in sdcppOptions"
+                    :key="option.kind"
+                    class="m3-seg-btn"
+                    :class="{ on: sdcpp.info?.preference === option.kind }"
+                    :aria-pressed="sdcpp.info?.preference === option.kind"
+                    :disabled="sdcppSaving"
+                    :title="
+                      option.installed
+                        ? i18n.t(option.note)
+                        : i18n.t('settings.ai.sdcppMissing')
+                    "
+                    @click="setSdcppBackend(option.kind)"
+                  >
+                    {{ i18n.t(option.label) }}
+                  </button>
+                </div>
+              </div>
+              <div class="col-row">
+                <span v-if="sdcpp.info" class="row-sub">
+                  {{ i18n.t("settings.ai.platform", { platform: sdcpp.info.platform }) }}
                 </span>
-                <span v-if="backendRuntimeLimited" class="row-sub">
-                  {{ i18n.t("settings.ai.backendUnavailableHint") }}
-                </span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("aiVideo.engine") }}</span>
+                  <span class="row-sub">
+                    {{
+                      sdcpp.ready
+                        ? i18n.t("aiVideo.engineReady")
+                        : i18n.t("settings.ai.sdcppMissing")
+                    }}
+                  </span>
+                </div>
+                <div class="row-actions">
+                  <button class="scan-btn" @click="openSdcppManager">
+                    {{ i18n.t("settings.ai.sdcppOpen") }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -2457,6 +3021,14 @@ onMounted(() => {
 .row-sub {
   font-size: 12px;
   color: rgb(var(--md-on-surface-variant));
+}
+.row-sub.warn {
+  color: rgb(var(--md-error));
+}
+/* 「重启后生效」提示：只在切过运行库时出现，跟按钮同一行。 */
+.restart-hint {
+  color: rgb(var(--md-primary));
+  white-space: nowrap;
 }
 .row-sub.mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

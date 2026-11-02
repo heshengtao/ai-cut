@@ -21,6 +21,7 @@ import { normalizeClipTransition } from "@/core/clipTransition";
 import {
   baseKeyframeValues,
   normalizeKeyframes,
+  upsertKeyframe,
   type KeyframeInput,
 } from "@/core/keyframes";
 import {
@@ -565,6 +566,17 @@ export function setClipKeyframes(
       : updateClip(doc, clipId, { keyframes: undefined });
   }
   return updateClip(doc, clipId, { keyframes: normalized });
+}
+
+/**
+ * 在片段内的 `time` 秒处写入关键帧：记录该时刻的插值结果。
+ * 同一时刻已有帧时更新它，否则新增。
+ */
+export function insertClipKeyframe(doc: Project, clipId: string, time: number): Project {
+  const found = findClip(doc, clipId);
+  if (!found) return doc;
+  const local = clamp(time, 0, found.clip.duration);
+  return setClipKeyframes(doc, clipId, upsertKeyframe(found.clip, local));
 }
 
 /** 变调（半音），范围 -12..12。 */

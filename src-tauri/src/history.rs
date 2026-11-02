@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
 
 /// 最多保留多少份历史（超出的从最旧开始丢弃）。
 pub const MAX_ENTRIES: usize = 30;
@@ -47,9 +47,7 @@ pub struct HistorySnapshot {
 }
 
 fn history_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
+    let dir = crate::paths::data_dir(app)
         .map_err(|e| format!("取应用数据目录失败：{e}"))?
         .join("history");
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建历史目录失败：{e}"))?;

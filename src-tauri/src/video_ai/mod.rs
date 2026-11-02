@@ -103,11 +103,10 @@ fn emit(app: &AppHandle, state: &str, progress: f32, message: Option<String>) {
 }
 
 pub(crate) fn build_session(path: &Path, label: &str) -> Result<ort::session::Session, String> {
-    let builder =
-        ort::session::Session::builder().map_err(|e| format!("初始化 ONNX Runtime 失败：{e}"))?;
+    let builder = backend::session_builder()?;
     backend::commit(
         backend::apply(builder),
-        || ort::session::Session::builder().map_err(|e| format!("初始化 ONNX Runtime 失败：{e}")),
+        || backend::session_builder(),
         path,
         label,
     )

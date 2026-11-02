@@ -81,20 +81,37 @@ export interface CliStatus {
 
 export type ProxyMode = "direct" | "system" | "manual";
 
-/** 本地 AI 执行后端。 */
-export type BackendPreference = "cpu" | "coreml" | "directml";
+/** 本地 AI 执行后端。CUDA 12 / CUDA 13 是两套独立运行时（对应 ai-daw 的两个选项）。 */
+export type BackendPreference = "cpu" | "coreml" | "directml" | "cuda12" | "cuda13";
 
 export interface BackendOption {
   kind: BackendPreference;
   label: string;
   note: string;
+  /** 本机平台是否支持（不支持的不会出现在设置页的分段控件里）。 */
   available: boolean;
+  /** 它需要哪一份运行时（`cpu` / `cuda` / `cuda13` / …）。 */
+  runtime: string;
+  /** 那份运行时装好了没有。 */
+  runtime_installed: boolean;
+  /** 需要下载多少字节（0 = 已装好）。 */
+  download_bytes: number;
+  /** 还缺哪些组件（运行时 id，例如 `cufft13`）。空 = 齐了。 */
+  missing: string[];
 }
 
 export interface BackendInfo {
   preference: BackendPreference;
   current: BackendPreference;
+  /** 本机推荐的后端（NVIDIA 新驱动为 `cuda13`，老驱动 `cuda12`，否则 `cpu`）。 */
+  recommended: BackendPreference;
   platform: string;
+  /** 进程里已经加载的运行时（`cuda` / `cuda13` / `directml` / `cpu`）；未加载为 null。 */
+  loaded_runtime: string | null;
+  /** 切换过运行时 / 补装过组件，需要重启才生效。 */
+  restart_required: boolean;
+  /** 当前选中的 CUDA provider 是否真的注册进了 ONNX Runtime。 */
+  ep_ready: boolean;
   options: BackendOption[];
 }
 

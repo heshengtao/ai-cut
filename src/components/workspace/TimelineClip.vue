@@ -19,7 +19,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "grab", payload: { clipId: string; event: PointerEvent; mode: "move" | "trim-start" | "trim-end" }): void;
-  (e: "delete", clipId: string): void;
+  (e: "menu", payload: { clipId: string; event: MouseEvent }): void;
 }>();
 
 const left = computed(() => props.clip.start * props.pxPerSecond);
@@ -96,7 +96,7 @@ watch(
     ]"
     :style="{ left: `${left}px`, width: `${width}px` }"
     @pointerdown="emit('grab', { clipId: clip.id, event: $event, mode: 'move' })"
-    @contextmenu.prevent="emit('delete', clip.id)"
+    @contextmenu.prevent.stop="emit('menu', { clipId: clip.id, event: $event })"
   >
     <img
       v-if="thumbUrl"

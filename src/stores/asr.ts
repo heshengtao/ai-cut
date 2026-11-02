@@ -1,4 +1,4 @@
-/** 字幕生成任务：进度事件 + 一次转写调用。 */
+/** 字幕生成任务：进度事�?+ 一次转写调用�?*/
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { asrCancel, asrTranscribe, onAsrProgress } from "@/core/modelApi";
@@ -60,7 +60,7 @@ export const useAsrStore = defineStore("asr", () => {
     try {
       await asrCancel();
     } catch {
-      // 终态事件会纠正状态。
+      // 终态事件会纠正状态�?
     }
   }
 

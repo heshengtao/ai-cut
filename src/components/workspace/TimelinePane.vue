@@ -4,7 +4,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import {
   ArrowUturnLeftIcon,
   ArrowUturnRightIcon,
-  BackspaceIcon,
   DocumentDuplicateIcon,
   FlagIcon,
   MagnifyingGlassMinusIcon,
@@ -16,10 +15,12 @@ import {
 import TimelineRuler from "./TimelineRuler.vue";
 import TrackHeader from "./TrackHeader.vue";
 import TimelineClip from "./TimelineClip.vue";
+import TimelineContextMenu from "./TimelineContextMenu.vue";
 import Tooltip from "@/components/common/Tooltip.vue";
 import ReviewNoteDialog from "@/components/common/ReviewNoteDialog.vue";
 import type { MarkerPatch } from "@/core/ops";
 import CutIcon from "@/components/common/CutIcon.vue";
+import KeyframeIcon from "@/components/common/KeyframeIcon.vue";
 import { useProjectStore } from "@/stores/project";
 import { MAX_ZOOM, MIN_ZOOM, usePlaybackStore } from "@/stores/playback";
 import { useSelectionStore } from "@/stores/selection";
@@ -33,7 +34,6 @@ import {
   addTrackAt,
   moveClips,
   moveTrack,
-  removeClips,
   removeMarker,
   removeTrack,
   renameTrack,
@@ -499,11 +499,24 @@ async function onRemoveTrack(trackId: string): Promise<void> {
   selection.clear();
 }
 
-/** 右键删除：若点中的片段在选中集合里，就删除整个选中集合。 */
-function onDeleteClip(clipId: string): void {
-  const ids = selection.isSelected(clipId) ? [...selection.selectedClipIds] : [clipId];
-  project.dispatch((doc) => removeClips(doc, ids));
-  selection.clear();
+/**
+ * 片段右键菜单：右键先选中（未选中时），再在鼠标位置弹出复制 / 剪切 / 粘贴 / 删除。
+ * 之前右键直接删片段，误触就丢内容；现在危险操作要再点一次。
+ */
+const clipMenu = ref<{ x: number; y: number } | null>(null);
+
+function onClipMenu(payload: { clipId: string; event: MouseEvent }): void {
+  const { clipId, event } = payload;
+  if (!selection.isSelected(clipId)) selection.select(clipId);
+  clipMenu.value = { x: event.clientX, y: event.clientY };
+}
+
+function onClipMenuAction(action: "copy" | "cut" | "paste" | "delete"): void {
+  clipMenu.value = null;
+  if (action === "copy") actions.copySelected();
+  else if (action === "cut") actions.cutSelected();
+  else if (action === "paste") actions.pasteClipboard();
+  else actions.deleteSelected();
 }
 
 /** 拖放位置：落在某条轨道上，或在两条轨道之间插入新轨。 */
@@ -910,14 +923,14 @@ function onLaneDrop(event: DragEvent): void {
             <TrashIcon class="w-[16px] h-[16px]" />
           </button>
         </Tooltip>
-        <Tooltip :text="i18n.t('timeline.rippleDelete')">
+        <Tooltip :text="i18n.t('timeline.addKeyframe')">
           <button
             class="icon-btn"
-            :disabled="!actions.canDelete"
-            :aria-label="i18n.t('timeline.rippleDeleteLabel')"
-            @click="actions.rippleDeleteSelected"
+            :disabled="!actions.canAddKeyframe"
+            :aria-label="i18n.t('timeline.addKeyframeLabel')"
+            @click="actions.addKeyframeAtPlayhead"
           >
-            <BackspaceIcon class="w-[16px] h-[16px]" />
+            <KeyframeIcon class="w-[16px] h-[16px]" />
           </button>
         </Tooltip>
         <Tooltip :text="i18n.t('timeline.addText')">
@@ -1023,7 +1036,7 @@ function onLaneDrop(event: DragEvent): void {
                 :selected="selection.isSelected(clip.id)"
                 :px-per-second="playback.zoom"
                 @grab="onClipGrab"
-                @delete="onDeleteClip"
+                @menu="onClipMenu"
                 @dblclick="onClipDoubleClick(clip.id)"
               />
             </div>
@@ -1078,6 +1091,19 @@ function onLaneDrop(event: DragEvent): void {
         </div>
       </div>
     </div>
+
+    <TimelineContextMenu
+      :open="clipMenu !== null"
+      :x="clipMenu?.x ?? 0"
+      :y="clipMenu?.y ?? 0"
+      :can-paste="actions.canPaste"
+      :has-selection="selection.selectedClipIds.length > 0"
+      @copy="onClipMenuAction('copy')"
+      @cut="onClipMenuAction('cut')"
+      @paste="onClipMenuAction('paste')"
+      @delete="onClipMenuAction('delete')"
+      @close="clipMenu = null"
+    />
 
     <ReviewNoteDialog
       v-model:open="markerDialogOpen"

@@ -9,6 +9,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 
 use crate::backend::BackendPreference;
+use crate::sdcpp::SdcppBackend;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -48,8 +49,10 @@ pub struct NetworkConfig {
     pub download_prefix: String,
     /// 模型下载源区域偏好。
     pub model_source_preference: ModelSourcePreference,
-    /// 本地 AI 执行后端偏好。
+    /// 本地 AI 执行后端偏好（ONNX Runtime）。
     pub backend_preference: BackendPreference,
+    /// 视频生成执行后端偏好（stable-diffusion.cpp / ggml）。
+    pub sdcpp_backend: SdcppBackend,
     /// OFX 注册表 URL（留空 = 用内置官方 raw 地址）。
     pub plugin_registry_url: String,
     /// OFX 注册表镜像（按顺序在官方源之前尝试）。
@@ -65,6 +68,7 @@ impl Default for NetworkConfig {
             download_prefix: String::new(),
             model_source_preference: ModelSourcePreference::Auto,
             backend_preference: BackendPreference::Cpu,
+            sdcpp_backend: SdcppBackend::Auto,
             plugin_registry_url: String::new(),
             plugin_registry_mirrors: Vec::new(),
         }

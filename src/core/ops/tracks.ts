@@ -29,6 +29,26 @@ export function moveTrack(doc: Project, trackId: string, toIndex: number): Proje
   return withTouch(doc, { tracks });
 }
 
+/**
+ * 把一组轨道整体提到最上方，`trackIds` 的顺序就是提升后的顺序。
+ * 用于「字幕轨永远压在最上层」这类层级约束；其余轨道保持原有相对顺序。
+ */
+export function raiseTracks(doc: Project, trackIds: string[]): Project {
+  const wanted = new Set(trackIds);
+  if (wanted.size === 0) return doc;
+  const raised = trackIds
+    .map((id) => doc.tracks.find((track) => track.id === id))
+    .filter((track): track is Track => track !== undefined);
+  if (raised.length === 0) return doc;
+
+  const tracks = [...raised, ...doc.tracks.filter((track) => !wanted.has(track.id))];
+  // 已经是最上层（且顺序一致）时不产生无意义的历史步骤。
+  if (tracks.length === doc.tracks.length && tracks.every((track, index) => track === doc.tracks[index])) {
+    return doc;
+  }
+  return withTouch(doc, { tracks });
+}
+
 /** 重命名轨道；空白名字视为无变化。 */
 export function renameTrack(doc: Project, trackId: string, name: string): Project {
   const track = doc.tracks.find((candidate) => candidate.id === trackId);

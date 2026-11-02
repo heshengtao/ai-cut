@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
 
 use crate::sidecar::run_sidecar;
 
@@ -488,13 +488,10 @@ mod tests {
     }
 }
 
-/// 应用数据目录下的 cache/，用于缩略图与波形缓存。
+/// 应用缓存目录下的 `cache/`，用于缩略图、波形与中间产物（可重建，迁移时会被跳过）。
 pub(crate) fn cache_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("取应用数据目录失败：{e}"))?
-        .join("cache");
+    let dir = crate::paths::cache_dir(app)
+        .map_err(|e| format!("取应用缓存目录失败：{e}"))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建缓存目录失败：{e}"))?;
     Ok(dir)
 }

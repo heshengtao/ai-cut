@@ -44,6 +44,10 @@ sha2 = "0.10"
 sherpa-onnx = "1.13.8"
 tar = "0.4"
 flate2 = "1"
+# Linux 的 CUDA 组件（NVIDIA redist）只发 `.tar.xz`：`tar` 认不了 xz，这里补一个流式解码器。
+# 和 ai-daw 一样**所有平台都编进来**（Windows 上 liblzma 随 build 自带源码），
+# 这样 Linux 那份运行时清单在 Windows 上也能被类型检查和测试覆盖。
+xz2 = "0.1"
 zip = "2"
 plist = "1"
 walkdir = "2"
@@ -58,20 +62,38 @@ rustfft = "6"
 # 响度（EBU R128 / ITU-R BS.1770）。
 ebur128 = "0.1"
 
-# 执行后端按平台启用：预编译 ONNX Runtime 的 feature 集合必须与目标平台匹配。
+# 执行后端按平台启用：
+# - macOS：静态链接 + CoreML（没有 CUDA，不需要运行时切换，安装包不变）；
+# - Windows / Linux：运行时加载（load-dynamic），CPU / DirectML 随包，CUDA 按需下载。
+#   `api-24` 是低水位：ORT 1.24+ 的 dll/so 都能加载，方便换运行时版本。
 [target.'cfg(target_os = "macos")'.dependencies]
 ort = { version = "=2.0.0-rc.13", features = ["coreml"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-ort = { version = "=2.0.0-rc.13", features = ["directml"] }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+    "std",
+    "ndarray",
+    "tracing",
+    "load-dynamic",
+    "api-24",
+    "cuda",
+    "directml",
+] }
 # 读 `Internet Settings` 里的系统代理（ProxyEnable / ProxyServer / ProxyOverride）。
 windows-registry = "0.6"
 
 [target.'cfg(all(not(target_os = "macos"), not(target_os = "windows")))'.dependencies]
-ort = { version = "=2.0.0-rc.13" }
+ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+    "std",
+    "ndarray",
+    "tracing",
+    "load-dynamic",
+    "api-24",
+    "cuda",
+] }
 
-# sherpa-onnx 的预编译包自带一份 CPU-only ONNX Runtime；我们改用 ort 的运行时，
-# 因此 patch 掉它的 build.rs，让它只链接 sherpa 自己的库。
+# sherpa-onnx 的预编译包自带一份 CPU-only ONNX Runtime；macOS 上我们删掉它、复用
+# ort 的静态运行时，Windows / Linux 上保留它（ort 改为运行时加载，互不冲突）。
 [patch.crates-io]
 sherpa-onnx-sys = { path = "../crates/sherpa-onnx-sys" }
 

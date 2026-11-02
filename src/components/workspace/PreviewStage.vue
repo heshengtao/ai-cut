@@ -576,11 +576,12 @@ const textItems = computed(() =>
 );
 
 // ---------------------------------------------------------------------------
-// OFX 效果预览（暂停时渲染当前帧，播放时隐藏）
+// OFX 效果预览（暂停时渲一帧；播放交给整段烘焙文件）
 // ---------------------------------------------------------------------------
 
 interface EffectPreview {
   url: string;
+  /** 渲染时的播放头时间。 */
   time: number;
 }
 
@@ -591,8 +592,9 @@ let effectRendering = false;
 let effectQueued = false;
 
 /**
- * 暂停时的单帧预览：视频用当前帧（整段烘焙可能还没跑完），图片用静态帧。
- * 播放时由引擎直接播已烘焙的文件，这里的叠加层会隐藏。
+ * 暂停时的单帧预览：视频用当前帧，图片用静态帧。
+ * 播放时不再逐帧渲染（逐帧 OFX 只能到几帧每秒，画面会变成 PPT），
+ * 而是等后台整段烘焙完成后由引擎直接播烘焙文件；烘焙进度显示在片段下边缘。
  */
 const effectItems = computed(() =>
   visualItems.value.filter((item) => {
@@ -606,8 +608,13 @@ const effectItems = computed(() =>
 
 /** 预渲染状态：进度显示在预览标题旁。 */
 const effectRenderLabel = computed(() => {
-  const progress = effectRender.progress;
-  if (progress) return i18n.t("effects.rendering", { pct: progress.pct });
+  const pending = effectRender.pendingJobs;
+  if (pending.length > 0) {
+    if (!pending.some((job) => job.status === "rendering")) {
+      return i18n.t("effects.renderQueued");
+    }
+    return i18n.t("effects.rendering", { pct: effectRender.progress?.pct ?? 0 });
+  }
   if (effectRender.failed) return i18n.t("preview.fxFailed");
   return null;
 });
@@ -623,22 +630,90 @@ const effectSignature = computed(() =>
     .join("|"),
 );
 
+/** 当前播放头对应的效果帧；时间对不上就不显示，避免闪回旧画面。 */
 function effectUrl(item: VisualItem): string | null {
   const preview = effectPreview.value[item.clip.id];
   if (!preview) return null;
-  if (Math.abs(preview.time - playback.playhead) > 1e-3) return null;
+  if (Math.abs(playback.playhead - preview.time) > 1e-3) return null;
   return preview.url;
 }
 
+/** 渲染某个片段在 `at` 时刻的效果帧；失败返回 null，不打断编辑。 */
+async function renderEffectItem(
+  item: VisualItem,
+  width: number,
+  height: number,
+  at: number,
+): Promise<EffectPreview | null> {
+  const asset = item.asset;
+  if (!asset) return null;
+
+  const local = Math.max(0, at - item.clip.start);
+  let sourceTime =
+    item.kind === "image" ? 0 : (item.clip.in ?? 0) + local * (item.clip.speed ?? 1);
+  let retimerSourceTime: number | null = null;
+  const specs = clipEffectSpecs(item.clip);
+  // Retimer 决定源时间：必须在解码前问插件要哪一帧。只支持链首的 retimer。
+  const retimer = specs[0];
+  if (retimer && retimer.context === OFX_RETIMER_CONTEXT && item.kind !== "image") {
+    try {
+      const mapped = await ofxSourceTime({
+        bundle: retimer.bundle,
+        plugin: retimer.plugin,
+        context: retimer.context,
+        time: local,
+        duration: item.clip.duration,
+        fps: project.doc.fps,
+        width,
+        height,
+        params: retimer.params ?? {},
+      });
+      sourceTime = (item.clip.in ?? 0) + mapped;
+      if (asset.duration > 0) {
+        sourceTime = Math.min(asset.duration - 0.001, Math.max(0, sourceTime));
+      }
+      retimerSourceTime = mapped;
+    } catch (error) {
+      console.warn("OFX SourceTime failed", error);
+    }
+  }
+
+  try {
+    const frame = await ofxRenderPreview({
+      source: asset.src,
+      sourceTime,
+      time: local,
+      width,
+      height,
+      isImage: item.kind === "image",
+      fit: "contain",
+      fps: project.doc.fps,
+      duration: item.clip.duration,
+      retimerSourceTime,
+      effects: specs,
+    });
+    return {
+      url: `data:image/png;base64,${frame.pngBase64}`,
+      time: at,
+    };
+  } catch (error) {
+    // 预览失败不应该打断编辑；导出阶段会给出明确错误。
+    console.warn("OFX preview failed", error);
+    return null;
+  }
+}
+
+/** 暂停时的单帧：按工程分辨率渲染，方便放大看细节。 */
 async function renderEffectPreviews(): Promise<void> {
   if (effectRendering) {
     effectQueued = true;
     return;
   }
-  if (!isTauri() || playback.playing) {
+  if (!isTauri()) {
     effectPreview.value = {};
     return;
   }
+  if (playback.playing) return;
   const items = effectItems.value;
   if (items.length === 0) {
     effectPreview.value = {};
@@ -647,71 +722,17 @@ async function renderEffectPreviews(): Promise<void> {
   effectRendering = true;
   try {
     const token = ++effectToken;
-    const width = project.doc.width;
-    const height = project.doc.height;
+    const at = playback.playhead;
     const next: Record<string, EffectPreview> = {};
     for (const item of items) {
-      const asset = item.asset;
-      if (!asset) continue;
-      const local = Math.max(0, playback.playhead - item.clip.start);
-      let sourceTime =
-        item.kind === "image" ? 0 : (item.clip.in ?? 0) + local * (item.clip.speed ?? 1);
-      let retimerSourceTime: number | null = null;
-      const specs = clipEffectSpecs(item.clip);
-      // Retimer 决定源时间：必须在解码前问插件要哪一帧。只支持链首的 retimer。
-      const retimer = specs[0];
-      if (
-        retimer &&
-        retimer.context === OFX_RETIMER_CONTEXT &&
-        item.kind !== "image"
-      ) {
-        try {
-          const mapped = await ofxSourceTime({
-            bundle: retimer.bundle,
-            plugin: retimer.plugin,
-            context: retimer.context,
-            time: local,
-            duration: item.clip.duration,
-            fps: project.doc.fps,
-            width: project.doc.width,
-            height: project.doc.height,
-            params: retimer.params ?? {},
-          });
-          sourceTime = (item.clip.in ?? 0) + mapped;
-          if (asset.duration > 0) {
-            sourceTime = Math.min(
-              asset.duration - 0.001,
-              Math.max(0, sourceTime),
-            );
-          }
-          retimerSourceTime = mapped;
-        } catch (error) {
-          console.warn("OFX SourceTime failed", error);
-        }
-      }
-      try {
-        const frame = await ofxRenderPreview({
-          source: asset.src,
-          sourceTime,
-          time: local,
-          width,
-          height,
-          isImage: item.kind === "image",
-          fit: "contain",
-          fps: project.doc.fps,
-          duration: item.clip.duration,
-          retimerSourceTime,
-          effects: specs,
-        });
-        if (token !== effectToken) break;
-        next[item.clip.id] = {
-          url: `data:image/png;base64,${frame.pngBase64}`,
-          time: playback.playhead,
-        };
-      } catch (error) {
-        // 预览失败不应该打断编辑；导出阶段会给出明确错误。
-        console.warn("OFX preview failed", error);
-      }
+      const preview = await renderEffectItem(
+        item,
+        project.doc.width,
+        project.doc.height,
+        at,
+      );
+      if (token !== effectToken) break;
+      if (preview) next[item.clip.id] = preview;
     }
     if (token === effectToken && !playback.playing) effectPreview.value = next;
   } finally {

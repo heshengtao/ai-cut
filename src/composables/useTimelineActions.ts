@@ -3,6 +3,7 @@ import { computed, reactive } from "vue";
 import {
   addMarker,
   duplicateClips,
+  insertClipKeyframe,
   removeClips,
   rippleDeleteClips,
   splitClips,
@@ -11,6 +12,11 @@ import {
 import { createMarker } from "@/core/factory";
 import { snapToFrame } from "@/core/time";
 import { covers } from "@/core/playback/activeClips";
+import {
+  clipboardCount,
+  copyClipsToClipboard,
+  pasteFromClipboard,
+} from "@/core/clipClipboard";
 import { usePlaybackStore } from "@/stores/playback";
 import { useProjectStore } from "@/stores/project";
 import { useSelectionStore } from "@/stores/selection";
@@ -45,6 +51,24 @@ export function useTimelineActions() {
   const canTrim = computed(() => trimmableIds.value.length > 0);
   const canDelete = computed(() => selection.selectedClipIds.length > 0);
   const canDuplicate = computed(() => selection.selectedClipIds.length > 0);
+  const canPaste = computed(() => clipboardCount.value > 0);
+
+  /** 选中且覆盖播放头的画面片段：可以在这里打关键帧（纯音频片段没有可动画参数）。 */
+  const keyframableClips = computed(() => {
+    const at = playback.playhead;
+    const selected = new Set(selection.selectedClipIds);
+    if (selected.size === 0) return [];
+    const assets = new Map(project.doc.assets.map((asset) => [asset.id, asset]));
+    return allClips.value.filter((clip) => {
+      if (!selected.has(clip.id)) return false;
+      if (at < clip.start - 1e-6 || at > clip.start + clip.duration + 1e-6) return false;
+
+      if (clip.audioOnly) return false;
+      if (clip.assetId === "") return true;
+      return assets.get(clip.assetId)?.kind !== "audio";
+    });
+  });
+  const canAddKeyframe = computed(() => keyframableClips.value.length > 0);
 
   function splitAtPlayhead(): void {
     const ids = splittableIds.value;
@@ -77,6 +101,46 @@ export function useTimelineActions() {
     if (ids.length === 0) return;
     project.dispatch((doc) => removeClips(doc, ids));
     selection.clear();
+  }
+
+  /** 复制选中片段到剪贴板（不改变时间线）。 */
+  function copySelected(): void {
+    const ids = [...selection.selectedClipIds];
+    if (ids.length === 0) return;
+    copyClipsToClipboard(project.doc, ids);
+  }
+
+  /** 剪切：一次 dispatch 里「先存快照、再删除」，只留一步撤销。 */
+  function cutSelected(): void {
+    const ids = [...selection.selectedClipIds];
+    if (ids.length === 0) return;
+    if (copyClipsToClipboard(project.doc, ids) === 0) return;
+    project.dispatch((doc) => removeClips(doc, ids), {
+      kind: "ui.dispatch",
+      actor: "human",
+      label: t("timeline.cutLabel"),
+    });
+    selection.clear();
+  }
+
+  /** 粘贴到播放头：保持组内相对位置，冲突时顺延；粘贴后选中新片段。 */
+  function pasteClipboard(): void {
+    if (clipboardCount.value === 0) return;
+    const at = snapToFrame(playback.playhead, project.doc.fps);
+    const holder: { ids: string[] } = { ids: [] };
+    project.dispatch(
+      (doc) => {
+        const result = pasteFromClipboard(doc, at);
+        holder.ids = result.ids;
+        return result.doc;
+      },
+      {
+        kind: "ui.dispatch",
+        actor: "human",
+        label: t("timeline.pasteLabel"),
+      },
+    );
+    if (holder.ids.length > 0) selection.selectMany(holder.ids);
   }
 
   /** 复制选中片段，默认落到当前选区之后；位置冲突时保持原文档不变。 */
@@ -119,6 +183,24 @@ export function useTimelineActions() {
     selection.clear();
   }
 
+  /** 在播放头给选中的画面片段打关键帧：已有同刻关键帧则更新。 */
+  function addKeyframeAtPlayhead(): void {
+    const clips = keyframableClips.value;
+    if (clips.length === 0) {
+      toast(t("timeline.selectForKeyframe"));
+      return;
+    }
+    const at = playback.playhead;
+    project.dispatch(
+      (doc) =>
+        clips.reduce(
+          (next, clip) => insertClipKeyframe(next, clip.id, at - clip.start),
+          doc,
+        ),
+      { actor: "human", label: t("timeline.addKeyframeLabel") },
+    );
+  }
+
   function addMarkerAtPlayhead(): void {
     const time = Math.max(0, snapToFrame(playback.playhead, project.doc.fps));
     project.dispatch(
@@ -143,12 +225,18 @@ export function useTimelineActions() {
     splitAtPlayhead,
     trimToPlayhead,
     deleteSelected,
+    copySelected,
+    cutSelected,
+    pasteClipboard,
     duplicateSelected,
     rippleDeleteSelected,
+    addKeyframeAtPlayhead,
     addMarkerAtPlayhead,
     canSplit,
     canTrim,
     canDelete,
     canDuplicate,
+    canPaste,
+    canAddKeyframe,
   });
 }

@@ -76,6 +76,23 @@ export function installShortcuts(): () => void {
 
     if (isTypingTarget(event.target)) return;
 
+    // 片段的复制 / 剪切 / 粘贴：和输入框的原生剪贴板互不干扰。
+    if (mod && event.key.toLowerCase() === "c") {
+      event.preventDefault();
+      actions.copySelected();
+      return;
+    }
+    if (mod && event.key.toLowerCase() === "x") {
+      event.preventDefault();
+      actions.cutSelected();
+      return;
+    }
+    if (mod && event.key.toLowerCase() === "v") {
+      event.preventDefault();
+      actions.pasteClipboard();
+      return;
+    }
+
     switch (event.key) {
       case " ":
         event.preventDefault();

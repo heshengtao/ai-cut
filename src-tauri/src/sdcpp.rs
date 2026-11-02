@@ -1,0 +1,1026 @@
+//! **stable-diffusion.cpp 引擎的下载 / 安装 / 选择**——下载管理器里「视频引擎」那一组。
+//!
+//! MiniMax-H3 不走 ONNX Runtime：它是 ggml 图 + 自定义算子，由 `sd-cli.exe` 独立进程
+//! 执行。所以这里的「运行时」是**另一套东西**，管理方式与 ONNX Runtime 完全分开：
+//!
+//! ```text
+//! <应用配置目录>/runtime/sdcpp/
+//!   cpu/       sd-cli.exe + ggml*.dll
+//!   vulkan/    同上（Vulkan 后端）
+//!   cuda12/    同上 + CUDA 12 运行库
+//!   preferred  用户挑的那一份（不写则按显卡自动挑）
+//! ```
+//!
+//! 每个后端是 stable-diffusion.cpp 官方 release 的一份自包含 zip。官方只发布 Windows /
+//! Linux / macOS 的**整包**，没有单文件下载，所以这里整包下载、整包解压、按发布页给的
+//! sha256 校验；装完只认目录里的 `sd-cli.exe`（zip 内的目录层级由官方决定，不写死）。
+//!
+//! **不随包**：安装包一个字节都不涨，全部按需下载——视频生成是可选能力。
+
+use std::fs;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
+
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use tauri::{AppHandle, Emitter, Manager};
+use walkdir::WalkDir;
+
+use crate::network::{ModelSourcePreference, NetworkRuntime};
+
+pub const EVENT_SDCPP: &str = "sdcpp-progress";
+
+/// 清单版本：换 official release 时同步换掉，老安装会被判定为未安装并重新下载。
+const REVISION: &str = "sd-master-1031-c6dfa9d";
+
+/// sd.cpp 的执行后端。与 ONNX Runtime 的 CPU / CUDA **不是同一套**：
+/// 这里是 ggml 的 CPU / Vulkan / CUDA，选择结果只影响视频生成进程。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SdcppBackend {
+    /// 按显卡自动挑（有 NVIDIA 且装了 CUDA 12 → CUDA 12，否则 Vulkan，最后 CPU）。
+    #[default]
+    Auto,
+    /// 纯 CPU（全平台可用，最慢）。
+    Cpu,
+    /// Vulkan（Windows / Linux；AMD / Intel / NVIDIA 都能用）。
+    Vulkan,
+    /// NVIDIA CUDA 12（Windows x86_64）。
+    #[serde(rename = "cuda12")]
+    Cuda12,
+    /// Apple Silicon Metal（macOS）。
+    Metal,
+}
+
+impl SdcppBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Cpu => "cpu",
+            Self::Vulkan => "vulkan",
+            Self::Cuda12 => "cuda12",
+            Self::Metal => "metal",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "自动",
+            Self::Cpu => "CPU",
+            Self::Vulkan => "Vulkan",
+            Self::Cuda12 => "CUDA 12",
+            Self::Metal => "Metal",
+        }
+    }
+
+    pub fn platform_ok(self) -> bool {
+        match self {
+            Self::Auto => true,
+            Self::Cpu => true,
+            Self::Vulkan => cfg!(any(target_os = "windows", target_os = "linux")),
+            Self::Cuda12 => cfg!(all(target_os = "windows", target_arch = "x86_64")),
+            Self::Metal => cfg!(all(target_os = "macos", target_arch = "aarch64")),
+        }
+    }
+
+    fn from_device(device: &str) -> Option<Self> {
+        match device {
+            "cpu" => Some(Self::Cpu),
+            "vulkan" => Some(Self::Vulkan),
+            "cuda12" => Some(Self::Cuda12),
+            "metal" => Some(Self::Metal),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Source {
+    region: &'static str,
+    url: &'static str,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Part {
+    /// 下载归档的字节数（官方 release asset 的精确大小）。
+    bytes: u64,
+    sha256: &'static str,
+    archive: &'static str,
+    sources: &'static [Source],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Pack {
+    id: &'static str,
+    device: &'static str,
+    parts: &'static [Part],
+}
+
+impl Pack {
+    fn bytes(&self) -> u64 {
+        self.parts.iter().map(|part| part.bytes).sum()
+    }
+}
+
+macro_rules! gh_source {
+    ($asset:literal) => {
+        Source {
+            region: "intl",
+            url: concat!(
+                "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1031-c6dfa9d/",
+                $asset
+            ),
+        }
+    };
+}
+
+/// 魔搭社区上的官方 Release 镜像（由项目维护者 `ailm32442` 原样转存，
+/// sha256 与 GitHub Release 完全一致）。只使用公开模型社区的官方镜像，
+/// 不接入任何第三方下载代理。
+macro_rules! ms_source {
+    ($path:literal) => {
+        Source {
+            region: "cn",
+            url: concat!(
+                "https://modelscope.cn/models/ailm32442/sd-cpp-binaries/resolve/master/",
+                $path
+            ),
+        }
+    };
+}
+
+const WINDOWS_PACKS: &[Pack] = &[
+    Pack {
+        id: "sdcpp-cpu",
+        device: "cpu",
+        parts: &[Part {
+            bytes: 18_094_519,
+            sha256: "82f2fa57e325895d2d1d649a9ed48e35cda7a415a255f9fc3c9d682381960f08",
+            archive: "sd-master-c6dfa9d-bin-win-cpu-x64.zip",
+            sources: &[
+                gh_source!("sd-master-c6dfa9d-bin-win-cpu-x64.zip"),
+                ms_source!("windows/sd-master-c6dfa9d-bin-win-cpu-x64.zip"),
+            ],
+        }],
+    },
+    Pack {
+        id: "sdcpp-vulkan",
+        device: "vulkan",
+        parts: &[Part {
+            bytes: 29_827_028,
+            sha256: "31a26c404fab36ba8fe527116c4f039e70fe3f440cd6b75b28ff06305532208c",
+            archive: "sd-master-c6dfa9d-bin-win-vulkan-x64.zip",
+            sources: &[
+                gh_source!("sd-master-c6dfa9d-bin-win-vulkan-x64.zip"),
+                ms_source!("windows/sd-master-c6dfa9d-bin-win-vulkan-x64.zip"),
+            ],
+        }],
+    },
+    Pack {
+        id: "sdcpp-cuda12",
+        device: "cuda12",
+        // 官方把 CUDA 版拆成两个包：引擎本体（sd-cli + ggml-cuda.dll）与 CUDA
+        // 运行库（cudart / cuBLAS）。两个都装才跑得起来，缺一个就会在加载
+        // ggml-cuda.dll 时报“找不到 cudart64_12.dll”。
+        parts: &[
+            Part {
+                bytes: 354_188_849,
+                sha256: "b1754e73934f4e1c1cc61d6228ebff44624c8a528a9ab850ad07d5179a3dbbac",
+                archive: "sd-master-c6dfa9d-bin-win-cuda12-x64.zip",
+                sources: &[
+                    gh_source!("sd-master-c6dfa9d-bin-win-cuda12-x64.zip"),
+                    ms_source!("windows/sd-master-c6dfa9d-bin-win-cuda12-x64.zip"),
+                ],
+            },
+            Part {
+                bytes: 563_452_046,
+                sha256: "fe20366827d357c00797eebb58244dddab7fd9a348d70090c3871004c320f38d",
+                archive: "cudart-sd-bin-win-cu12-x64.zip",
+                sources: &[
+                    gh_source!("cudart-sd-bin-win-cu12-x64.zip"),
+                    ms_source!("windows/cudart-sd-bin-win-cu12-x64.zip"),
+                ],
+            },
+        ],
+    },
+];
+
+const LINUX_PACKS: &[Pack] = &[
+    Pack {
+        id: "sdcpp-cpu",
+        device: "cpu",
+        parts: &[Part {
+            bytes: 27_338_281,
+            sha256: "05020fdf7fd5c710c2b55bf3bd43a3b60439bdd6b57eee7fca5d14c2084b421a",
+            archive: "sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64.zip",
+            sources: &[
+                gh_source!("sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64.zip"),
+                ms_source!("linux/sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64.zip"),
+            ],
+        }],
+    },
+    Pack {
+        id: "sdcpp-vulkan",
+        device: "vulkan",
+        parts: &[Part {
+            bytes: 37_698_801,
+            sha256: "8c7a4b9364ac8ff75635cd6ddbc858bea4e0224a746b0ba0dc7d2e32e4929a41",
+            archive: "sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip",
+            sources: &[
+                gh_source!("sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip"),
+                ms_source!("linux/sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip"),
+            ],
+        }],
+    },
+];
+
+const MACOS_PACKS: &[Pack] = &[Pack {
+    id: "sdcpp-metal",
+    device: "metal",
+    parts: &[Part {
+        bytes: 37_603_978,
+        sha256: "33282a6708809185d9c66d073bfb2feed7b302a4eb40c5e1829c13dab1a80f5d",
+        archive: "sd-master-c6dfa9d-bin-Darwin-macOS-26.6.2-arm64.zip",
+        sources: &[
+            gh_source!("sd-master-c6dfa9d-bin-Darwin-macOS-26.6.2-arm64.zip"),
+            ms_source!("macos/sd-master-c6dfa9d-bin-Darwin-macOS-26.6.2-arm64.zip"),
+        ],
+    }],
+}];
+
+fn packs() -> &'static [Pack] {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => WINDOWS_PACKS,
+        ("linux", "x86_64") => LINUX_PACKS,
+        ("macos", "aarch64") => MACOS_PACKS,
+        _ => &[],
+    }
+}
+
+fn pack(id: &str) -> Option<&'static Pack> {
+    packs().iter().find(|pack| pack.id == id)
+}
+
+fn pack_for_device(device: &str) -> Option<&'static Pack> {
+    packs().iter().find(|pack| pack.device == device)
+}
+
+fn usable(device: &str) -> bool {
+    SdcppBackend::from_device(device).is_some_and(|backend| backend.platform_ok())
+}
+
+struct Installer {
+    running: AtomicBool,
+    cancel: AtomicBool,
+}
+
+fn installer() -> &'static Installer {
+    static INSTALLER: OnceLock<Installer> = OnceLock::new();
+    INSTALLER.get_or_init(|| Installer {
+        running: AtomicBool::new(false),
+        cancel: AtomicBool::new(false),
+    })
+}
+
+pub fn busy() -> bool {
+    installer().running.load(Ordering::SeqCst)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SdcppProgress {
+    pub id: String,
+    /// `downloading` / `done` / `error`
+    pub state: String,
+    pub received: u64,
+    pub total: u64,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SdcppStatus {
+    pub id: String,
+    /// i18n key（`sdcpp.<device>`）。
+    pub label: String,
+    /// i18n key（`sdcpp.<device>.note`）。
+    pub note: String,
+    pub device: String,
+    pub bytes: u64,
+    pub installed: bool,
+    /// 用户挑的那一份（没挑过时是自动挑中的那一份）。
+    pub selected: bool,
+    pub automatic: bool,
+    pub license: String,
+    pub dir: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SdcppOption {
+    pub kind: String,
+    pub label: String,
+    pub note: String,
+    pub available: bool,
+    pub installed: bool,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SdcppInfo {
+    pub preference: String,
+    pub current: String,
+    pub recommended: String,
+    pub platform: String,
+    pub options: Vec<SdcppOption>,
+}
+
+pub fn root(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = crate::paths::config_dir(app)?
+        .join("runtime")
+        .join("sdcpp");
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir)
+}
+
+fn dir_of(app: &AppHandle, pack: &Pack) -> Result<PathBuf, String> {
+    Ok(root(app)?.join(pack.device))
+}
+
+fn marker_revision(dir: &Path) -> Option<String> {
+    let text = fs::read_to_string(dir.join("marker.json")).ok()?;
+    let text = text.trim_start_matches('\u{feff}');
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    value
+        .get("revision")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+}
+
+fn find_cli(dir: &Path) -> Option<PathBuf> {
+    if !dir.is_dir() {
+        return None;
+    }
+    let mut found: Vec<PathBuf> = WalkDir::new(dir)
+        .max_depth(4)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().is_file())
+        .map(|entry| entry.into_path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.eq_ignore_ascii_case("sd-cli.exe") || name == "sd-cli")
+                .unwrap_or(false)
+        })
+        .collect();
+    found.sort_by_key(|path| path.components().count());
+    found.into_iter().next()
+}
+
+fn installed(app: &AppHandle, pack: &Pack) -> bool {
+    let Ok(dir) = dir_of(app, pack) else {
+        return false;
+    };
+    find_cli(&dir).is_some() && marker_revision(&dir).as_deref() == Some(REVISION)
+}
+
+fn preference(app: &AppHandle) -> SdcppBackend {
+    app.state::<Arc<NetworkRuntime>>().get().sdcpp_backend
+}
+
+fn nvidia_present() -> bool {
+    if !cfg!(target_os = "windows") {
+        return false;
+    }
+    static PRESENT: OnceLock<bool> = OnceLock::new();
+    *PRESENT.get_or_init(|| {
+        std::process::Command::new("nvidia-smi")
+            .arg("-L")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    })
+}
+
+pub fn auto_device(app: &AppHandle) -> &'static str {
+    let has = |device: &str| {
+        pack_for_device(device)
+            .map(|pack| installed(app, pack))
+            .unwrap_or(false)
+    };
+    if cfg!(target_os = "macos") {
+        return if has("metal") { "metal" } else { "cpu" };
+    }
+    if cfg!(target_os = "windows") && nvidia_present() && has("cuda12") {
+        return "cuda12";
+    }
+    if has("vulkan") {
+        return "vulkan";
+    }
+    "cpu"
+}
+
+pub fn effective_device(app: &AppHandle) -> &'static str {
+    let chosen = preference(app);
+    if chosen == SdcppBackend::Auto {
+        return auto_device(app);
+    }
+    let device = chosen.as_str();
+    if chosen.platform_ok()
+        && pack_for_device(device)
+            .map(|pack| installed(app, pack))
+            .unwrap_or(false)
+    {
+        device
+    } else {
+        auto_device(app)
+    }
+}
+
+/// 实际会用的引擎（给视频生成拿 `sd-cli` 路径用）。
+pub(crate) fn effective_pack(app: &AppHandle) -> Option<&'static Pack> {
+    pack_for_device(effective_device(app))
+}
+
+/// 引擎可执行文件；没装 / 文件丢了返回 `None`。
+pub(crate) fn cli_path(app: &AppHandle, pack: &Pack) -> Option<PathBuf> {
+    let dir = dir_of(app, pack).ok()?;
+    if marker_revision(&dir).as_deref() != Some(REVISION) {
+        return None;
+    }
+    find_cli(&dir)
+}
+
+fn statuses(app: &AppHandle) -> Vec<SdcppStatus> {
+    let chosen = effective_device(app);
+    let automatic = preference(app) == SdcppBackend::Auto;
+    packs()
+        .iter()
+        .map(|pack| SdcppStatus {
+            id: pack.id.to_string(),
+            label: format!("sdcpp.{}", pack.device),
+            note: format!("sdcpp.{}.note", pack.device),
+            device: pack.device.to_string(),
+            bytes: pack.bytes(),
+            installed: installed(app, pack),
+            selected: pack.device == chosen,
+            automatic,
+            license: "MIT".into(),
+            dir: dir_of(app, pack)
+                .map(|dir| dir.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        })
+        .collect()
+}
+
+fn info(app: &AppHandle, preference: SdcppBackend) -> SdcppInfo {
+    let mut options = vec![SdcppOption {
+        kind: "auto".into(),
+        label: "sdcpp.auto".into(),
+        note: "sdcpp.auto.note".into(),
+        available: true,
+        installed: packs().iter().any(|pack| installed(app, pack)),
+        bytes: 0,
+    }];
+    options.extend(packs().iter().map(|pack| {
+        let backend = SdcppBackend::from_device(pack.device).unwrap_or_default();
+        SdcppOption {
+            kind: pack.device.to_string(),
+            label: format!("sdcpp.{}", pack.device),
+            note: format!("sdcpp.{}.note", pack.device),
+            available: backend.platform_ok(),
+            installed: installed(app, pack),
+            bytes: pack.bytes(),
+        }
+    }));
+    SdcppInfo {
+        preference: preference.as_str().to_string(),
+        current: effective_device(app).to_string(),
+        recommended: auto_device(app).to_string(),
+        platform: format!("{} / {}", std::env::consts::OS, std::env::consts::ARCH),
+        options,
+    }
+}
+
+#[tauri::command]
+pub fn sdcpp_catalog(app: AppHandle) -> Vec<SdcppStatus> {
+    statuses(&app)
+}
+
+#[tauri::command]
+pub fn sdcpp_info(
+    app: AppHandle,
+    state: tauri::State<'_, Arc<NetworkRuntime>>,
+) -> SdcppInfo {
+    info(&app, state.get().sdcpp_backend)
+}
+
+#[tauri::command]
+pub fn sdcpp_set_backend(
+    app: AppHandle,
+    state: tauri::State<'_, Arc<NetworkRuntime>>,
+    backend: SdcppBackend,
+) -> Result<SdcppInfo, String> {
+    if !backend.platform_ok() {
+        return Err(format!("{} 在本机不可用", backend.label()));
+    }
+    let mut config = state.get();
+    config.sdcpp_backend = backend;
+    let next = state.set(config);
+    Ok(info(&app, next.sdcpp_backend))
+}
+
+#[tauri::command]
+pub fn sdcpp_select(
+    app: AppHandle,
+    state: tauri::State<'_, Arc<NetworkRuntime>>,
+    id: Option<String>,
+) -> Result<(), String> {
+    let backend = match id {
+        Some(id) => {
+            let pack = pack(&id).ok_or_else(|| format!("未知引擎：{id}"))?;
+            if !installed(&app, pack) {
+                return Err(format!("{} 还没下载", pack.device));
+            }
+            if !usable(pack.device) {
+                return Err(format!("{} 在本机不可用", pack.device));
+            }
+            SdcppBackend::from_device(pack.device)
+                .ok_or_else(|| format!("未知引擎：{id}"))?
+        }
+        None => SdcppBackend::Auto,
+    };
+    let mut config = state.get();
+    config.sdcpp_backend = backend;
+    state.set(config);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sdcpp_remove(app: AppHandle, id: String) -> Result<(), String> {
+    let pack = pack(&id).ok_or_else(|| format!("未知引擎：{id}"))?;
+    let dir = dir_of(&app, pack)?;
+    if dir.is_dir() {
+        fs::remove_dir_all(&dir).map_err(|error| format!("删除失败：{error}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn sdcpp_reveal(app: AppHandle, id: String) -> Result<(), String> {
+    let pack = pack(&id).ok_or_else(|| format!("未知引擎：{id}"))?;
+    let dir = dir_of(&app, pack)?;
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    crate::models::reveal_in_file_manager(&dir)
+}
+
+#[tauri::command]
+pub fn sdcpp_cancel() {
+    installer().cancel.store(true, Ordering::Relaxed);
+}
+
+#[tauri::command]
+pub fn sdcpp_busy() -> bool {
+    busy()
+}
+
+pub fn init(app: &AppHandle) {
+    if let Ok(dir) = root(app) {
+        let staging = dir.join(".download");
+        if staging.is_dir() {
+            let _ = fs::remove_dir_all(staging);
+        }
+    }
+}
+
+fn emit(
+    app: &AppHandle,
+    id: &str,
+    state: &str,
+    received: u64,
+    total: u64,
+    message: Option<String>,
+) {
+    let _ = app.emit(
+        EVENT_SDCPP,
+        SdcppProgress {
+            id: id.to_string(),
+            state: state.to_string(),
+            received,
+            total,
+            message,
+        },
+    );
+}
+
+#[tauri::command]
+pub async fn sdcpp_install(app: AppHandle, id: String, force: Option<bool>) -> Result<(), String> {
+    let pack = pack(&id).ok_or_else(|| format!("未知引擎：{id}"))?;
+    if installed(&app, pack) && !force.unwrap_or(false) {
+        return Ok(());
+    }
+    if installer().running.swap(true, Ordering::SeqCst) {
+        return Err("已有引擎正在下载".into());
+    }
+    installer().cancel.store(false, Ordering::Relaxed);
+    let result = install_inner(&app, pack).await;
+    installer().running.store(false, Ordering::SeqCst);
+    let total = pack.bytes();
+    match &result {
+        Ok(()) => emit(&app, pack.id, "done", total, total, None),
+        Err(error) => emit(&app, pack.id, "error", 0, total, Some(error.clone())),
+    }
+    result
+}
+
+async fn install_inner(app: &AppHandle, pack: &'static Pack) -> Result<(), String> {
+    let dir = dir_of(app, pack)?;
+    let staging = root(app)?.join(".download");
+    fs::create_dir_all(&staging).map_err(|error| format!("建缓存目录失败：{error}"))?;
+    fs::create_dir_all(&dir).map_err(|error| format!("建目录失败：{error}"))?;
+
+    let network = app.state::<Arc<NetworkRuntime>>();
+    let client = network
+        .client()
+        .map_err(|error| format!("创建 HTTP 客户端失败：{error}"))?;
+    let config = network.get();
+    let total = pack.bytes();
+
+    emit(app, pack.id, "downloading", 0, total, None);
+    let mut staged: Vec<(PathBuf, &'static Part)> = Vec::new();
+    let mut base = 0u64;
+    for part in pack.parts {
+        let archive = staging.join(part.archive);
+        let mut last_error = String::new();
+        let mut downloaded = false;
+        for source in candidates(part.sources, &config) {
+            if installer().cancel.load(Ordering::Relaxed) {
+                return Err("已取消".into());
+            }
+            match download(
+                app,
+                pack.id,
+                base,
+                total,
+                &client,
+                &source,
+                &archive,
+            )
+            .await
+            {
+                Ok(()) => {
+                    eprintln!(
+                        "[sdcpp] {} 下载完成（{:.1} MB）",
+                        part.archive,
+                        part.bytes as f64 / 1048576.0
+                    );
+                    downloaded = true;
+                    break;
+                }
+                Err(error) => {
+                    last_error = error;
+                    eprintln!("[sdcpp] {source} 源失败：{last_error}");
+                    let _ = fs::remove_file(&archive);
+                }
+            }
+        }
+        if !downloaded {
+            return Err(if last_error.is_empty() {
+                "没有可用的下载源".into()
+            } else {
+                last_error
+            });
+        }
+        if !part.sha256.is_empty() {
+            let digest = sha256_file(&archive)?;
+            if !digest.eq_ignore_ascii_case(part.sha256) {
+                let _ = fs::remove_file(&archive);
+                return Err(format!("{} 校验失败（sha256 不匹配）", part.archive));
+            }
+        }
+        staged.push((archive, part));
+        base += part.bytes;
+        emit(app, pack.id, "downloading", base, total, None);
+    }
+
+    // 全部下载并校验完再动旧目录：中途失败不会留下半个引擎。
+    if dir.is_dir() {
+        fs::remove_dir_all(&dir).map_err(|error| format!("清理旧引擎失败：{error}"))?;
+    }
+    fs::create_dir_all(&dir).map_err(|error| format!("建目录失败：{error}"))?;
+    for (archive, _) in &staged {
+        extract_zip(archive, &dir)?;
+    }
+    for (archive, _) in &staged {
+        let _ = fs::remove_file(archive);
+    }
+
+    let cli = find_cli(&dir).ok_or_else(|| "引擎包里没有 sd-cli".to_string())?;
+    // CUDA 运行库在官方包里是 `cudart/*.dll`；ggml-cuda.dll 按裸文件名找它们，
+    // 必须和 sd-cli 放在同一目录（Windows 只搜 exe 目录与 PATH，不搜子目录）。
+    flatten_cudart(&dir, &cli);
+
+    let relative = cli
+        .strip_prefix(&dir)
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| "sd-cli.exe".into());
+    let marker = serde_json::json!({
+        "id": pack.id,
+        "revision": REVISION,
+        "cli": relative,
+        "bytes": total,
+        "installedAt": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_secs())
+            .unwrap_or(0),
+    });
+    fs::write(
+        dir.join("marker.json"),
+        serde_json::to_vec_pretty(&marker).unwrap_or_default(),
+    )
+    .map_err(|error| format!("写标记失败：{error}"))?;
+    eprintln!("[sdcpp] 已安装 {}（{}）", pack.id, cli.display());
+    Ok(())
+}
+
+/// 把 `cudart/` 里的 DLL 搬到 `sd-cli` 同目录；没有就什么都不做。
+fn flatten_cudart(dir: &Path, cli: &Path) {
+    let Some(target) = cli.parent() else {
+        return;
+    };
+    let Some(source) = WalkDir::new(dir)
+        .max_depth(4)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .find(|entry| {
+            entry.file_type().is_dir() && entry.file_name().to_string_lossy() == "cudart"
+        })
+        .map(|entry| entry.into_path())
+    else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(&source) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        let destination = target.join(name);
+        if destination.exists() {
+            continue;
+        }
+        if fs::rename(&path, &destination).is_err() {
+            let _ = fs::copy(&path, &destination);
+            let _ = fs::remove_file(&path);
+        }
+    }
+    let _ = fs::remove_dir_all(&source);
+}
+
+fn apply_prefix(prefix: &str, url: &str) -> String {
+    let prefix = prefix.trim();
+    if prefix.is_empty() {
+        return url.to_string();
+    }
+    if prefix.contains("{url}") {
+        prefix.replace("{url}", url)
+    } else {
+        format!("{prefix}{url}")
+    }
+}
+
+/// 候选地址：用户镜像前缀 → GitHub 下载代理 → 区域偏好排序后的官方源。
+fn candidates(sources: &[Source], network: &crate::network::NetworkConfig) -> Vec<String> {
+    let mut ordered: Vec<&Source> = sources.iter().collect();
+    match network.model_source_preference {
+        ModelSourcePreference::Domestic => {
+            ordered.sort_by_key(|source| if source.region == "cn" { 0 } else { 1 });
+        }
+        ModelSourcePreference::International => {
+            ordered.sort_by_key(|source| if source.region == "intl" { 0 } else { 1 });
+        }
+        // auto：按清单顺序走官方源；失败后仍会尝试用户自己配置的镜像 / 下载代理。
+        ModelSourcePreference::Auto => {}
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |url: String| {
+        if !url.is_empty() && !out.iter().any(|existing| existing == &url) {
+            out.push(url);
+        }
+    };
+    for source in ordered {
+        for mirror in &network.model_mirrors {
+            push(apply_prefix(mirror, source.url));
+        }
+        push(apply_prefix(&network.download_prefix, source.url));
+        push(source.url.to_string());
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn download(
+    app: &AppHandle,
+    id: &str,
+    base: u64,
+    total: u64,
+    client: &reqwest::Client,
+    url: &str,
+    path: &Path,
+) -> Result<(), String> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| format!("连接失败：{error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+    let mut file = fs::File::create(path).map_err(|error| format!("创建临时文件失败：{error}"))?;
+    let mut received = 0u64;
+    let mut response = response;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("读取数据失败：{error}"))?
+    {
+        if installer().cancel.load(Ordering::Relaxed) {
+            drop(file);
+            let _ = fs::remove_file(path);
+            return Err("已取消".into());
+        }
+        file.write_all(&chunk)
+            .map_err(|error| format!("写入失败：{error}"))?;
+        received += chunk.len() as u64;
+        emit(
+            app,
+            id,
+            "downloading",
+            (base + received).min(total),
+            total,
+            None,
+        );
+    }
+    file.flush().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn sha256_file(path: &Path) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn extract_zip(archive: &Path, dir: &Path) -> Result<(), String> {
+    let file = fs::File::open(archive).map_err(|error| format!("打开归档失败：{error}"))?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|error| format!("读取 zip 失败：{error}"))?;
+    for index in 0..zip.len() {
+        let mut entry = zip
+            .by_index(index)
+            .map_err(|error| format!("读取 zip 条目失败：{error}"))?;
+        let Some(name) = entry.enclosed_name() else {
+            continue;
+        };
+        let target = dir.join(&name);
+        if entry.is_dir() {
+            fs::create_dir_all(&target).map_err(|error| error.to_string())?;
+            continue;
+        }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let mut out = fs::File::create(&target)
+            .map_err(|error| format!("写入 {} 失败：{error}", target.display()))?;
+        std::io::copy(&mut entry, &mut out).map_err(|error| format!("解压失败：{error}"))?;
+        out.flush().map_err(|error| error.to_string())?;
+        #[cfg(unix)]
+        if let Some(mode) = entry.unix_mode() {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&target, fs::Permissions::from_mode(mode));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalogue_ids_match_devices() {
+        for pack in packs() {
+            assert!(pack.id.starts_with("sdcpp-"));
+            assert!(SdcppBackend::from_device(pack.device).is_some());
+        }
+        if cfg!(target_os = "windows") {
+            assert_eq!(packs().len(), 3);
+            let cuda = pack("sdcpp-cuda12").unwrap();
+            assert_eq!(cuda.parts.len(), 2, "CUDA 需要引擎 + 运行库两个包");
+            assert_eq!(cuda.bytes(), 354_188_849 + 563_452_046);
+        }
+    }
+
+    #[test]
+    fn backend_serde_uses_stable_ids() {
+        assert_eq!(
+            serde_json::to_string(&SdcppBackend::Cuda12).unwrap(),
+            "\"cuda12\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SdcppBackend::Cpu).unwrap(),
+            "\"cpu\""
+        );
+        assert_eq!(
+            serde_json::to_string(&SdcppBackend::Auto).unwrap(),
+            "\"auto\""
+        );
+        assert_eq!(
+            serde_json::from_str::<SdcppBackend>("\"vulkan\"").unwrap(),
+            SdcppBackend::Vulkan
+        );
+    }
+
+    #[test]
+    fn every_pack_has_official_and_modelscope_source() {
+        for pack in packs() {
+            for part in pack.parts {
+                let has_intl = part.sources.iter().any(|source| {
+                    source.region == "intl"
+                        && source.url.starts_with(
+                            "https://github.com/leejet/stable-diffusion.cpp/releases/download/",
+                        )
+                });
+                let has_cn = part.sources.iter().any(|source| {
+                    source.region == "cn"
+                        && source.url.starts_with(
+                            "https://modelscope.cn/models/ailm32442/sd-cpp-binaries/resolve/master/",
+                        )
+                });
+                assert!(has_intl, "{} 缺少 GitHub 官方源", part.archive);
+                assert!(has_cn, "{} 缺少魔搭镜像", part.archive);
+                assert!(part
+                    .sources
+                    .iter()
+                    .all(|source| !source.url.contains("ghproxy")
+                        && !source.url.contains("gh-proxy")
+                        && !source.url.contains("hf-mirror")));
+            }
+        }
+    }
+
+    #[test]
+    fn candidates_put_mirrors_and_proxy_first() {
+        let sources = &[Source {
+            region: "intl",
+            url: "https://github.com/a.zip",
+        }];
+        let mut network = crate::network::NetworkConfig::default();
+        network.model_mirrors = vec!["https://m/".into()];
+        network.download_prefix = "https://p/".into();
+        let out = candidates(sources, &network);
+        assert_eq!(out[0], "https://m/https://github.com/a.zip");
+        assert_eq!(out[1], "https://p/https://github.com/a.zip");
+        assert!(out.contains(&"https://github.com/a.zip".to_string()));
+    }
+
+    #[test]
+    fn extracts_a_nested_cli_and_finds_it() {
+        let root = std::env::temp_dir().join(format!("aicut-sdcpp-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let archive = root.join("pack.zip");
+        {
+            let file = fs::File::create(&archive).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default();
+            writer.start_file("bin/sd-cli.exe", options).unwrap();
+            writer.write_all(b"exe").unwrap();
+            writer.start_file("bin/ggml.dll", options).unwrap();
+            writer.write_all(b"dll").unwrap();
+            writer.finish().unwrap();
+        }
+        let out = root.join("out");
+        fs::create_dir_all(&out).unwrap();
+        extract_zip(&archive, &out).unwrap();
+        let cli = find_cli(&out).expect("找到 sd-cli");
+        assert!(cli.ends_with("bin/sd-cli.exe"), "{}", cli.display());
+        let _ = fs::remove_dir_all(&root);
+    }
+}

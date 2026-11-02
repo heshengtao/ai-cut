@@ -204,9 +204,7 @@ fn runtime() -> &'static PluginRuntime {
 // ---------------------------------------------------------------------------
 
 fn managed_root(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
+    let dir = crate::paths::config_dir(app)
         .map_err(|error| format!("拿不到应用配置目录：{error}"))?
         .join("plugins")
         .join("ofx");
@@ -215,9 +213,7 @@ fn managed_root(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn cache_root(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_cache_dir()
+    let dir = crate::paths::cache_dir(app)
         .map_err(|error| format!("拿不到应用缓存目录：{error}"))?
         .join("plugins")
         .join("ofx");

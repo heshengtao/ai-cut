@@ -240,8 +240,7 @@ fn new_session(path: &Path) -> Result<Session, String> {
         .map(|value| value.get())
         .unwrap_or(4)
         .clamp(1, 4);
-    let builder = Session::builder()
-        .map_err(|error| format!("创建 ONNX 会话失败：{error}"))?
+    let builder = backend::session_builder()?
         .with_optimization_level(GraphOptimizationLevel::Level3)
         .map_err(|error| format!("配置 ONNX 优化失败：{error}"))?
         .with_intra_threads(threads)
@@ -250,8 +249,7 @@ fn new_session(path: &Path) -> Result<Session, String> {
     backend::commit(
         backend::apply(builder),
         || {
-            Session::builder()
-                .map_err(|error| format!("创建 ONNX 会话失败：{error}"))?
+            backend::session_builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)
                 .map_err(|error| format!("配置 ONNX 优化失败：{error}"))?
                 .with_intra_threads(threads)

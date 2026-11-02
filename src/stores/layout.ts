@@ -20,6 +20,7 @@ export type PaneId =
 /** 设置页分区。 */
 export type SettingsSection =
   | "general"
+  | "storage"
   | "appearance"
   | "layout"
   | "ai"

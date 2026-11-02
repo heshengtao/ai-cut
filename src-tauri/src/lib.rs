@@ -17,13 +17,17 @@ mod models;
 mod network;
 mod ofx;
 mod opener;
+mod paths;
 mod plugins;
 mod project_io;
+mod runtime;
+mod sdcpp;
 mod sidecar;
 mod tools;
 mod tts;
 mod video_ai;
 mod video_dsp;
+mod video_gen;
 mod zipvoice;
 
 use std::sync::Arc;
@@ -55,6 +59,8 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWind
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 数据目录必须在**任何路径解析之前**定下来：模型、运行时、插件、历史都按它落盘。
+    paths::init_from_args();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -63,6 +69,9 @@ pub fn run() {
         .manage(export::ExportState::default())
         .manage(video_dsp::VideoDspState::default())
         .invoke_handler(tauri::generate_handler![
+            paths::data_dir_info,
+            paths::data_dir_migrate,
+            paths::data_dir_cleanup_previous,
             media::probe_media,
             media::file_stamp,
             media::make_thumbnail,
@@ -119,6 +128,25 @@ pub fn run() {
             models::model_cancel,
             models::model_remove,
             models::model_reveal,
+            runtime::runtime_catalog,
+            runtime::runtime_install,
+            runtime::runtime_cancel,
+            runtime::runtime_busy,
+            runtime::runtime_remove,
+            runtime::runtime_reveal,
+            runtime::app_restart,
+            sdcpp::sdcpp_catalog,
+            sdcpp::sdcpp_install,
+            sdcpp::sdcpp_cancel,
+            sdcpp::sdcpp_busy,
+            sdcpp::sdcpp_remove,
+            sdcpp::sdcpp_reveal,
+            sdcpp::sdcpp_select,
+            sdcpp::sdcpp_info,
+            sdcpp::sdcpp_set_backend,
+            video_gen::video_gen_start,
+            video_gen::video_gen_cancel,
+            video_gen::video_gen_busy,
             plugins::plugin_registry,
             plugins::plugin_installed,
             plugins::plugin_install,
@@ -156,7 +184,8 @@ pub fn run() {
             audio_ai::translate_text,
         ])
         .setup(|app| {
-            let config_dir = app.path().app_config_dir().ok();
+            // 数据目录可能被搬到别的盘：配置（network / tts / ai / mcp.json）与它同根。
+            let config_dir = paths::config_dir(app.handle()).ok();
             let bridge = Arc::new(bridge::ProjectBridge::new(app.handle().clone()));
             app.manage(bridge.clone());
 
@@ -164,6 +193,17 @@ pub fn run() {
                 config_dir.as_ref().map(|dir| dir.join("network.json")),
             ));
             backend::set_preference(network.get().backend_preference);
+            // 运行库的「待删除 / 待重启」清理必须在**任何 dylib 被加载之前**：
+            // 已映射的 dll 在本进程里删不掉，晚一步就又要等下一次启动。
+            runtime::init(app.handle());
+            sdcpp::init(app.handle());
+            // Windows / Linux 是运行时加载：必须在任何 AI 会话创建之前把 dylib 装上。
+            // macOS 静态链接，这里直接返回 None。
+            match backend::init_runtime(app.handle()) {
+                Ok(Some(dir)) => eprintln!("[backend] ONNX Runtime: {}", dir.display()),
+                Ok(None) => {}
+                Err(error) => eprintln!("[backend] 加载 ONNX Runtime 失败：{error}"),
+            }
             if let Some(dir) = config_dir.as_ref() {
                 let cache = dir.join("backend-cache").join("coreml");
                 let _ = std::fs::create_dir_all(&cache);
@@ -180,7 +220,8 @@ pub fn run() {
                 app.handle().clone(),
                 bridge.clone(),
                 config_dir.as_ref().map(|dir| dir.join("mcp.json")),
-                config_dir.as_ref().map(|dir| dir.join("mcp-url")),
+                // `mcp-url` 是给外部 harness 按 bundle id 找的发现文件，必须留在默认位置。
+                paths::default_config_dir(app.handle()).map(|dir| dir.join("mcp-url")),
             ));
             app.manage(mcp_runtime.clone());
             mcp_runtime.autostart();
@@ -203,4 +244,21 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// 子进程烘焙入口（`--ofx-bake-worker` / `--ofx-bake-chunked`）。
+///
+/// 分段烘焙靠独立进程拿到 OFX 并行度；worker 只跑渲染，不初始化 Tauri。
+/// 正常启动返回 `None`，`main()` 会继续走 `run()`。
+pub fn maybe_run_bake_worker() -> Option<i32> {
+    ofx::maybe_run_bake_worker()
+}
+
+/// `--ai-selftest`：无界面检查 ONNX Runtime 运行时与执行后端是否可用。
+pub fn maybe_run_ai_selftest() -> Option<i32> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if !args.iter().any(|arg| arg == "--ai-selftest") {
+        return None;
+    }
+    Some(backend::selftest())
 }

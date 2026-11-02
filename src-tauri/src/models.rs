@@ -70,6 +70,9 @@ pub enum ModelFamily {
     Yunet,
     #[serde(rename = "qwen3_aligner")]
     Qwen3Aligner,
+    /// MiniMax-H3 视频 + 音频生成（stable-diffusion.cpp）。
+    #[serde(rename = "minimax_h3")]
+    MiniMaxH3,
 }
 
 /// 一个下载源。
@@ -1139,6 +1142,91 @@ pub static CATALOG: &[ModelEntry] = &[
             ],
         }],
     },
+    // MiniMax-H3：视频 + 立体声音频联合生成，走 stable-diffusion.cpp。
+    //
+    // 四个文件缺一不可：DiT（剪枝 Q4_K_M）、Qwen3-VL 文本编码器（Q2_K_M，32B 编码器
+    // 很大，Q2 是 32 GB 内存机器的现实选择）、视频 VAE、音频 VAE。国内源与 HF 的
+    // 字节完全一致（同一 sha256），下载器按区域偏好自动选。
+    ModelEntry {
+        id: "minimax-h3",
+        name: "MiniMax-H3（视频 + 音频 · 推荐）",
+        feature: "video-gen",
+        tag: "visual",
+        license: "MiniMax-H3 Community License",
+        family: ModelFamily::MiniMaxH3,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "minimax_h3_fl2va_pruned-Q4_K_M.gguf",
+                approx_bytes: 11_420_663_904,
+                sha256: "dd948e08ad0ba3c71bd42f368e283dd82e790f5122a63b276e22a3e0283d0c10",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/minimax_h3_fl2va_pruned-Q4_K.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/leejet/MiniMax-H3-GGUF/resolve/main/minimax_h3_fl2va_pruned-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
+                approx_bytes: 13_102_161_024,
+                sha256: "a8ccadccd57ef34c838ffb8a7da8368bb554721b2760274a1d3b0df63960b997",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/leejet/MiniMax-H3-GGUF/resolve/main/qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "minimax_h3_video_vae_fp16.safetensors",
+                approx_bytes: 5_207_808_496,
+                sha256: "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/vae/minimax_h3_video_vae_fp16.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "minimax_h3_audio_vae_fp32.safetensors",
+                approx_bytes: 605_254_808,
+                sha256: "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/vae/minimax_h3_audio_vae_fp32.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors",
+                    ),
+                ],
+            },
+        ],
+    },
 ];
 
 /// 全部条目。
@@ -1223,11 +1311,9 @@ pub struct ModelStatus {
     pub files: Vec<ModelFileStatus>,
 }
 
-/// 权重落地目录（应用配置目录的 `models/`）。
+/// 权重落地目录（应用配置目录的 `models/`；配置目录可随数据目录搬到别的盘）。
 pub fn models_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
+    let dir = crate::paths::config_dir(app)
         .map_err(|error| format!("拿不到应用配置目录：{error}"))?
         .join("models");
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
@@ -1955,7 +2041,7 @@ fn emit_source(
     );
 }
 
-fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
+pub(crate) fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut command = {
         let mut command = std::process::Command::new("open");
@@ -2200,11 +2286,11 @@ mod tests {
     fn github_download_prefix_only_rewrites_github_sources() {
         let vad = by_id("silero-vad").unwrap();
         let mut network = network_with(&[], ModelSourcePreference::International);
-        network.download_prefix = "https://gh-proxy.example/".into();
+        network.download_prefix = "https://mirror.example/".into();
         let candidates = candidates_for(file_of(vad), &network, Some("intl"));
         assert!(candidates[0]
             .url
-            .starts_with("https://gh-proxy.example/https://github.com/"));
+            .starts_with("https://mirror.example/https://github.com/"));
         assert!(candidates
             .iter()
             .any(|candidate| candidate.url.starts_with("https://github.com/")));
@@ -2214,7 +2300,7 @@ mod tests {
         let hf_candidates = candidates_for(file_of(whisper), &network, Some("intl"));
         assert!(hf_candidates
             .iter()
-            .all(|candidate| !candidate.url.starts_with("https://gh-proxy.example/")));
+            .all(|candidate| !candidate.url.starts_with("https://mirror.example/")));
     }
 
     #[test]

@@ -32,7 +32,16 @@ src-tauri/binaries/
 .workbuddy-ai/
 .agents/
 .superpowers/
+.commandcode/
+.research/
+
+# Local scratch (cargo logs, downloaded sources)
+.tmp/
 
 # Local environment
 .env
 .env.*
+
+# Fetched ONNX Runtime baseline (tools/fetch-ort-runtime.mjs)
+src-tauri/resources/ort/*
+!src-tauri/resources/ort/.gitkeep

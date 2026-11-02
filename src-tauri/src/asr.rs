@@ -788,6 +788,7 @@ fn create_recognizer(
         | ModelFamily::RealEsrganX4plus
         | ModelFamily::YoloxNano
         | ModelFamily::Yunet => return Err("视频模型不能用于语音识别".into()),
+        ModelFamily::MiniMaxH3 => return Err("视频生成模型不能用于语音识别".into()),
     }
 
     OfflineRecognizer::create(&config).ok_or_else(|| "无法创建语音识别器".into())

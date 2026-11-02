@@ -99,6 +99,8 @@ Bundle id 是 **`com.aicut.editor`**，配置目录由它推导：
 
 按顺序找：`command -v aicut` → `<配置目录>/cli-path` → 启动 App 后重试。
 
+这两个文件**永远在默认配置目录**，即使用户在「设置 → 存储」里把数据目录（模型 / ONNX Runtime / OFX 插件 / 工程历史）搬到了别的盘，它们也不会跟着搬——按 bundle id 推导即可，不用去别处找。
+
 ### CLI
 
 ```bash

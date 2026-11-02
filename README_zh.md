@@ -176,6 +176,17 @@ pnpm build:aicut      # 构建 aicut CLI
 
 ffmpeg 与 ffprobe 以静态二进制随包分发，用户不需要自己安装。模型文件位于 `src-tauri/resources/models/`；较大的模型按需下载。
 
+### 数据目录
+
+模型、ONNX Runtime、OFX 插件、工程历史与设置文件默认放在用户数据目录（Windows 上是 `%APPDATA%\com.aicut.editor`），加起来可能有好几个 GB。不想让它们占系统盘，有两条路：
+
+- **安装时选**：Windows 的 NSIS 安装包会在**首次安装**时询问数据目录（静默安装与自动更新不会弹窗）。选择结果写入注册表 `HKCU\Software\AI Cut\DataDir`。
+- **装完之后搬**：**设置 → 存储 → 选择目录并迁移**。应用会把当前数据复制到新目录、写好指针文件，**重启后生效**；旧目录留到重启后再一键清理，迁移过程中不删任何东西。
+
+解析优先级：`--data-dir <path>` ＞ 环境变量 `AICUT_DATA_DIR` ＞ 设置页写的指针文件 `data-dir.json` ＞ 安装器注册表 ＞ 系统默认。前两者属于「便携模式」，设置页会禁用迁移。
+
+少数文件故意不跟着搬：`cli-path` / `app-path` / `mcp-url` 是给 `aicut` CLI 与外部 AI Harness 按 bundle id 查找的发现文件（见 [`skills/aicut/SKILL.md`](skills/aicut/SKILL.md)），它们只有几十字节，留在默认目录里。
+
 ### 平台支持
 
 | 平台 | 状态 |
@@ -205,7 +216,7 @@ ffmpeg 与 ffprobe 以静态二进制随包分发，用户不需要自己安装�
 
 ### 需要显卡吗？
 
-不需要。内置 AI 模型走 CPU，不需要 CUDA 或额外驱动。机器慢一些时大模型会跑得久一点，但不要求显卡。
+不需要。内置 AI 模型走 CPU，不需要 CUDA 或额外驱动。机器慢一些时大模型会跑得久一点，但不要求显卡。有 NVIDIA 显卡时，可以到「设置 → AI → 执行后端」选择 CUDA 12 或 CUDA 13 加速：两者都会在下载管理器里按需下载整套匹配的 ONNX Runtime + CUDA 组件，不依赖系统里装没装 CUDA（装完重启生效）。
 
 ### 哪些 AI 模型随应用一起提供？
 

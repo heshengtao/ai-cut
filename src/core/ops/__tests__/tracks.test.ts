@@ -4,6 +4,7 @@ import {
   addTrack,
   addTrackAt,
   moveTrack,
+  raiseTracks,
   removeTrack,
   renameTrack,
   setTrackFlag,
@@ -48,6 +49,29 @@ describe("moveTrack", () => {
     expect(next.tracks[1].id).toBe(first.id);
     expect(moveTrack(doc, first.id, 0)).toBe(doc);
     expect(moveTrack(doc, "missing", 1)).toBe(doc);
+  });
+});
+
+describe("raiseTracks", () => {
+  it("把指定轨道整体提到最上方，并保持给定顺序", () => {
+    let doc = addTrack(addTrack(addTrack(newProject())));
+    doc = addTrackAt(doc, doc.tracks.length, "字幕");
+    const subtitle = doc.tracks[3];
+    const second = doc.tracks[1];
+    const next = raiseTracks(doc, [subtitle.id, second.id]);
+    expect(next.tracks.map((track) => track.id)).toEqual([
+      subtitle.id,
+      second.id,
+      doc.tracks[0].id,
+      doc.tracks[2].id,
+    ]);
+  });
+
+  it("已经是最上方时不产生新文档", () => {
+    const doc = addTrack(addTrack(newProject()));
+    expect(raiseTracks(doc, [doc.tracks[0].id, doc.tracks[1].id])).toBe(doc);
+    expect(raiseTracks(doc, [])).toBe(doc);
+    expect(raiseTracks(doc, ["missing"])).toBe(doc);
   });
 });
 

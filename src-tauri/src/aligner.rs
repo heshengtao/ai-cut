@@ -52,10 +52,17 @@ impl Aligner {
         if !tokenizer.is_file() {
             return Err(format!("缺少对齐器分词器：{}", tokenizer.display()));
         }
-        let session = Session::builder()
-            .map_err(|error| format!("创建对齐器会话失败：{error}"))?
-            .commit_from_file(&model)
-            .map_err(|error| format!("加载对齐器权重失败：{error}"))?;
+        // Windows / Linux 是运行时加载：建会话前确保 ORT 已加载（macOS 是空操作）。
+        //
+        // 走 `apply` + `commit` 而不是裸 `commit_from_file`：否则选了 CUDA / DirectML
+        // 也对这张图无效——它永远跑在 CPU 上（这套 Qwen3 对齐模型推理不轻）。
+        // 加速器上建会话失败时 `commit` 会自己回落 CPU 会话。
+        let session = crate::backend::commit(
+            crate::backend::apply(crate::backend::session_builder()?),
+            || crate::backend::session_builder(),
+            &model,
+            "对齐器",
+        )?;
         let tokenizer = Tokenizer::from_file(&tokenizer)
             .map_err(|error| format!("加载对齐器分词器失败：{error}"))?;
         Ok(Self { session, tokenizer })

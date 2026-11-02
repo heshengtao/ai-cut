@@ -107,6 +107,8 @@ describe("placeCueTrack", () => {
     expect(track).toBeTruthy();
     expect(track?.clips).toHaveLength(2);
     expect(track?.clips[0].text).toBe("第一句");
+    // 字幕轨必须压在最上方，否则会被视频轨盖住。
+    expect(next.tracks[0].name).toBe("口播字幕");
   });
 
   it("同一句重铺时保留改过的文案，换句才重新生成", () => {

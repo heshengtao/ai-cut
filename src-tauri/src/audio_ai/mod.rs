@@ -154,11 +154,10 @@ pub(crate) fn err<E: std::fmt::Display>(what: &str, e: E) -> String {
 
 /// 建 ONNX 会话。
 pub(crate) fn build_session(path: &Path, label: &str) -> Result<ort::session::Session, String> {
-    let builder =
-        ort::session::Session::builder().map_err(|e| format!("初始化 ONNX Runtime 失败：{e}"))?;
+    let builder = backend::session_builder()?;
     backend::commit(
         backend::apply(builder),
-        || ort::session::Session::builder().map_err(|e| format!("初始化 ONNX Runtime 失败：{e}")),
+        || backend::session_builder(),
         path,
         label,
     )

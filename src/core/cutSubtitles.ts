@@ -161,9 +161,9 @@ export function placeCueTrack(doc: Project, cues: CutCue[], name: string): Proje
   }
   if (cues.length === 0) return next;
 
-  const index = next.tracks.length;
-  next = addTrackAt(next, index, name);
-  const track = next.tracks[index];
+  // 字幕必须压在最上方：排在视频轨下面会被画面盖住，等于没生成。
+  next = addTrackAt(next, 0, name);
+  const track = next.tracks[0];
   for (const cue of cues) {
     const duration = Math.max(1 / next.fps, cue.end - cue.start);
     const kept = previous.get(cue.key);

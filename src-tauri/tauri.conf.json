@@ -4,9 +4,9 @@
   "version": "0.2.5",
   "identifier": "com.aicut.editor",
   "build": {
-    "beforeDevCommand": "npm run fetch:sidecars && npm run build:aicut && npm run dev",
-    "devUrl": "http://localhost:1430",
-    "beforeBuildCommand": "npm run sync:ofx && npm run build && npm run fetch:sidecars && npm run build:aicut",
+    "beforeDevCommand": "npm run fetch:ort && npm run fetch:sidecars && npm run build:aicut && npm run dev",
+    "devUrl": "http://localhost:28430",
+    "beforeBuildCommand": "npm run fetch:ort && npm run sync:ofx && npm run build && npm run fetch:sidecars && npm run build:aicut",
     "frontendDist": "../dist"
   },
   "app": {
@@ -36,7 +36,8 @@
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/ffmpeg", "binaries/ffprobe", "binaries/aicut"],
     "resources": {
-      "resources/models/": "models/"
+      "resources/models/": "models/",
+      "resources/ort/": "ort/"
     },
     "icon": [
       "icons/32x32.png",
@@ -48,6 +49,11 @@
     "macOS": {
       "signingIdentity": "-",
       "hardenedRuntime": false
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "nsis/data-dir-hook.nsh"
+      }
     }
   },
   "plugins": {

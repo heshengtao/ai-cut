@@ -19,28 +19,39 @@ import {
 } from "@heroicons/vue/24/outline";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
-import type { McpStatus } from "@/types/agent";
+import AiVideoPage from "@/components/workspace/panes/ai/AiVideoPage.vue";
+import type { BackendInfo, BackendPreference, McpStatus } from "@/types/agent";
 import type { AudioStem, ModelStatus, TtsAudio, TtsVoice } from "@/types/models";
 import type { Clip, MediaAsset } from "@/types/project";
-import { mcpStatus, setMcpConfig } from "@/core/agentApi";
+import {
+  aiBackendInfo,
+  aiSetBackend,
+  backendFallback,
+  mcpStatus,
+  setMcpConfig,
+} from "@/core/agentApi";
+import { appRestart } from "@/core/runtimeApi";
 import { audioExtractReference } from "@/core/audioAiApi";
 import { addStemTracks, applyProcessedAudio } from "@/core/audioEdit";
 import { importAssetAt } from "@/core/media";
 import { replaceClipVideo } from "@/core/videoEdit";
 import { mapCueToTimeline, type TimelineSubtitle } from "@/core/subtitles";
-import { addAsset, addClip, addTrackAt, setClipMuted } from "@/core/ops";
-import { createClip } from "@/core/factory";
+import { addAsset, setClipMuted } from "@/core/ops";
+import { insertCueTrack } from "@/core/subtitleTrack";
 import { placeVoiceover } from "@/core/voiceover";
 import { useAsrStore } from "@/stores/asr";
 import { useAudioAiStore } from "@/stores/audioAi";
 import { useCutReviewStore } from "@/stores/cutReview";
 import { useModelsStore } from "@/stores/models";
 import { useVideoAiStore } from "@/stores/videoAi";
+import { useSdcppStore } from "@/stores/sdcpp";
 import { useTtsStore } from "@/stores/tts";
 import { useLayoutStore } from "@/stores/layout";
 import { useProjectStore } from "@/stores/project";
 import { useSelectionStore } from "@/stores/selection";
 import { useI18n } from "@/i18n";
+import { useModelChoice } from "@/composables/useModelChoice";
+import { useModelChoiceStore } from "@/stores/modelChoice";
 import { copyText } from "@/utils/clipboard";
 import { humanSize, missingBytes } from "@/utils/size";
 import { regionsLabel, sourceKindLabel } from "@/utils/modelSource";
@@ -59,10 +70,15 @@ const i18n = useI18n();
 const project = useProjectStore();
 const selection = useSelectionStore();
 const models = useModelsStore();
+const modelChoice = useModelChoiceStore();
 const asr = useAsrStore();
 const tts = useTtsStore();
 const audioAi = useAudioAiStore();
 const videoAi = useVideoAiStore();
+const sdcpp = useSdcppStore();
+
+/** 侧栏整页：AI 视频生成（列表里只留模型选择与入口）。 */
+const aiPage = ref<null | "video">(null);
 
 const activeTag = ref<AiTag>("all");
 
@@ -268,29 +284,20 @@ const sourceLabel = computed(() => {
 
 // ---- 字幕模型 ----
 
-const asrModels = computed(() => models.catalog.filter((model) => model.feature === "asr"));
 const vadModel = computed(() => models.catalog.find((model) => model.feature === "vad") ?? null);
-const selectedModelId = ref<string | null>(null);
-const selectedModel = computed(
-  () => asrModels.value.find((model) => model.id === selectedModelId.value) ?? null,
-);
-
-watch(
-  asrModels,
-  (list) => {
-    if (list.length === 0) return;
-    if (!selectedModelId.value || !list.some((model) => model.id === selectedModelId.value)) {
-      // 默认选推荐模型：已下载就立刻用它，否则优先沿用用户已经装好的模型。
-      const recommended = list.find((model) => model.recommended);
-      const preferred =
-        (recommended?.installed ? recommended : undefined) ??
-        list.find((model) => model.installed) ??
-        recommended ??
-        list[0];
-      selectedModelId.value = preferred.id;
-    }
-  },
-  { immediate: true },
+/**
+ * 字幕用 ASR：选过哪一档跨会话记住。
+ * 「已装的 → 推荐的 → 第一个」只是**没选过**时的默认，不再覆盖用户的选择。
+ */
+const {
+  list: asrModels,
+  current: selectedModel,
+  id: selectedModelId,
+} = useModelChoice(
+  "asr",
+  () => models.catalog.filter((model) => model.feature === "asr"),
+  (list) =>
+    list.find((model) => model.installed) ?? list.find((model) => model.recommended) ?? list[0] ?? null,
 );
 
 const modelOptions = computed<SelectOption[]>(() =>
@@ -406,26 +413,7 @@ async function generateSubtitles(): Promise<void> {
 
     const baseName = i18n.t("ai.subtitleTrack");
     project.dispatch(
-      (doc) => {
-        let name = baseName;
-        let index = 2;
-        while (doc.tracks.some((track) => track.name === name)) {
-          name = `${baseName} ${index++}`;
-        }
-        let next = addTrackAt(doc, 0, name);
-        const trackId = next.tracks[0].id;
-        for (const cue of timelineCues) {
-          const clip = createClip({
-            assetId: "",
-            trackId,
-            start: cue.start,
-            duration: cue.duration,
-            text: cue.text,
-          });
-          next = addClip(next, trackId, clip);
-        }
-        return next;
-      },
+      (doc) => insertCueTrack(doc, timelineCues, baseName),
       { kind: "ui.dispatch", actor: "human", label: i18n.t("ai.subtitles") },
     );
     toast(i18n.t("ai.subtitleDone", { count: timelineCues.length }));
@@ -460,7 +448,28 @@ const ttsCodec = computed(
 );
 const cloudProviders = computed(() => tts.providers.filter((provider) => provider.enabled));
 
-const selectedTtsModelId = ref<string | null>(null);
+/** 下拉里的全部候选 id（本地模型 / 云端服务用前缀区分）。 */
+const ttsOptionIds = computed(() => [
+  ...ttsModels.value.map((model) => `${LOCAL_TTS}${model.id}`),
+  ...cloudProviders.value.map((provider) => `${CLOUD_TTS}${provider.id}`),
+]);
+
+/**
+ * 朗读用的模型 / 云端服务：选过哪个跨会话记住。
+ * 没选过时：已装的本地模型 → 云端 → 第一个本地模型。
+ */
+const selectedTtsModelId = computed<string | null>({
+  get: () => {
+    const saved = modelChoice.get("tts");
+    if (saved && ttsOptionIds.value.includes(saved)) return saved;
+    const installed = ttsModels.value.find((model) => model.installed);
+    if (installed) return `${LOCAL_TTS}${installed.id}`;
+    const cloud = cloudProviders.value[0];
+    if (cloud) return `${CLOUD_TTS}${cloud.id}`;
+    return ttsModels.value[0] ? `${LOCAL_TTS}${ttsModels.value[0].id}` : null;
+  },
+  set: (value) => modelChoice.set("tts", value),
+});
 const selectedTtsKind = computed<"local" | "cloud">(() =>
   selectedTtsModelId.value?.startsWith(CLOUD_TTS) ? "cloud" : "local",
 );
@@ -479,27 +488,6 @@ const selectedCloudProvider = computed(() =>
   selectedTtsKind.value === "cloud"
     ? cloudProviders.value.find((provider) => provider.id === selectedTtsSourceId.value) ?? null
     : null,
-);
-
-watch(
-  [ttsModels, cloudProviders],
-  () => {
-    const options = [
-      ...ttsModels.value.map((model) => `${LOCAL_TTS}${model.id}`),
-      ...cloudProviders.value.map((provider) => `${CLOUD_TTS}${provider.id}`),
-    ];
-    if (selectedTtsModelId.value && options.includes(selectedTtsModelId.value)) return;
-    // 首次进入优先选已经装好的本地模型，其次才用云端服务。
-    const installed = ttsModels.value.find((model) => model.installed);
-    selectedTtsModelId.value = installed
-      ? `${LOCAL_TTS}${installed.id}`
-      : cloudProviders.value[0]
-        ? `${CLOUD_TTS}${cloudProviders.value[0].id}`
-        : ttsModels.value[0]
-          ? `${LOCAL_TTS}${ttsModels.value[0].id}`
-          : null;
-  },
-  { immediate: true },
 );
 
 const needsReferenceText = computed(
@@ -587,7 +575,21 @@ const textClips = computed<Clip[]>(() => {
 type VoiceMode = "builtin" | "reference";
 const voiceMode = ref<VoiceMode>("builtin");
 const ttsVoiceList = ref<TtsVoice[]>([]);
-const selectedVoiceId = ref<string | null>(null);
+const voiceIdRef = ref<string | null>(null);
+/** 音色按「来源」各记一份：云端服务的音色 id 与本地模型的不通用。 */
+const voiceSourceKey = computed(() => {
+  if (selectedTtsKind.value === "cloud") return selectedCloudProvider.value?.id ?? null;
+  return selectedTtsModel.value?.id ?? null;
+});
+/** 选过哪个音色跨会话记住（换模型 / 换服务各留各的）。 */
+const selectedVoiceId = computed<string | null>({
+  get: () => voiceIdRef.value,
+  set: (value) => {
+    voiceIdRef.value = value;
+    const source = voiceSourceKey.value;
+    if (value && source) modelChoice.set(`tts-voice:${source}`, value);
+  },
+});
 const referenceAssetId = ref<string | null>(null);
 const loadingVoices = ref(false);
 
@@ -682,11 +684,14 @@ watch(
       try {
         const list = await tts.providerVoices(provider);
         ttsVoiceList.value = list;
-        if (!list.some((voice) => voice.id === selectedVoiceId.value)) {
-          selectedVoiceId.value =
+        if (!list.some((voice) => voice.id === voiceIdRef.value)) {
+          const saved = modelChoice.get(`tts-voice:${provider.id}`);
+          voiceIdRef.value =
+            (saved && list.some((voice) => voice.id === saved) ? saved : null) ??
             (provider.voice && list.some((voice) => voice.id === provider.voice)
               ? provider.voice
-              : list[0]?.id) ?? null;
+              : list[0]?.id) ??
+            null;
         }
       } finally {
         loadingVoices.value = false;
@@ -696,15 +701,17 @@ watch(
     const model = selectedTtsModel.value;
     if (!model?.installed) {
       ttsVoiceList.value = [];
-      selectedVoiceId.value = null;
+      voiceIdRef.value = null;
       return;
     }
     loadingVoices.value = true;
     try {
       const list = await tts.voices(model.id);
       ttsVoiceList.value = list;
-      if (!list.some((voice) => voice.id === selectedVoiceId.value)) {
-        selectedVoiceId.value = list[0]?.id ?? null;
+      if (!list.some((voice) => voice.id === voiceIdRef.value)) {
+        const saved = modelChoice.get(`tts-voice:${model.id}`);
+        voiceIdRef.value =
+          (saved && list.some((voice) => voice.id === saved) ? saved : null) ?? list[0]?.id ?? null;
       }
     } finally {
       loadingVoices.value = false;
@@ -997,37 +1004,22 @@ async function generateDenoise(): Promise<void> {
   }
 }
 
-// 人声分离
-const separateModels = computed(() =>
-  models.catalog.filter((model) => model.feature === "separate"),
-);
-const selectedSeparateId = ref<string | null>(null);
-
-watch(
-  separateModels,
-  (list) => {
-    if (list.length === 0) return;
-    if (
-      selectedSeparateId.value &&
-      list.some((model) => model.id === selectedSeparateId.value)
-    ) {
-      return;
-    }
-    // 视频剪辑优先用 UVR 做人声/伴奏提取；HTDemucs 留给音乐分轨。
-    // 已安装的模型先用（其中 UVR 优先），都没有时才默认推荐 UVR Voc_FT。
-    const preferred =
-      list.find((model) => model.family === "uvr" && model.installed) ??
-      list.find((model) => model.installed) ??
-      list.find((model) => model.id === "uvr-mdx-voc-ft") ??
-      list.find((model) => model.family === "uvr") ??
-      list[0];
-    selectedSeparateId.value = preferred.id;
-  },
-  { immediate: true },
-);
-
-const separateModel = computed(
-  () => separateModels.value.find((model) => model.id === selectedSeparateId.value) ?? null,
+// 人声分离：选过哪一档跨会话记住。
+// 「视频剪辑优先 UVR」只是**没选过**时的默认（已装的优先，其中 UVR 优先）。
+const {
+  list: separateModels,
+  current: separateModel,
+  id: selectedSeparateId,
+} = useModelChoice(
+  "separate",
+  () => models.catalog.filter((model) => model.feature === "separate"),
+  (list) =>
+    list.find((model) => model.family === "uvr" && model.installed) ??
+    list.find((model) => model.installed) ??
+    list.find((model) => model.id === "uvr-mdx-voc-ft") ??
+    list.find((model) => model.family === "uvr") ??
+    list[0] ??
+    null,
 );
 const separateReady = computed(() => Boolean(separateModel.value?.installed));
 const separateMissing = computed(() =>
@@ -1177,32 +1169,12 @@ async function generateTranslation(): Promise<void> {
 
     // 1) 译文字幕轨
     const subtitleBase = i18n.t("audio.translatedSubtitleTrack");
-    project.dispatch(
-      (doc) => {
-        let name = subtitleBase;
-        let index = 2;
-        while (doc.tracks.some((track) => track.name === name)) {
-          name = `${subtitleBase} ${index++}`;
-        }
-        let next = addTrackAt(doc, 0, name);
-        const trackId = next.tracks[0].id;
-        mapped.forEach((cue, index) => {
-          next = addClip(
-            next,
-            trackId,
-            createClip({
-              assetId: "",
-              trackId,
-              start: cue.start,
-              duration: cue.duration,
-              text: translated[index],
-            }),
-          );
-        });
-        return next;
-      },
-      { kind: "ui.dispatch", actor: "human", label: i18n.t("audio.translate") },
-    );
+    const translatedCues = mapped.map((cue, index) => ({ ...cue, text: translated[index] }));
+    project.dispatch((doc) => insertCueTrack(doc, translatedCues, subtitleBase), {
+      kind: "ui.dispatch",
+      actor: "human",
+      label: i18n.t("audio.translate"),
+    });
 
     // 2) 可选配音：默认用原片前 10 秒做参考音色
     if (wantDub && dub) {
@@ -1279,9 +1251,6 @@ const videoSourceLabel = computed(() =>
     : i18n.t("videoAi.selectClip"),
 );
 
-const superresModels = computed(() =>
-  models.catalog.filter((model) => model.feature === "superres"),
-);
 const interpolateModel = computed(
   () => models.catalog.find((model) => model.feature === "interpolate") ?? null,
 );
@@ -1292,28 +1261,19 @@ const faceModel = computed(
   () => models.catalog.find((model) => model.feature === "reframe") ?? null,
 );
 
-const selectedUpscaleId = ref<string | null>(null);
-watch(
-  superresModels,
-  (list) => {
-    if (list.length === 0) return;
-    if (
-      selectedUpscaleId.value &&
-      list.some((model) => model.id === selectedUpscaleId.value)
-    ) {
-      return;
-    }
-    const preferred =
-      list.find((model) => model.installed) ??
-      list.find((model) => model.id === "realesr-general-x4v3") ??
-      list[0];
-    selectedUpscaleId.value = preferred.id;
-  },
-  { immediate: true },
-);
-
-const upscaleModel = computed(
-  () => superresModels.value.find((model) => model.id === selectedUpscaleId.value) ?? null,
+// 视频超分：选过哪一档跨会话记住（没选过时已装的优先，其次 Real-ESRGAN）。
+const {
+  list: superresModels,
+  current: upscaleModel,
+  id: selectedUpscaleId,
+} = useModelChoice(
+  "superres",
+  () => models.catalog.filter((model) => model.feature === "superres"),
+  (list) =>
+    list.find((model) => model.installed) ??
+    list.find((model) => model.id === "realesr-general-x4v3") ??
+    list[0] ??
+    null,
 );
 const upscaleOptions = computed<SelectOption[]>(() =>
   superresModels.value.map((model) => ({
@@ -1562,8 +1522,166 @@ async function applyReframe(mode: "crop" | "track"): Promise<void> {
   }
 }
 
+// ---- 运行后端：与「设置 → AI」同一套；换后端 = 换进程里的运行时，要重启 ----
+const backendInfo = ref<BackendInfo | null>(null);
+const backendBusy = ref(false);
+const backendOptions = computed(() => (backendInfo.value?.options ?? []).filter((o) => o.available));
+
+/** 后端文案：后端目录里的中文只作兜底，界面优先用 i18n。 */
+function backendText(kind: string, field: "label" | "note", fallback: string): string {
+  const key = field === "note" ? `backend.${kind}.note` : `backend.${kind}`;
+  const text = i18n.t(key);
+  return text === key ? fallback : text;
+}
+
+const backendNote = computed(() => {
+  const current = backendInfo.value?.options.find(
+    (option) => option.kind === backendInfo.value?.preference,
+  );
+  return current ? backendText(current.kind, "note", current.note) : "";
+});
+
+async function loadBackend(): Promise<void> {
+  try {
+    backendInfo.value = await aiBackendInfo();
+  } catch {
+    // 旧版桌面端没有新命令 / 预览环境：保留完整选项，只把非 CPU 标为不可用。
+    backendInfo.value = backendFallback();
+  }
+}
+
+/** 点后端按钮：切过去；需要重启时问一次，确认后直接重启。 */
+async function pickBackend(kind: BackendPreference): Promise<void> {
+  if (backendBusy.value || backendInfo.value?.preference === kind) return;
+  const option = backendInfo.value?.options.find((entry) => entry.kind === kind);
+  // 运行时没装齐时不要「切了个空」：引导到设置页的同一套下载流程。
+  if (option && (kind === "cuda12" || kind === "cuda13")) {
+    if (!option.runtime_installed || (option.missing?.length ?? 0) > 0) {
+      toast(i18n.t("settings.ai.runtimeMissing"));
+      layout.openSettings("ai");
+      return;
+    }
+  }
+  backendBusy.value = true;
+  try {
+    backendInfo.value = await aiSetBackend(kind);
+    if (backendInfo.value.restart_required) {
+      const ok = await confirm({
+        title: i18n.t("settings.ai.restartTitle"),
+        message: import.meta.env.DEV
+          ? `${i18n.t("settings.ai.restartBody")} ${i18n.t("settings.ai.restartDevHint")}`
+          : i18n.t("settings.ai.restartBody"),
+        confirmText: i18n.t("settings.ai.restartNow"),
+      });
+      if (ok) {
+        try {
+          await appRestart();
+        } catch (error) {
+          toast(error instanceof Error ? error.message : String(error));
+        }
+      }
+    }
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error));
+  } finally {
+    backendBusy.value = false;
+  }
+}
+
+// ---- AI 视频生成（MiniMax-H3）：卡片只选模型，点进侧栏整页 ----
+const videoChoice = useModelChoice(
+  "video-gen",
+  () => models.catalog.filter((model) => model.feature === "video-gen"),
+  (list) =>
+    list.find((model) => model.installed) ??
+    list.find((model) => model.recommended) ??
+    list[0] ??
+    null,
+);
+const videoModelOptions = computed<SelectOption[]>(() =>
+  videoChoice.list.value.map((model) => ({
+    id: model.id,
+    label: model.name,
+    hint: model.installed
+      ? i18n.t("aiVideo.modelReady", { size: humanSize(model.approx_bytes) })
+      : i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(missingBytes(model)) }),
+  })),
+);
+const videoModelId = computed<string | null>({
+  get: () => videoChoice.id.value,
+  set: (value) => {
+    videoChoice.id.value = value;
+  },
+});
+const videoReady = computed(() => videoChoice.current.value?.installed === true);
+const videoModelNote = computed(() => {
+  const model = videoChoice.current.value;
+  if (!model) return i18n.t("aiVideo.noModel");
+  return model.installed
+    ? i18n.t("aiVideo.modelReady", { size: humanSize(model.approx_bytes) })
+    : i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(missingBytes(model)) });
+});
+
+/** sd.cpp 后端：只影响视频生成，与上面的 ONNX Runtime 完全分开。 */
+const sdcppOptions = computed<SelectOption[]>(() =>
+  (sdcpp.info?.options ?? [])
+    .filter((option) => option.available)
+    .map((option) => ({
+      id: option.kind,
+      label: i18n.t(option.label),
+      hint:
+        option.kind === "auto"
+          ? i18n.t(option.note)
+          : option.installed
+            ? i18n.t("sdcpp.installed")
+            : i18n.t("sdcpp.downloadSize", { size: humanSize(option.bytes) }),
+    })),
+);
+const sdcppBackendId = computed<string | null>({
+  get: () => sdcpp.info?.preference ?? null,
+  set: (value) => {
+    if (value) void pickSdcppBackend(value);
+  },
+});
+const sdcppNote = computed(() => {
+  const option = (sdcpp.info?.options ?? []).find(
+    (item) => item.kind === sdcpp.info?.preference,
+  );
+  if (!option) return i18n.t("aiVideo.backendHint");
+  if (option.kind === "auto") return i18n.t(option.note);
+  return option.installed
+    ? i18n.t(option.note)
+    : i18n.t("sdcpp.downloadSize", { size: humanSize(option.bytes) });
+});
+
+async function pickSdcppBackend(kind: string): Promise<void> {
+  const option = sdcpp.info?.options.find((item) => item.kind === kind);
+  if (!option) return;
+  if (!option.installed) {
+    toast(i18n.t("settings.ai.sdcppMissing"));
+    const target =
+      kind === "auto" ? sdcpp.info?.recommended ?? "cpu" : kind;
+    sdcpp.requestFocus(`sdcpp-${target}`);
+    layout.openTab("models");
+    return;
+  }
+  try {
+    await sdcpp.setBackend(kind);
+    toast(i18n.t("aiVideo.backendSwitched", { name: i18n.t(option.label) }));
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  }
+}
+
+function openVideoGen(): void {
+  aiPage.value = "video";
+}
+
 onMounted(() => {
   void refresh();
+  void loadBackend();
+  void sdcpp.load();
+  void sdcpp.loadInfo();
   models.watchProgress();
   tts.watch();
   audioAi.watch();
@@ -1575,6 +1693,8 @@ onMounted(() => {
 
 <template>
   <div class="pane">
+    <AiVideoPage v-if="aiPage === 'video'" @back="aiPage = null" />
+    <template v-else>
     <div class="tags" role="group" :aria-label="i18n.t('ai.tagFilter')">
       <button
         v-for="tag in TAG_FILTERS"
@@ -1645,6 +1765,49 @@ onMounted(() => {
             <BoltIcon class="w-[13px] h-[13px]" />
             {{ i18n.t("ai.openCli") }}
           </button>
+        </div>
+      </li>
+
+      <!-- 运行后端：与「设置 → AI」同一套；换后端 = 换进程里的运行时，要重启 -->
+      <li class="item">
+        <div class="item-row">
+          <div class="item-main">
+            <span class="item-name">{{ i18n.t("settings.ai.backend") }}</span>
+            <span class="item-note">{{ backendNote }}</span>
+          </div>
+        </div>
+        <div class="item-row">
+          <div class="ai-seg" role="group" :aria-label="i18n.t('settings.ai.backend')">
+            <button
+              v-for="option in backendOptions"
+              :key="option.kind"
+              class="ai-seg-btn"
+              :class="{ on: backendInfo?.preference === option.kind }"
+              :aria-pressed="backendInfo?.preference === option.kind"
+              :disabled="backendBusy"
+              :title="backendText(option.kind, 'note', option.note)"
+              @click="pickBackend(option.kind)"
+            >
+              {{ backendText(option.kind, "label", option.label) }}
+            </button>
+          </div>
+        </div>
+      </li>
+
+      <!-- sd.cpp 视频后端：与 ONNX Runtime 完全分开，只影响视频生成 -->
+      <li class="item">
+        <div class="item-row">
+          <div class="item-main">
+            <span class="item-name">{{ i18n.t("aiVideo.backend") }}</span>
+            <span class="item-note">{{ sdcppNote }}</span>
+          </div>
+        </div>
+        <div class="item-row">
+          <Md3Select
+            v-model="sdcppBackendId"
+            :options="sdcppOptions"
+            :label="i18n.t('aiVideo.backend')"
+          />
         </div>
       </li>
     </ul>
@@ -1843,6 +2006,31 @@ onMounted(() => {
       {{ i18n.t("videoAi.section") }}
     </div>
     <ul v-if="activeTag === 'all' || activeTag === 'visual'" class="list">
+      <li class="item">
+        <div class="item-row">
+          <div class="item-main">
+            <span class="item-name">
+              {{ i18n.t("ai.videoGen") }}
+              <span class="badge" :class="{ on: videoReady }">
+                {{ i18n.t(videoReady ? "ai.modelReady" : "ai.modelMissing") }}
+              </span>
+            </span>
+            <span class="item-note">{{ videoModelNote }}</span>
+          </div>
+          <button class="run-btn" @click="openVideoGen">
+            {{ i18n.t("ai.videoGenOpen") }}
+          </button>
+        </div>
+        <div class="item-row">
+          <span class="param-name">{{ i18n.t("aiVideo.model") }}</span>
+          <Md3Select
+            v-model="videoModelId"
+            :options="videoModelOptions"
+            :label="i18n.t('aiVideo.model')"
+            :empty="i18n.t('aiVideo.noModel')"
+          />
+        </div>
+      </li>
       <li class="item">
         <div class="item-row">
           <div class="item-main">
@@ -2350,6 +2538,7 @@ onMounted(() => {
         </div>
       </li>
     </ul>
+    </template>
 
   </div>
 </template>
@@ -2607,6 +2796,34 @@ onMounted(() => {
 .chip:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 2px;
+}
+.ai-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background-color: rgb(var(--md-surface-container-highest));
+}
+.ai-seg-btn {
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--md-on-surface-variant));
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ai-seg-btn.on {
+  background-color: rgb(var(--md-primary));
+  color: rgb(var(--md-on-primary));
+}
+.ai-seg-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 @media (prefers-reduced-motion: reduce) {
   .switch,

@@ -176,6 +176,17 @@ pnpm build:aicut      # build the aicut CLI
 
 ffmpeg and ffprobe ship as static binaries, so users do not need ffmpeg installed. Model files live in `src-tauri/resources/models/`; larger models are downloaded on demand.
 
+### Data folder
+
+Models, ONNX Runtime, OFX plugins, project history and settings default to the user data folder (`%APPDATA%\com.aicut.editor` on Windows) and can add up to several gigabytes. There are two ways to keep them off the system drive:
+
+- **Choose it at install time**: the Windows NSIS installer asks for a data folder on a **first install** (silent installs and auto-updates never prompt). The choice is stored in `HKCU\Software\AI Cut\DataDir`.
+- **Move it later**: **Settings → Storage → Choose folder & migrate**. The app copies the current data to the new folder and writes a pointer file; it takes effect **after a restart**. The old folder is kept until you clean it up from the same page — migration never deletes anything.
+
+Resolution order: `--data-dir <path>` > `AICUT_DATA_DIR` > the settings pointer (`data-dir.json`) > installer registry > system default. The first two are "portable mode"; the settings page disables migration for them.
+
+A few files deliberately stay put: `cli-path` / `app-path` / `mcp-url` are discovery files that the `aicut` CLI and external AI harnesses find by bundle id (see [`skills/aicut/SKILL.md`](skills/aicut/SKILL.md)). They are a few dozen bytes and remain in the default folder.
+
 ### Platform Support
 
 | Platform | Status |
@@ -206,7 +217,7 @@ Yes. Editing, export, and the local AI models run on your machine. Network acces
 
 ### Do I need a GPU?
 
-No. The bundled AI models run on CPU; there is no CUDA or driver setup. Larger models take longer on slower machines, but they do not require a GPU.
+No. The bundled AI models run on CPU; there is no CUDA or driver setup. Larger models take longer on slower machines, but they do not require a GPU. If you have an NVIDIA GPU, you can pick CUDA 12 or CUDA 13 under Settings → AI → Execution backend: either one downloads a fully matched ONNX Runtime + CUDA set from the download manager on demand, with no system CUDA install required (restart to apply).
 
 ### Which AI models ship with the app?
 

@@ -1,4 +1,4 @@
-/** AI 朗读任务：本地模型 + 云端 TTS 服务，共用进度事件。 */
+/** AI 朗读任务：本地模�?+ 云端 TTS 服务，共用进度事件�?*/
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import {
@@ -26,7 +26,7 @@ export const useTtsStore = defineStore("tts", () => {
   const state = ref<TtsProgress["state"] | "idle">("idle");
   const message = ref<string | null>(null);
   const providers = ref<CloudTtsProvider[]>([]);
-  /** 是否已经从后端读过配置，避免重复请求。 */
+  /** 是否已经从后端读过配置，避免重复请求�?*/
   const providersLoaded = ref(false);
 
   let stopProgress: (() => void) | null = null;
@@ -93,7 +93,7 @@ export const useTtsStore = defineStore("tts", () => {
     }
   }
 
-  /** 读取云端 TTS 配置（设置页保存后重新调用即可刷新）。 */
+  /** 读取云端 TTS 配置（设置页保存后重新调用即可刷新）�?*/
   async function loadProviders(force = false): Promise<void> {
     if (providersLoaded.value && !force) return;
     try {
@@ -125,7 +125,7 @@ export const useTtsStore = defineStore("tts", () => {
     try {
       await ttsCancel();
     } catch {
-      // 终态事件会纠正状态。
+      // 终态事件会纠正状态�?
     }
   }
 

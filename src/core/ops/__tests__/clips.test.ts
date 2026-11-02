@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createClip, newProject } from "@/core/factory";
 import type { Project } from "@/types/project";
-import { addClip, removeClips, updateClip } from "@/core/ops/clips";
+import { addClip, insertClipKeyframe, removeClips, updateClip } from "@/core/ops/clips";
 import { addTrack } from "@/core/ops/tracks";
 
 /** 两条轨道上各放片段，并返回它们的 id。 */
@@ -72,5 +72,36 @@ describe("updateClip", () => {
   it("is a no-op for an unknown clip", () => {
     const { doc } = fixture();
     expect(updateClip(doc, "nope", { opacity: 0.5 })).toBe(doc);
+  });
+});
+
+describe("insertClipKeyframe", () => {
+  it("adds a keyframe at the clip-local time with the current values", () => {
+    const { doc, c1 } = fixture();
+    const next = insertClipKeyframe(doc, c1, 1.5);
+    const frames = next.tracks[0].clips.find((c) => c.id === c1)!.keyframes!;
+    expect(frames).toHaveLength(1);
+    expect(frames[0].time).toBeCloseTo(1.5);
+    expect(frames[0].opacity).toBe(1);
+    expect(frames[0].scale).toBe(1);
+  });
+
+  it("updates an existing frame at the same time instead of duplicating it", () => {
+    const { doc, c1 } = fixture();
+    let next = insertClipKeyframe(doc, c1, 2);
+    next = insertClipKeyframe(next, c1, 2);
+    expect(next.tracks[0].clips.find((c) => c.id === c1)!.keyframes).toHaveLength(1);
+  });
+
+  it("clamps the time to the clip range", () => {
+    const { doc, c1 } = fixture();
+    const next = insertClipKeyframe(doc, c1, 99);
+    const frames = next.tracks[0].clips.find((c) => c.id === c1)!.keyframes!;
+    expect(frames[frames.length - 1].time).toBeCloseTo(3);
+  });
+
+  it("is a no-op for an unknown clip", () => {
+    const { doc } = fixture();
+    expect(insertClipKeyframe(doc, "nope", 1)).toBe(doc);
   });
 });

@@ -146,12 +146,15 @@ fn download_url(archive_name: &str) -> String {
 }
 
 
-/// 删除 sherpa-onnx 预编译包自带的 ONNX Runtime 静态库。
+/// 只在 macOS 上删除 sherpa 自带的 ONNX Runtime 静态库。
 ///
-/// ai-cut 的本地 AI 会话统一使用 `ort` 的预编译运行时（macOS 含 CoreML、
-/// Windows 含 DirectML）。两份静态库都会定义 `OrtGetApiBase`，链接器会
-/// 先找到谁就用谁；把 sherpa 这份删掉，才能确保两边用的是同一个运行时。
-fn remove_bundled_onnxruntime(lib_dir: &Path) {
+/// macOS 的 `ort` 仍然是静态链接（CoreML，没有 CUDA，不需要运行时切换），两份静态库
+/// 都会定义 `OrtGetApiBase`，必须只留一份。Windows / Linux 的 `ort` 改成了运行时
+/// 加载，不再提供静态库，所以 sherpa 保留自带的 CPU ORT 正好互不干扰。
+fn remove_bundled_onnxruntime(lib_dir: &Path, target_os: &str) {
+    if target_os != "macos" {
+        return;
+    }
     for name in ["libonnxruntime.a", "onnxruntime.lib"] {
         let path = lib_dir.join(name);
         if path.exists() {
@@ -186,7 +189,7 @@ fn download_prebuilt_libs(
     let lib_dir = extracted_dir.join(lib_dir_name);
 
     if lib_dir.is_dir() {
-        remove_bundled_onnxruntime(&lib_dir);
+        remove_bundled_onnxruntime(&lib_dir, &target_os);
         if link_mode != LinkMode::Static
             || matches!(target_os, "android" | "ios")
             || missing_static_libs(&lib_dir, target_os).is_empty()
@@ -315,7 +318,7 @@ fn download_prebuilt_libs(
         .into());
     }
 
-    remove_bundled_onnxruntime(&lib_dir);
+    remove_bundled_onnxruntime(&lib_dir, &target_os);
 
     if link_mode == LinkMode::Static && !matches!(target_os, "android" | "ios") {
         let missing = missing_static_libs(&lib_dir, target_os);
@@ -499,6 +502,11 @@ fn emit_static_link_directives(target_os: &str) {
     for lib in SHERPA_ONNX_STATIC_LIBS {
         println!("cargo:rustc-link-lib=static={lib}");
     }
+    // macOS 删掉了 sherpa 自带的 ORT（复用 ort 的静态运行时）；Windows / Linux 保留，
+    // 由 sherpa 自己链接这份 CPU ONNX Runtime。
+    if target_os != "macos" {
+        println!("cargo:rustc-link-lib=static=onnxruntime");
+    }
 
     match target_os {
         "linux" => {
@@ -506,10 +514,17 @@ fn emit_static_link_directives(target_os: &str) {
             println!("cargo:rustc-link-lib=dylib=m");
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=dl");
+            println!("cargo:rustc-link-lib=dylib=rt");
         }
         "macos" | "ios" => {
             println!("cargo:rustc-link-lib=dylib=c++");
             println!("cargo:rustc-link-lib=framework=Foundation");
+        }
+        "windows" => {
+            // 静态 ONNX Runtime 依赖的系统库（与 ORT 的 CMake 导出保持一致）。
+            for lib in ["ws2_32", "advapi32", "userenv", "ole32", "shell32", "dbghelp"] {
+                println!("cargo:rustc-link-lib=dylib={lib}");
+            }
         }
         _ => {}
     }
