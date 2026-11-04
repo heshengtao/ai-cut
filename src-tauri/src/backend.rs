@@ -160,8 +160,11 @@ static COREML_CACHE: OnceLock<PathBuf> = OnceLock::new();
 
 /// 当前进程实际加载的那份运行时 id（`cpu` / `directml` / `cuda` / `cuda13`）。
 ///
-/// `None` = 还没加载过（自检 / 建会话前的兜底会补上）。
+/// `None` = 还没加载过（懒加载：第一次建会话时才装 dylib）。
 static LOADED_RUNTIME: Mutex<Option<&'static str>> = Mutex::new(None);
+
+/// 启动时登记的应用句柄：懒加载时要靠它找随包运行时 / 读偏好。
+static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 
 /// CUDA provider 库是否**真的注册进了 ONNX Runtime**，以及它是哪个大版本（0 = 没注册）。
 ///
@@ -277,6 +280,11 @@ pub fn restart_required(app: &tauri::AppHandle) -> bool {
     if !preference.platform_ok() {
         return false;
     }
+    // **懒加载**：本进程一个运行时都还没加载过，下一次建会话会直接加载最新的那一份，
+    // 没必要让用户重启（这正是「装完 CUDA 先重启」那条提示消失的原因）。
+    if !runtime_loaded() {
+        return false;
+    }
     restart_required_from(
         preference,
         loaded_flavor(),
@@ -309,6 +317,14 @@ pub fn effective() -> BackendPreference {
 /// CoreML 编译产物缓存目录（跨重启复用，避免每次建会话都重编译）。
 pub fn set_coreml_cache_dir(dir: PathBuf) {
     let _ = COREML_CACHE.set(dir);
+}
+
+/// 本进程是否已经加载过某一份运行时（懒加载下用来判断「切换是否需要重启」）。
+fn runtime_loaded() -> bool {
+    LOADED_RUNTIME
+        .lock()
+        .map(|slot| slot.is_some())
+        .unwrap_or(false)
 }
 
 /// 给 ONNX 会话注册当前执行后端；失败时保留原 builder（ort 会回落 CPU）。
@@ -416,6 +432,8 @@ const ORT_LIBRARY: &str = "libonnxruntime.dylib";
 
 /// 启动时调用：按偏好加载 CUDA 运行时或随包基线。macOS 是静态链接，直接返回。
 pub fn init_runtime(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    // 只记下 AppHandle：真正的加载推迟到第一次建会话（见 `ensure_runtime_loaded`）。
+    let _ = APP.set(app.clone());
     #[cfg(target_os = "macos")]
     {
         let _ = app;
@@ -423,49 +441,65 @@ pub fn init_runtime(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
     }
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        let preference = preference();
-        if let Some(flavor) = preference.cuda_flavor() {
-            let id = preference.runtime_id();
-            let cuda = crate::runtime::installed_runtime_dir(app, id);
-            set_cuda_runtime_dir(flavor, cuda.clone());
-            match cuda.as_ref() {
-                Some(dir) => {
-                    // 先把「组件齐不齐」说清楚：缺库时照样加载，但日志里要能看出原因。
-                    let missing = cuda_missing_libraries(flavor);
-                    if !missing.is_empty() {
+        // CUDA 的组件目录要登记好：界面上的「缺哪个组件」按它算。
+        if let Some(flavor) = preference().cuda_flavor() {
+            let id = preference().runtime_id();
+            set_cuda_runtime_dir(flavor, crate::runtime::installed_runtime_dir(app, id));
+        }
+        // 返回值只用于启动日志（写「将会用哪一份」）。
+        let expected = match preference().cuda_flavor() {
+            Some(_) => crate::runtime::installed_runtime_dir(app, preference().runtime_id()),
+            None => None,
+        };
+        Ok(expected.or_else(|| bundled_dir(app)))
+    }
+}
+
+/// 按当前偏好**加载**运行时：CUDA 优先，没装 / 加载失败就回退随包基线。
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn load_preferred(app: &tauri::AppHandle) -> Result<Option<PathBuf>, String> {
+    let preference = preference();
+    if let Some(flavor) = preference.cuda_flavor() {
+        let id = preference.runtime_id();
+        let cuda = crate::runtime::installed_runtime_dir(app, id);
+        set_cuda_runtime_dir(flavor, cuda.clone());
+        match cuda.as_ref() {
+            Some(dir) => {
+                // 先把「组件齐不齐」说清楚：缺库时照样加载，但日志里要能看出原因。
+                let missing = cuda_missing_libraries(flavor);
+                if !missing.is_empty() {
+                    eprintln!(
+                        "[backend] CUDA {flavor} 组件不完整，缺：{}（设置 → AI → 运行库 里补齐）",
+                        missing.join("、")
+                    );
+                }
+                match load_ort(dir, Some(flavor)) {
+                    Ok(()) => {
+                        set_loaded_runtime(preference.runtime_id());
+                        return Ok(Some(dir.clone()));
+                    }
+                    Err(error) => {
                         eprintln!(
-                            "[backend] CUDA {flavor} 组件不完整，缺：{}（设置 → AI → 运行库 里补齐）",
-                            missing.join("、")
+                            "[backend] 加载 CUDA {flavor} 运行时失败（{error}），改用随包基线"
                         );
                     }
-                    match load_ort(dir, Some(flavor)) {
-                        Ok(()) => {
-                            set_loaded_runtime(preference.runtime_id());
-                            return Ok(Some(dir.clone()));
-                        }
-                        Err(error) => {
-                            eprintln!(
-                                "[backend] 加载 CUDA {flavor} 运行时失败（{error}），改用随包基线"
-                            );
-                        }
-                    }
-                }
-                None => {
-                    eprintln!("[backend] 已选 CUDA {flavor} 但没安装运行时，回退随包基线");
                 }
             }
+            None => {
+                eprintln!("[backend] 已选 CUDA {flavor} 但没安装运行时，回退随包基线");
+            }
         }
-        let dir = bundled_dir(app).ok_or_else(|| {
-            format!("找不到随包的 ONNX Runtime（{ORT_LIBRARY}），先运行 pnpm fetch:ort")
-        })?;
-        load_ort(&dir, None)?;
-        set_loaded_runtime(if dir.join("DirectML.dll").is_file() {
-            "directml"
-        } else {
-            "cpu"
-        });
-        Ok(Some(dir))
     }
+    let dir = bundled_dir(app).ok_or_else(|| {
+        format!("找不到随包的 ONNX Runtime（{ORT_LIBRARY}），先运行 pnpm fetch:ort")
+    })?;
+    load_ort(&dir, None)?;
+    set_loaded_runtime(if dir.join("DirectML.dll").is_file() {
+        "directml"
+    } else {
+        "cpu"
+    });
+    Ok(Some(dir))
 }
 
 /// 随包基线运行时所在目录：资源目录 → exe 旁边的 `ort/` → 开发期资源目录。
@@ -853,17 +887,142 @@ fn cuda13_supported() -> bool {
             .unwrap_or(false)
 }
 
-/// 本机推荐的后端：NVIDIA + 新驱动用 CUDA 13，否则 CUDA 12；都不是就 CPU。
+/// 本机推荐的后端：NVIDIA + 新驱动用 CUDA 13，否则 CUDA 12；
+/// Windows 上的 AMD / Intel 用**随包** DirectML（不用下载就有加速）；其余 CPU。
 ///
 /// 「推荐」只看本机是否跑得动，不看装没装——设置页会把「需要下载」单独标出来。
 fn recommended_backend() -> BackendPreference {
-    if !nvidia_driver_present() || !BackendPreference::Cuda12.platform_ok() {
-        return BackendPreference::Cpu;
+    let profile = device_profile();
+    if profile.vendor == "nvidia" && BackendPreference::Cuda12.platform_ok() {
+        if cuda13_supported() && BackendPreference::Cuda13.platform_ok() {
+            return BackendPreference::Cuda13;
+        }
+        return BackendPreference::Cuda12;
     }
-    if cuda13_supported() && BackendPreference::Cuda13.platform_ok() {
-        BackendPreference::Cuda13
-    } else {
-        BackendPreference::Cuda12
+    #[cfg(target_os = "macos")]
+    if BackendPreference::CoreMl.platform_ok() {
+        return BackendPreference::CoreMl;
+    }
+    #[cfg(target_os = "windows")]
+    if (profile.vendor == "amd" || profile.vendor == "intel")
+        && BackendPreference::DirectMl.platform_ok()
+    {
+        return BackendPreference::DirectMl;
+    }
+    BackendPreference::Cpu
+}
+
+/// 本机显卡画像（缓存：设置页与引导弹窗会反复要，探测一次就够）。
+pub fn device_profile() -> &'static DeviceProfile {
+    static PROFILE: OnceLock<DeviceProfile> = OnceLock::new();
+    PROFILE.get_or_init(detect_device)
+}
+
+/// NVIDIA 的显卡名与驱动版本（`nvidia-smi` 读不到就都留空）。
+///
+/// 只用来写文案：读不到不影响任何判断，CUDA 能不能用另有 `nvidia_driver_*` 把关。
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn nvidia_name_and_driver() -> (String, Option<String>) {
+    let output = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=name,driver_version", "--format=csv,noheader"])
+        .output();
+    let Ok(output) = output else {
+        return (String::new(), None);
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut parts = text.lines().next().unwrap_or_default().split(',');
+    let name = parts.next().unwrap_or_default().trim().to_string();
+    let driver = parts.next().map(|value| value.trim().to_string()).filter(|v| !v.is_empty());
+    (name, driver)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_system32() -> PathBuf {
+    std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+        .join("System32")
+}
+
+#[cfg(target_os = "windows")]
+fn detect_device() -> DeviceProfile {
+    if nvidia_driver_present() {
+        let (name, driver) = nvidia_name_and_driver();
+        return DeviceProfile {
+            vendor: "nvidia".into(),
+            name,
+            driver,
+        };
+    }
+    // 没有 NVIDIA：看系统里有没有 AMD / Intel 的显示驱动 DLL。
+    // 比 WMI 便宜得多（这一步会在设置页热路径上被调用），也不用拉起 COM。
+    let system32 = windows_system32();
+    let has = |names: &[&str]| names.iter().any(|name| system32.join(name).is_file());
+    if has(&["atio6axx.dll", "amdxc64.dll", "amdvlk64.dll", "amfrt64.dll"]) {
+        return DeviceProfile {
+            vendor: "amd".into(),
+            name: String::new(),
+            driver: None,
+        };
+    }
+    if has(&["igc64.dll", "igd10iumd64.dll", "igd12umd64.dll", "igvk64.dll"]) {
+        return DeviceProfile {
+            vendor: "intel".into(),
+            name: String::new(),
+            driver: None,
+        };
+    }
+    DeviceProfile {
+        vendor: "none".into(),
+        name: String::new(),
+        driver: None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn detect_device() -> DeviceProfile {
+    DeviceProfile {
+        vendor: "apple".into(),
+        name: chip_name().unwrap_or_default(),
+        driver: None,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn detect_device() -> DeviceProfile {
+    if std::path::Path::new("/dev/nvidiactl").exists()
+        || std::path::Path::new("/proc/driver/nvidia/version").exists()
+    {
+        let (name, driver) = nvidia_name_and_driver();
+        return DeviceProfile {
+            vendor: "nvidia".into(),
+            name,
+            driver,
+        };
+    }
+    // `/sys/class/drm/card0/device/vendor` 是 PCI vendor id：0x1002 = AMD，0x8086 = Intel。
+    let vendor_id = std::fs::read_to_string("/sys/class/drm/card0/device/vendor")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let vendor = match vendor_id.as_str() {
+        "0x1002" => "amd",
+        "0x8086" => "intel",
+        _ => "none",
+    };
+    DeviceProfile {
+        vendor: vendor.into(),
+        name: String::new(),
+        driver: None,
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn detect_device() -> DeviceProfile {
+    DeviceProfile {
+        vendor: "none".into(),
+        name: String::new(),
+        driver: None,
     }
 }
 
@@ -891,13 +1050,39 @@ fn cuda_missing_libraries(_flavor: u8) -> Vec<&'static str> {
     Vec::new()
 }
 
-/// 确保运行时已加载：应用启动时由 `init_runtime` 完成；测试或直接建会话时兜底。
+/// **懒加载**：第一次建会话时才真正把 dylib 装进进程。
+///
+/// 为什么不在启动时加载：一份 dylib 一个进程只能加载一次，所以「装完 CUDA 之后要重启」
+/// 一直是引导流程里最别扭的一步。改成懒加载之后，没有正在使用的运行时就不算「已加载」，
+/// 装完直接切过去、下一次建会话就会加载新装的那一份，**不需要重启**。
+///
+/// 并发保护：多个 AI 任务可能同时建会话，加载只做一次（`RUNTIME_LOADED` 双重检查 + 互斥）。
 pub fn ensure_runtime_loaded() {
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
         if RUNTIME_LOADED.load(Ordering::Relaxed) {
             return;
         }
+        static LOAD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let lock = LOAD_LOCK.get_or_init(|| Mutex::new(()));
+        let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if RUNTIME_LOADED.load(Ordering::Relaxed) {
+            return;
+        }
+
+        // 有 AppHandle：按当前偏好加载（CUDA 装了就用 CUDA，否则随包基线）。
+        if let Some(app) = APP.get() {
+            match load_preferred(app) {
+                Ok(Some(dir)) => {
+                    eprintln!("[backend] ONNX Runtime（懒加载）：{}", dir.display());
+                    return;
+                }
+                Ok(None) => {}
+                Err(error) => eprintln!("[backend] 加载 ONNX Runtime 失败：{error}"),
+            }
+        }
+
+        // 没有 AppHandle（测试 / CLI 直接建会话）：退回开发期目录。
         if let Some(dir) = dev_bundled_dir() {
             if let Err(error) = load_ort(&dir, None) {
                 eprintln!("[backend] 加载 ONNX Runtime 失败：{error}");
@@ -1081,6 +1266,23 @@ pub fn selftest() -> i32 {
 // 设置页协议
 // ---------------------------------------------------------------------------
 
+/// 本机显卡画像（只用来「推荐后端」和写引导文案，不参与建会话）。
+///
+/// 为什么要单独下发：引导弹窗需要说清「为什么推荐 CUDA」——
+/// 「检测到 NVIDIA GeForce RTX 4060」比一句「推荐 CUDA」可信得多；
+/// 反过来在 AMD 机器上也要能说出「未检测到 NVIDIA 显卡」，而不是把 917 MB 的
+/// CUDA 引擎摆在那里让人白下。
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceProfile {
+    /// `nvidia` / `amd` / `intel` / `apple` / `none`
+    pub vendor: String,
+    /// 显卡名（读不到为空串）。
+    pub name: String,
+    /// 驱动版本（只有 NVIDIA 读得到）。
+    pub driver: Option<String>,
+}
+
 /// 一个可选后端（给设置页渲染）。
 #[derive(Debug, Clone, Serialize)]
 pub struct BackendOption {
@@ -1108,9 +1310,12 @@ pub struct BackendOption {
 pub struct BackendInfo {
     pub preference: String,
     pub current: String,
-    /// 本机推荐的后端（NVIDIA 新驱动时是 `cuda13`，老驱动 `cuda12`，否则 `cpu`）。
+    /// 本机推荐的后端（NVIDIA 新驱动时是 `cuda13`，老驱动 `cuda12`；
+    /// Windows 上的 AMD / Intel 是随包的 `directml`；否则 `cpu`）。
     pub recommended: String,
     pub platform: String,
+    /// 本机显卡画像（引导弹窗写「检测到 …」用）。
+    pub device: DeviceProfile,
     /// 进程里**已经加载**的那份运行时；未加载为 `null`。
     pub loaded_runtime: Option<String>,
     /// 刚切换过运行时 / 补装过组件，需要重启才生效。
@@ -1174,6 +1379,7 @@ fn info(app: &tauri::AppHandle, preference: BackendPreference) -> BackendInfo {
         current: current.as_str().to_string(),
         recommended: recommended_backend().as_str().to_string(),
         platform: platform_label(),
+        device: device_profile().clone(),
         loaded_runtime: LOADED_RUNTIME
             .lock()
             .ok()

@@ -80,9 +80,27 @@ export function fileUrl(path: string): string {
   return convertFileSrc(path);
 }
 
+/**
+ * 当前进程真正生效的缓存目录（绝对路径）。
+ *
+ * 数据目录可以搬走，缓存也跟着搬；这里必须问 Rust，而不是拿 `appDataDir()/cache` 猜。
+ * 结果在进程内缓存：目录启动时就冻结了，不会中途变。
+ */
+let cacheDirRequest: Promise<string> | null = null;
+
+export function cacheDirPath(): Promise<string> {
+  if (!cacheDirRequest) {
+    cacheDirRequest = invoke<string>("media_cache_dir").catch((error) => {
+      cacheDirRequest = null;
+      throw error;
+    });
+  }
+  return cacheDirRequest;
+}
+
 /** 缓存文件名 → 绝对路径（与 Rust 侧 `cache_dir` 对应）。 */
 export async function cacheFilePath(name: string): Promise<string> {
-  return join(await appDataDir(), "cache", name);
+  return join(await cacheDirPath(), name);
 }
 
 export function probeMedia(path: string): Promise<MediaMeta> {

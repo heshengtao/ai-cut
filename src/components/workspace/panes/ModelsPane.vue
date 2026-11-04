@@ -5,7 +5,7 @@
  * 分发规则：只有不超过 10 MB 的模型可以随包分发；更大的模型必须由用户按需下载。
  * 下载进度走 `model-progress` 事件，同一时刻只允许一个下载任务。
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   AdjustmentsHorizontalIcon,
   ArrowDownTrayIcon,
@@ -17,6 +17,7 @@ import {
 import { useModelsStore } from "@/stores/models";
 import { useRuntimesStore } from "@/stores/runtimes";
 import { useSdcppStore } from "@/stores/sdcpp";
+import { useDownloadsStore } from "@/stores/downloads";
 import { usePluginsStore } from "@/stores/plugins";
 import { useLayoutStore } from "@/stores/layout";
 import PluginList from "./PluginList.vue";
@@ -35,6 +36,7 @@ type Kind = "all" | "plugin" | "model" | "runtime";
 const models = useModelsStore();
 const runtimes = useRuntimesStore();
 const sdcpp = useSdcppStore();
+const downloads = useDownloadsStore();
 const plugins = usePluginsStore();
 const layout = useLayoutStore();
 const i18n = useI18n();
@@ -66,12 +68,12 @@ const cudaParts = computed(() =>
 /**
  * 当前页签下要显示的组件。
  *
- * 「已安装」只列真的装好的（和 ai-daw 一致）；「可下载」列全部，缺的给下载按钮。
+ * **两个页签都列全**：以前「已安装」只保留装好的组件，没装过 CUDA 13 的机器上
+ * 整块 CUDA 13 卡片直接消失，用户以为「这个版本根本没有组件」。现在缺的也摆出来，
+ * 只是按钮变成「下载」。
  */
 const visibleParts = computed(() =>
-  cudaParts.value
-    .filter((part) => (tab.value === "installed" ? part.installed : true))
-    .filter((part) => matches(i18n.t(part.label))),
+  cudaParts.value.filter((part) => matches(i18n.t(part.label))),
 );
 
 /** CUDA 12 / CUDA 13 的组件各一张卡片，别把两套版本挤在一起。 */
@@ -146,7 +148,11 @@ async function remove(id: string): Promise<void> {
 
 /** 运行时（CUDA）下载 / 重新安装 / 删除；随包基线只有「内置」状态，没有按钮。 */
 async function installRuntime(id: string, force = false): Promise<void> {
-  await runtimes.install(id, force);
+  try {
+    await runtimes.install(id, force);
+  } catch {
+    // 原因已经写进 runtimes.error，界面上的红条会显示。
+  }
 }
 
 async function removeRuntime(id: string): Promise<void> {
@@ -155,7 +161,11 @@ async function removeRuntime(id: string): Promise<void> {
 }
 
 async function installSdcpp(id: string, force = false): Promise<void> {
-  await sdcpp.install(id, force);
+  try {
+    await sdcpp.install(id, force);
+  } catch {
+    // 同上：sdcpp.error 会显示。
+  }
 }
 
 async function removeSdcpp(id: string): Promise<void> {
@@ -178,6 +188,8 @@ async function restartNow(): Promise<void> {
 }
 
 function currentSource(): string {
+  // 下载中如果后端给了提示（例如「复用已有文件」），优先展示它；否则展示当前源。
+  if (models.progress?.message) return models.progress.message;
   return sourceKindLabel(
     i18n.t,
     models.progress?.source_kind ?? null,
@@ -194,6 +206,35 @@ function sourceLabels(sources: ModelSourceStatus[]): string {
   return labels.join(" + ");
 }
 
+// ---- 从别处跳过来时要定位到具体那一项 ----
+/** 刚被定位到的条目 id（3 秒后自然消失）。 */
+const highlight = ref<string | null>(null);
+let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * 消费聚焦请求：切到「可下载」→ 切到对应分类 → 滚到那一项 → 高亮 3 秒。
+ *
+ * 只做高亮是不够的：AI 页面点「下载引擎」时管理器通常还停在「已安装」页签，
+ * 用户落地后看到的是「这里没有可下载的内容」，只能得出「点了没反应」的结论。
+ */
+async function applyFocus(): Promise<void> {
+  const target = downloads.consumeFocus();
+  if (!target) return;
+  tab.value = "available";
+  kind.value = target.section === "model" ? "model" : "runtime";
+  highlight.value = target.id;
+  await nextTick();
+  const element = document.querySelector<HTMLElement>(
+    `[data-download-id="${target.id}"]`,
+  );
+  element?.scrollIntoView({ block: "center", behavior: "smooth" });
+  if (highlightTimer) clearTimeout(highlightTimer);
+  highlightTimer = setTimeout(() => {
+    if (highlight.value === target.id) highlight.value = null;
+    highlightTimer = null;
+  }, 3000);
+}
+
 onMounted(() => {
   models.watchProgress();
   if (models.catalog.length === 0) void models.load();
@@ -204,6 +245,19 @@ onMounted(() => {
   plugins.watchProgress();
   if (!plugins.loaded) void plugins.load();
   void plugins.loadInstalled();
+  void applyFocus();
+});
+
+// 面板已经开着时，聚焦请求通过 watcher 生效。
+watch(
+  () => downloads.focus,
+  (value) => {
+    if (value) void applyFocus();
+  },
+);
+
+onUnmounted(() => {
+  if (highlightTimer) clearTimeout(highlightTimer);
 });
 </script>
 
@@ -309,9 +363,10 @@ onMounted(() => {
           v-for="runtime in coreRuntimes"
           :key="runtime.id"
           class="card"
+          :data-download-id="runtime.id"
           :class="{
             busy: runtimes.installing(runtime.id),
-            focus: runtimes.focus === runtime.id,
+            focus: highlight === runtime.id,
           }"
         >
           <div class="card-top">
@@ -413,7 +468,8 @@ onMounted(() => {
           v-for="part in group.items"
           :key="part.id"
           class="part-row"
-          :class="{ busy: runtimes.installing(part.id) }"
+          :data-download-id="part.id"
+          :class="{ busy: runtimes.installing(part.id), focus: highlight === part.id }"
         >
           <div class="part-main">
             <span class="part-name">{{ i18n.t(part.label) }}</span>
@@ -482,9 +538,10 @@ onMounted(() => {
           v-for="pack in sdcpp.items"
           :key="pack.id"
           class="card"
+          :data-download-id="pack.id"
           :class="{
             busy: sdcpp.installing(pack.id),
-            focus: sdcpp.focus === pack.id,
+            focus: highlight === pack.id,
           }"
         >
           <div class="card-top">
@@ -598,7 +655,8 @@ onMounted(() => {
         v-for="model in visible"
         :key="model.id"
         class="card"
-        :class="{ busy: models.installing(model.id) }"
+        :data-download-id="model.id"
+        :class="{ busy: models.installing(model.id), focus: highlight === model.id }"
       >
         <div class="card-top">
           <span class="card-name">{{ model.name }}</span>
@@ -627,6 +685,15 @@ onMounted(() => {
         <p class="card-meta">
           {{ humanSize(model.approx_bytes) }} · {{ i18n.t("models.license") }}
           {{ model.license }}
+        </p>
+        <p v-if="model.reusable_bytes > 0 && !model.installed" class="card-meta">
+          {{ i18n.t("models.reusableHint", { size: humanSize(model.reusable_bytes) }) }}
+        </p>
+        <p
+          v-else-if="model.installed && model.shared_bytes > 0"
+          class="card-meta"
+        >
+          {{ i18n.t("models.sharedHint", { size: humanSize(model.shared_bytes) }) }}
         </p>
         <p class="card-files" :title="model.files.map((file) => file.filename).join('\n')">
           {{ summary(model) }}
@@ -1025,8 +1092,9 @@ onMounted(() => {
   border-radius: 14px;
   background-color: var(--app-inset);
 }
-/* 从设置页跳到运行时区时的短暂高亮。 */
-.card.focus {
+/* 从 AI 页面 / 设置页跳到运行时区时的短暂高亮。 */
+.card.focus,
+.part-row.focus {
   box-shadow: 0 0 0 2px rgb(var(--md-primary) / 0.65);
 }
 .card-top {

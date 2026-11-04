@@ -317,7 +317,7 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "upscale_video",
-            description: "Real-ESRGAN 视频超分（2x / 4x），用结果替换原片段。",
+            description: "Real-ESRGAN 视频 / 图片超分（2x / 4x），用结果替换原片段。",
             parameters: json!({
                 "type": "object",
                 "properties": {

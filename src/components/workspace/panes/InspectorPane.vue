@@ -31,7 +31,8 @@ import {
   setClipTransform,
   setClipTransition,
 } from "@/core/ops";
-import { fileUrl, importAssetAt, pickMediaFiles } from "@/core/media";
+import { importAssetAt, pickMediaFiles } from "@/core/media";
+import { assetThumbnailUrl } from "@/core/thumbnails";
 import {
   LOUDNESS_TARGETS,
   applyProcessedAudio,
@@ -229,6 +230,8 @@ const asset = computed(() =>
     ? project.doc.assets.find((a) => a.id === clip.value!.assetId)
     : undefined,
 );
+/** 预览图：视频用缓存缩略图，图片没有缩略图时直接用原图。 */
+const selectedThumb = computed(() => (asset.value ? assetThumbnailUrl(asset.value) : null));
 
 const isText = computed(() => clip.value?.assetId === "");
 const isAudio = computed(
@@ -1166,11 +1169,14 @@ async function relink(): Promise<void> {
 
       <template v-else>
         <div class="selected">
-          <div
-            class="selected-thumb"
-            :style="asset?.thumb ? { backgroundImage: `url('${fileUrl(asset.thumb)}')` } : undefined"
-          >
-            <FilmIcon v-if="!asset?.thumb" class="w-4 h-4" />
+          <div class="selected-thumb">
+            <img
+              v-if="selectedThumb"
+              class="selected-thumb-img"
+              :src="selectedThumb"
+              alt=""
+            />
+            <FilmIcon v-else class="w-4 h-4" />
           </div>
           <div class="selected-text">
             <span class="selected-name">
@@ -2189,11 +2195,15 @@ async function relink(): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   border-radius: 8px;
   background: linear-gradient(140deg, #2c1f4d 0%, #7c4a76 50%, #e79a76 100%);
-  background-size: cover;
-  background-position: center;
   color: rgba(255, 255, 255, 0.9);
+}
+.selected-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .selected-text {
   display: flex;

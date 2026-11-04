@@ -1315,6 +1315,132 @@ async fn install_inner(app: &AppHandle, requested: &'static RuntimeEntry) -> Res
 }
 
 /// 装一份归档；`report_id` 是进度事件上挂的 id（组件也挂在请求的本体下）。
+/// 按「下载源区域偏好」排序后的下载源（同区域内保持清单顺序）。
+fn ordered_sources(
+    entry: &'static RuntimeEntry,
+    preference: crate::network::ModelSourcePreference,
+) -> Vec<&'static RuntimeSource> {
+    use crate::network::ModelSourcePreference;
+    let mut sources: Vec<&'static RuntimeSource> = entry.sources.iter().collect();
+    match preference {
+        ModelSourcePreference::Domestic => {
+            sources.sort_by_key(|source| if source.region == "cn" { 0 } else { 1 });
+        }
+        ModelSourcePreference::International => {
+            sources.sort_by_key(|source| if source.region == "intl" { 0 } else { 1 });
+        }
+        ModelSourcePreference::Auto => {}
+    }
+    sources
+}
+
+/// `.part` 断点文件的路径（`x.nupkg` → `x.nupkg.part`）。
+fn part_path(path: &Path) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .map(|value| value.to_os_string())
+        .unwrap_or_default();
+    name.push(".part");
+    path.with_file_name(name)
+}
+
+/// 下载一个归档到 `<archive>.part`，**支持断点续传**，校验通过后改名成 `archive`。
+///
+/// CUDA 组件包动辄 1.3 GB：断了从 0 重来对用户是很具体的伤害。取消 / 网络错误都保留
+/// `.part`，下次接着下；只有「服务端对不上」（416）与校验失败才丢掉重来。
+#[allow(clippy::too_many_arguments)]
+async fn fetch_archive(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    url: &str,
+    archive: &Path,
+    entry: &'static RuntimeEntry,
+    report_id: &str,
+    base: u64,
+    total: u64,
+) -> Result<(), String> {
+    let part = part_path(archive);
+    let mut existing = fs::metadata(&part).map(|meta| meta.len()).unwrap_or(0);
+    let mut attempt = 0u8;
+
+    loop {
+        attempt += 1;
+        let mut request = client.get(url);
+        if existing > 0 {
+            request = request.header(reqwest::header::RANGE, format!("bytes={existing}-"));
+        }
+        let mut response = request
+            .send()
+            .await
+            .map_err(|error| format!("下载 {} 失败：{error}", entry.id))?;
+        let status = response.status();
+
+        if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+            let _ = fs::remove_file(&part);
+            existing = 0;
+            if attempt >= 2 {
+                return Err(format!("{} 的断点文件无效", entry.id));
+            }
+            continue;
+        }
+        if !status.is_success() {
+            return Err(format!("下载 {} 失败：HTTP {status}", entry.id));
+        }
+
+        // 服务器不认 Range（回 200）：只能从头写。
+        let resumed = status == reqwest::StatusCode::PARTIAL_CONTENT && existing > 0;
+        if !resumed {
+            existing = 0;
+        }
+        let mut file = if resumed {
+            fs::OpenOptions::new().append(true).open(&part)
+        } else {
+            fs::File::create(&part)
+        }
+        .map_err(|error| format!("创建临时文件失败：{error}"))?;
+
+        let mut received = existing;
+        loop {
+            let chunk = match response.chunk().await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => break,
+                // 网络中途断了：保留 `.part`，下一次从断点续。
+                Err(error) => return Err(format!("读取下载数据失败：{error}")),
+            };
+            if installer().cancel.load(Ordering::Relaxed) {
+                drop(file);
+                return Err("已取消".into());
+            }
+            file.write_all(&chunk)
+                .map_err(|error| format!("写入运行时失败：{error}"))?;
+            received += chunk.len() as u64;
+            emit(
+                app,
+                report_id,
+                "downloading",
+                (base + received).min(total),
+                total,
+                None,
+            );
+        }
+        drop(file);
+
+        if received == 0 {
+            let _ = fs::remove_file(&part);
+            return Err(format!("下载到的 {} 为空", entry.id));
+        }
+        if !entry.sha256.is_empty() {
+            let digest = sha256_file(&part)?;
+            if !digest.eq_ignore_ascii_case(entry.sha256) {
+                let _ = fs::remove_file(&part);
+                return Err(format!("{} 校验失败（sha256 不匹配）：{digest}", entry.id));
+            }
+        }
+        fs::rename(&part, archive).map_err(|error| format!("落盘失败：{error}"))?;
+        return Ok(());
+    }
+}
+
 async fn install_one(
     app: &AppHandle,
     entry: &'static RuntimeEntry,
@@ -1334,72 +1460,39 @@ async fn install_one(
         .client()
         .map_err(|error| format!("创建 HTTP 客户端失败：{error}"))?;
 
-    // 按下载源偏好挑一个：国内优先 `cn` 源，没有就回退第一个（NuGet 在国内会自动跳
-    // 到 nuget.azure.cn，所以即使是 intl 源国内也不慢）。
     let preference = network.get().model_source_preference;
-    let source = entry
-        .sources
-        .iter()
-        .find(|source| match preference {
-            crate::network::ModelSourcePreference::Domestic => source.region == "cn",
-            crate::network::ModelSourcePreference::International => source.region == "intl",
-            crate::network::ModelSourcePreference::Auto => true,
-        })
-        .or_else(|| entry.sources.first())
-        .ok_or_else(|| "运行时没有下载源".to_string())?;
     let archive = downloads.join(entry.archive);
     emit(app, report_id, "downloading", base.min(total), total, None);
 
-    let mut response = client
-        .get(source.url)
-        .send()
-        .await
-        .map_err(|error| format!("下载 {} 失败：{error}", entry.id))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "下载 {} 失败：HTTP {}",
-            entry.id,
-            response.status()
-        ));
-    }
-    let stream_total = response.content_length().unwrap_or(entry.bytes);
-    let mut file =
-        fs::File::create(&archive).map_err(|error| format!("创建临时文件失败：{error}"))?;
-    let mut received = 0u64;
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| format!("读取下载数据失败：{error}"))?
-    {
+    // 按源偏好排序试一遍：第一个不通（境内连 nuget.org 偶尔会卡住）就换下一个，
+    // 断点文件会保留，下一轮从断的地方接着下。
+    let mut last_error = String::new();
+    let mut fetched = false;
+    for source in ordered_sources(entry, preference) {
         if installer().cancel.load(Ordering::Relaxed) {
-            drop(file);
-            let _ = fs::remove_file(&archive);
             return Err("已取消".into());
         }
-        file.write_all(&chunk)
-            .map_err(|error| format!("写入运行时失败：{error}"))?;
-        received += chunk.len() as u64;
-        emit(
-            app,
-            report_id,
-            "downloading",
-            (base + received).min(total),
-            total,
-            None,
-        );
-    }
-    drop(file);
-
-    if received == 0 {
-        let _ = fs::remove_file(&archive);
-        return Err(format!("下载到的 {} 为空", entry.id));
-    }
-    if !entry.sha256.is_empty() {
-        let digest = sha256_file(&archive)?;
-        if !digest.eq_ignore_ascii_case(entry.sha256) {
-            let _ = fs::remove_file(&archive);
-            return Err(format!("{} 校验失败（sha256 不匹配）：{digest}", entry.id));
+        match fetch_archive(app, &client, source.url, &archive, entry, report_id, base, total).await
+        {
+            Ok(()) => {
+                fetched = true;
+                break;
+            }
+            Err(error) => {
+                if error == "已取消" {
+                    return Err(error);
+                }
+                eprintln!("[runtime] {} 源失败：{error}（换下一个）", source.url);
+                last_error = error;
+            }
         }
+    }
+    if !fetched {
+        return Err(if last_error.is_empty() {
+            "运行时没有可用的下载源".into()
+        } else {
+            last_error
+        });
     }
 
     // 组件目录是它独占的：重装前先清空，免得上一版的子库残留。
@@ -1440,7 +1533,7 @@ async fn install_one(
     let marker = serde_json::json!({
         "id": entry.id,
         "revision": entry.revision,
-        "bytes": received,
+        "bytes": entry.bytes,
         "installedAt": std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|value| value.as_secs())
@@ -1454,7 +1547,7 @@ async fn install_one(
     eprintln!(
         "[runtime] 已安装 {}（{:.1} MB）",
         entry.id,
-        stream_total as f64 / 1048576.0
+        entry.bytes as f64 / 1048576.0
     );
     Ok(())
 }

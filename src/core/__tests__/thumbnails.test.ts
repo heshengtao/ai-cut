@@ -13,9 +13,15 @@ vi.mock("@/core/media", () => ({
     return `${id}.png`;
   },
   cacheFilePath: async (name: string) => `/cache/${name}`,
+  fileUrl: (path: string) => `file://${path}`,
 }));
 
-import { cachedThumbnail, ensureThumbnail, needsThumbnail } from "@/core/thumbnails";
+import {
+  assetThumbnailUrl,
+  cachedThumbnail,
+  ensureThumbnail,
+  needsThumbnail,
+} from "@/core/thumbnails";
 
 function asset(kind: AssetKind, overrides: Partial<Parameters<typeof createAsset>[0]> = {}) {
   return createAsset({
@@ -26,6 +32,25 @@ function asset(kind: AssetKind, overrides: Partial<Parameters<typeof createAsset
     ...overrides,
   });
 }
+
+describe("assetThumbnailUrl", () => {
+  it("prefers the cached thumbnail for videos", () => {
+    expect(assetThumbnailUrl(asset("video", { thumb: "/cache/v.mp4.png" }))).toBe(
+      "file:///cache/v.mp4.png",
+    );
+  });
+
+  it("falls back to the original image when no thumbnail exists", () => {
+    expect(
+      assetThumbnailUrl(asset("image", { id: "image-plain", src: "/media/pic.png" })),
+    ).toBe("file:///media/pic.png");
+  });
+
+  it("returns null for videos without a thumbnail", () => {
+    expect(assetThumbnailUrl(asset("video", { id: "video-plain" }))).toBeNull();
+    expect(assetThumbnailUrl(asset("audio"))).toBeNull();
+  });
+});
 
 describe("needsThumbnail", () => {
   it("only asks for videos that have no cached thumbnail", () => {

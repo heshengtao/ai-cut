@@ -41,8 +41,13 @@ fn cancel_ids() -> &'static Mutex<HashSet<String>> {
 }
 
 fn is_cancelled(id: Option<&str>) -> bool {
-    id.map(|value| cancel_ids().lock().map(|set| set.contains(value)).unwrap_or(false))
-        .unwrap_or(false)
+    id.map(|value| {
+        cancel_ids()
+            .lock()
+            .map(|set| set.contains(value))
+            .unwrap_or(false)
+    })
+    .unwrap_or(false)
 }
 
 fn clear_cancel(id: Option<&str>) {
@@ -333,11 +338,9 @@ pub async fn ofx_bake_clip<R: Runtime>(
             eprintln!("[ofx] 硬件编码失败（{error}），改用 libx264 重试");
             let app = app.clone();
             let request = request.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                bake_clip_blocking(&app, &request, None)
-            })
-            .await
-            .map_err(|error| format!("OFX 烘焙线程失败：{error}"))?
+            tauri::async_runtime::spawn_blocking(move || bake_clip_blocking(&app, &request, None))
+                .await
+                .map_err(|error| format!("OFX 烘焙线程失败：{error}"))?
         }
         Err(error) => Err(error),
     };
@@ -396,27 +399,23 @@ async fn detect_preview_encoder<R: Runtime>(app: &AppHandle<R>) -> Option<String
             return None;
         }
         for candidate in ["h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox"] {
-            let probe = app
-                .shell()
-                .sidecar("ffmpeg")
-                .ok()
-                .map(|command| {
-                    command.args([
-                        "-v",
-                        "error",
-                        "-f",
-                        "lavfi",
-                        "-i",
-                        "color=c=black:s=256x144:r=30:d=0.2",
-                        "-frames:v",
-                        "2",
-                        "-c:v",
-                        candidate,
-                        "-f",
-                        "null",
-                        "-",
-                    ])
-                });
+            let probe = app.shell().sidecar("ffmpeg").ok().map(|command| {
+                command.args([
+                    "-v",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:s=256x144:r=30:d=0.2",
+                    "-frames:v",
+                    "2",
+                    "-c:v",
+                    candidate,
+                    "-f",
+                    "null",
+                    "-",
+                ])
+            });
             let Some(command) = probe else { continue };
             let ok = command
                 .output()
@@ -493,11 +492,9 @@ fn preview_encoder_args(
             "20".into(),
         ]),
         // macOS：VideoToolbox 的质量参数是 0–100。
-        Some("h264_videotoolbox") => args.extend([
-            "h264_videotoolbox".into(),
-            "-q:v".into(),
-            "65".into(),
-        ]),
+        Some("h264_videotoolbox") => {
+            args.extend(["h264_videotoolbox".into(), "-q:v".into(), "65".into()])
+        }
         _ => args.extend([
             "libx264".into(),
             "-preset".into(),
@@ -525,7 +522,10 @@ fn cleanup_previous_previews(output: &str) {
     let Some(dir) = path.parent() else {
         return;
     };
-    let Some(stem) = path.file_stem().map(|value| value.to_string_lossy().into_owned()) else {
+    let Some(stem) = path
+        .file_stem()
+        .map(|value| value.to_string_lossy().into_owned())
+    else {
         return;
     };
     let Some((prefix, _)) = stem.rsplit_once('-') else {
@@ -543,9 +543,7 @@ fn cleanup_previous_previews(output: &str) {
         let name = entry.file_name().to_string_lossy().into_owned();
         if name == current
             || !name.starts_with(&prefix)
-            || !(name.ends_with(".mp4")
-                || name.ends_with(".mov")
-                || name.ends_with(".png"))
+            || !(name.ends_with(".mp4") || name.ends_with(".mov") || name.ends_with(".png"))
         {
             continue;
         }
@@ -576,10 +574,16 @@ fn cleanup_stale_temps(output: &str) {
     let Some(dir) = path.parent() else {
         return;
     };
-    let Some(stem) = path.file_stem().map(|value| value.to_string_lossy().into_owned()) else {
+    let Some(stem) = path
+        .file_stem()
+        .map(|value| value.to_string_lossy().into_owned())
+    else {
         return;
     };
-    let Some(ext) = path.extension().map(|value| value.to_string_lossy().into_owned()) else {
+    let Some(ext) = path
+        .extension()
+        .map(|value| value.to_string_lossy().into_owned())
+    else {
         return;
     };
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -827,10 +831,11 @@ fn bake_clip_blocking<R: Runtime>(
     if request.width == 0 || request.height == 0 {
         return Err("烘焙尺寸必须大于 0".into());
     }
-    if request.effects.iter().any(|effect| {
-        effect.context.as_deref()
-            == Some("OfxImageEffectContextRetimer")
-    }) {
+    if request
+        .effects
+        .iter()
+        .any(|effect| effect.context.as_deref() == Some("OfxImageEffectContextRetimer"))
+    {
         return bake_retimer_blocking(app, request);
     }
     if !(request.duration > 0.0) {
@@ -919,10 +924,9 @@ fn bake_clip_blocking<R: Runtime>(
                         break;
                     }
                     let time = request.time_offset + frame_index as f64 / request.fps;
-                    let (rendered, cost) = match pipeline.process(
-                        &pending[pending_start..pending_start + frame_bytes],
-                        time,
-                    ) {
+                    let (rendered, cost) = match pipeline
+                        .process(&pending[pending_start..pending_start + frame_bytes], time)
+                    {
                         Ok(result) => result,
                         Err(error) => {
                             failure = Some(error);
@@ -1017,12 +1021,12 @@ fn bake_clip_blocking<R: Runtime>(
     if frame_index == 0 {
         return Err("解码器没有输出任何帧".into());
     }
-    let metadata =
-        std::fs::metadata(&temp).map_err(|error| format!("烘焙结果不存在：{error}"))?;
+    let metadata = std::fs::metadata(&temp).map_err(|error| format!("烘焙结果不存在：{error}"))?;
     if metadata.len() == 0 {
         return Err("烘焙结果为空文件".into());
     }
-    std::fs::rename(&temp, &request.output).map_err(|error| format!("写入烘焙结果失败：{error}"))?;
+    std::fs::rename(&temp, &request.output)
+        .map_err(|error| format!("写入烘焙结果失败：{error}"))?;
     temp_guard.armed = false;
     if request.preview {
         let line = format!(
@@ -1159,10 +1163,7 @@ fn chunk_request(request: &OfxBakeRequest, spec: ChunkSpec, output: &str) -> Ofx
 fn sidecar_exe(name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    let candidate = dir.join(format!(
-        "{name}{}",
-        if cfg!(windows) { ".exe" } else { "" }
-    ));
+    let candidate = dir.join(format!("{name}{}", if cfg!(windows) { ".exe" } else { "" }));
     candidate.is_file().then_some(candidate)
 }
 
@@ -1219,7 +1220,8 @@ fn bake_chunks_blocking(
     cancelled: impl Fn() -> bool,
 ) -> Result<String, String> {
     std::fs::create_dir_all(work_dir).map_err(|error| format!("创建分段目录失败：{error}"))?;
-    let exe = std::env::current_exe().map_err(|error| format!("无法定位应用可执行文件：{error}"))?;
+    let exe =
+        std::env::current_exe().map_err(|error| format!("无法定位应用可执行文件：{error}"))?;
     let total: u64 = chunks.iter().map(ChunkSpec::frames).sum();
 
     let mut running: Vec<ChunkProcess> = Vec::new();
@@ -1230,10 +1232,9 @@ fn bake_chunks_blocking(
             let json = work_dir.join(format!("part{:02}.json", chunk.index));
             let progress = work_dir.join(format!("part{:02}.progress", chunk.index));
             let spec = chunk_request(request, *chunk, &part.to_string_lossy());
-            let encoded = serde_json::to_vec(&spec)
-                .map_err(|error| format!("写出分段请求失败：{error}"))?;
-            std::fs::write(&json, encoded)
-                .map_err(|error| format!("写出分段请求失败：{error}"))?;
+            let encoded =
+                serde_json::to_vec(&spec).map_err(|error| format!("写出分段请求失败：{error}"))?;
+            std::fs::write(&json, encoded).map_err(|error| format!("写出分段请求失败：{error}"))?;
 
             let mut command = std::process::Command::new(&exe);
             command
@@ -1280,8 +1281,9 @@ fn bake_chunks_blocking(
     let mut reported = 0u64;
     let mut last_change = Instant::now();
     let mut failed: Option<usize> = None;
-    let mut statuses: Vec<Option<std::process::ExitStatus>> =
-        std::iter::repeat_with(|| None).take(running.len()).collect();
+    let mut statuses: Vec<Option<std::process::ExitStatus>> = std::iter::repeat_with(|| None)
+        .take(running.len())
+        .collect();
     loop {
         if cancelled() {
             for item in &mut running {
@@ -1473,8 +1475,7 @@ fn bake_worker_run(
         pending.extend_from_slice(&buffer[..read]);
         while pending.len() - start >= frame_bytes {
             let time = request.time_offset + index as f64 / request.fps;
-            let (rendered, _cost) =
-                pipeline.process(&pending[start..start + frame_bytes], time)?;
+            let (rendered, _cost) = pipeline.process(&pending[start..start + frame_bytes], time)?;
             stdin
                 .write_all(rendered)
                 .map_err(|error| format!("写入编码器失败：{error}"))?;
@@ -1545,7 +1546,9 @@ fn chunked_cli_impl(args: &[String]) -> Result<(), String> {
     let work_dir = Path::new(&request.output)
         .parent()
         .map(|dir| dir.join(format!("ofx-chunked-{}", std::process::id())))
-        .unwrap_or_else(|| std::env::temp_dir().join(format!("ofx-chunked-{}", std::process::id())));
+        .unwrap_or_else(|| {
+            std::env::temp_dir().join(format!("ofx-chunked-{}", std::process::id()))
+        });
     let mut last = 0u64;
     let hardware = encoder.as_deref().filter(|value| *value != "libx264");
     bake_chunks_blocking(
@@ -1643,10 +1646,7 @@ fn apply_effects(
     retimer_source_time: Option<f64>,
 ) -> Result<Vec<f32>, String> {
     for (index, effect) in effects.iter().enumerate() {
-        if index > 0
-            && effect.context.as_deref()
-                == Some("OfxImageEffectContextRetimer")
-        {
+        if index > 0 && effect.context.as_deref() == Some("OfxImageEffectContextRetimer") {
             return Err("Retimer 必须放在效果链第一位".to_string());
         }
         let params = effect
@@ -1761,7 +1761,6 @@ fn encode_png(width: u32, height: u32, rgba: &[f32]) -> Result<String, String> {
     Ok(STANDARD.encode(bytes))
 }
 
-
 fn bake_retimer_blocking<R: Runtime>(
     app: &AppHandle<R>,
     request: &OfxBakeRequest,
@@ -1775,9 +1774,7 @@ fn bake_retimer_blocking<R: Runtime>(
     let retimer_index = request
         .effects
         .iter()
-        .position(|effect| {
-            effect.context.as_deref() == Some("OfxImageEffectContextRetimer")
-        })
+        .position(|effect| effect.context.as_deref() == Some("OfxImageEffectContextRetimer"))
         .ok_or_else(|| "没有找到 retimer 效果".to_string())?;
     if retimer_index != 0 {
         return Err("Retimer 必须放在效果链第一位（它决定源时间）".into());
@@ -1867,10 +1864,7 @@ fn bake_retimer_blocking<R: Runtime>(
         };
         let mut asset_time = request.source_in + source_time;
         if request.source_duration > 0.0 {
-            asset_time = asset_time.clamp(
-                0.0,
-                (request.source_duration - 0.001).max(0.0),
-            );
+            asset_time = asset_time.clamp(0.0, (request.source_duration - 0.001).max(0.0));
         }
         let frame = match tauri::async_runtime::block_on(decode_frame(
             app,
@@ -1960,8 +1954,6 @@ fn bake_retimer_blocking<R: Runtime>(
     Ok(request.output.clone())
 }
 
-
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OfxBakeImageRequest {
@@ -1987,12 +1979,7 @@ fn default_fps() -> f64 {
     30.0
 }
 
-fn write_png_file(
-    path: &Path,
-    width: u32,
-    height: u32,
-    rgba: &[f32],
-) -> Result<(), String> {
+fn write_png_file(path: &Path, width: u32, height: u32, rgba: &[f32]) -> Result<(), String> {
     let expected = (width as usize) * (height as usize) * 4;
     if rgba.len() != expected {
         return Err(format!(
@@ -2000,8 +1987,7 @@ fn write_png_file(
             rgba.len()
         ));
     }
-    let file = std::fs::File::create(path)
-        .map_err(|error| format!("创建 PNG 失败：{error}"))?;
+    let file = std::fs::File::create(path).map_err(|error| format!("创建 PNG 失败：{error}"))?;
     let mut encoder = png::Encoder::new(file, width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
@@ -2040,7 +2026,8 @@ pub async fn ofx_bake_image<R: Runtime>(
         },
     );
     if let Some(parent) = Path::new(&request.output).parent() {
-        std::fs::create_dir_all(parent).map_err(|error| format!("创建图片缓存目录失败：{error}"))?;
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("创建图片缓存目录失败：{error}"))?;
     }
     cleanup_stale_temps(&request.output);
 
@@ -2083,8 +2070,7 @@ pub async fn ofx_bake_image<R: Runtime>(
         armed: true,
     };
     write_png_file(&temp, request.width, request.height, &rendered)?;
-    let metadata =
-        std::fs::metadata(&temp).map_err(|error| format!("图片缓存不存在：{error}"))?;
+    let metadata = std::fs::metadata(&temp).map_err(|error| format!("图片缓存不存在：{error}"))?;
     if metadata.len() == 0 {
         return Err("图片缓存为空文件".into());
     }
@@ -2168,7 +2154,10 @@ mod tests {
             context: Some("OfxImageEffectContextRetimer".into()),
             params: None,
         }];
-        assert!(chunk_plan(&request).is_none(), "retimer 有时域状态，不能切段");
+        assert!(
+            chunk_plan(&request).is_none(),
+            "retimer 有时域状态，不能切段"
+        );
         request.effects.clear();
 
         request.duration = 3.0;
@@ -2245,8 +2234,7 @@ mod tests {
     fn image_bake_writes_a_real_png() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("frame.png");
-        write_png_file(&path, 2, 1, &[1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0])
-            .unwrap();
+        write_png_file(&path, 2, 1, &[1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0]).unwrap();
         let bytes = std::fs::read(&path).unwrap();
         assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
     }
@@ -2317,7 +2305,11 @@ fn transition_source_time(source: &OfxTransitionSource, timeline_time: f64) -> f
     if source.is_image {
         return 0.0;
     }
-    let speed = if source.speed > 0.0 { source.speed } else { 1.0 };
+    let speed = if source.speed > 0.0 {
+        source.speed
+    } else {
+        1.0
+    };
     let raw = source.source_in + (timeline_time - source.start) * speed;
     // Pre-roll may legitimately go before the clip's in-point (handle media).
     let min = 0.0;
@@ -2571,8 +2563,7 @@ fn bake_transition_blocking<R: Runtime>(
             break;
         }
         let timeline_time = request.start + index as f64 / request.fps;
-        let progress_value =
-            ((timeline_time - request.start) / request.duration).clamp(0.0, 1.0);
+        let progress_value = ((timeline_time - request.start) / request.duration).clamp(0.0, 1.0);
         let frame_pixels = (request.width as usize) * (request.height as usize) * 4;
         let decode = |source: &OfxTransitionSource| {
             tauri::async_runtime::block_on(decode_frame(
@@ -2666,8 +2657,7 @@ fn bake_transition_blocking<R: Runtime>(
     if written == 0 {
         return Err("转场没有输出任何帧".into());
     }
-    let metadata =
-        std::fs::metadata(&temp).map_err(|error| format!("转场结果不存在：{error}"))?;
+    let metadata = std::fs::metadata(&temp).map_err(|error| format!("转场结果不存在：{error}"))?;
     if metadata.len() == 0 {
         return Err("转场结果为空文件".into());
     }

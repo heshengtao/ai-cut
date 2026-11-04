@@ -6,6 +6,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ArrowLeftIcon } from "@heroicons/vue/24/outline";
 import NumberField from "@/components/common/NumberField.vue";
+import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
 import ComboField from "@/components/common/ComboField.vue";
 import {
@@ -30,6 +31,8 @@ import { useAgentStore } from "@/stores/agent";
 import { useModelsStore } from "@/stores/models";
 import { useRuntimesStore } from "@/stores/runtimes";
 import { useSdcppStore } from "@/stores/sdcpp";
+import { useDownloadsStore } from "@/stores/downloads";
+import { useDeviceStore } from "@/stores/device";
 import { useUpdaterStore } from "@/stores/updater";
 import { displayProjectName } from "@/utils/projectName";
 import { useI18n } from "@/i18n";
@@ -76,6 +79,23 @@ import {
   cloudTtsVoices,
 } from "@/core/cloudTtsApi";
 import {
+  cloudGenConfig,
+  cloudGenPresets,
+  cloudGenSetConfig,
+  cloudGenTest,
+} from "@/core/cloudGenApi";
+import type {
+  CloudGenKind,
+  CloudGenPreset,
+  CloudGenProvider,
+  CloudGenTest,
+  GenCapability,
+} from "@/types/cloudGen";
+import {
+  capabilitySummary,
+  effectiveCapabilities,
+} from "@/utils/cloudGen";
+import {
   pluginRegistryConfig,
   pluginSetRegistryConfig,
 } from "@/core/pluginApi";
@@ -119,6 +139,7 @@ const SECTIONS: { id: Section; labelKey: string; captionKey: string }[] = [
   },
   { id: "layout", labelKey: "settings.section.layout", captionKey: "settings.section.layout.caption" },
   { id: "ai", labelKey: "settings.section.ai", captionKey: "settings.section.ai.caption" },
+  { id: "gen", labelKey: "settings.section.gen", captionKey: "settings.section.gen.caption" },
   { id: "tts", labelKey: "settings.section.tts", captionKey: "settings.section.tts.caption" },
   { id: "network", labelKey: "settings.section.network", captionKey: "settings.section.network.caption" },
   { id: "cli", labelKey: "settings.section.cli", captionKey: "settings.section.cli.caption" },
@@ -149,6 +170,8 @@ const i18n = useI18n();
 const layout = useLayoutStore();
 const runtimes = useRuntimesStore();
 const sdcpp = useSdcppStore();
+const downloads = useDownloadsStore();
+const device = useDeviceStore();
 const project = useProjectStore();
 const agentStore = useAgentStore();
 const models = useModelsStore();
@@ -310,12 +333,66 @@ function backendTitle(option: BackendOption): string | undefined {
   return option.runtime_installed ? undefined : i18n.t("settings.ai.runtimeMissing");
 }
 
+/** 分段控件用的选项（与按钮版一一对应；文案 / 提示走同一个 i18n）。 */
+const backendSegOptions = computed(() =>
+  backendOptions.value.map((option) => ({
+    value: option.kind,
+    label: backendText(option.kind, "label", option.label),
+    title: backendTitle(option),
+    disabled: backendSaving.value,
+  })),
+);
+
+function onBackendPick(value: string): void {
+  void setBackend(value as BackendPreference);
+}
+
 /** 跳到下载管理器 → 运行时（与 ai-daw 设置页的「打开下载管理器」一致）。 */
 function openRuntimeManager(): void {
   const id = backendInfo.value?.preference === "cuda13" ? "cuda13" : "cuda";
-  runtimes.requestFocus(id);
+  downloads.requestFocus("runtime", id);
   layout.closeSettings();
   layout.openDownloads("models");
+}
+
+/** 需要下载的运行时本体（CUDA 12 / 13）；随包基线（CPU / DirectML / CoreML）不列。 */
+const optionalRuntimes = computed(() =>
+  runtimes.items.filter((item) => item.core && !item.bundled),
+);
+
+/** 正在从设置页直接下载的那一份（用来画进度、把按钮换成「取消」）。 */
+const runtimeInstallId = ref<string | null>(null);
+
+/** 当前偏好的运行时是不是这一份（`cuda12` 对应的清单 id 是 `cuda`）。 */
+function isActiveRuntime(id: string): boolean {
+  const preference = backendInfo.value?.preference;
+  if (!preference) return false;
+  const mapped = preference === "cuda12" ? "cuda" : preference;
+  return mapped === id;
+}
+
+/**
+ * 在设置页直接装一份运行库（不用跳管理器）。
+ *
+ * 装 CUDA 本体会顺带补齐同大版本组件；装完就切过去——用户点「下载 2.9 GB」的本意
+ * 是要用它，再让他去别处点一次「切换」纯属多余。需要重启时弹提示。
+ */
+async function installRuntimeHere(id: string): Promise<void> {
+  if (runtimeInstallId.value) return;
+  runtimeInstallId.value = id;
+  try {
+    await runtimes.install(id);
+    const kind = id === "cuda13" ? "cuda13" : "cuda12";
+    backendInfo.value = await aiSetBackend(kind);
+    device.info = backendInfo.value;
+    if (backendInfo.value.restart_required) runtimes.requestRestartPrompt();
+  } catch (error) {
+    if (!runtimes.error) {
+      toast(error instanceof Error ? error.message : String(error), "error");
+    }
+  } finally {
+    runtimeInstallId.value = null;
+  }
 }
 
 /** 重启应用；开发模式下后端会拒绝并返回说明，这里用 toast 告诉用户手动重启。 */
@@ -331,15 +408,6 @@ async function restartApp(): Promise<void> {
 function restartBody(): string {
   const body = i18n.t("settings.ai.restartBody");
   return import.meta.env.DEV ? `${body} ${i18n.t("settings.ai.restartDevHint")}` : body;
-}
-
-/** 等运行时装完（下载命令本身是等装完才返回的；这里只核对一次落盘状态）。 */
-async function waitForInstalled(id: string): Promise<boolean> {
-  const item = runtimes.items.find((entry) => entry.id === id);
-  if (item?.installed) return true;
-  // 清单可能还没刷新（事件晚到一步）：再取一次。
-  await runtimes.load();
-  return runtimes.items.find((entry) => entry.id === id)?.installed === true;
 }
 
 /**
@@ -388,22 +456,27 @@ async function setBackend(preference: BackendPreference): Promise<void> {
     if (!accepted) return;
 
     backendSaving.value = true;
-    runtimes.requestFocus(option.runtime);
     // 下载管理器在这期间是前台：进度、取消都在那里，和 ai-daw 的流程一致。
     layout.closeSettings();
     layout.openDownloads("models");
-    for (const id of pending) {
-      // 下 CUDA 本体时会顺带补齐同大版本的全部组件；轮到后面的组件 id 时它已经装好了。
-      if (runtimes.items.find((entry) => entry.id === id)?.installed) continue;
-      await runtimes.install(id);
-      if (!(await waitForInstalled(id))) {
-        backendSaving.value = false;
-        toast(i18n.t("settings.ai.cudaDownloadFailed"));
-        return;
-      }
+    downloads.requestFocus("runtime", pending[0] ?? option.runtime);
+    // 同一分区内串行；运行时与别的类型（引擎 / 模型）可以并行，各自一条车道。
+    // 下 CUDA 本体时会顺带补齐同大版本的全部组件，后面的 id 会被后端直接跳过。
+    const tasks = pending.map((id) => ({
+      section: "runtime" as const,
+      id,
+      label: partName(id),
+      bytes: runtimes.items.find((entry) => entry.id === id)?.bytes ?? 0,
+    }));
+    const ok = await downloads.run(tasks);
+    if (!ok) {
+      backendSaving.value = false;
+      toast(i18n.t("settings.ai.cudaDownloadFailed"));
+      return;
     }
     try {
       backendInfo.value = await aiSetBackend(preference);
+      device.info = backendInfo.value;
     } catch (error) {
       backendSaving.value = false;
       toast(error instanceof Error ? error.message : String(error));
@@ -463,6 +536,7 @@ const backendNote = computed(() => {
 async function loadBackend(): Promise<void> {
   try {
     backendInfo.value = await aiBackendInfo();
+    device.info = backendInfo.value;
   } catch {
     // 旧版桌面端没有新命令 / 预览环境：保留完整选项，只把非 CPU 标为不可用。
     backendInfo.value = backendFallback();
@@ -474,30 +548,68 @@ async function loadBackend(): Promise<void> {
 }
 
 // ---- sd.cpp 视频后端（与 ONNX Runtime 分开） ----
+/**
+ * 视频生成后端只有真实存在的引擎：cpu / vulkan / cuda12（macOS 是 metal），
+ * 没有「自动」这一档——旧配置里存的 auto 由 Rust 侧换算成「自动挑中的那一份」。
+ * 控件与上面的 ONNX Runtime 后端一样，是分段按钮（不是下拉框）。
+ */
 const sdcppSaving = ref(false);
+/** 只列本机真能跑的：AMD 机器上不摆 CUDA（装了也只是一句「找不到 nvcuda.dll」）。 */
 const sdcppOptions = computed(() =>
-  (sdcpp.info?.options ?? []).filter((option) => option.available),
+  (sdcpp.info?.options ?? []).filter((option) => option.usable),
+);
+
+const sdcppActiveKind = computed(() => {
+  const options = sdcppOptions.value;
+  const preferred = sdcpp.info?.preference;
+  if (preferred && options.some((option) => option.kind === preferred)) return preferred;
+  const current = sdcpp.info?.current;
+  if (current && options.some((option) => option.kind === current)) return current;
+  return options.find((option) => option.recommended)?.kind ?? options[0]?.kind ?? "cpu";
+});
+
+const sdcppCurrent = computed(
+  () => sdcppOptions.value.find((option) => option.kind === sdcppActiveKind.value) ?? null,
+);
+const sdcppNote = computed(() => {
+  const option = sdcppCurrent.value;
+  if (!option) return i18n.t("settings.ai.sdcppHint");
+  if (!option.installed) {
+    return `${i18n.t(option.note)} · ${i18n.t("sdcpp.downloadSize", {
+      size: humanSize(option.bytes),
+    })}`;
+  }
+  return i18n.t(option.note);
+});
+/** 分段按钮的选项。 */
+const sdcppSegOptions = computed(() =>
+  sdcppOptions.value.map((option) => ({
+    value: option.kind,
+    label: i18n.t(option.label),
+    title: option.installed ? i18n.t(option.note) : i18n.t("settings.ai.sdcppMissing"),
+    disabled: sdcppSaving.value,
+  })),
 );
 
 function openSdcppManager(): void {
   const raw = sdcpp.info?.preference;
-  const target =
-    raw && raw !== "auto" ? raw : sdcpp.info?.recommended ?? "cpu";
-  sdcpp.requestFocus(`sdcpp-${target}`);
+  const target = raw || sdcpp.info?.recommended || sdcppActiveKind.value || "cpu";
+  downloads.requestFocus("sdcpp", `sdcpp-${target}`);
   layout.closeSettings();
   layout.openDownloads("models");
 }
 
+/**
+ * 切视频后端：没装 → 确认 → 跳管理器**自动下载** → 装完自动切过去。
+ *
+ * 以前确认之后只是跳转，既不下载也不切换，用户回来一看偏好还是旧的。
+ */
 async function setSdcppBackend(kind: string): Promise<void> {
-  if (sdcppSaving.value || sdcpp.info?.preference === kind) return;
-  const option = sdcpp.info?.options.find((item) => item.kind === kind);
+  if (sdcppSaving.value) return;
+  const option = sdcppOptions.value.find((item) => item.kind === kind);
   if (!option) return;
   const label = i18n.t(option.label);
   if (!option.installed) {
-    if (kind === "auto") {
-      openSdcppManager();
-      return;
-    }
     const accepted = await confirm({
       title: i18n.t("aiVideo.engineMissingTitle"),
       message: i18n.t("settings.ai.sdcppNeedDownload", {
@@ -506,13 +618,30 @@ async function setSdcppBackend(kind: string): Promise<void> {
       }),
       confirmText: i18n.t("settings.ai.sdcppDownloadGo"),
     });
-    if (accepted) {
-      sdcpp.requestFocus(`sdcpp-${kind}`);
-      layout.closeSettings();
-      layout.openDownloads("models");
+    if (!accepted) return;
+
+    sdcppSaving.value = true;
+    layout.closeSettings();
+    layout.openDownloads("models");
+    downloads.requestFocus("sdcpp", `sdcpp-${kind}`);
+    const ok = await downloads.run([{ section: "sdcpp", id: `sdcpp-${kind}`, label }]);
+    if (!ok) {
+      sdcppSaving.value = false;
+      layout.openSettings("ai");
+      return;
+    }
+    try {
+      await sdcpp.setBackend(kind);
+      toast(i18n.t("settings.ai.sdcppApplied", { backend: label }));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), "error");
+    } finally {
+      sdcppSaving.value = false;
+      layout.openSettings("ai");
     }
     return;
   }
+  if (sdcpp.info?.preference === kind) return;
   sdcppSaving.value = true;
   try {
     await sdcpp.setBackend(kind);
@@ -998,6 +1127,16 @@ function newProvider(): void {
   resetTest();
 }
 
+/**
+ * 关掉编辑器：新建中的草稿直接丢掉（卡片收起），
+ * 编辑已保存的服务则只是放弃这次的修改——真正的删除在列表那一行。
+ */
+function discardTtsDraft(): void {
+  editingTtsId.value = null;
+  ttsDraft.value = null;
+  resetTest();
+}
+
 function editProvider(provider: CloudTtsProvider): void {
   editingTtsId.value = provider.id;
   ttsDraft.value = toDraft(provider);
@@ -1144,6 +1283,237 @@ watch(
     ttsVoiceError.value = "";
     ttsTestResult.value = null;
     ttsTestAudio.value = null;
+  },
+);
+
+// ---- 图像 / 视频生成服务 ----
+/** 表单里能力也按数组存，保存时原样回写。 */
+interface GenDraft {
+  id: string;
+  name: string;
+  kind: CloudGenKind;
+  enabled: boolean;
+  base_url: string;
+  api_key: string;
+  api_secret: string;
+  group_id: string;
+  image_model: string;
+  edit_model: string;
+  video_model: string;
+  capabilities: GenCapability[];
+}
+
+const genPresets = ref<CloudGenPreset[]>([]);
+const genProviders = ref<CloudGenProvider[]>([]);
+const genDraft = ref<GenDraft | null>(null);
+const editingGenId = ref<string | null>(null);
+const genLoading = ref(false);
+const genSaving = ref(false);
+const genTesting = ref(false);
+const genTestResult = ref<CloudGenTest | null>(null);
+const genTestError = ref("");
+const genLoadError = ref("");
+
+function genPreset(kind: CloudGenKind): CloudGenPreset | undefined {
+  return genPresets.value.find((item) => item.kind === kind);
+}
+
+const genKindOptions = computed<SelectOption[]>(() => {
+  const official = i18n.t("settings.gen.groupOfficial");
+  const aggregator = i18n.t("settings.gen.groupAggregator");
+  return genPresets.value.map((preset) => ({
+    id: preset.kind,
+    label: i18n.t(`settings.gen.kind.${preset.kind}`),
+    group: preset.group === "official" ? official : aggregator,
+  }));
+});
+
+const genCapabilityLabels = computed<Record<GenCapability | "video", string>>(() => ({
+  t2i: i18n.t("settings.gen.cap.t2i"),
+  i2i: i18n.t("settings.gen.cap.i2i"),
+  t2v: i18n.t("settings.gen.cap.video"),
+  i2v: i18n.t("settings.gen.cap.video"),
+  video: i18n.t("settings.gen.cap.video"),
+}));
+
+function genSummary(provider: CloudGenProvider): string {
+  return capabilitySummary(
+    effectiveCapabilities(provider, genPresets.value),
+    genCapabilityLabels.value,
+  );
+}
+
+function blankGenDraft(kind: CloudGenKind): GenDraft {
+  const preset = genPreset(kind);
+  return {
+    id: crypto.randomUUID(),
+    name: i18n.t(`settings.gen.kind.${kind}`),
+    kind,
+    enabled: true,
+    base_url: preset?.baseUrl ?? "",
+    api_key: "",
+    api_secret: "",
+    group_id: "",
+    image_model: preset?.imageModel ?? "",
+    edit_model: preset?.editModel ?? "",
+    video_model: preset?.videoModel ?? "",
+    capabilities: [...(preset?.capabilities ?? [])],
+  };
+}
+
+function toGenDraft(provider: CloudGenProvider): GenDraft {
+  return {
+    ...provider,
+    capabilities: [...effectiveCapabilities(provider, genPresets.value)],
+  };
+}
+
+function fromGenDraft(draft: GenDraft): CloudGenProvider {
+  return { ...draft, capabilities: [...draft.capabilities] };
+}
+
+function genHasCapability(capability: "t2i" | "i2i" | "video"): boolean {
+  const caps = genDraft.value?.capabilities ?? [];
+  if (capability === "video") return caps.includes("t2v") || caps.includes("i2v");
+  return caps.includes(capability);
+}
+
+function toggleGenCapability(capability: "t2i" | "i2i" | "video"): void {
+  const draft = genDraft.value;
+  if (!draft) return;
+  const next = new Set(draft.capabilities);
+  if (capability === "video") {
+    if (next.has("t2v") || next.has("i2v")) {
+      next.delete("t2v");
+      next.delete("i2v");
+    } else {
+      next.add("t2v");
+      next.add("i2v");
+    }
+  } else if (next.has(capability)) {
+    next.delete(capability);
+  } else {
+    next.add(capability);
+  }
+  draft.capabilities = [...next];
+}
+
+async function loadCloudGen(): Promise<void> {
+  genLoading.value = true;
+  genLoadError.value = "";
+  try {
+    const [config, presets] = await Promise.all([cloudGenConfig(), cloudGenPresets()]);
+    genProviders.value = config.providers;
+    genPresets.value = presets;
+    if (!genDraft.value && genProviders.value[0]) editGenProvider(genProviders.value[0]);
+  } catch (error) {
+    genLoadError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    genLoading.value = false;
+  }
+}
+
+function newGenProvider(): void {
+  editingGenId.value = null;
+  genDraft.value = blankGenDraft("openai");
+  genTestResult.value = null;
+  genTestError.value = "";
+}
+
+/** 同 TTS：新建中的草稿直接收起；编辑已保存的服务只放弃修改。 */
+function discardGenDraft(): void {
+  editingGenId.value = null;
+  genDraft.value = null;
+  genTestResult.value = null;
+  genTestError.value = "";
+}
+
+function editGenProvider(provider: CloudGenProvider): void {
+  editingGenId.value = provider.id;
+  genDraft.value = toGenDraft(provider);
+  genTestResult.value = null;
+  genTestError.value = "";
+}
+
+async function saveGenProvider(): Promise<void> {
+  if (!genDraft.value || genSaving.value) return;
+  genSaving.value = true;
+  genTestError.value = "";
+  try {
+    const provider = fromGenDraft(genDraft.value);
+    const next = [...genProviders.value];
+    const index = next.findIndex((item) => item.id === provider.id);
+    if (index >= 0) next[index] = provider;
+    else next.push(provider);
+    genProviders.value = (await cloudGenSetConfig(next)).providers;
+    const saved = genProviders.value.find((item) => item.id === provider.id) ?? provider;
+    editingGenId.value = saved.id;
+    genDraft.value = toGenDraft(saved);
+    toast(i18n.t("settings.gen.saved"));
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    genSaving.value = false;
+  }
+}
+
+async function deleteGenProvider(provider: CloudGenProvider): Promise<void> {
+  if (genSaving.value) return;
+  const accepted = await confirm({
+    title: i18n.t("settings.gen.deleteTitle"),
+    message: i18n.t("settings.gen.deleteMessage", { name: provider.name }),
+    confirmText: i18n.t("common.delete"),
+    cancelText: i18n.t("common.cancel"),
+  });
+  if (!accepted) return;
+  genSaving.value = true;
+  try {
+    const next = genProviders.value.filter((item) => item.id !== provider.id);
+    genProviders.value = (await cloudGenSetConfig(next)).providers;
+    if (editingGenId.value === provider.id) {
+      editingGenId.value = null;
+      genDraft.value = null;
+      genTestResult.value = null;
+    }
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    genSaving.value = false;
+  }
+}
+
+async function testGenProvider(): Promise<void> {
+  if (!genDraft.value || genTesting.value) return;
+  genTesting.value = true;
+  genTestResult.value = null;
+  genTestError.value = "";
+  try {
+    genTestResult.value = await cloudGenTest(fromGenDraft(genDraft.value));
+  } catch (error) {
+    genTestError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    genTesting.value = false;
+  }
+}
+
+watch(
+  () => genDraft.value?.kind,
+  (kind, previous) => {
+    // 初次载入保留草稿；用户真的切换类型时把地址 / 模型 / 能力换成该类型的预设。
+    if (!genDraft.value || !kind || !previous || previous === kind) return;
+    const preset = genPreset(kind);
+    const oldName = i18n.t(`settings.gen.kind.${previous}`);
+    genDraft.value = {
+      ...genDraft.value,
+      name: genDraft.value.name === oldName ? i18n.t(`settings.gen.kind.${kind}`) : genDraft.value.name,
+      base_url: preset?.baseUrl ?? "",
+      image_model: preset?.imageModel ?? "",
+      edit_model: preset?.editModel ?? "",
+      video_model: preset?.videoModel ?? "",
+      capabilities: [...(preset?.capabilities ?? [])],
+    };
+    genTestResult.value = null;
+    genTestError.value = "";
   },
 );
 
@@ -1589,6 +1959,7 @@ onMounted(() => {
   void loadModelSources();
   void loadPluginRegistry();
   void loadCloudTts();
+  void loadCloudGen();
   void loadCli();
   void loadDataDir();
   // 从下载管理器装完运行库回来：弹一次「重启后生效」（和 ai-daw 一样）。
@@ -2063,20 +2434,12 @@ onUnmounted(() => {
                   <span class="row-title">{{ i18n.t("settings.ai.backend") }}</span>
                   <span class="row-sub">{{ i18n.t("settings.ai.backendHint") }}</span>
                 </div>
-                <div class="m3-seg" role="group" :aria-label="i18n.t('settings.ai.backend')">
-                  <button
-                    v-for="option in backendOptions"
-                    :key="option.kind"
-                    class="m3-seg-btn"
-                    :class="{ on: backendInfo?.preference === option.kind }"
-                    :aria-pressed="backendInfo?.preference === option.kind"
-                    :disabled="backendSaving"
-                    :title="backendTitle(option)"
-                    @click="setBackend(option.kind)"
-                  >
-                    {{ backendText(option.kind, "label", option.label) }}
-                  </button>
-                </div>
+                <SegmentedControl
+                  :model-value="backendInfo?.preference ?? ''"
+                  :options="backendSegOptions"
+                  :aria-label="i18n.t('settings.ai.backend')"
+                  @update:model-value="onBackendPick"
+                />
               </div>
               <div class="col-row">
                 <span v-if="backendNote" class="row-sub">{{ backendNote }}</span>
@@ -2105,6 +2468,69 @@ onUnmounted(() => {
                   </button>
                 </div>
               </div>
+
+              <!--
+                运行库状态直接摊在这里：以前只有一句「打开下载管理器」，
+                用户既不知道装了什么、也不知道还差几 GB，跳过去还停在「已安装」页签。
+              -->
+              <div
+                v-for="runtime in optionalRuntimes"
+                :key="runtime.id"
+                class="runtime-row"
+              >
+                <div class="row-text">
+                  <span class="row-title">
+                    {{ i18n.t(runtime.label) }}
+                    <span v-if="isActiveRuntime(runtime.id)" class="row-pill">
+                      {{ i18n.t("settings.ai.runtimeActive") }}
+                    </span>
+                  </span>
+                  <span class="row-sub">
+                    {{ humanSize(runtime.bytes) }} ·
+                    {{
+                      runtime.installed
+                        ? i18n.t("runtime.installed")
+                        : i18n.t("runtime.notInstalled")
+                    }}
+                  </span>
+                  <div v-if="runtimeInstallId === runtime.id" class="runtime-progress">
+                    <div
+                      class="runtime-progress-fill"
+                      :class="{ indeterminate: runtimes.progressPct === null }"
+                      :style="
+                        runtimes.progressPct === null
+                          ? undefined
+                          : { width: `${runtimes.progressPct}%` }
+                      "
+                    />
+                  </div>
+                </div>
+                <div class="row-actions">
+                  <button
+                    v-if="runtimeInstallId === runtime.id"
+                    class="scan-btn"
+                    @click="runtimes.cancel()"
+                  >
+                    {{ i18n.t("models.cancel") }}
+                  </button>
+                  <button
+                    v-else-if="!runtime.installed"
+                    class="scan-btn"
+                    :disabled="runtimes.busyId !== null"
+                    @click="installRuntimeHere(runtime.id)"
+                  >
+                    {{ i18n.t("models.download", { size: humanSize(runtime.bytes) }) }}
+                  </button>
+                  <button
+                    v-else
+                    class="scan-btn"
+                    :disabled="runtimes.busyId !== null"
+                    @click="runtimes.reveal(runtime.id)"
+                  >
+                    {{ i18n.t("models.reveal") }}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -2115,31 +2541,20 @@ onUnmounted(() => {
               <div class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("aiVideo.backend") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.ai.sdcppHint") }}</span>
+                  <span class="row-sub">{{ sdcppNote }}</span>
                 </div>
-                <div class="m3-seg" role="group" :aria-label="i18n.t('aiVideo.backend')">
-                  <button
-                    v-for="option in sdcppOptions"
-                    :key="option.kind"
-                    class="m3-seg-btn"
-                    :class="{ on: sdcpp.info?.preference === option.kind }"
-                    :aria-pressed="sdcpp.info?.preference === option.kind"
-                    :disabled="sdcppSaving"
-                    :title="
-                      option.installed
-                        ? i18n.t(option.note)
-                        : i18n.t('settings.ai.sdcppMissing')
-                    "
-                    @click="setSdcppBackend(option.kind)"
-                  >
-                    {{ i18n.t(option.label) }}
-                  </button>
-                </div>
+                <SegmentedControl
+                  :model-value="sdcppActiveKind"
+                  :options="sdcppSegOptions"
+                  :aria-label="i18n.t('aiVideo.backend')"
+                  @update:model-value="setSdcppBackend"
+                />
               </div>
               <div class="col-row">
                 <span v-if="sdcpp.info" class="row-sub">
                   {{ i18n.t("settings.ai.platform", { platform: sdcpp.info.platform }) }}
                 </span>
+                <span class="row-sub">{{ i18n.t("settings.ai.sdcppHint") }}</span>
               </div>
             </div>
 
@@ -2265,6 +2680,262 @@ onUnmounted(() => {
                   :disabled="cliBusy"
                   @click="onToggleCli"
                 />
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 图像 / 视频生成 -->
+        <template v-else-if="active === 'gen'">
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.gen.providers") }}</div>
+            <div class="card">
+              <p class="probe">{{ i18n.t("settings.gen.lead") }}</p>
+              <p v-if="genLoading" class="probe">{{ i18n.t("common.loading") }}</p>
+              <p v-else-if="genLoadError" class="probe error">{{ genLoadError }}</p>
+              <p v-else-if="genProviders.length === 0" class="probe">
+                {{ i18n.t("settings.gen.empty") }}
+              </p>
+              <div
+                v-for="provider in genProviders"
+                :key="provider.id"
+                class="row provider-row"
+                :class="{ on: editingGenId === provider.id }"
+                @click="editGenProvider(provider)"
+              >
+                <div class="row-text">
+                  <span class="row-title">{{ provider.name }}</span>
+                  <span class="row-sub">
+                    {{ i18n.t(`settings.gen.kind.${provider.kind}`) }} ·
+                    {{ genSummary(provider) }}
+                  </span>
+                </div>
+                <span class="row-value" :class="{ 'status-on': provider.enabled }">
+                  {{
+                    i18n.t(
+                      provider.enabled
+                        ? "settings.gen.enabledOn"
+                        : "settings.gen.enabledOff",
+                    )
+                  }}
+                </span>
+                <button
+                  class="scan-btn"
+                  :disabled="genSaving"
+                  @click.stop="deleteGenProvider(provider)"
+                >
+                  {{ i18n.t("settings.gen.delete") }}
+                </button>
+              </div>
+              <div class="row actions-row">
+                <button class="scan-btn primary" @click="newGenProvider">
+                  {{ i18n.t("settings.gen.add") }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="genDraft" class="group">
+            <div class="group-title">
+              {{ i18n.t(editingGenId ? "settings.gen.edit" : "settings.gen.new") }}
+            </div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.name") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.nameHint") }}</span>
+                </div>
+                <input v-model="genDraft.name" class="md3-field net-input" spellcheck="false" />
+              </div>
+
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.kind") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.kindHint") }}</span>
+                </div>
+                <Md3Select
+                  v-model="genDraft.kind"
+                  :options="genKindOptions"
+                  :label="i18n.t('settings.gen.kind')"
+                />
+              </div>
+
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.enabled") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.enabledHint") }}</span>
+                </div>
+                <button
+                  class="m3-switch"
+                  :class="{ on: genDraft.enabled }"
+                  role="switch"
+                  :aria-checked="genDraft.enabled"
+                  :aria-label="i18n.t('settings.gen.enabled')"
+                  @click="genDraft.enabled = !genDraft.enabled"
+                />
+              </div>
+
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.cap.t2i") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.cap.t2iHint") }}</span>
+                </div>
+                <button
+                  class="m3-switch"
+                  :class="{ on: genHasCapability('t2i') }"
+                  role="switch"
+                  :aria-checked="genHasCapability('t2i')"
+                  :aria-label="i18n.t('settings.gen.cap.t2i')"
+                  @click="toggleGenCapability('t2i')"
+                />
+              </div>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.cap.i2i") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.cap.i2iHint") }}</span>
+                </div>
+                <button
+                  class="m3-switch"
+                  :class="{ on: genHasCapability('i2i') }"
+                  role="switch"
+                  :aria-checked="genHasCapability('i2i')"
+                  :aria-label="i18n.t('settings.gen.cap.i2i')"
+                  @click="toggleGenCapability('i2i')"
+                />
+              </div>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.cap.video") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.cap.videoHint") }}</span>
+                </div>
+                <button
+                  class="m3-switch"
+                  :class="{ on: genHasCapability('video') }"
+                  role="switch"
+                  :aria-checked="genHasCapability('video')"
+                  :aria-label="i18n.t('settings.gen.cap.video')"
+                  @click="toggleGenCapability('video')"
+                />
+              </div>
+
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.baseUrl") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.baseUrlHint") }}</span>
+                </div>
+                <input
+                  v-model="genDraft.base_url"
+                  class="md3-field net-input"
+                  spellcheck="false"
+                  :placeholder="genPreset(genDraft.kind)?.baseUrl"
+                />
+              </div>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.apiKey") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.apiKeyHint") }}</span>
+                </div>
+                <input
+                  v-model="genDraft.api_key"
+                  class="md3-field net-input"
+                  type="password"
+                  spellcheck="false"
+                  placeholder="sk-…"
+                />
+              </div>
+              <div v-if="genDraft.kind === 'kling'" class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.apiSecret") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.apiSecretHint") }}</span>
+                </div>
+                <input
+                  v-model="genDraft.api_secret"
+                  class="md3-field net-input"
+                  type="password"
+                  spellcheck="false"
+                />
+              </div>
+              <div v-if="genDraft.kind === 'minimax'" class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.groupId") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.groupIdHint") }}</span>
+                </div>
+                <input v-model="genDraft.group_id" class="md3-field net-input" spellcheck="false" />
+              </div>
+
+              <div v-if="genHasCapability('t2i')" class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.imageModel") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.imageModelHint") }}</span>
+                </div>
+                <input
+                  v-model="genDraft.image_model"
+                  class="md3-field net-input"
+                  spellcheck="false"
+                  :placeholder="genPreset(genDraft.kind)?.imageModel"
+                />
+              </div>
+              <div v-if="genHasCapability('i2i')" class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.editModel") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.editModelHint") }}</span>
+                </div>
+                <input
+                  v-model="genDraft.edit_model"
+                  class="md3-field net-input"
+                  spellcheck="false"
+                  :placeholder="genPreset(genDraft.kind)?.editModel"
+                />
+              </div>
+              <div v-if="genHasCapability('video')" class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.gen.videoModel") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.gen.videoModelHint") }}</span>
+                </div>
+                <input
+                  v-model="genDraft.video_model"
+                  class="md3-field net-input"
+                  spellcheck="false"
+                  :placeholder="genPreset(genDraft.kind)?.videoModel"
+                />
+              </div>
+
+              <div class="row actions-row">
+                <button
+                  class="scan-btn danger"
+                  :disabled="genSaving || genTesting"
+                  @click="discardGenDraft"
+                >
+                  {{ i18n.t(editingGenId ? "common.cancel" : "common.delete") }}
+                </button>
+                <button
+                  v-if="genHasCapability('t2i')"
+                  class="scan-btn"
+                  :disabled="genTesting"
+                  @click="testGenProvider"
+                >
+                  {{
+                    genTesting ? i18n.t("settings.gen.testing") : i18n.t("settings.gen.test")
+                  }}
+                </button>
+                <button class="scan-btn primary" :disabled="genSaving" @click="saveGenProvider">
+                  {{
+                    genSaving ? i18n.t("settings.gen.saving") : i18n.t("settings.gen.save")
+                  }}
+                </button>
+              </div>
+              <p v-if="genTesting" class="probe">{{ i18n.t("settings.gen.testHint") }}</p>
+              <p v-if="genTestError" class="probe error">{{ genTestError }}</p>
+              <div v-if="genTestResult" class="gen-preview">
+                <img :src="fileUrl(genTestResult.path)" alt="" />
+                <span class="probe ok">
+                  {{
+                    i18n.t("settings.gen.testOk", {
+                      width: genTestResult.width,
+                      height: genTestResult.height,
+                    })
+                  }}
+                </span>
               </div>
             </div>
           </div>
@@ -2451,6 +3122,13 @@ onUnmounted(() => {
               </div>
 
               <div class="row actions-row">
+                <button
+                  class="scan-btn danger"
+                  :disabled="ttsSaving || ttsTesting"
+                  @click="discardTtsDraft"
+                >
+                  {{ i18n.t(editingTtsId ? "common.cancel" : "common.delete") }}
+                </button>
                 <button
                   class="scan-btn"
                   :disabled="ttsVoicesLoading"
@@ -3035,6 +3713,49 @@ onUnmounted(() => {
   font-size: 11px;
   word-break: break-all;
 }
+/* 运行库：卡片里逐行列出 CUDA 12 / 13 的状态与下载按钮。 */
+.runtime-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid rgb(var(--md-outline-variant) / 0.3);
+}
+.row-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background-color: rgb(var(--md-primary) / 0.14);
+  color: rgb(var(--md-primary));
+  font-size: 10px;
+  font-weight: 500;
+  vertical-align: 1px;
+}
+.runtime-progress {
+  height: 3px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background-color: rgb(var(--md-surface-container-highest));
+}
+.runtime-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background-color: rgb(var(--md-primary));
+  transition: width 0.2s ease;
+}
+.runtime-progress-fill.indeterminate {
+  width: 35%;
+  animation: settings-progress 1.2s ease-in-out infinite;
+}
+@keyframes settings-progress {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
 .probe-ok {
   color: rgb(var(--md-primary));
 }
@@ -3138,8 +3859,22 @@ textarea.mirror-field {
   background-color: rgb(var(--md-secondary-container) / 0.55);
 }
 .actions-row {
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+.gen-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.gen-preview img {
+  width: 160px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 12px;
+  background-color: rgb(var(--md-surface-container-highest));
 }
 .row-actions {
   display: flex;
@@ -3195,6 +3930,17 @@ textarea.mirror-field {
 }
 .scan-btn.primary:hover:not(:disabled) {
   filter: brightness(1.08);
+}
+.scan-btn.danger {
+  border-color: rgb(var(--md-error) / 0.45);
+  color: rgb(var(--md-error));
+}
+.scan-btn.danger:hover:not(:disabled) {
+  background-color: rgb(var(--md-error) / 0.08);
+}
+/* 「删除 / 取消」放最左边，和右边的测试 / 保拉开距离，避免误点。 */
+.actions-row .scan-btn.danger {
+  margin-right: auto;
 }
 .probe {
   margin: 0;

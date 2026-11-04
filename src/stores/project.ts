@@ -26,6 +26,8 @@ import { updateAsset } from "@/core/ops";
 import { ensureThumbnail } from "@/core/thumbnails";
 import { renameProject } from "@/core/ops/project";
 import {
+  baseName,
+  cacheDirPath,
   pathExists,
   pickProjectFile,
   pickSaveProjectPath,
@@ -654,14 +656,63 @@ export const useProjectStore = defineStore("project", () => {
     }
   }
 
-  /** 载入时把源文件已缺失的素材标为离线。 */
+  /** 统一斜杠；Windows 盘符路径忽略大小写，其它平台保持原样。 */
+  function pathKey(path: string): string {
+    const slashed = path.replace(/\\/g, "/");
+    return /^[a-zA-Z]:/.test(slashed) ? slashed.toLowerCase() : slashed;
+  }
+
+  /** 与平台无关的目录部分。 */
+  function parentDir(path: string): string {
+    const normalized = pathKey(path);
+    const index = normalized.lastIndexOf("/");
+    return index > 0 ? normalized.slice(0, index) : "";
+  }
+
+  function joinCachePath(dir: string, name: string): string {
+    const trimmed = dir.replace(/[\\/]+$/, "");
+    return `${trimmed}${trimmed.includes("\\") ? "\\" : "/"}${name}`;
+  }
+
+  /**
+   * 把素材缩略图路径重新落到**当前**缓存目录。
+   *
+   * 旧版本前端用 `appDataDir()/cache` 拼路径；数据目录搬过之后，工程里存下来的
+   * 缩略图都指向默认目录里不存在的文件，媒体库 / 时间线 / 检查器就一起变空。
+   * 缓存文件名就是 `<assetId>.png`，按文件名搬到当前缓存目录即可；文件已经不在了
+   * 就丢掉 thumb（视频会重新补图，图片回退到原图）。
+   */
+  async function repairThumbnailPaths(project: Project): Promise<Project> {
+    if (!project.assets.some((asset) => asset.thumb)) return project;
+    let cacheDir: string;
+    try {
+      cacheDir = await cacheDirPath();
+    } catch {
+      return project;
+    }
+    let next = project;
+    for (const asset of project.assets) {
+      const thumb = asset.thumb;
+      if (!thumb) continue;
+      const sameDir = parentDir(thumb) === parentDir(cacheDir);
+      const target = sameDir ? thumb : joinCachePath(cacheDir, baseName(thumb));
+      const exists = await pathExists(target);
+      // 路径已经正确、文件也在：不要碰文档，否则每次载入都会刷新 updatedAt，
+      // 历史指纹跟着变、凭空多出一份「同一个工程」的快照。
+      if (sameDir && exists) continue;
+      next = updateAsset(next, asset.id, { thumb: exists ? target : undefined });
+    }
+    return next;
+  }
+
+  /** 载入时把源文件已缺失的素材标为离线，并修正缓存路径。 */
   async function markOfflineAssets(project: Project): Promise<Project> {
     let next = project;
     for (const asset of project.assets) {
       const exists = await pathExists(asset.src);
       if (!exists) next = updateAsset(next, asset.id, { offline: true });
     }
-    return next;
+    return repairThumbnailPaths(next);
   }
 
   async function openPath(path: string): Promise<void> {

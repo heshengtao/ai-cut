@@ -110,6 +110,16 @@ function requireVideoClip(clipId: string): { clip: Clip; asset: MediaAsset } {
   return found;
 }
 
+/** 超分同时接受视频与图片；补帧 / 裁剪仍然只对视频有意义。 */
+function requireVisualClip(clipId: string): { clip: Clip; asset: MediaAsset } {
+  const found = requireMediaClip(clipId);
+  if (found.asset.kind !== "video" && found.asset.kind !== "image") {
+    throw new Error(`片段 ${clipId} 不是视频或图片素材`);
+  }
+  if (found.clip.audioOnly) throw new Error(`片段 ${clipId} 是纯音频片段`);
+  return found;
+}
+
 function findAsset(assetId: string): MediaAsset {
   const asset = project().doc.assets.find((candidate) => candidate.id === assetId);
   if (!asset) throw new Error(`素材不存在：${assetId}`);
@@ -734,17 +744,21 @@ export interface UpscaleParams {
 }
 
 export async function upscale(params: UpscaleParams, ctx: JobContext) {
-  const { clip, asset } = requireVideoClip(params.clipId);
-  const model = await pickInstalledModel("superres", params.modelId, "视频超分");
+  const { clip, asset } = requireVisualClip(params.clipId);
+  const model = await pickInstalledModel("superres", params.modelId, "超分");
   const videoAi = useVideoAiStore();
-  const result = await videoAi.upscale(
-    asset.src,
-    clip.in ?? 0,
-    clip.duration,
-    asset.fps ?? project().doc.fps,
-    model.id,
-    params.scale === 4 ? 4 : 2,
-  );
+  const scale = params.scale === 4 ? 4 : 2;
+  const result =
+    asset.kind === "image"
+      ? await videoAi.upscaleImage(asset.src, model.id, scale)
+      : await videoAi.upscale(
+          asset.src,
+          clip.in ?? 0,
+          clip.duration,
+          asset.fps ?? project().doc.fps,
+          model.id,
+          scale,
+        );
   if (ctx.cancelled()) throw new Error("已取消");
   return replaceVideoWith(params.clipId, result, t("videoAi.upscale"), asset.name, ctx);
 }

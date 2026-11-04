@@ -1,4 +1,4 @@
-/** MiniMax-H3 视频生成任务：进度事件 + 结果。 */
+/** 视频生成任务（sd.cpp 的各模型家族共用）：进度事件 + 结果。 */
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import {

@@ -30,18 +30,6 @@ export const useRuntimesStore = defineStore("runtimes", () => {
   const progress = ref<RuntimeProgress | null>(null);
   /** 「重启后生效」常驻提示（从设置页跳过来 / 装完组件时置位）。 */
   const restartPrompt = ref(false);
-  /** 从设置页跳转过来时高亮哪个运行时（几秒后自动消失）。 */
-  const focus = ref<string | null>(null);
-  let focusTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function requestFocus(id = "cuda"): void {
-    focus.value = id;
-    if (focusTimer) clearTimeout(focusTimer);
-    focusTimer = setTimeout(() => {
-      if (focus.value === id) focus.value = null;
-      focusTimer = null;
-    }, 2600);
-  }
 
   /** 装 / 删之后要提示「重启后生效」。 */
   function requestRestartPrompt(): void {
@@ -141,10 +129,15 @@ export const useRuntimesStore = defineStore("runtimes", () => {
       });
   }
 
+  /**
+   * 下载一个运行时（本体 + 同大版本缺失组件，后端一条命令搞定）并等到装完。
+   *
+   * 失败 / 取消时**抛出**：调用方（下载队列 / 设置页）要据此决定是否继续下一步。
+   * `error` 仍然写一份，供管理器里的红条显示。
+   */
   async function install(id: string, force = false): Promise<void> {
     if (busyId.value !== null && busyId.value !== id) {
-      error.value = "已有运行时正在下载，请先等它结束或取消。";
-      return;
+      throw new Error("已有运行时正在下载，请先等它结束或取消。");
     }
     busyId.value = id;
     progress.value = { id, state: "downloading", received: 0, total: 0, message: null };
@@ -156,7 +149,7 @@ export const useRuntimesStore = defineStore("runtimes", () => {
       busyId.value = null;
       progress.value = null;
       if (!cancelled(err)) error.value = String(err);
-      return;
+      throw err;
     }
     busyId.value = null;
     progress.value = null;
@@ -204,8 +197,6 @@ export const useRuntimesStore = defineStore("runtimes", () => {
     progress,
     progressPct,
     restartPrompt,
-    focus,
-    requestFocus,
     requestRestartPrompt,
     consumeRestartPrompt,
     refreshRestartPrompt,

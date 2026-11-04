@@ -1,4 +1,4 @@
-/** MiniMax-H3 视频生成的 Tauri 封装。 */
+/** 视频生成（stable-diffusion.cpp）的 Tauri 封装。 */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {

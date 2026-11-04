@@ -12,11 +12,11 @@ export function humanSize(bytes: number): string {
   return `${value.toFixed(digits)} ${units[unit]}`;
 }
 
-/** 尚未下载的字节数（已安装文件不计入）。 */
+/** 尚未下载的字节数（已安装文件、可从其它模型复用的文件不计入）。 */
 export function missingBytes(model: {
-  files: { approx_bytes: number; installed: boolean }[];
+  files: { approx_bytes: number; installed: boolean; reusable?: boolean }[];
 }): number {
   return model.files
-    .filter((file) => !file.installed)
+    .filter((file) => !file.installed && !file.reusable)
     .reduce((sum, file) => sum + file.approx_bytes, 0);
 }

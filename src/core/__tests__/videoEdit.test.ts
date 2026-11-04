@@ -35,6 +35,15 @@ describe("replaceClipVideo", () => {
     expect(clip.duration).toBe(5);
   });
 
+  it("keeps the clip duration for a still image (asset duration 0)", () => {
+    const { doc, id } = withClip(6, 0);
+    const next = replaceClipVideo(doc, id, "upscaled-image", 0, 6);
+    const clip = next.tracks[0].clips.find((item) => item.id === id)!;
+    expect(clip.assetId).toBe("upscaled-image");
+    expect(clip.in).toBe(0);
+    expect(clip.duration).toBe(6);
+  });
+
   it("is a no-op for an unknown clip", () => {
     const { doc } = withClip();
     expect(replaceClipVideo(doc, "missing", "processed", 4, 5)).toBe(doc);

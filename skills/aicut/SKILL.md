@@ -146,7 +146,7 @@ aicut tools
 | `denoise_audio` | `clipId`, `modelId?` | LocalVQE 降噪 |
 | `process_audio` | `clipId`, `effect`, `preset` | 无模型降噪 / 美化 |
 | `measure_loudness` | `clipId`, `targetLufs?`, `apply?` | 测量响度，可写回 gain |
-| `upscale_video` / `interpolate_video` / `reframe_video` | `clipId`, … | 超分 / 补帧 / 重构 |
+| `upscale_video` / `interpolate_video` / `reframe_video` | `clipId`, … | 超分（视频 / 图片）/ 补帧 / 重构 |
 | `process_video` | `clipId`, `options` | 稳定/去噪/去闪烁/动态模糊/放大 |
 | `export_video` | `outputPath?`, `outputDir?`, `format?`, `resolution?`, `width?`, `height?`, `fit?`, `fitAnchor?`, `fps?`, `quality?`, `gif?` | 导出成片；省略 `outputPath` 时自动写到工程目录/下载目录并去重 |
 | `render_frame` | `time`, `outputPath`, `resolution?`, `width?`, `height?`, `fit?`, `fitAnchor?`, `fps?` | 渲染时间线某一帧到 PNG |

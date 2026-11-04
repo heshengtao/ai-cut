@@ -24,18 +24,6 @@ export const useSdcppStore = defineStore("sdcpp", () => {
   const progress = ref<SdcppProgress | null>(null);
   const info = ref<SdcppInfo | null>(null);
   const infoLoading = ref(false);
-  /** 从设置页跳过来时高亮哪个引擎（几秒后自动消失）。 */
-  const focus = ref<string | null>(null);
-  let focusTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function requestFocus(id = "sdcpp-cuda12"): void {
-    focus.value = id;
-    if (focusTimer) clearTimeout(focusTimer);
-    focusTimer = setTimeout(() => {
-      if (focus.value === id) focus.value = null;
-      focusTimer = null;
-    }, 2600);
-  }
 
   const progressPct = computed<number | null>(() => {
     const current = progress.value;
@@ -117,10 +105,14 @@ export const useSdcppStore = defineStore("sdcpp", () => {
       });
   }
 
+  /**
+   * 下载一个 sd.cpp 引擎包（CUDA 版是两个文件，一起装）并等到装完。
+   *
+   * 失败 / 取消时**抛出**，好让下载队列决定停还是继续。
+   */
   async function install(id: string, force = false): Promise<void> {
     if (busyId.value !== null && busyId.value !== id) {
-      error.value = "已有引擎正在下载，请先等它结束或取消。";
-      return;
+      throw new Error("已有引擎正在下载，请先等它结束或取消。");
     }
     busyId.value = id;
     progress.value = { id, state: "downloading", received: 0, total: 0, message: null };
@@ -131,7 +123,7 @@ export const useSdcppStore = defineStore("sdcpp", () => {
       busyId.value = null;
       progress.value = null;
       if (!cancelled(err)) error.value = String(err);
-      return;
+      throw err;
     }
     busyId.value = null;
     progress.value = null;
@@ -168,13 +160,24 @@ export const useSdcppStore = defineStore("sdcpp", () => {
     }
   }
 
+  /**
+   * 选中某一套引擎（`null` = 交回自动）。
+   *
+   * `load()` 会清空 `error`，所以失败原因先记下来、刷新完再放回去并抛给调用方——
+   * 否则「点了没装的后端」会静默失败，界面还显示已切换。
+   */
   async function select(id: string | null): Promise<void> {
+    let failure: string | null = null;
     try {
       await sdcppSelect(id);
     } catch (err) {
-      error.value = String(err);
+      failure = String(err);
     }
     await load();
+    if (failure) {
+      error.value = failure;
+      throw new Error(failure);
+    }
   }
 
   async function setBackend(backend: string): Promise<void> {
@@ -196,11 +199,9 @@ export const useSdcppStore = defineStore("sdcpp", () => {
     progressPct,
     info,
     infoLoading,
-    focus,
     installed,
     ready,
     current,
-    requestFocus,
     installing,
     load,
     loadInfo,

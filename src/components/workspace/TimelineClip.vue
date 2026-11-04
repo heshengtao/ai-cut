@@ -3,9 +3,8 @@
 import { computed, watch } from "vue";
 import { DocumentTextIcon } from "@heroicons/vue/24/outline";
 import type { Clip, MediaAsset } from "@/types/project";
-import { fileUrl } from "@/core/media";
 import { cachedWaveform, ensureWaveform } from "@/core/waveform";
-import { cachedThumbnail } from "@/core/thumbnails";
+import { assetThumbnailUrl } from "@/core/thumbnails";
 import { useProjectStore } from "@/stores/project";
 import ClipWaveform from "@/components/common/ClipWaveform.vue";
 import { useI18n } from "@/i18n";
@@ -36,10 +35,7 @@ const isAudioOnly = computed(() => props.clip.audioOnly === true);
 const thumbUrl = computed(() => {
   const asset = props.asset;
   if (!asset || isAudioOnly.value) return null;
-  const thumb = asset.thumb ?? cachedThumbnail(asset.id);
-  if (thumb) return fileUrl(thumb);
-  // 图片没有缓存缩略图时直接显示原图，保证媒体库与轨道上都有预览。
-  return asset.kind === "image" ? fileUrl(asset.src) : null;
+  return assetThumbnailUrl(asset);
 });
 const isUnavailable = computed(() => props.asset !== undefined && props.asset.offline === true);
 const tone = computed(() => {

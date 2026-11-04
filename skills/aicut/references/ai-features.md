@@ -216,7 +216,7 @@
 | `denoise_audio` | LocalVQE 降噪 | `clipId`, `modelId?` |
 | `process_audio` | 无模型降噪 / 美化 | `clipId`, `effect`, `preset` |
 | `measure_loudness` | 响度与真峰值 | `clipId`, `targetLufs?`, `apply?` |
-| `upscale_video` / `interpolate_video` / `reframe_video` | 超分 / 补帧 / 重构 | `clipId`, `modelId?` 或 `subject`/`aspect` |
+| `upscale_video` / `interpolate_video` / `reframe_video` | 超分（视频或图片）/ 补帧 / 重构 | `clipId`, `modelId?` 或 `subject`/`aspect` |
 | `process_video` | 稳定/去噪/去闪烁/动态模糊/放大 | `clipId`, `options` |
 | `export_video` | 导出成片（`outputPath` 可省略） | `outputPath?`, `outputDir?`, `format?`, `resolution?`, `quality?`, … |
 | `list_ai_models` / `download_model` / `cancel_ai` | 模型与任务管理 | `feature?` / `id` / — |
@@ -225,7 +225,7 @@
 行为约定：
 
 - 工具是同步的：调用后等到任务结束；停止按钮或 `cancel_ai` 会取消当前 job。
-- 产出物（分轨、降噪音频、朗读、超分视频）会自动导入素材库并落回时间线，整个回填是一步撤销。
+- 产出物（分轨、降噪音频、朗读、超分视频 / 图片）会自动导入素材库并落回时间线，整个回填是一步撤销。
 - 模型缺失会直接报错并列出可下载的 id，不会静默降级。
 - 仍然不支持：内置转场（相邻片段交叉淡化）。不要承诺这些。
 

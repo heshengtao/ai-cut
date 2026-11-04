@@ -560,10 +560,7 @@ fn parse_proxy_server(value: &str) -> Option<(String, bool)> {
 
 #[cfg(target_os = "macos")]
 fn os_proxy_state() -> SystemProxyState {
-    let Ok(output) = std::process::Command::new("scutil")
-        .arg("--proxy")
-        .output()
-    else {
+    let Ok(output) = std::process::Command::new("scutil").arg("--proxy").output() else {
         return SystemProxyState::None;
     };
     if !output.status.success() {

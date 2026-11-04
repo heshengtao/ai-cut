@@ -257,6 +257,82 @@ pub fn dir_size(path: &Path) -> u64 {
     dir_size_excluding(path, &[])
 }
 
+/// 目录所在卷的**剩余字节数**；读不到返回 `None`（调用方按「不知道」处理，不拦下载）。
+///
+/// 为什么需要它：CUDA 一整套 2~3 GB、视频模型 6 GB，装到一半磁盘满会留下半个目录，
+/// 比直接告诉用户「还差 4 GB」难受得多。这是一个**尽力而为**的预检，读不到就不拦。
+///
+/// 实现说明：本 crate 全局 `#![forbid(unsafe_code)]`，所以不能直接调
+/// `GetDiskFreeSpaceExW` / `statvfs`。这里改问系统命令（Windows 用 PowerShell 读
+/// `Get-PSDrive`，其它平台用 `df -k`）。一次「准备运行环境」只会问一次，
+/// 几百毫秒相对几 GB 的下载可以忽略。
+#[cfg(target_os = "windows")]
+pub fn free_space(path: &Path) -> Option<u64> {
+    use std::path::Component;
+
+    // `C:\Users\…` → `C`；UNC 路径（`\\server\share`）没有盘符，直接放弃。
+    let drive = match path.components().next()? {
+        Component::Prefix(prefix) => prefix
+            .as_os_str()
+            .to_string_lossy()
+            .trim_end_matches([':', '\\', '/'])
+            .to_string(),
+        _ => return None,
+    };
+    if drive.is_empty() {
+        return None;
+    }
+    let script = format!("(Get-PSDrive -Name {drive} -ErrorAction Stop).Free");
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
+}
+
+/// 同 [`free_space`]（Unix）：`df -k` 的第二行第 4 列是可用块数。
+#[cfg(not(target_os = "windows"))]
+pub fn free_space(path: &Path) -> Option<u64> {
+    let output = std::process::Command::new("df")
+        .arg("-k")
+        .arg(path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let line = text.lines().nth(1)?;
+    let available = line.split_whitespace().nth(3)?;
+    available.parse::<u64>().ok().map(|kb| kb.saturating_mul(1024))
+}
+
+/// 应用数据目录所在的卷还剩多少字节（预估下载空间用）。
+///
+/// 异步 + `spawn_blocking`：探测会起一个系统进程，不能占着主线程。
+#[tauri::command]
+pub async fn disk_free_bytes<R: Runtime>(app: AppHandle<R>) -> Option<u64> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = config_dir(&app).ok()?;
+        // 数据目录可能刚被指到还不存在的路径上：往上退一级再问。
+        let mut probe: &Path = &dir;
+        loop {
+            if probe.exists() {
+                if let Some(free) = free_space(probe) {
+                    return Some(free);
+                }
+            }
+            probe = probe.parent()?;
+        }
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 /// 同 [`dir_size`]，但跳过顶层指定名字的条目。
 fn dir_size_excluding(path: &Path, skip: &[&str]) -> u64 {
     let Ok(entries) = fs::read_dir(path) else {

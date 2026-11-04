@@ -337,6 +337,16 @@ pub async fn make_video_preview<R: Runtime>(
 /// 波形分桶数。片段缩放、裁剪时按素材内时间重新采样，桶数越多细节越真实。
 const WAVE_BUCKETS: usize = 2048;
 
+/// 前端拼缓存文件绝对路径用。
+///
+/// 数据目录可以被用户整个搬走（`--data-dir` / 设置页 / 安装器），此时缓存也跟着走。
+/// 前端**不能**再用 `appDataDir()/cache` 猜——那还是默认目录，文件其实在新目录里，
+/// 于是缩略图 / 波形路径全部指向不存在的文件。这里把真正生效的缓存目录下发。
+#[tauri::command]
+pub fn media_cache_dir<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
+    Ok(cache_dir(&app)?.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 pub async fn make_thumbnail<R: Runtime>(
     app: AppHandle<R>,
@@ -490,8 +500,7 @@ mod tests {
 
 /// 应用缓存目录下的 `cache/`，用于缩略图、波形与中间产物（可重建，迁移时会被跳过）。
 pub(crate) fn cache_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
-    let dir = crate::paths::cache_dir(app)
-        .map_err(|e| format!("取应用缓存目录失败：{e}"))?;
+    let dir = crate::paths::cache_dir(app).map_err(|e| format!("取应用缓存目录失败：{e}"))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建缓存目录失败：{e}"))?;
     Ok(dir)
 }

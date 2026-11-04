@@ -29,6 +29,19 @@ export function videoAiUpscale(
   });
 }
 
+export function videoAiUpscaleImage(
+  path: string,
+  modelId: string,
+  scale: number,
+): Promise<VideoProcessed> {
+  if (!isTauri()) return Promise.reject(new Error("图片超分需要在桌面应用中使用"));
+  return invoke<VideoProcessed>("video_ai_upscale_image", {
+    path,
+    modelId,
+    scale,
+  });
+}
+
 export function videoAiInterpolate(
   path: string,
   start: number,

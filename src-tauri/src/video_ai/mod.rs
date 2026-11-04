@@ -9,7 +9,8 @@ pub mod frames;
 pub mod rife;
 
 use std::collections::VecDeque;
-use std::io::{BufRead, Read, Write};
+use std::fs::File;
+use std::io::{BufRead, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -144,6 +145,161 @@ fn output_path(app: &AppHandle, tag: &str) -> Result<PathBuf, String> {
         std::process::id(),
         stamp()
     )))
+}
+
+fn cache_png(app: &AppHandle, tag: &str) -> Result<PathBuf, String> {
+    Ok(cache_dir(app)?.join(format!(
+        "video-ai-{tag}-{}-{}.png",
+        std::process::id(),
+        stamp()
+    )))
+}
+
+/// 图片素材先统一转成 PNG：ffmpeg 顺带处理 EXIF 旋转 / WebP / HEIC / 动图首帧。
+async fn image_to_png(app: &AppHandle, source: &str) -> Result<PathBuf, String> {
+    if !Path::new(source).is_file() {
+        return Err(format!("图片不存在：{source}"));
+    }
+    let target = cache_png(app, "image-input")?;
+    let args = vec![
+        "-y".into(),
+        "-i".into(),
+        source.into(),
+        "-frames:v".into(),
+        "1".into(),
+        target.to_string_lossy().into_owned(),
+    ];
+    let (code, _) = crate::sidecar::run_sidecar(app, "ffmpeg", &args).await?;
+    if code != Some(0) || !target.is_file() {
+        let _ = std::fs::remove_file(&target);
+        return Err(format!("无法读取图片：{source}"));
+    }
+    Ok(target)
+}
+
+/// 一张已经解码好的静态图：RGB 平面 + 可选 alpha 平面（全不透明时为 `None`）。
+struct StillImage {
+    width: usize,
+    height: usize,
+    rgb: Vec<u8>,
+    alpha: Option<Vec<u8>>,
+}
+
+fn split_rgba(data: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
+    let pixels = data.len() / 4;
+    let mut rgb = Vec::with_capacity(pixels * 3);
+    let mut alpha = Vec::with_capacity(pixels);
+    let mut opaque = true;
+    for pixel in data.chunks_exact(4) {
+        rgb.extend_from_slice(&pixel[..3]);
+        alpha.push(pixel[3]);
+        if pixel[3] != 255 {
+            opaque = false;
+        }
+    }
+    (rgb, if opaque { None } else { Some(alpha) })
+}
+
+/// 用 `png` 解码（而不是走 ffmpeg rawvideo）：能拿到 ffmpeg 自动旋转后的真实尺寸，
+/// 也能保留带透明通道的素材（logo / 贴纸）。
+fn read_png(path: &Path) -> Result<StillImage, String> {
+    let file = File::open(path).map_err(|error| format!("打开图片失败：{error}"))?;
+    let mut decoder = png::Decoder::new(file);
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder
+        .read_info()
+        .map_err(|error| format!("读取图片信息失败：{error}"))?;
+    let mut buffer = vec![0u8; reader.output_buffer_size()];
+    let info = reader
+        .next_frame(&mut buffer)
+        .map_err(|error| format!("解码图片失败：{error}"))?;
+    let width = info.width as usize;
+    let height = info.height as usize;
+    if width == 0 || height == 0 {
+        return Err("图片尺寸无效".into());
+    }
+    let data = &buffer[..info.buffer_size()];
+    let (rgb, alpha) = match info.color_type {
+        png::ColorType::Rgb => (data.to_vec(), None),
+        png::ColorType::Rgba => split_rgba(data),
+        png::ColorType::Grayscale => {
+            let mut rgb = Vec::with_capacity(width * height * 3);
+            for value in data {
+                rgb.extend_from_slice(&[*value, *value, *value]);
+            }
+            (rgb, None)
+        }
+        png::ColorType::GrayscaleAlpha => {
+            let mut rgb = Vec::with_capacity(width * height * 3);
+            let mut alpha = Vec::with_capacity(width * height);
+            for pixel in data.chunks_exact(2) {
+                rgb.extend_from_slice(&[pixel[0], pixel[0], pixel[0]]);
+                alpha.push(pixel[1]);
+            }
+            (rgb, Some(alpha))
+        }
+        other => return Err(format!("不支持的图片色彩格式：{other:?}")),
+    };
+    Ok(StillImage {
+        width,
+        height,
+        rgb,
+        alpha,
+    })
+}
+
+fn write_png(
+    path: &Path,
+    width: usize,
+    height: usize,
+    rgb: &[u8],
+    alpha: Option<&[u8]>,
+) -> Result<(), String> {
+    let file = File::create(path).map_err(|error| format!("创建图片失败：{error}"))?;
+    let mut encoder = png::Encoder::new(BufWriter::new(file), width as u32, height as u32);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_color(if alpha.is_some() {
+        png::ColorType::Rgba
+    } else {
+        png::ColorType::Rgb
+    });
+    let mut writer = encoder
+        .write_header()
+        .map_err(|error| format!("写入图片失败：{error}"))?;
+    let mut data = Vec::with_capacity(width * height * if alpha.is_some() { 4 } else { 3 });
+    match alpha {
+        Some(alpha) => {
+            for (pixel, value) in rgb.chunks_exact(3).zip(alpha.iter()) {
+                data.extend_from_slice(pixel);
+                data.push(*value);
+            }
+        }
+        None => data.extend_from_slice(rgb),
+    }
+    writer
+        .write_image_data(&data)
+        .map_err(|error| format!("写入图片失败：{error}"))?;
+    Ok(())
+}
+
+/// 透明通道用双线性单独放大：ESRGAN 只处理 RGB，直接丢掉 alpha 会把 logo 变成黑底。
+fn scale_alpha(
+    alpha: &[u8],
+    width: usize,
+    height: usize,
+    out_width: usize,
+    out_height: usize,
+) -> Vec<u8> {
+    let mut rgb = Vec::with_capacity(alpha.len() * 3);
+    for value in alpha {
+        rgb.extend_from_slice(&[*value, *value, *value]);
+    }
+    let source = Frame { width, height, rgb };
+    frames::resize_bilinear(&source, out_width, out_height)
+        .rgb
+        .chunks_exact(3)
+        .map(|pixel| pixel[0])
+        .collect()
 }
 
 fn compact_number(value: f64) -> String {
@@ -649,6 +805,91 @@ pub async fn video_ai_upscale(
             let _ = std::fs::remove_file(&output);
             emit(&app, "error", 0.0, Some(error.clone()));
             Err(error)
+        }
+    }
+}
+
+/// 图片超分：和视频走同一个 Real-ESRGAN 模型，但只处理一张图，输出 PNG（保留透明通道）。
+#[tauri::command]
+pub async fn video_ai_upscale_image(
+    app: AppHandle,
+    path: String,
+    model_id: String,
+    scale: u32,
+) -> Result<VideoProcessed, String> {
+    if scale != 2 && scale != 4 {
+        return Err("超分倍数只支持 2 或 4".into());
+    }
+    let model_path = resolve_model(&app, &model_id, "superres")?;
+    let output = cache_png(&app, "upscale-image")?;
+    let input = image_to_png(&app, &path).await?;
+
+    if let Err(error) = begin_task() {
+        let _ = std::fs::remove_file(&input);
+        return Err(error);
+    }
+    let input_for_task = input.clone();
+    let output_for_task = output.clone();
+    let app_for_task = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let image = read_png(&input_for_task)?;
+        let out_width = frames::even((image.width as u32).saturating_mul(scale)) as usize;
+        let out_height = frames::even((image.height as u32).saturating_mul(scale)) as usize;
+        if out_width as u32 > MAX_OUTPUT_SIDE || out_height as u32 > MAX_OUTPUT_SIDE {
+            return Err(format!("输出分辨率过大：{out_width}×{out_height}"));
+        }
+        if cancelled() {
+            return Err("已取消".into());
+        }
+        emit(&app_for_task, "processing", 0.2, None);
+
+        let alpha = image
+            .alpha
+            .as_deref()
+            .map(|alpha| scale_alpha(alpha, image.width, image.height, out_width, out_height));
+        let frame = Frame {
+            width: image.width,
+            height: image.height,
+            rgb: image.rgb,
+        };
+        let mut session = esrgan::load(&model_path)?;
+        let upscaled = esrgan::upscale_frame(&mut session, &frame, scale)?;
+        if cancelled() {
+            return Err("已取消".into());
+        }
+        write_png(
+            &output_for_task,
+            out_width,
+            out_height,
+            &upscaled.rgb,
+            alpha.as_deref(),
+        )?;
+        emit(&app_for_task, "processing", 0.95, None);
+        Ok(())
+    })
+    .await;
+
+    end_task();
+    let _ = std::fs::remove_file(&input);
+
+    match result {
+        Ok(Ok(())) => {
+            emit(&app, "done", 1.0, Some("图片超分完成".into()));
+            Ok(VideoProcessed {
+                path: output.to_string_lossy().into_owned(),
+                duration: 0.0,
+            })
+        }
+        Ok(Err(error)) => {
+            let _ = std::fs::remove_file(&output);
+            emit(&app, "error", 0.0, Some(error.clone()));
+            Err(error)
+        }
+        Err(error) => {
+            let _ = std::fs::remove_file(&output);
+            let message = format!("图片超分任务异常：{error}");
+            emit(&app, "error", 0.0, Some(message.clone()));
+            Err(message)
         }
     }
 }
@@ -1245,6 +1486,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn png_roundtrip_keeps_alpha() {
+        let dir =
+            std::env::temp_dir().join(format!("aicut-png-{}-{}", std::process::id(), stamp()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("image.png");
+        let rgb = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120];
+        let alpha = vec![255, 128, 0, 255];
+        write_png(&path, 2, 2, &rgb, Some(&alpha)).expect("写 PNG");
+        let image = read_png(&path).expect("读 PNG");
+        assert_eq!((image.width, image.height), (2, 2));
+        assert_eq!(image.rgb, rgb);
+        assert_eq!(image.alpha.as_deref(), Some(alpha.as_slice()));
+
+        // 全不透明时 alpha 平面会被折叠掉，输出重新变回 RGB。
+        write_png(&path, 2, 2, &rgb, None).expect("写 RGB PNG");
+        let opaque = read_png(&path).expect("读 RGB PNG");
+        assert!(opaque.alpha.is_none());
+        assert_eq!(opaque.rgb, rgb);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn alpha_scales_with_the_output_size() {
+        let alpha = vec![0, 255, 255, 0];
+        let scaled = scale_alpha(&alpha, 2, 2, 4, 4);
+        assert_eq!(scaled.len(), 16);
+        assert_eq!(scaled[0], 0);
+        assert!(scaled.iter().any(|value| *value > 0));
+    }
+
+    #[test]
     fn crop_keeps_the_target_aspect() {
         let (width, height) = crop_size(1920, 1080, 1080, 1920);
         assert!((width / height - 1080.0 / 1920.0).abs() < 1e-4);
@@ -1347,6 +1619,43 @@ mod tests {
         };
         let out = esrgan::upscale_frame(&mut session, &frame, 4).expect("分块超分");
         assert_eq!((out.width, out.height), (1040, 1040));
+    }
+
+    #[test]
+    fn real_esrgan_upscales_an_image_file() {
+        let Some(path) = staged("real-esrgan-general-x4v3/realesr-general-x4v3.onnx") else {
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "aicut-image-upscale-{}-{}",
+            std::process::id(),
+            stamp()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("in.png");
+        let output = dir.join("out.png");
+        let rgb = vec![120u8; 24 * 16 * 3];
+        write_png(&input, 24, 16, &rgb, None).expect("写输入 PNG");
+        let image = read_png(&input).expect("读输入 PNG");
+        let frame = Frame {
+            width: image.width,
+            height: image.height,
+            rgb: image.rgb,
+        };
+        let mut session = esrgan::load(&path).expect("加载 Real-ESRGAN");
+        let upscaled = esrgan::upscale_frame(&mut session, &frame, 4).expect("超分");
+        write_png(
+            &output,
+            upscaled.width,
+            upscaled.height,
+            &upscaled.rgb,
+            None,
+        )
+        .expect("写输出 PNG");
+        let back = read_png(&output).expect("读输出 PNG");
+        assert_eq!((back.width, back.height), (96, 64));
+        assert_eq!(back.rgb.len(), 96 * 64 * 3);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

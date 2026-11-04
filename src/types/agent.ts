@@ -100,12 +100,25 @@ export interface BackendOption {
   missing: string[];
 }
 
+/** 本机显卡画像（只用来推荐后端 / 写引导文案，不参与建会话）。 */
+export interface DeviceProfile {
+  /** `nvidia` / `amd` / `intel` / `apple` / `none`。 */
+  vendor: "nvidia" | "amd" | "intel" | "apple" | "none" | string;
+  /** 显卡名（读不到为空串）。 */
+  name: string;
+  /** 驱动版本（只有 NVIDIA 读得到）。 */
+  driver: string | null;
+}
+
 export interface BackendInfo {
   preference: BackendPreference;
   current: BackendPreference;
-  /** 本机推荐的后端（NVIDIA 新驱动为 `cuda13`，老驱动 `cuda12`，否则 `cpu`）。 */
+  /** 本机推荐的后端（NVIDIA 新驱动为 `cuda13`，老驱动 `cuda12`；
+   *  Windows 的 AMD / Intel 为随包的 `directml`；其余 `cpu`）。 */
   recommended: BackendPreference;
   platform: string;
+  /** 本机显卡画像。 */
+  device: DeviceProfile;
   /** 进程里已经加载的运行时（`cuda` / `cuda13` / `directml` / `cpu`）；未加载为 null。 */
   loaded_runtime: string | null;
   /** 切换过运行时 / 补装过组件，需要重启才生效。 */

@@ -1,16 +1,18 @@
 #![forbid(unsafe_code)]
 
 mod agent;
-mod analysis;
 mod aligner;
+mod analysis;
 mod asr;
 mod audio_ai;
 mod backend;
 mod bridge;
 mod cli;
+mod cloud_gen;
 mod cloud_tts;
 mod export;
 mod history;
+mod image_gen;
 mod mcp;
 mod media;
 mod models;
@@ -72,8 +74,10 @@ pub fn run() {
             paths::data_dir_info,
             paths::data_dir_migrate,
             paths::data_dir_cleanup_previous,
+            paths::disk_free_bytes,
             media::probe_media,
             media::file_stamp,
+            media::media_cache_dir,
             media::make_thumbnail,
             media::make_waveform,
             media::extract_audio_preview,
@@ -91,6 +95,7 @@ pub fn run() {
             video_dsp::video_dsp_process,
             video_dsp::video_dsp_cancel,
             video_ai::video_ai_upscale,
+            video_ai::video_ai_upscale_image,
             video_ai::video_ai_interpolate,
             video_ai::video_ai_reframe,
             video_ai::video_ai_cancel,
@@ -147,6 +152,9 @@ pub fn run() {
             video_gen::video_gen_start,
             video_gen::video_gen_cancel,
             video_gen::video_gen_busy,
+            image_gen::image_gen_start,
+            image_gen::image_gen_cancel,
+            image_gen::image_gen_busy,
             plugins::plugin_registry,
             plugins::plugin_installed,
             plugins::plugin_install,
@@ -175,6 +183,14 @@ pub fn run() {
             cloud_tts::cloud_tts_voices,
             cloud_tts::cloud_tts_test,
             cloud_tts::cloud_tts_synthesize,
+            cloud_gen::cloud_gen_config,
+            cloud_gen::cloud_gen_set_config,
+            cloud_gen::cloud_gen_presets,
+            cloud_gen::cloud_gen_image,
+            cloud_gen::cloud_gen_video,
+            cloud_gen::cloud_gen_test,
+            cloud_gen::cloud_gen_cancel,
+            cloud_gen::cloud_gen_busy,
             audio_ai::audio_measure_loudness,
             audio_ai::audio_dsp_process,
             audio_ai::audio_ai_denoise,
@@ -197,12 +213,15 @@ pub fn run() {
             // 已映射的 dll 在本进程里删不掉，晚一步就又要等下一次启动。
             runtime::init(app.handle());
             sdcpp::init(app.handle());
-            // Windows / Linux 是运行时加载：必须在任何 AI 会话创建之前把 dylib 装上。
+            // Windows / Linux 是运行时加载：dylib 延迟到**第一次建会话**才装进进程，
+            // 这样刚装完 CUDA 切过去不必重启（见 backend::ensure_runtime_loaded）。
             // macOS 静态链接，这里直接返回 None。
             match backend::init_runtime(app.handle()) {
-                Ok(Some(dir)) => eprintln!("[backend] ONNX Runtime: {}", dir.display()),
+                Ok(Some(dir)) => {
+                    eprintln!("[backend] ONNX Runtime 将在首次使用 AI 时加载：{}", dir.display())
+                }
                 Ok(None) => {}
-                Err(error) => eprintln!("[backend] 加载 ONNX Runtime 失败：{error}"),
+                Err(error) => eprintln!("[backend] 准备 ONNX Runtime 失败：{error}"),
             }
             if let Some(dir) = config_dir.as_ref() {
                 let cache = dir.join("backend-cache").join("coreml");
@@ -215,6 +234,11 @@ pub fn run() {
                 config_dir.as_ref().map(|dir| dir.join("tts.json")),
             ));
             app.manage(cloud_tts);
+
+            let cloud_gen = Arc::new(cloud_gen::CloudGenRuntime::load(
+                config_dir.as_ref().map(|dir| dir.join("cloud-gen.json")),
+            ));
+            app.manage(cloud_gen);
 
             let mcp_runtime = Arc::new(mcp::McpRuntime::load(
                 app.handle().clone(),

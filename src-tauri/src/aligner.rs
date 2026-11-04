@@ -237,9 +237,7 @@ fn mel_filterbank() -> Vec<f32> {
     let mel_min = hz_to_mel(min_hz);
     let mel_max = hz_to_mel(max_hz);
     let points: Vec<f32> = (0..N_MELS + 2)
-        .map(|index| {
-            mel_to_hz(mel_min + (mel_max - mel_min) * index as f32 / (N_MELS + 1) as f32)
-        })
+        .map(|index| mel_to_hz(mel_min + (mel_max - mel_min) * index as f32 / (N_MELS + 1) as f32))
         .collect();
     let freqs: Vec<f32> = (0..N_BINS)
         .map(|index| index as f32 * SAMPLE_RATE as f32 / N_FFT as f32)
@@ -404,7 +402,11 @@ mod tests {
         let text = "嗯那个大家好今天我们来聊一聊视频剪辑呃其实呢这件事没有想象中那么难嗯我们开始吧";
         let words = aligner.align(&samples, text).expect("对齐");
         assert_eq!(words.len(), text.chars().count());
-        assert!((words[0].start - 0.0).abs() < 0.1, "第一个词起点 {:?}", words[0]);
+        assert!(
+            (words[0].start - 0.0).abs() < 0.1,
+            "第一个词起点 {:?}",
+            words[0]
+        );
         let um = words.iter().find(|word| word.text == "呃").expect("呃");
         assert!((um.start - 7.56).abs() < 0.15, "呃 起点 {:?}", um);
         assert!((um.end - 7.84).abs() < 0.15, "呃 终点 {:?}", um);

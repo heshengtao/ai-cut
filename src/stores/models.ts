@@ -117,9 +117,17 @@ export const useModelsStore = defineStore("models", () => {
     }
   }
 
-  /** 下载并等待完成；失败 / 取消时抛出，调用方可以据此中止后续动作。 */
+  /**
+   * 下载并等待完成；失败 / 取消时抛出，调用方可以据此中止后续动作。
+   *
+   * **已有下载时抛异常而不是静默返回**：以前这里直接 `return`，链式下载被无声吞掉，
+   * 界面看起来就是「点了确认但什么都没发生」。现在由 `useDownloadsStore` 排队，
+   * 真撞上了也要能说出原因。
+   */
   async function download(id: string): Promise<void> {
-    if (busyId.value !== null) return;
+    if (busyId.value !== null) {
+      throw new Error(`已有模型正在下载：${busyId.value}`);
+    }
     busyId.value = id;
     progress.value = {
       id,

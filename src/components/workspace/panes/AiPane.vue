@@ -18,8 +18,13 @@ import {
   CpuChipIcon,
 } from "@heroicons/vue/24/outline";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
+import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
+import EngineTag from "@/components/common/EngineTag.vue";
+import AiSetupDialog from "@/components/ai/AiSetupDialog.vue";
+import DownloadStrip from "@/components/ai/DownloadStrip.vue";
 import AiVideoPage from "@/components/workspace/panes/ai/AiVideoPage.vue";
+import AiImagePage from "@/components/workspace/panes/ai/AiImagePage.vue";
 import type { BackendInfo, BackendPreference, McpStatus } from "@/types/agent";
 import type { AudioStem, ModelStatus, TtsAudio, TtsVoice } from "@/types/models";
 import type { Clip, MediaAsset } from "@/types/project";
@@ -51,7 +56,17 @@ import { useProjectStore } from "@/stores/project";
 import { useSelectionStore } from "@/stores/selection";
 import { useI18n } from "@/i18n";
 import { useModelChoice } from "@/composables/useModelChoice";
+import { useEngineSetup, useRuntimeSetup } from "@/composables/useAiSetup";
 import { useModelChoiceStore } from "@/stores/modelChoice";
+import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
+import type { CloudGenPreset, CloudGenProvider } from "@/types/cloudGen";
+import {
+  CLOUD_GEN_CONFIG_ACTION,
+  providersForCapability,
+  sourceIdFor,
+  splitSourceId,
+} from "@/utils/cloudGen";
+import { useDeviceStore } from "@/stores/device";
 import { copyText } from "@/utils/clipboard";
 import { humanSize, missingBytes } from "@/utils/size";
 import { regionsLabel, sourceKindLabel } from "@/utils/modelSource";
@@ -76,9 +91,10 @@ const tts = useTtsStore();
 const audioAi = useAudioAiStore();
 const videoAi = useVideoAiStore();
 const sdcpp = useSdcppStore();
+const device = useDeviceStore();
 
-/** 侧栏整页：AI 视频生成（列表里只留模型选择与入口）。 */
-const aiPage = ref<null | "video">(null);
+/** 侧栏整页：AI 视频生成 / AI 画图与图像编辑（列表里只留模型选择与入口）。 */
+const aiPage = ref<null | "video" | "image">(null);
 
 const activeTag = ref<AiTag>("all");
 
@@ -253,6 +269,23 @@ const selectedVideo = computed<{ clip: Clip; asset: MediaAsset } | null>(() => {
     !asset ||
     asset.offline ||
     asset.kind !== "video" ||
+    clip.duration <= 0
+  ) {
+    return null;
+  }
+  return { clip, asset };
+});
+
+/** 超分同时吃视频和图片：Real-ESRGAN 本来就能处理单帧，图片只是少了逐帧解码。 */
+const selectedVisual = computed<{ clip: Clip; asset: MediaAsset } | null>(() => {
+  const clip = selectedClip.value;
+  const asset = selectedAsset.value;
+  if (
+    !clip ||
+    clip.audioOnly ||
+    !asset ||
+    asset.offline ||
+    (asset.kind !== "video" && asset.kind !== "image") ||
     clip.duration <= 0
   ) {
     return null;
@@ -1251,6 +1284,12 @@ const videoSourceLabel = computed(() =>
     : i18n.t("videoAi.selectClip"),
 );
 
+const upscaleSourceLabel = computed(() =>
+  selectedVisual.value
+    ? i18n.t("videoAi.source", { name: selectedVisual.value.asset.name })
+    : i18n.t("videoAi.selectVisual"),
+);
+
 const interpolateModel = computed(
   () => models.catalog.find((model) => model.feature === "interpolate") ?? null,
 );
@@ -1410,9 +1449,9 @@ async function applyVideoResult(
 }
 
 async function applyUpscale(): Promise<void> {
-  const current = selectedVideo.value;
+  const current = selectedVisual.value;
   if (!current) {
-    toast(i18n.t("videoAi.selectClip"));
+    toast(i18n.t("videoAi.selectVisual"));
     return;
   }
   const model = upscaleModel.value;
@@ -1424,14 +1463,17 @@ async function applyUpscale(): Promise<void> {
   if (!(await ensureInstalled(model, missingBytes(model)))) return;
 
   try {
-    const result = await videoAi.upscale(
-      current.asset.src,
-      current.clip.in ?? 0,
-      current.clip.duration,
-      current.asset.fps ?? project.doc.fps,
-      model.id,
-      upscaleScale.value,
-    );
+    const result =
+      current.asset.kind === "image"
+        ? await videoAi.upscaleImage(current.asset.src, model.id, upscaleScale.value)
+        : await videoAi.upscale(
+            current.asset.src,
+            current.clip.in ?? 0,
+            current.clip.duration,
+            current.asset.fps ?? project.doc.fps,
+            model.id,
+            upscaleScale.value,
+          );
     await applyVideoResult(
       result,
       current.clip,
@@ -1541,6 +1583,20 @@ const backendNote = computed(() => {
   return current ? backendText(current.kind, "note", current.note) : "";
 });
 
+/** 分段按钮的选项（与设置页 ONNX Runtime 后端同一套控件）。 */
+const backendSegOptions = computed(() =>
+  backendOptions.value.map((option) => ({
+    value: option.kind,
+    label: backendText(option.kind, "label", option.label),
+    title: backendText(option.kind, "note", option.note),
+    disabled: backendBusy.value,
+  })),
+);
+
+function onBackendPick(value: string): void {
+  void pickBackend(value as BackendPreference);
+}
+
 async function loadBackend(): Promise<void> {
   try {
     backendInfo.value = await aiBackendInfo();
@@ -1550,28 +1606,33 @@ async function loadBackend(): Promise<void> {
   }
 }
 
-/** 点后端按钮：切过去；需要重启时问一次，确认后直接重启。 */
+/**
+ * 点后端按钮：装好了就切过去（需要重启时问一次）；没装就弹「准备」向导——
+ * 确认后跳下载管理器、**自动开始下载**、装完自动切过去并提示重启。
+ *
+ * 以前这里只弹一句 toast 再把用户丢到设置页，等于什么也没做。
+ */
 async function pickBackend(kind: BackendPreference): Promise<void> {
   if (backendBusy.value || backendInfo.value?.preference === kind) return;
   const option = backendInfo.value?.options.find((entry) => entry.kind === kind);
-  // 运行时没装齐时不要「切了个空」：引导到设置页的同一套下载流程。
-  if (option && (kind === "cuda12" || kind === "cuda13")) {
-    if (!option.runtime_installed || (option.missing?.length ?? 0) > 0) {
-      toast(i18n.t("settings.ai.runtimeMissing"));
-      layout.openSettings("ai");
-      return;
-    }
+  if (!option || !option.available) return;
+
+  const ready = option.runtime_installed && (option.missing?.length ?? 0) === 0;
+  if (!ready) {
+    runtimeSetup.ensureFor(kind);
+    return;
   }
+
   backendBusy.value = true;
   try {
     backendInfo.value = await aiSetBackend(kind);
+    device.info = backendInfo.value;
     if (backendInfo.value.restart_required) {
       const ok = await confirm({
         title: i18n.t("settings.ai.restartTitle"),
-        message: import.meta.env.DEV
-          ? `${i18n.t("settings.ai.restartBody")} ${i18n.t("settings.ai.restartDevHint")}`
-          : i18n.t("settings.ai.restartBody"),
+        message: i18n.t("settings.ai.restartBody"),
         confirmText: i18n.t("settings.ai.restartNow"),
+        cancelText: i18n.t("setup.restartLater"),
       });
       if (ok) {
         try {
@@ -1588,7 +1649,7 @@ async function pickBackend(kind: BackendPreference): Promise<void> {
   }
 }
 
-// ---- AI 视频生成（MiniMax-H3）：卡片只选模型，点进侧栏整页 ----
+// ---- AI 视频生成（sd.cpp 的 6 个模型家族）：卡片只选模型，点进侧栏整页 ----
 const videoChoice = useModelChoice(
   "video-gen",
   () => models.catalog.filter((model) => model.feature === "video-gen"),
@@ -1598,83 +1659,259 @@ const videoChoice = useModelChoice(
     list[0] ??
     null,
 );
-const videoModelOptions = computed<SelectOption[]>(() =>
-  videoChoice.list.value.map((model) => ({
-    id: model.id,
-    label: model.name,
-    hint: model.installed
-      ? i18n.t("aiVideo.modelReady", { size: humanSize(model.approx_bytes) })
-      : i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(missingBytes(model)) }),
-  })),
+
+// ---- 云端生成服务：和 TTS 一样，列表开头放「配置生成服务…」 ----
+const genProviders = ref<CloudGenProvider[]>([]);
+const genPresets = ref<CloudGenPreset[]>([]);
+const imageCloudChoices = computed(() =>
+  providersForCapability(genProviders.value, "t2i", genPresets.value),
+);
+const videoCloudChoices = computed(() =>
+  providersForCapability(genProviders.value, "t2v", genPresets.value),
+);
+
+function cloudHint(provider: CloudGenProvider, model: string): string {
+  return `${i18n.t(`settings.gen.kind.${provider.kind}`)}${model ? ` · ${model}` : ""}`;
+}
+
+function onCloudGenAction(id: string): void {
+  if (id === CLOUD_GEN_CONFIG_ACTION) layout.openSettings("gen");
+}
+
+const videoModelOptions = computed<SelectOption[]>(() => {
+  const options: SelectOption[] = [
+    {
+      id: CLOUD_GEN_CONFIG_ACTION,
+      label: i18n.t("aiVideo.configure"),
+      hint: i18n.t("aiVideo.configureHint"),
+      action: true,
+    },
+  ];
+  for (const model of videoChoice.list.value) {
+    options.push({
+      id: sourceIdFor("local", model.id),
+      label: model.name,
+      group: i18n.t("aiVideo.groupLocal"),
+      hint: model.installed
+        ? i18n.t("aiVideo.modelReady", { size: humanSize(model.approx_bytes) })
+        : i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(missingBytes(model)) }),
+    });
+  }
+  for (const provider of videoCloudChoices.value) {
+    options.push({
+      id: sourceIdFor("cloud", provider.id),
+      label: provider.name,
+      group: i18n.t("aiVideo.groupCloud"),
+      hint: cloudHint(provider, provider.video_model),
+    });
+  }
+  return options;
+});
+const videoCloudProvider = computed(
+  () => videoCloudChoices.value.find((item) => item.id === modelChoice.get("video-gen-cloud")) ?? null,
 );
 const videoModelId = computed<string | null>({
-  get: () => videoChoice.id.value,
+  get: () => {
+    if (videoCloudProvider.value) return sourceIdFor("cloud", videoCloudProvider.value.id);
+    return videoChoice.id.value ? sourceIdFor("local", videoChoice.id.value) : null;
+  },
   set: (value) => {
-    videoChoice.id.value = value;
+    const parsed = splitSourceId(value);
+    if (!parsed) return;
+    if (parsed.kind === "cloud") {
+      modelChoice.set("video-gen-cloud", parsed.id);
+    } else {
+      modelChoice.set("video-gen-cloud", null);
+      videoChoice.id.value = parsed.id;
+    }
   },
 });
 const videoReady = computed(() => videoChoice.current.value?.installed === true);
-const videoModelNote = computed(() => {
-  const model = videoChoice.current.value;
-  if (!model) return i18n.t("aiVideo.noModel");
-  return model.installed
-    ? i18n.t("aiVideo.modelReady", { size: humanSize(model.approx_bytes) })
-    : i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(missingBytes(model)) });
-});
 
-/** sd.cpp 后端：只影响视频生成，与上面的 ONNX Runtime 完全分开。 */
-const sdcppOptions = computed<SelectOption[]>(() =>
-  (sdcpp.info?.options ?? [])
-    .filter((option) => option.available)
-    .map((option) => ({
-      id: option.kind,
-      label: i18n.t(option.label),
-      hint:
-        option.kind === "auto"
-          ? i18n.t(option.note)
-          : option.installed
-            ? i18n.t("sdcpp.installed")
-            : i18n.t("sdcpp.downloadSize", { size: humanSize(option.bytes) }),
-    })),
+// ---- AI 画图 / 图像编辑（同一批 sd.cpp 图像模型）：卡片只选模型，点进侧栏整页 ----
+const imageChoice = useModelChoice(
+  "image-gen",
+  () => models.catalog.filter((model) => model.feature === "image-gen"),
+  (list) =>
+    list.find((model) => model.id === "z-image-turbo") ??
+    list.find((model) => model.installed) ??
+    list[0] ??
+    null,
 );
-const sdcppBackendId = computed<string | null>({
-  get: () => sdcpp.info?.preference ?? null,
+const imageModelOptions = computed<SelectOption[]>(() => {
+  const options: SelectOption[] = [
+    {
+      id: CLOUD_GEN_CONFIG_ACTION,
+      label: i18n.t("aiImage.configure"),
+      hint: i18n.t("aiImage.configureHint"),
+      action: true,
+    },
+  ];
+  for (const model of imageChoice.list.value) {
+    options.push({
+      id: sourceIdFor("local", model.id),
+      label: model.name,
+      group: i18n.t("aiImage.groupLocal"),
+      hint: model.installed
+        ? i18n.t("aiVideo.modelReady", { size: humanSize(model.approx_bytes) })
+        : i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(missingBytes(model)) }),
+    });
+  }
+  for (const provider of imageCloudChoices.value) {
+    options.push({
+      id: sourceIdFor("cloud", provider.id),
+      label: provider.name,
+      group: i18n.t("aiImage.groupCloud"),
+      hint: cloudHint(provider, provider.image_model),
+    });
+  }
+  return options;
+});
+const imageCloudProvider = computed(
+  () => imageCloudChoices.value.find((item) => item.id === modelChoice.get("image-gen-cloud")) ?? null,
+);
+const imageModelId = computed<string | null>({
+  get: () => {
+    if (imageCloudProvider.value) return sourceIdFor("cloud", imageCloudProvider.value.id);
+    return imageChoice.id.value ? sourceIdFor("local", imageChoice.id.value) : null;
+  },
   set: (value) => {
-    if (value) void pickSdcppBackend(value);
+    const parsed = splitSourceId(value);
+    if (!parsed) return;
+    if (parsed.kind === "cloud") {
+      modelChoice.set("image-gen-cloud", parsed.id);
+    } else {
+      modelChoice.set("image-gen-cloud", null);
+      imageChoice.id.value = parsed.id;
+    }
   },
 });
+const imageReady = computed(() => imageChoice.current.value?.installed === true);
+
+// ---- 「准备运行环境」：缺引擎 / 缺模型 → 弹向导 → 跳管理器并自动开始下载 ----
+/** 画图 / 视频各有自己的会话（模型不同），但共用同一个 sd.cpp 引擎。 */
+const imageSetup = useEngineSetup("image", () => imageChoice.current.value);
+const videoSetup = useEngineSetup("video", () => videoChoice.current.value);
+const runtimeSetup = useRuntimeSetup();
+const imageSetupOpen = imageSetup.open;
+const imageSetupPlan = imageSetup.plan;
+const imageSetupForced = imageSetup.forced;
+const videoSetupOpen = videoSetup.open;
+const videoSetupPlan = videoSetup.plan;
+const videoSetupForced = videoSetup.forced;
+const runtimeSetupOpen = runtimeSetup.open;
+const runtimeSetupPlan = runtimeSetup.plan;
+const runtimeSetupForced = runtimeSetup.forced;
+
+/** 任何一份引擎装好了就算「引擎就绪」。 */
+const engineInstalled = computed(() => sdcpp.items.some((pack) => pack.installed));
+/** 本机推荐的那份引擎要下多少（没装时算进「需要准备」的总量）。 */
+const recommendedEngineBytes = computed(() => {
+  const info = sdcpp.info;
+  if (!info) return 0;
+  const best = sdcpp.items.find((pack) => pack.device === info.recommended);
+  return best && !best.installed ? best.bytes : 0;
+});
+
+const imageNeedsSetup = computed(
+  () => !imageCloudProvider.value && (!engineInstalled.value || !imageReady.value),
+);
+const videoNeedsSetup = computed(
+  () => !videoCloudProvider.value && (!engineInstalled.value || !videoReady.value),
+);
+
+/** 「需要准备」那一行：引擎 + 模型合计，别只报模型体积；装好之后直接写「已就绪」。 */
+function setupNote(ready: boolean, modelBytes: number): string {
+  if (ready) return i18n.t("ai.setupReady");
+  const total = recommendedEngineBytes.value + modelBytes;
+  return i18n.t(engineInstalled.value ? "aiVideo.modelNeedsDownload" : "ai.setupNote", {
+    size: humanSize(total),
+  });
+}
+const imageSetupNote = computed(() =>
+  imageCloudProvider.value
+    ? i18n.t("ai.cloudReady", { name: imageCloudProvider.value.name })
+    : setupNote(
+        !imageNeedsSetup.value,
+        imageChoice.current.value ? missingBytes(imageChoice.current.value) : 0,
+      ),
+);
+const videoSetupNote = computed(() =>
+  videoCloudProvider.value
+    ? i18n.t("ai.cloudReady", { name: videoCloudProvider.value.name })
+    : setupNote(
+        !videoNeedsSetup.value,
+        videoChoice.current.value ? missingBytes(videoChoice.current.value) : 0,
+      ),
+);
+
+/** sd.cpp 后端：只影响视频生成，与上面的 ONNX Runtime 完全分开。 */
+const sdcppOptions = computed(() =>
+  (sdcpp.info?.options ?? []).filter((option) => option.usable),
+);
+
+const sdcppActiveKind = computed(() => {
+  const options = sdcppOptions.value;
+  const preferred = sdcpp.info?.preference;
+  if (preferred && options.some((option) => option.kind === preferred)) return preferred;
+  const current = sdcpp.info?.current;
+  if (current && options.some((option) => option.kind === current)) return current;
+  return options.find((option) => option.recommended)?.kind ?? options[0]?.kind ?? "cpu";
+});
+
+/** 分段按钮的选项（与设置页视频后端同一套控件）。 */
+const sdcppSegOptions = computed(() =>
+  sdcppOptions.value.map((option) => ({
+    value: option.kind,
+    label: i18n.t(option.label),
+    title: option.installed
+      ? i18n.t(option.note)
+      : i18n.t("sdcpp.downloadSize", { size: humanSize(option.bytes) }),
+    disabled: sdcpp.info === null,
+  })),
+);
+
 const sdcppNote = computed(() => {
   const option = (sdcpp.info?.options ?? []).find(
     (item) => item.kind === sdcpp.info?.preference,
   );
   if (!option) return i18n.t("aiVideo.backendHint");
-  if (option.kind === "auto") return i18n.t(option.note);
   return option.installed
     ? i18n.t(option.note)
     : i18n.t("sdcpp.downloadSize", { size: humanSize(option.bytes) });
 });
 
+/** 切视频后端：装好了直接切；没装就弹「准备」向导（只算引擎），装完自动切过去。 */
 async function pickSdcppBackend(kind: string): Promise<void> {
-  const option = sdcpp.info?.options.find((item) => item.kind === kind);
-  if (!option) return;
-  if (!option.installed) {
-    toast(i18n.t("settings.ai.sdcppMissing"));
-    const target =
-      kind === "auto" ? sdcpp.info?.recommended ?? "cpu" : kind;
-    sdcpp.requestFocus(`sdcpp-${target}`);
-    layout.openTab("models");
-    return;
-  }
-  try {
-    await sdcpp.setBackend(kind);
-    toast(i18n.t("aiVideo.backendSwitched", { name: i18n.t(option.label) }));
-  } catch (error) {
-    toast(error instanceof Error ? error.message : String(error), "error");
-  }
+  if (sdcpp.info?.preference === kind) return;
+  await imageSetup.prepareEngine(kind);
 }
 
+/**
+ * 打开子页：缺引擎 / 缺模型就先弹「准备」向导，下载完成后自动进去。
+ *
+ * 以前这里是「点打开 → 进子页 → 再点下载引擎 → 跳管理器 → 什么都不下」，
+ * 用户要连点三次才看到一个下载按钮。
+ */
 function openVideoGen(): void {
-  aiPage.value = "video";
+  // 选了云端服务就不需要 sd.cpp 引擎 / 本地权重，直接进子页。
+  if (videoCloudProvider.value || videoSetup.ensure()) {
+    aiPage.value = "video";
+    return;
+  }
+  videoSetup.setDone(() => {
+    aiPage.value = "video";
+  });
+}
+
+function openImageGen(): void {
+  if (imageCloudProvider.value || imageSetup.ensure()) {
+    aiPage.value = "image";
+    return;
+  }
+  imageSetup.setDone(() => {
+    aiPage.value = "image";
+  });
 }
 
 onMounted(() => {
@@ -1682,11 +1919,26 @@ onMounted(() => {
   void loadBackend();
   void sdcpp.load();
   void sdcpp.loadInfo();
+  void device.load();
   models.watchProgress();
   tts.watch();
   audioAi.watch();
   videoAi.watch();
   void tts.loadProviders(true);
+  void cloudGenConfig()
+    .then((config) => {
+      genProviders.value = config.providers;
+    })
+    .catch(() => {
+      genProviders.value = [];
+    });
+  void cloudGenPresets()
+    .then((presets) => {
+      genPresets.value = presets;
+    })
+    .catch(() => {
+      genPresets.value = [];
+    });
   if (models.catalog.length === 0) void models.load();
 });
 </script>
@@ -1694,6 +1946,7 @@ onMounted(() => {
 <template>
   <div class="pane">
     <AiVideoPage v-if="aiPage === 'video'" @back="aiPage = null" />
+    <AiImagePage v-else-if="aiPage === 'image'" @back="aiPage = null" />
     <template v-else>
     <div class="tags" role="group" :aria-label="i18n.t('ai.tagFilter')">
       <button
@@ -1707,6 +1960,9 @@ onMounted(() => {
         {{ i18n.t(`ai.tags.${tag}`) }}
       </button>
     </div>
+
+    <!-- 「在后台下载」的进度：留在首页也能看见，不用来回切管理器 -->
+    <DownloadStrip />
 
     <!-- 基础设施：只在「全部」里出现，避免在具体能力标签下干扰阅读。 -->
     <ul v-if="activeTag === 'all'" class="list">
@@ -1777,20 +2033,13 @@ onMounted(() => {
           </div>
         </div>
         <div class="item-row">
-          <div class="ai-seg" role="group" :aria-label="i18n.t('settings.ai.backend')">
-            <button
-              v-for="option in backendOptions"
-              :key="option.kind"
-              class="ai-seg-btn"
-              :class="{ on: backendInfo?.preference === option.kind }"
-              :aria-pressed="backendInfo?.preference === option.kind"
-              :disabled="backendBusy"
-              :title="backendText(option.kind, 'note', option.note)"
-              @click="pickBackend(option.kind)"
-            >
-              {{ backendText(option.kind, "label", option.label) }}
-            </button>
-          </div>
+          <SegmentedControl
+            :model-value="backendInfo?.preference ?? ''"
+            :options="backendSegOptions"
+            :aria-label="i18n.t('settings.ai.backend')"
+            size="sm"
+            @update:model-value="onBackendPick"
+          />
         </div>
       </li>
 
@@ -1802,11 +2051,13 @@ onMounted(() => {
             <span class="item-note">{{ sdcppNote }}</span>
           </div>
         </div>
-        <div class="item-row">
-          <Md3Select
-            v-model="sdcppBackendId"
-            :options="sdcppOptions"
-            :label="i18n.t('aiVideo.backend')"
+        <div v-if="sdcppOptions.length" class="backend-slider">
+          <SegmentedControl
+            :model-value="sdcppActiveKind"
+            :options="sdcppSegOptions"
+            :aria-label="i18n.t('aiVideo.backend')"
+            size="sm"
+            @update:model-value="pickSdcppBackend"
           />
         </div>
       </li>
@@ -1820,9 +2071,7 @@ onMounted(() => {
           <div class="item-main">
             <span class="item-name">
               {{ i18n.t("ai.subtitles") }}
-              <span class="badge" :class="{ on: ready }">
-                {{ i18n.t(ready ? "ai.modelReady" : "ai.modelMissing") }}
-              </span>
+              <EngineTag kind="onnx" />
             </span>
             <span class="item-note">{{ sourceLabel }}</span>
           </div>
@@ -1868,9 +2117,7 @@ onMounted(() => {
           <div class="item-main">
             <span class="item-name">
               {{ i18n.t("ai.voiceover") }}
-              <span class="badge" :class="{ on: ttsReady }">
-                {{ i18n.t(ttsReady ? "ai.modelReady" : "ai.modelMissing") }}
-              </span>
+              <EngineTag :kind="selectedCloudProvider ? 'cloud' : 'onnx'" />
             </span>
             <span class="item-note">{{ ttsNote }}</span>
           </div>
@@ -2010,24 +2257,47 @@ onMounted(() => {
         <div class="item-row">
           <div class="item-main">
             <span class="item-name">
-              {{ i18n.t("ai.videoGen") }}
-              <span class="badge" :class="{ on: videoReady }">
-                {{ i18n.t(videoReady ? "ai.modelReady" : "ai.modelMissing") }}
-              </span>
+              {{ i18n.t("ai.imageGen") }}
+              <EngineTag :kind="imageCloudProvider ? 'cloud' : 'sdcpp'" />
             </span>
-            <span class="item-note">{{ videoModelNote }}</span>
+            <span class="item-note">{{ imageSetupNote }}</span>
           </div>
-          <button class="run-btn" @click="openVideoGen">
-            {{ i18n.t("ai.videoGenOpen") }}
+          <button class="run-btn" @click="openImageGen">
+            {{ i18n.t(imageNeedsSetup ? "ai.prepare" : "ai.imageGenOpen") }}
           </button>
         </div>
+        <div class="param-field">
+          <span class="param-name">{{ i18n.t("aiVideo.model") }}</span>
+          <Md3Select
+            v-model="imageModelId"
+            :options="imageModelOptions"
+            :label="i18n.t('aiVideo.model')"
+            :empty="i18n.t('aiImage.noModel')"
+            @action="onCloudGenAction"
+          />
+        </div>
+      </li>
+      <li class="item">
         <div class="item-row">
+          <div class="item-main">
+            <span class="item-name">
+              {{ i18n.t("ai.videoGen") }}
+              <EngineTag :kind="videoCloudProvider ? 'cloud' : 'sdcpp'" />
+            </span>
+            <span class="item-note">{{ videoSetupNote }}</span>
+          </div>
+          <button class="run-btn" @click="openVideoGen">
+            {{ i18n.t(videoNeedsSetup ? "ai.prepare" : "ai.videoGenOpen") }}
+          </button>
+        </div>
+        <div class="param-field">
           <span class="param-name">{{ i18n.t("aiVideo.model") }}</span>
           <Md3Select
             v-model="videoModelId"
             :options="videoModelOptions"
             :label="i18n.t('aiVideo.model')"
             :empty="i18n.t('aiVideo.noModel')"
+            @action="onCloudGenAction"
           />
         </div>
       </li>
@@ -2036,11 +2306,9 @@ onMounted(() => {
           <div class="item-main">
             <span class="item-name">
               {{ i18n.t("videoAi.upscale") }}
-              <span class="badge" :class="{ on: upscaleReady }">
-                {{ i18n.t(upscaleReady ? "ai.modelReady" : "ai.modelMissing") }}
-              </span>
+              <EngineTag kind="onnx" />
             </span>
-            <span class="item-note">{{ videoSourceLabel }}</span>
+            <span class="item-note">{{ upscaleSourceLabel }}</span>
           </div>
           <button
             v-if="videoAi.running && videoAi.task === 'upscale'"
@@ -2102,9 +2370,7 @@ onMounted(() => {
           <div class="item-main">
             <span class="item-name">
               {{ i18n.t("videoAi.interpolate") }}
-              <span class="badge" :class="{ on: interpolateReady }">
-                {{ i18n.t(interpolateReady ? "ai.modelReady" : "ai.modelMissing") }}
-              </span>
+              <EngineTag kind="onnx" />
             </span>
             <span class="item-note">
               {{ interpolateModel?.name ?? videoSourceLabel }}
@@ -2161,9 +2427,7 @@ onMounted(() => {
           <div class="item-main">
             <span class="item-name">
               {{ i18n.t("videoAi.crop") }}
-              <span class="badge" :class="{ on: cropReady }">
-                {{ i18n.t(cropReady ? "ai.modelReady" : "ai.modelMissing") }}
-              </span>
+              <EngineTag kind="onnx" />
             </span>
             <span class="item-note">{{ i18n.t("videoAi.cropHint") }}</span>
           </div>
@@ -2237,9 +2501,7 @@ onMounted(() => {
           <div class="item-main">
             <span class="item-name">
               {{ i18n.t("videoAi.track") }}
-              <span class="badge" :class="{ on: trackReady }">
-                {{ i18n.t(trackReady ? "ai.modelReady" : "ai.modelMissing") }}
-              </span>
+              <EngineTag kind="onnx" />
             </span>
             <span class="item-note">{{ i18n.t("videoAi.trackHint") }}</span>
           </div>
@@ -2319,9 +2581,7 @@ onMounted(() => {
           <div class="item-main">
             <span class="item-name">
               {{ i18n.t("audio.aiDenoise") }}
-              <span class="badge" :class="{ on: denoiseReady }">
-                {{ i18n.t(denoiseReady ? "ai.modelReady" : "ai.modelMissing") }}
-              </span>
+              <EngineTag kind="onnx" />
             </span>
             <span class="item-note">{{ i18n.t("audio.aiDenoiseHint") }}</span>
           </div>
@@ -2362,9 +2622,7 @@ onMounted(() => {
           <div class="item-main">
             <span class="item-name">
               {{ i18n.t("audio.separate") }}
-              <span class="badge" :class="{ on: separateReady }">
-                {{ i18n.t(separateReady ? "ai.modelReady" : "ai.modelMissing") }}
-              </span>
+              <EngineTag kind="onnx" />
             </span>
             <span class="item-note">{{ i18n.t("audio.separateHint") }}</span>
           </div>
@@ -2416,9 +2674,8 @@ onMounted(() => {
           <div class="item-main">
             <span class="item-name">
               {{ i18n.t("audio.translate") }}
-              <span class="badge" :class="{ on: ready }">
-                {{ i18n.t(ready ? "ai.modelReady" : "ai.modelMissing") }}
-              </span>
+              <EngineTag kind="onnx" />
+              <EngineTag kind="cloud" />
             </span>
             <span class="item-note">{{ i18n.t("audio.translateHint") }}</span>
           </div>
@@ -2484,9 +2741,7 @@ onMounted(() => {
           <div class="item-main">
             <span class="item-name">
               {{ i18n.t("audio.cutFillers") }}
-              <span class="badge" :class="{ on: cutModelReady }">
-                {{ i18n.t(cutModelReady ? "ai.modelReady" : "ai.modelMissing") }}
-              </span>
+              <EngineTag kind="onnx" />
             </span>
             <span class="item-note">{{ i18n.t("audio.cutFillersHint") }}</span>
           </div>
@@ -2540,6 +2795,40 @@ onMounted(() => {
     </ul>
     </template>
 
+    <!-- 缺引擎 / 运行时 / 模型：一次确认，跳管理器并自动开始下载 -->
+    <AiSetupDialog
+      :open="imageSetupOpen"
+      :plan="imageSetupPlan"
+      :dismissible="!imageSetupForced"
+      @update:open="(value: boolean) => (value ? undefined : imageSetup.cancel())"
+      @cancel="imageSetup.cancel()"
+      @confirm="imageSetup.confirm()"
+      @background="imageSetup.confirmBackground()"
+      @cancel-download="imageSetup.cancelDownload()"
+      @choose="imageSetup.choose"
+    />
+    <AiSetupDialog
+      :open="videoSetupOpen"
+      :plan="videoSetupPlan"
+      :dismissible="!videoSetupForced"
+      @update:open="(value: boolean) => (value ? undefined : videoSetup.cancel())"
+      @cancel="videoSetup.cancel()"
+      @confirm="videoSetup.confirm()"
+      @background="videoSetup.confirmBackground()"
+      @cancel-download="videoSetup.cancelDownload()"
+      @choose="videoSetup.choose"
+    />
+    <AiSetupDialog
+      :open="runtimeSetupOpen"
+      :plan="runtimeSetupPlan"
+      :dismissible="!runtimeSetupForced"
+      @update:open="(value: boolean) => (value ? undefined : runtimeSetup.cancel())"
+      @cancel="runtimeSetup.cancel()"
+      @confirm="runtimeSetup.confirm()"
+      @background="runtimeSetup.confirmBackground()"
+      @cancel-download="runtimeSetup.cancelDownload()"
+      @choose="runtimeSetup.choose"
+    />
   </div>
 </template>
 
@@ -2644,6 +2933,10 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
 }
+/* 视频后端分段按钮：和设置页「ONNX Runtime 后端」同一套控件，占满整行。 */
+.backend-slider {
+  padding: 2px 0 2px;
+}
 .item-main {
   display: flex;
   flex-direction: column;
@@ -2664,21 +2957,6 @@ onMounted(() => {
   font-weight: 400;
   word-break: break-all;
   font-size: 12px;
-}
-.badge {
-  margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 15px;
-  vertical-align: 1px;
-  background-color: rgb(var(--md-surface-container-high));
-  color: rgb(var(--md-on-surface-muted));
-}
-.badge.on {
-  background-color: rgb(var(--md-primary) / 0.14);
-  color: rgb(var(--md-primary));
 }
 .param-field {
   display: flex;
@@ -2796,34 +3074,6 @@ onMounted(() => {
 .chip:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 2px;
-}
-.ai-seg {
-  display: inline-flex;
-  flex-wrap: wrap;
-  max-width: 100%;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-surface-container-highest));
-}
-.ai-seg-btn {
-  height: 24px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--md-on-surface-variant));
-  font-size: 11px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.ai-seg-btn.on {
-  background-color: rgb(var(--md-primary));
-  color: rgb(var(--md-on-primary));
-}
-.ai-seg-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 @media (prefers-reduced-motion: reduce) {
   .switch,

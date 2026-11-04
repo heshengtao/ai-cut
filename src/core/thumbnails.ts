@@ -1,5 +1,5 @@
 /** 缩略图补全：agent 通过 MCP / film.json 导入的素材可能只有元数据。 */
-import { cacheFilePath, makeThumbnail } from "@/core/media";
+import { cacheFilePath, fileUrl, makeThumbnail } from "@/core/media";
 import type { MediaAsset } from "@/types/project";
 
 /** 正在生成的素材 id，避免媒体库与时间线重复触发。 */
@@ -16,6 +16,18 @@ function attemptKey(asset: MediaAsset): string {
 /** 取本次会话已生成的缩略图（没有则 undefined）。 */
 export function cachedThumbnail(assetId: string): string | undefined {
   return cache.get(assetId);
+}
+
+/**
+ * 素材在界面上可用的缩略图 URL。
+ *
+ * 优先级：缓存缩略图 → 本次会话补的缩略图 → 图片原图（视频没有画面就只能占位）。
+ * 所有卡片 / 片段 / 检查器都走这里，避免有的地方只认 `asset.thumb`、图片直接空掉。
+ */
+export function assetThumbnailUrl(asset: MediaAsset): string | null {
+  const thumb = asset.thumb ?? cachedThumbnail(asset.id);
+  if (thumb) return fileUrl(thumb);
+  return asset.kind === "image" ? fileUrl(asset.src) : null;
 }
 
 /** 需要补缩略图的素材：只有视频有画面，图片用原图、音频无画面。 */

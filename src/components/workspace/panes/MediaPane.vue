@@ -16,7 +16,6 @@ import {
 } from "@heroicons/vue/24/outline";
 import type { AssetKind, Clip, ClipTextStyle, MediaAsset } from "@/types/project";
 import {
-  fileUrl,
   importAssetAt,
   pickMediaFiles,
   pickSubtitleFile,
@@ -29,7 +28,7 @@ import {
 } from "@/core/subtitleActions";
 import { addAsset, addClip, addTrack, removeAsset, setClipTextStyle } from "@/core/ops";
 import { createClip } from "@/core/factory";
-import { cachedThumbnail } from "@/core/thumbnails";
+import { assetThumbnailUrl } from "@/core/thumbnails";
 import { snapToFrame } from "@/core/time";
 import { TEXT_PRESET_SECONDS, type TextPreset } from "@/core/textPresets";
 import { clearDragPayload, setDragPayload } from "@/core/dragPayload";
@@ -210,17 +209,16 @@ const textThumb = {
 
 /** 素材缩略图 / 占位渐变；图片没有缓存缩略图时直接用原图。 */
 function thumbStyle(asset: MediaAsset): Record<string, string> {
-  const thumb = asset.thumb ?? cachedThumbnail(asset.id);
-  if (asset.kind === "image") {
+  const url = assetThumbnailUrl(asset);
+  if (url) {
     // 用 cover 填满预览框：比例不一致时裁切边缘，不拉伸也不留黑边。
     return {
-      backgroundImage: `url("${fileUrl(thumb ?? asset.src)}")`,
+      backgroundImage: `url("${url}")`,
       backgroundSize: "cover",
       backgroundRepeat: "no-repeat",
       backgroundPosition: "center",
     };
   }
-  if (thumb) return { backgroundImage: `url("${fileUrl(thumb)}")` };
   return { background: "linear-gradient(140deg, #2c1f4d 0%, #7c4a76 45%, #e79a76 100%)" };
 }
 

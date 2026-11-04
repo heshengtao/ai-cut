@@ -38,7 +38,7 @@ tower-http = { version = "0.6", features = ["cors"] }
 uuid = { version = "1", features = ["v4"] }
 # `system-proxy`：让 reqwest 自己也能读 Windows / macOS 的系统代理（Windows 注册表、
 # macOS SystemConfiguration、环境变量），作为我们解析结果之外的兜底。
-reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "native-tls", "socks", "system-proxy"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "native-tls", "socks", "system-proxy", "multipart"] }
 futures-util = { version = "0.3", default-features = false }
 sha2 = "0.10"
 sherpa-onnx = "1.13.8"
@@ -113,6 +113,12 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# `lzma-rs` 0.3.0（zip 2.x 的 LZMA 解码器）在依赖统一 -O2、本 crate -O1 时，
+# 泛型 `decode_bit` 会引用一个被 LLVM 内部化掉的符号，Windows 链接报 LNK2019
+# （`anon.*.llvm.*`）。把它对齐到本 crate 的优化级别即可稳定链接。
+[profile.dev.package.lzma-rs]
+opt-level = 1
 
 # Opt out of any repository-root Cargo workspace: this crate is its own root.
 [workspace]

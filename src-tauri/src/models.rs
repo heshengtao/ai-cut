@@ -73,6 +73,48 @@ pub enum ModelFamily {
     /// MiniMax-H3 视频 + 音频生成（stable-diffusion.cpp）。
     #[serde(rename = "minimax_h3")]
     MiniMaxH3,
+    /// MiniMax-H3 Ref2VA：参考图 / 参考视频 / 参考音频条件（不能接首尾帧）。
+    #[serde(rename = "minimax_h3_ref2va")]
+    MiniMaxH3Ref2va,
+    /// Wan2.1 T2V 1.3B 视频生成（stable-diffusion.cpp；无音频，轻量快速）。
+    #[serde(rename = "wan21_t2v")]
+    Wan21T2v,
+    /// Wan2.2 TI2V 5B 视频生成（24 fps，`4k + 1` 帧，用 Wan2.2 VAE）。
+    #[serde(rename = "wan22_ti2v")]
+    Wan22Ti2v,
+    /// Wan2.2 T2V A14B：high / low noise 两个专家轮流去噪。
+    #[serde(rename = "wan22_t2v_a14b")]
+    Wan22T2vA14b,
+    /// HunyuanVideo 1.5（Qwen2.5-VL + ByT5 双文本编码器，无音频）。
+    #[serde(rename = "hunyuan_video_15")]
+    HunyuanVideo15,
+    /// LTX-2.3 22B（Gemma 3 文本编码器 + 视频 / 音频 VAE）。
+    #[serde(rename = "ltx_23")]
+    Ltx23,
+    /// LTX-2.5 22B（Gemma 4 文本编码器，投影层已内置，不再需要 connectors）。
+    #[serde(rename = "ltx_25")]
+    Ltx25,
+    /// SD 1.5 inpainting（单文件，mask 局部重绘最稳的轻量档）。
+    #[serde(rename = "sd15")]
+    Sd15,
+    /// SDXL Base 1.0（单文件，1024p 通用画质）。
+    #[serde(rename = "sdxl")]
+    Sdxl,
+    /// Z-Image Turbo（Qwen3-4B 文本编码器，8 步、低显存）。
+    #[serde(rename = "z_image_turbo")]
+    ZImageTurbo,
+    /// FLUX.1 schnell（FLUX VAE + CLIP-L + T5-XXL，4 步）。
+    #[serde(rename = "flux1_schnell")]
+    Flux1Schnell,
+    /// FLUX.1 Kontext（参考图指令改图，同一套 FLUX 组件）。
+    #[serde(rename = "flux1_kontext")]
+    Flux1Kontext,
+    /// Qwen-Image（Qwen2.5-VL 7B 文本编码器，20B DiT）。
+    #[serde(rename = "qwen_image")]
+    QwenImage,
+    /// Qwen-Image-Edit 2509（参考图指令改图，需要 Qwen2.5-VL 视觉投影层）。
+    #[serde(rename = "qwen_image_edit")]
+    QwenImageEdit,
 }
 
 /// 一个下载源。
@@ -254,6 +296,64 @@ macro_rules! moss_file_sized {
         }
     };
 }
+
+/// MiniMax-H3 FL2VA / Ref2VA 共用的三个文件：文本编码器、视频 VAE、音频 VAE。
+///
+/// 两个模型档（`minimax-h3` 与 `minimax-h3-ref2va`）只差一个 DiT；这里把共用部分
+/// 抽成同一份 `ModelFile` 定义，下载器才能按「文件名 + 大小 + sha256」认出可复用文件。
+const H3_TEXT_ENCODER_FILE: ModelFile = ModelFile {
+    filename: "qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
+    approx_bytes: 13_102_161_024,
+    sha256: "a8ccadccd57ef34c838ffb8a7da8368bb554721b2760274a1d3b0df63960b997",
+    sources: &[
+        official(
+            "modelscope",
+            "cn",
+            "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
+        ),
+        official(
+            "hf",
+            "intl",
+            "https://huggingface.co/leejet/MiniMax-H3-GGUF/resolve/main/qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
+        ),
+    ],
+};
+
+const H3_VIDEO_VAE_FILE: ModelFile = ModelFile {
+    filename: "minimax_h3_video_vae_fp16.safetensors",
+    approx_bytes: 5_207_808_496,
+    sha256: "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+    sources: &[
+        official(
+            "modelscope",
+            "cn",
+            "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/vae/minimax_h3_video_vae_fp16.safetensors",
+        ),
+        official(
+            "hf",
+            "intl",
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors",
+        ),
+    ],
+};
+
+const H3_AUDIO_VAE_FILE: ModelFile = ModelFile {
+    filename: "minimax_h3_audio_vae_fp32.safetensors",
+    approx_bytes: 605_254_808,
+    sha256: "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+    sources: &[
+        official(
+            "modelscope",
+            "cn",
+            "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/vae/minimax_h3_audio_vae_fp32.safetensors",
+        ),
+        official(
+            "hf",
+            "intl",
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors",
+        ),
+    ],
+};
 
 /// SenseVoice Small：阿里 FunAudioLLM 的非自回归模型，中英日韩粤五语，自带标点。
 ///
@@ -1142,6 +1242,406 @@ pub static CATALOG: &[ModelEntry] = &[
             ],
         }],
     },
+    // Wan2.1 T2V 1.3B：最轻量的文生视频模型（无音频），用来快速跑通整条链路 / 试提示词。
+    // 3 个文件缺一不可：DiT（fp16，2.8 GB）、Wan2.1 VAE（254 MB）、UMT5-XXL 文本编码器
+    // （Q4_K_M，3.7 GB）。整包约 6.7 GB，16 GB 显存 / 32 GB 内存都够。
+    //
+    // 帧率 16 fps、帧数网格 `4k + 1`、CLI 用 `--t5xxl` 而不是 `--llm`，也没有
+    // `--audio-vae`（`video_gen.rs` 按 family 拼参数）。
+    ModelEntry {
+        id: "wan21-t2v-1.3b",
+        name: "Wan2.1 T2V 1.3B（轻量 · 无音频）",
+        feature: "video-gen",
+        tag: "visual",
+        license: "Apache-2.0",
+        family: ModelFamily::Wan21T2v,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "wan2.1_t2v_1.3B_fp16.safetensors",
+                approx_bytes: 2_838_303_560,
+                sha256: "be531024cd9018cb5b48c40cfbb6a6191645b1c792eb8bf4f8c1c6e10f924dc5",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/master/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "wan_2.1_vae.safetensors",
+                approx_bytes: 253_815_318,
+                sha256: "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/master/split_files/vae/wan_2.1_vae.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "umt5-xxl-encoder-Q4_K_M.gguf",
+                approx_bytes: 3_655_145_312,
+                sha256: "17cf97a5bbbc60a646d6105b832b6f657ce904a8a1ad970e4b59df0c67584a40",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/city96/umt5-xxl-encoder-gguf/resolve/master/umt5-xxl-encoder-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+        ],
+    },
+    // Wan2.2 TI2V 5B：比 1.3B 新一代（24 fps、`4k + 1` 帧、Wan2.2 VAE），
+    // 整包约 8.5 GB，是「画质能看 + 单卡跑得动」的折中点。仍然无音频。
+    ModelEntry {
+        id: "wan22-ti2v-5b",
+        name: "Wan2.2 TI2V 5B（轻量 · 画质更好）",
+        feature: "video-gen",
+        tag: "visual",
+        license: "Apache-2.0",
+        family: ModelFamily::Wan22Ti2v,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "Wan2.2-TI2V-5B-Q4_K_M.gguf",
+                approx_bytes: 3_433_116_000,
+                sha256: "95b19697b7f98e65b0a543640e9ca7b4dfec32e2a6e3731e8e10708be52655e2",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/QuantStack/Wan2.2-TI2V-5B-GGUF/resolve/master/Wan2.2-TI2V-5B-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/QuantStack/Wan2.2-TI2V-5B-GGUF/resolve/main/Wan2.2-TI2V-5B-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "wan2.2_vae.safetensors",
+                approx_bytes: 1_409_400_960,
+                sha256: "e40321bd36b9709991dae2530eb4ac303dd168276980d3e9bc4b6e2b75fed156",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/master/split_files/vae/wan2.2_vae.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan2.2_vae.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "umt5-xxl-encoder-Q4_K_M.gguf",
+                approx_bytes: 3_655_145_312,
+                sha256: "17cf97a5bbbc60a646d6105b832b6f657ce904a8a1ad970e4b59df0c67584a40",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/city96/umt5-xxl-encoder-gguf/resolve/master/umt5-xxl-encoder-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+        ],
+    },
+    // Wan2.2 T2V A14B：MoE 双专家（high noise 先跑 80% 的步数，low noise 收尾），
+    // 开源文生视频里画质第一档。整包约 23 GB（两个专家各 9.6 GB）。
+    // 16 fps、`4k + 1` 帧，用 Wan2.1 VAE —— 与 1.3B 同一套帧数规则。
+    ModelEntry {
+        id: "wan22-t2v-a14b",
+        name: "Wan2.2 T2V A14B（画质优先 · 双专家）",
+        feature: "video-gen",
+        tag: "visual",
+        license: "Apache-2.0",
+        family: ModelFamily::Wan22T2vA14b,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf",
+                approx_bytes: 9_650_090_496,
+                sha256: "091a5bae02e14aa016bc9b10a7892efda4c629346b81c5dcebbe30ea2ac8923a",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/master/LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/main/LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf",
+                approx_bytes: 9_650_090_496,
+                sha256: "e0c490c6e316fd91ff52034e4ca66b825717e33ff11624585c0ccfcb5d410c59",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/master/HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/main/HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "wan_2.1_vae.safetensors",
+                approx_bytes: 253_815_318,
+                sha256: "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/master/split_files/vae/wan_2.1_vae.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "umt5-xxl-encoder-Q4_K_M.gguf",
+                approx_bytes: 3_655_145_312,
+                sha256: "17cf97a5bbbc60a646d6105b832b6f657ce904a8a1ad970e4b59df0c67584a40",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/city96/umt5-xxl-encoder-gguf/resolve/master/umt5-xxl-encoder-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+        ],
+    },
+    // LTX-2.3 22B：Lightricks 的新一代音视频模型，Gemma 3 12B 当文本编码器，
+    // 还要单独装 embeddings connectors（Gemma 的输出要过一层投影）与音频 VAE。
+    // 24 fps、`8k + 1` 帧，整包约 26 GB。
+    ModelEntry {
+        id: "ltx-2.3",
+        name: "LTX-2.3（22B · 视频 + 音频）",
+        feature: "video-gen",
+        tag: "visual",
+        license: "LTX-2 Community License",
+        family: ModelFamily::Ltx23,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "ltx-2.3-22b-dev-Q4_K_M.gguf",
+                approx_bytes: 14_326_856_736,
+                sha256: "e053e3d7827f3a69ecd00e55395d3a8f8616ab10d3a394e8d2b65ae204d490e0",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/master/ltx-2.3-22b-dev-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/ltx-2.3-22b-dev-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "gemma-3-12b-it-qat-UD-Q4_K_XL.gguf",
+                approx_bytes: 7_432_229_248,
+                sha256: "da98f81c86916ed1c76b3eeda56b25cb7b8352b01093e2edb8028110fe2cb53b",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/unsloth/gemma-3-12b-it-qat-GGUF/resolve/master/gemma-3-12b-it-qat-UD-Q4_K_XL.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/unsloth/gemma-3-12b-it-qat-GGUF/resolve/main/gemma-3-12b-it-qat-UD-Q4_K_XL.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "ltx-2.3-22b-dev_embeddings_connectors.safetensors",
+                approx_bytes: 2_312_144_712,
+                sha256: "a5c5148788d8d9d5d1e650e4cbf3502a46a2f7f975ce70c59082732c8905a8ae",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/master/text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "ltx-2.3-22b-dev_video_vae.safetensors",
+                approx_bytes: 1_452_256_522,
+                sha256: "8732bb70cf4343541815f45c9f90f5ff0519d679bd63483afc27bf79a08d3f4e",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/master/vae/ltx-2.3-22b-dev_video_vae.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/vae/ltx-2.3-22b-dev_video_vae.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "ltx-2.3-22b-dev_audio_vae.safetensors",
+                approx_bytes: 364_853_140,
+                sha256: "d7711812d9387ce940c2cd5d65a4f5a1e57bf6087cf618d89b56dd3c722c4dea",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/master/vae/ltx-2.3-22b-dev_audio_vae.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/vae/ltx-2.3-22b-dev_audio_vae.safetensors",
+                    ),
+                ],
+            },
+        ],
+    },
+    // HunyuanVideo 1.5：腾讯的 720p 文生视频，因果视频 VAE + Qwen2.5-VL 7B
+    // （fp8_scaled，9.4 GB）做主文本条件、ByT5 Small GlyphXL 补字形。无音频。
+    // 24 fps、`4k + 1` 帧，整包约 29 GB。
+    ModelEntry {
+        id: "hunyuan-video-1.5",
+        name: "HunyuanVideo 1.5（720p · 无音频）",
+        feature: "video-gen",
+        tag: "visual",
+        license: "Tencent Hunyuan Community License",
+        family: ModelFamily::HunyuanVideo15,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "hunyuanvideo1.5_720p_t2v_fp16.safetensors",
+                approx_bytes: 16_653_368_128,
+                sha256: "4f05e2a31b51b7ddee3ef336d234e0932001cbdc85887da15451069fda3e1d05",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/master/split_files/diffusion_models/hunyuanvideo1.5_720p_t2v_fp16.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_720p_t2v_fp16.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "hunyuanvideo15_vae_fp16.safetensors",
+                approx_bytes: 2_521_292_758,
+                sha256: "e7c3091949c27e2d55ae6d5df917b99dadfebbf308e5a50d0ade0d16c90297ae",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/master/split_files/vae/hunyuanvideo15_vae_fp16.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/vae/hunyuanvideo15_vae_fp16.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+                approx_bytes: 9_384_670_680,
+                sha256: "cb5636d852a0ea6a9075ab1bef496c0db7aef13c02350571e388aea959c5c0b4",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/master/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "byt5_small_glyphxl_fp16.safetensors",
+                approx_bytes: 438_643_184,
+                sha256: "516910bb4c9b225370290e40585d1b0e6c8cd3583690f7eec2f7fb593990fb48",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/master/split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors",
+                    ),
+                ],
+            },
+        ],
+    },
     // MiniMax-H3：视频 + 立体声音频联合生成，走 stable-diffusion.cpp。
     //
     // 四个文件缺一不可：DiT（剪枝 Q4_K_M）、Qwen3-VL 文本编码器（Q2_K_M，32B 编码器
@@ -1149,7 +1649,7 @@ pub static CATALOG: &[ModelEntry] = &[
     // 字节完全一致（同一 sha256），下载器按区域偏好自动选。
     ModelEntry {
         id: "minimax-h3",
-        name: "MiniMax-H3（视频 + 音频 · 推荐）",
+        name: "MiniMax-H3（视频 + 立体声）",
         feature: "video-gen",
         tag: "visual",
         license: "MiniMax-H3 Community License",
@@ -1174,54 +1674,567 @@ pub static CATALOG: &[ModelEntry] = &[
                     ),
                 ],
             },
+            H3_TEXT_ENCODER_FILE,
+            H3_VIDEO_VAE_FILE,
+            H3_AUDIO_VAE_FILE,
+        ],
+    },
+    // MiniMax-H3 Ref2VA：同一套文本编码器 / 视频 VAE / 音频 VAE，只换参考条件 DiT。
+    // 支持参考图、参考视频（含配对音轨）与独立参考音频；不支持首帧 / 尾帧。
+    // 和 FL2VA 共用约 18 GB 权重：下载时优先硬链接复用，删除本档不会动到 FL2VA。
+    ModelEntry {
+        id: "minimax-h3-ref2va",
+        name: "MiniMax-H3 Ref2VA（参考图 / 参考音频）",
+        feature: "video-gen",
+        tag: "visual",
+        license: "MiniMax-H3 Community License",
+        family: ModelFamily::MiniMaxH3Ref2va,
+        recommended: false,
+        bundled: false,
+        files: &[
             ModelFile {
-                filename: "qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
-                approx_bytes: 13_102_161_024,
-                sha256: "a8ccadccd57ef34c838ffb8a7da8368bb554721b2760274a1d3b0df63960b997",
+                filename: "minimax_h3_ref2va_pruned-Q4_K_M.gguf",
+                approx_bytes: 11_420_663_904,
+                sha256: "9ca1aef9f4609a56c2c751484013e1b20fe352f892122e5ab0a428fb95a7956e",
                 sources: &[
-                    official(
+                    // 魔搭仓库里的 ref2va 是另一份量化（Q4_K，字节与 HF 不同），
+                    // 所以体积 / sha256 必须按源单独声明。
+                    verified(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
+                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/minimax_h3_ref2va_pruned-Q4_K.gguf",
+                        "2fa5840021cf6967843eaeefde9aaa277e540de02986d5ee3d5b0e6a7a8c9dec",
+                        11_381_096_544,
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/leejet/MiniMax-H3-GGUF/resolve/main/qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
+                        "https://huggingface.co/leejet/MiniMax-H3-GGUF/resolve/main/minimax_h3_ref2va_pruned-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+            H3_TEXT_ENCODER_FILE,
+            H3_VIDEO_VAE_FILE,
+            H3_AUDIO_VAE_FILE,
+        ],
+    },
+    // LTX-2.5 22B：LTX-2.3 的升级版。Gemma 4 12B 文本编码器自带投影层，所以不再需要
+    // 单独的 embeddings connectors；视频 VAE 必须用 **conv** 变体（默认的
+    // `ltx-2.5-video-vae-bf16` 是 sd.cpp 还没实现的扩散解码器）。24 fps、`8k + 1` 帧，
+    // 整包约 33 GB，是清单里最重的一档。
+    ModelEntry {
+        id: "ltx-2.5",
+        name: "LTX-2.5（22B · 视频 + 音频）",
+        feature: "video-gen",
+        tag: "visual",
+        license: "LTX-2 Community License",
+        family: ModelFamily::Ltx25,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "ltx-2.5-22b-dev-transformer-Q4_K_M.gguf",
+                approx_bytes: 15_687_639_424,
+                sha256: "41546ab47a8ad033b99875207cf386b062732d95fca0b4c9e124b14d4baaa378",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/vantagewithai/LTX-2.5-GGUF/resolve/master/dev/ltx-2.5-22b-dev-transformer-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/vantagewithai/LTX-2.5-GGUF/resolve/main/dev/ltx-2.5-22b-dev-transformer-Q4_K_M.gguf",
                     ),
                 ],
             },
             ModelFile {
-                filename: "minimax_h3_video_vae_fp16.safetensors",
-                approx_bytes: 5_207_808_496,
-                sha256: "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+                filename: "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+                approx_bytes: 15_372_969_374,
+                sha256: "6ce688a0aa98a5fa36a9f1e6c3f42152a498cc2b53ee8c15674c64244f91487f",
                 sources: &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/vae/minimax_h3_video_vae_fp16.safetensors",
+                        "https://modelscope.cn/models/Lightricks/LTX-2.5/resolve/master/text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors",
+                        "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
                     ),
                 ],
             },
             ModelFile {
-                filename: "minimax_h3_audio_vae_fp32.safetensors",
-                approx_bytes: 605_254_808,
-                sha256: "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+                filename: "ltx-2.5-video-vae-conv-bf16.safetensors",
+                approx_bytes: 1_452_269_922,
+                sha256: "685b06ee3d9b2039647698fc4ea33175112462fc374e2777312c907897dfce8d",
                 sources: &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/vae/minimax_h3_audio_vae_fp32.safetensors",
+                        "https://modelscope.cn/models/Lightricks/LTX-2.5/resolve/master/vae/ltx-2.5-video-vae-conv-bf16.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors",
+                        "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-video-vae-conv-bf16.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "ltx-2.5-audio-vae-bf16.safetensors",
+                approx_bytes: 364_866_540,
+                sha256: "c52733d37f6a7fb7949c3dc0fb468c6cb2169e4d836983a73babb9f0d54837a5",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Lightricks/LTX-2.5/resolve/master/vae/ltx-2.5-audio-vae-bf16.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-audio-vae-bf16.safetensors",
+                    ),
+                ],
+            },
+        ],
+    },
+    // SD 1.5 重绘：清单里最轻的一档（单文件 4.3 GB），512p 在 CPU / 核显上也能跑。
+    // 它是真正的 inpainting 权重，mask 局部重绘最稳；显存不够时是唯一现实的选择。
+    ModelEntry {
+        id: "sd15-inpaint",
+        name: "SD 1.5 重绘（轻量 · mask 局部重绘）",
+        feature: "image-gen",
+        tag: "visual",
+        license: "CreativeML Open RAIL-M",
+        family: ModelFamily::Sd15,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "sd-v1-5-inpainting.ckpt",
+                approx_bytes: 4265437280,
+                sha256: "c6bbc15e3224e6973459ba78de4998b80b50112b0ae5b5c67113d56b4e366b19",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/AI-ModelScope/stable-diffusion-inpainting/resolve/master/sd-v1-5-inpainting.ckpt",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/runwayml/stable-diffusion-inpainting/resolve/main/sd-v1-5-inpainting.ckpt",
+                    ),
+                ],
+            },
+        ],
+    },
+    // Z-Image Turbo：6B DiT + Qwen3-4B 文本编码器，官方说 4 GB 显存可跑，8 步出图。
+    // 整包约 6.7 GB，是「新一代 SOTA + 小机器」的折中点，也是图像页的默认档。
+    ModelEntry {
+        id: "z-image-turbo",
+        name: "Z-Image Turbo（6B · 8 步 · 低显存）",
+        feature: "image-gen",
+        tag: "visual",
+        license: "Apache-2.0",
+        family: ModelFamily::ZImageTurbo,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "z_image_turbo-Q4_K.gguf",
+                approx_bytes: 3864250304,
+                sha256: "14b375ab4f226bc5378f68f37e899ef3c2242b8541e61e2bc1aff40976086fbd",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/leejet/Z-Image-Turbo-GGUF/resolve/master/z_image_turbo-Q4_K.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q4_K.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "ae.safetensors",
+                approx_bytes: 335304388,
+                sha256: "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Comfy-Org/z_image_turbo/resolve/master/split_files/vae/ae.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+                approx_bytes: 2497281120,
+                sha256: "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/master/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+        ],
+    },
+    // SDXL Base 1.0：1024p 通用画质的老牌基线（单文件 6.9 GB）。
+    // 没有专门的 inpainting UNet，但 sd.cpp 的 mask 潜空间混合仍然能局部重绘。
+    ModelEntry {
+        id: "sdxl-base",
+        name: "SDXL Base 1.0（1024p · 通用）",
+        feature: "image-gen",
+        tag: "visual",
+        license: "CreativeML Open RAIL++-M",
+        family: ModelFamily::Sdxl,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "sd_xl_base_1.0.safetensors",
+                approx_bytes: 6938078334,
+                sha256: "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/AI-ModelScope/stable-diffusion-xl-base-1.0/resolve/master/sd_xl_base_1.0.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors",
+                    ),
+                ],
+            },
+        ],
+    },
+    // FLUX.1 schnell：12B，4 步出图，Apache-2.0。整包约 12.4 GB（DiT 6.9 + T5 4.9 + VAE + CLIP-L）。
+    // 走得快、提示词跟随好，适合先把画面跑出来再去精修。
+    ModelEntry {
+        id: "flux1-schnell",
+        name: "FLUX.1 schnell（12B · 4 步）",
+        feature: "image-gen",
+        tag: "visual",
+        license: "Apache-2.0",
+        family: ModelFamily::Flux1Schnell,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "flux1-schnell-q4_k.gguf",
+                approx_bytes: 6884606880,
+                sha256: "619697cc4c2bf587416aa1afa98d474a44c80eb4e3a3f64ea8f99ab0ed9adb7a",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/leejet/FLUX.1-schnell-gguf/resolve/master/flux1-schnell-q4_k.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/leejet/FLUX.1-schnell-gguf/resolve/main/flux1-schnell-q4_k.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "ae.safetensors",
+                approx_bytes: 335304388,
+                sha256: "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Comfy-Org/z_image_turbo/resolve/master/split_files/vae/ae.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "clip_l.safetensors",
+                approx_bytes: 246144152,
+                sha256: "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/master/clip_l.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "t5xxl_fp8_e4m3fn.safetensors",
+                approx_bytes: 4893934904,
+                sha256: "7d330da4816157540d6bb7838bf63a0f02f573fc48ca4d8de34bb0cbfd514f09",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/master/t5xxl_fp8_e4m3fn.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors",
+                    ),
+                ],
+            },
+        ],
+    },
+    // FLUX.1 Kontext：指令式改图（整图参考，不需要 mask），同一套 VAE / CLIP-L / T5。
+    // 权重是 FLUX.1 [dev] 非商用许可；整包约 12.4 GB，6 GB 显存可跑。
+    ModelEntry {
+        id: "flux1-kontext",
+        name: "FLUX.1 Kontext（指令改图）",
+        feature: "image-gen",
+        tag: "visual",
+        license: "FLUX.1 [dev] Non-Commercial License",
+        family: ModelFamily::Flux1Kontext,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "flux1-kontext-dev-Q4_K_M.gguf",
+                approx_bytes: 6931817760,
+                sha256: "ebd4e92c44c47f104ad64e4353692f37addf06eb99420c9b459334d871c8b750",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/QuantStack/FLUX.1-Kontext-dev-GGUF/resolve/master/flux1-kontext-dev-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/QuantStack/FLUX.1-Kontext-dev-GGUF/resolve/main/flux1-kontext-dev-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "ae.safetensors",
+                approx_bytes: 335304388,
+                sha256: "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/Comfy-Org/z_image_turbo/resolve/master/split_files/vae/ae.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "clip_l.safetensors",
+                approx_bytes: 246144152,
+                sha256: "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/master/clip_l.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "t5xxl_fp8_e4m3fn.safetensors",
+                approx_bytes: 4893934904,
+                sha256: "7d330da4816157540d6bb7838bf63a0f02f573fc48ca4d8de34bb0cbfd514f09",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/master/t5xxl_fp8_e4m3fn.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors",
+                    ),
+                ],
+            },
+        ],
+    },
+    // Qwen-Image：20B DiT + Qwen2.5-VL 7B 文本编码器，中文和长文字渲染是开源第一档。
+    // 整包约 18 GB；16 GB 显存要开「权重放内存」，24 GB 以上可以全放显存。
+    ModelEntry {
+        id: "qwen-image",
+        name: "Qwen-Image（20B · 中文 / 文字）",
+        feature: "image-gen",
+        tag: "visual",
+        license: "Apache-2.0",
+        family: ModelFamily::QwenImage,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "Qwen_Image-Q4_K_M.gguf",
+                approx_bytes: 13065746976,
+                sha256: "645473886d7dbb0103f84c563c798f7b0867293d919752d4d6be6a432b0bc988",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/QuantStack/Qwen-Image-GGUF/resolve/master/Qwen_Image-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/QuantStack/Qwen-Image-GGUF/resolve/main/Qwen_Image-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "Qwen_Image-VAE.safetensors",
+                approx_bytes: 253806246,
+                sha256: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/QuantStack/Qwen-Image-GGUF/resolve/master/VAE/Qwen_Image-VAE.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/QuantStack/Qwen-Image-GGUF/resolve/main/VAE/Qwen_Image-VAE.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+                approx_bytes: 4683072032,
+                sha256: "9258bf05b12686d097ff3b6b18d968ab393649780aa2b3cd67fec43d50554392",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/master/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+        ],
+    },
+    // Qwen-Image-Edit 2509：指令式改图，支持中英文与文字替换；2509 需要额外的
+    // Qwen2.5-VL 视觉投影层（mmproj）。整包约 18.9 GB，是清单里最重的图像档。
+    ModelEntry {
+        id: "qwen-image-edit",
+        name: "Qwen-Image-Edit 2509（指令改图 · 中文）",
+        feature: "image-gen",
+        tag: "visual",
+        license: "Apache-2.0",
+        family: ModelFamily::QwenImageEdit,
+        recommended: false,
+        bundled: false,
+        files: &[
+            ModelFile {
+                filename: "Qwen-Image-Edit-2509-Q4_K_M.gguf",
+                approx_bytes: 13065746976,
+                sha256: "08f27cdf3e760edef5136ab0afdb9d3ed7a2799bd730b8d5cd9ecb291d808425",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/QuantStack/Qwen-Image-Edit-2509-GGUF/resolve/master/Qwen-Image-Edit-2509-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/QuantStack/Qwen-Image-Edit-2509-GGUF/resolve/main/Qwen-Image-Edit-2509-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "Qwen_Image-VAE.safetensors",
+                approx_bytes: 253806246,
+                sha256: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/QuantStack/Qwen-Image-GGUF/resolve/master/VAE/Qwen_Image-VAE.safetensors",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/QuantStack/Qwen-Image-GGUF/resolve/main/VAE/Qwen_Image-VAE.safetensors",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+                approx_bytes: 4683072032,
+                sha256: "9258bf05b12686d097ff3b6b18d968ab393649780aa2b3cd67fec43d50554392",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/master/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf",
+                approx_bytes: 853119712,
+                sha256: "2ddb555391bae966e412deab9e07b58afa18bcc06930ba0f1c78a3695ab9e506",
+                sources: &[
+                    official(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/master/mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf",
+                    ),
+                    official(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf",
                     ),
                 ],
             },
@@ -1275,6 +2288,8 @@ pub struct ModelFileStatus {
     pub filename: String,
     pub approx_bytes: u64,
     pub installed: bool,
+    /// 本地还没有，但能在另一个模型的目录里找到同内容文件（下载时硬链接复用）。
+    pub reusable: bool,
     pub bytes: Option<u64>,
 }
 
@@ -1304,6 +2319,10 @@ pub struct ModelStatus {
     pub path: Option<String>,
     pub total_files: u32,
     pub installed_files: u32,
+    /// 尚未安装、但可以从其它已安装模型复用的字节数（下载按钮显示实际下载量）。
+    pub reusable_bytes: u64,
+    /// 与其它模型档共用的字节数（硬链接；删除本档不会影响对方）。
+    pub shared_bytes: u64,
     /// 覆盖的区域：`["cn"]` / `["cn","intl"]`。
     pub regions: Vec<String>,
     /// 全部官方源（去重；界面用来显示「魔搭 + HuggingFace」与悬停 URL）。
@@ -1375,6 +2394,89 @@ pub fn first_installed(app: &AppHandle, feature: &str) -> Option<&'static ModelE
         .find(|entry| entry.feature == feature && installed_dir(app, entry).is_some())
 }
 
+/// 两个清单文件是否是同一份权重：文件名、主源体积、sha256 都一致。
+///
+/// sha256 为空的小文件不参与复用：只靠同名 + 同体积无法证明内容一致（不同模型的
+/// `tokens.txt` 之类可能正好撞上），宁可重新下载也不冒把错误权重链接过去的风险。
+fn same_file(left: &ModelFile, right: &ModelFile) -> bool {
+    !left.sha256.is_empty()
+        && left.filename == right.filename
+        && left.approx_bytes == right.approx_bytes
+        && left.sha256 == right.sha256
+}
+
+fn file_size_ok(path: &Path, file: &ModelFile) -> bool {
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    let len = meta.len();
+    if len == 0 {
+        return false;
+    }
+    if file.approx_bytes == 0 {
+        return true;
+    }
+    // 魔搭 / HF 的同一份权重可能是不同量化，大小不一样；按源声明过的体积也算合法。
+    len == file.approx_bytes || file.sources.iter().any(|source| source.size == Some(len))
+}
+
+/// 在其它模型目录里找同一份文件（如 MiniMax-H3 FL2VA / Ref2VA 共用的文本编码器、VAE）。
+///
+/// 只按「文件名 + 清单体积」判断，不重新算 sha256：目标文件就是另一个模型下载并校验过的
+/// 同一份权重；下载时再用硬链接（失败则复制）落到当前模型目录。
+fn reusable_path(app: &AppHandle, entry: &ModelEntry, file: &ModelFile) -> Option<PathBuf> {
+    let dirs = search_dirs(app);
+    reusable_path_in(all(), &dirs, entry.id, file)
+}
+
+fn reusable_path_in(
+    entries: &[ModelEntry],
+    dirs: &[PathBuf],
+    entry_id: &str,
+    file: &ModelFile,
+) -> Option<PathBuf> {
+    for base in dirs {
+        for other in entries {
+            if other.id == entry_id {
+                continue;
+            }
+            if !other
+                .files
+                .iter()
+                .any(|candidate| same_file(candidate, file))
+            {
+                continue;
+            }
+            let path = base.join(other.id).join(file.filename);
+            if path.is_file() && file_size_ok(&path, file) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+/// 把已有文件硬链接到目标目录；跨卷 / 文件系统不支持硬链接时退回复制。
+fn link_or_copy(source: &Path, target: &Path) -> Result<(), String> {
+    if target.is_file() {
+        return Ok(());
+    }
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    match fs::hard_link(source, target) {
+        Ok(()) => Ok(()),
+        Err(link_error) => fs::copy(source, target).map(|_| ()).map_err(|copy_error| {
+            // 复制中途失败可能留下半个文件；清掉，避免后续 rename 被已存在的目标挡住。
+            let _ = fs::remove_file(target);
+            format!(
+                "复用 {} 失败：硬链接 {link_error}，复制也失败：{copy_error}",
+                source.display()
+            )
+        }),
+    }
+}
+
 fn statuses(app: &AppHandle) -> Vec<ModelStatus> {
     all()
         .iter()
@@ -1389,17 +2491,49 @@ fn statuses(app: &AppHandle) -> Vec<ModelStatus> {
                         .as_ref()
                         .and_then(|dir| fs::metadata(dir.join(file.filename)).ok())
                         .map(|meta| meta.len());
+                    let installed = installed_path
+                        .as_ref()
+                        .map(|dir| dir.join(file.filename).is_file())
+                        .unwrap_or(false)
+                        || dir
+                            .as_ref()
+                            .map(|dir| {
+                                let path = dir.join(file.filename);
+                                path.is_file() && file_size_ok(&path, file)
+                            })
+                            .unwrap_or(false);
+                    let reusable = !installed && reusable_path(app, entry, file).is_some();
                     ModelFileStatus {
                         filename: file.filename.to_string(),
                         approx_bytes: file.approx_bytes,
-                        installed: installed_path
-                            .as_ref()
-                            .map(|dir| dir.join(file.filename).is_file())
-                            .unwrap_or(false),
+                        installed,
+                        reusable,
                         bytes,
                     }
                 })
                 .collect();
+            let reusable_bytes = files
+                .iter()
+                .filter(|file| file.reusable && !file.installed)
+                .map(|file| file.approx_bytes)
+                .sum();
+            // 清单层面的共用（例如 H3 FL2VA / Ref2VA 的文本编码器 + VAE），
+            // 与「现在能不能复用」无关：安装后是硬链接，删除本档不会删掉对方的目录项。
+            let shared_bytes = entry
+                .files
+                .iter()
+                .filter(|file| {
+                    all().iter().any(|other| {
+                        other.id != entry.id
+                            && installed_dir(app, other).is_some()
+                            && other
+                                .files
+                                .iter()
+                                .any(|candidate| same_file(candidate, file))
+                    })
+                })
+                .map(|file| file.approx_bytes)
+                .sum();
             let mut sources: Vec<ModelSourceStatus> = Vec::new();
             for file in entry.files {
                 for source in file.sources {
@@ -1428,6 +2562,8 @@ fn statuses(app: &AppHandle) -> Vec<ModelStatus> {
                 path: installed_path.map(|path| path.to_string_lossy().into_owned()),
                 total_files: entry.files.len() as u32,
                 installed_files: files.iter().filter(|file| file.installed).count() as u32,
+                reusable_bytes,
+                shared_bytes,
                 regions: entry.regions(),
                 sources,
                 files,
@@ -1554,6 +2690,9 @@ pub fn model_cancel() {
 }
 
 /// 删除已下载的模型文件。
+///
+/// 共用权重在安装时是**硬链接**（或退化为复制）到各自目录的，所以这里只删当前条目的
+/// 目录：另一个模型（如 H3 FL2VA ↔ Ref2VA）目录里的同名文件仍然有效，不会被连带删掉。
 #[tauri::command]
 pub fn model_remove(app: AppHandle, id: String) -> Result<(), String> {
     let entry = by_id(&id).ok_or_else(|| format!("未知模型：{id}"))?;
@@ -1752,10 +2891,56 @@ async fn run_download(app: &AppHandle, entry: &ModelEntry) -> Result<(), String>
     let mut base: u64 = 0;
     for file in entry.files {
         let final_path = dir.join(file.filename);
+        let part_path = dir.join(format!("{}.part", file.filename));
         if final_path.is_file() {
-            base += file.approx_bytes;
-            emit(app, entry, "downloading", base.min(total), total, None);
-            continue;
+            if file_size_ok(&final_path, file) {
+                // 完整文件已经在场：顺手清掉上次取消留下的 .part，避免白占空间。
+                let _ = fs::remove_file(&part_path);
+                base += file.approx_bytes;
+                emit(app, entry, "downloading", base.min(total), total, None);
+                continue;
+            }
+            // 残留的截断文件：删掉重来，别把它当成已安装。
+            let _ = fs::remove_file(&final_path);
+        }
+
+        // 共用权重（H3 FL2VA / Ref2VA 的文本编码器 + VAE）：另一个模型已经下过就直接
+        // 硬链接过来，不重复占空间、也不重新走网络。删除任一模型只会删掉自己的目录项。
+        if let Some(source) = reusable_path(app, entry, file) {
+            // 复制回退可能是几十 GB 的同步 IO，放到 blocking 池里，别卡住下载事件循环。
+            let source_for_link = source.clone();
+            let target_for_link = final_path.clone();
+            let linked = tauri::async_runtime::spawn_blocking(move || {
+                link_or_copy(&source_for_link, &target_for_link)
+            })
+            .await;
+            if cancel.load(Ordering::Relaxed) {
+                return Err("已取消".into());
+            }
+            let reused = match linked {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(error)) => Err(error),
+                Err(error) => Err(error.to_string()),
+            };
+            match reused {
+                Ok(()) => {
+                    let _ = fs::remove_file(&part_path);
+                    base += file.approx_bytes;
+                    emit(
+                        app,
+                        entry,
+                        "downloading",
+                        base.min(total),
+                        total,
+                        Some(format!("复用已有文件：{}", file.filename)),
+                    );
+                    continue;
+                }
+                Err(error) => {
+                    // 硬链接 / 复制都失败（权限、跨卷、磁盘满）：退回正常下载。
+                    eprintln!("[models] {error}");
+                }
+            }
         }
 
         let candidates = candidates_for(file, &network, region);
@@ -2093,6 +3278,252 @@ mod tests {
                 assert!(!file.sources.is_empty(), "{} 没有下载源", entry.id);
             }
         }
+    }
+
+    #[test]
+    fn wan_video_model_is_the_lightweight_option() {
+        let wan = by_id("wan21-t2v-1.3b").expect("Wan2.1 1.3B 应该在清单里");
+        assert_eq!(wan.family, ModelFamily::Wan21T2v);
+        assert_eq!(wan.feature, "video-gen");
+        assert_eq!(wan.files.len(), 3, "DiT + VAE + 文本编码器");
+        let h3 = by_id("minimax-h3").expect("MiniMax-H3 应该在清单里");
+        assert!(
+            wan.total_bytes() * 3 < h3.total_bytes(),
+            "Wan 应该比 H3 小一个数量级（{} vs {}）",
+            wan.total_bytes(),
+            h3.total_bytes()
+        );
+        // 视频家族都必须能算出帧率 / 帧数网格。
+        for entry in all().iter().filter(|entry| entry.feature == "video-gen") {
+            assert!(
+                crate::video_gen::VideoSpec::for_family(entry.family).is_some(),
+                "{} 缺少视频规格",
+                entry.id
+            );
+        }
+    }
+
+    /// FL2VA / Ref2VA 只差一个 DiT；共用的三个文件必须引用同一份定义，下载器才能复用。
+    #[test]
+    fn ref2va_reuses_the_shared_h3_weights() {
+        let fl2va = by_id("minimax-h3").expect("MiniMax-H3 应该在清单里");
+        let ref2va = by_id("minimax-h3-ref2va").expect("MiniMax-H3 Ref2VA 应该在清单里");
+        assert_eq!(ref2va.family, ModelFamily::MiniMaxH3Ref2va);
+        assert_eq!(ref2va.feature, "video-gen");
+        assert_eq!(
+            ref2va.files.len(),
+            4,
+            "DiT + 文本编码器 + 视频 VAE + 音频 VAE"
+        );
+        assert_ne!(
+            fl2va.files[0].filename, ref2va.files[0].filename,
+            "两个档的 DiT 必须是不同的权重"
+        );
+        for name in [
+            "qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
+            "minimax_h3_video_vae_fp16.safetensors",
+            "minimax_h3_audio_vae_fp32.safetensors",
+        ] {
+            let left = fl2va
+                .files
+                .iter()
+                .find(|file| file.filename == name)
+                .expect("FL2VA 缺少共用文件");
+            let right = ref2va
+                .files
+                .iter()
+                .find(|file| file.filename == name)
+                .expect("Ref2VA 缺少共用文件");
+            assert!(same_file(left, right), "{name} 的定义不一致");
+        }
+    }
+
+    /// 没有 sha256 的同名文件不参与复用：无法证明内容一致。
+    #[test]
+    fn files_without_sha_are_not_reused() {
+        let left = ModelFile {
+            filename: "tokens.txt",
+            approx_bytes: 10,
+            sha256: "",
+            sources: &[],
+        };
+        let right = ModelFile {
+            filename: "tokens.txt",
+            approx_bytes: 10,
+            sha256: "",
+            sources: &[],
+        };
+        assert!(!same_file(&left, &right));
+    }
+
+    /// 共用文件查找：只认同名、同大小、同 sha256 的文件，截断文件不能复用。
+    #[test]
+    fn reusable_path_checks_name_and_size() {
+        const SHARED: ModelFile = ModelFile {
+            filename: "shared.bin",
+            approx_bytes: 6,
+            sha256: "abc123",
+            sources: &[],
+        };
+        const FILES: &[ModelFile] = &[SHARED];
+        let first = ModelEntry {
+            id: "first",
+            name: "",
+            feature: "",
+            tag: "",
+            license: "",
+            family: ModelFamily::MiniMaxH3,
+            recommended: false,
+            bundled: false,
+            files: FILES,
+        };
+        let second = ModelEntry {
+            id: "second",
+            ..first
+        };
+        let base = std::env::temp_dir().join(format!(
+            "aicut-models-reuse-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        let source_dir = base.join("first");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        let source = source_dir.join("shared.bin");
+        std::fs::write(&source, b"123456").unwrap();
+        let hit = reusable_path_in(
+            &[first, second],
+            std::slice::from_ref(&base),
+            "second",
+            &SHARED,
+        );
+        assert_eq!(hit.as_deref(), Some(source.as_path()));
+
+        std::fs::write(&source, b"12345").unwrap();
+        assert!(
+            reusable_path_in(
+                &[first, second],
+                std::slice::from_ref(&base),
+                "second",
+                &SHARED
+            )
+            .is_none(),
+            "大小不符的残留文件不能复用"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// 魔搭 / HF 是不同量化时体积不同：按源声明过的体积也要算完整。
+    #[test]
+    fn alternate_source_size_is_accepted() {
+        let path = std::env::temp_dir().join(format!(
+            "aicut-models-size-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(&path, b"123456").unwrap();
+        let file = ModelFile {
+            filename: "weights.gguf",
+            approx_bytes: 10,
+            sha256: "aaaa",
+            sources: &[ModelSource {
+                kind: "modelscope",
+                region: "cn",
+                url: "",
+                sha256: Some("bbbb"),
+                size: Some(6),
+            }],
+        };
+        assert!(file_size_ok(&path, &file));
+        std::fs::write(&path, b"12345").unwrap();
+        assert!(!file_size_ok(&path, &file));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 共用文件是硬链接 / 复制到各自目录的：删掉一个模型目录，另一个仍能读到文件。
+    #[test]
+    fn shared_link_survives_removing_one_entry() {
+        let base = std::env::temp_dir().join(format!(
+            "aicut-models-shared-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        let first = base.join("minimax-h3");
+        let second = base.join("minimax-h3-ref2va");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        let source = first.join("shared.bin");
+        let target = second.join("shared.bin");
+        std::fs::write(&source, b"shared weights").unwrap();
+        link_or_copy(&source, &target).expect("复用共用文件");
+        std::fs::remove_dir_all(&first).expect("删除第一个模型目录");
+        assert_eq!(std::fs::read(&target).unwrap(), b"shared weights");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// 视频生成模型在清单里的顺序 = 下拉框的顺序，按整包体积从小到大排。
+    #[test]
+    fn video_models_are_listed_small_to_large() {
+        let mut previous = 0u64;
+        let mut count = 0usize;
+        for entry in all().iter().filter(|entry| entry.feature == "video-gen") {
+            assert!(
+                entry.total_bytes() >= previous,
+                "{} 没有按体积递增排列（上一个 {} 字节）",
+                entry.id,
+                previous
+            );
+            previous = entry.total_bytes();
+            count += 1;
+        }
+        // FL2VA / Ref2VA 共用权重，整包体积相同；顺序只要求「不递减」。
+        assert_eq!(count, 8, "视频生成模型应该有 8 个");
+        assert!(count <= 10, "视频生成模型最多 10 个，现在 {}", count);
+        // 最前面就是最轻的 Wan：界面默认选中第一项（`recommended` 全库只允许一个，
+        // 所以视频这块靠顺序决定默认值）。
+        let first = all()
+            .iter()
+            .find(|entry| entry.feature == "video-gen")
+            .expect("至少有一个视频模型");
+        assert_eq!(first.id, "wan21-t2v-1.3b");
+    }
+
+    /// 图像模型同样按整包体积从小到大排：轻的能跑 CPU / 核显，重的留给大显存。
+    #[test]
+    fn image_models_are_listed_small_to_large() {
+        let mut previous = 0u64;
+        let mut count = 0usize;
+        for entry in all().iter().filter(|entry| entry.feature == "image-gen") {
+            assert!(
+                entry.total_bytes() > previous,
+                "{} 没有按体积递增排列（上一个 {} 字节）",
+                entry.id,
+                previous
+            );
+            previous = entry.total_bytes();
+            count += 1;
+            assert!(
+                crate::image_gen::ImageSpec::for_family(entry.family).is_some(),
+                "{} 缺少图像规格",
+                entry.id
+            );
+        }
+        assert_eq!(count, 7, "图像模型应该有 7 个");
+        // 最轻的一档必须是真正支持 mask 的 inpainting 权重。
+        let first = all()
+            .iter()
+            .find(|entry| entry.feature == "image-gen")
+            .expect("至少有一个图像模型");
+        assert_eq!(first.id, "sd15-inpaint");
+        assert_eq!(first.family, ModelFamily::Sd15);
     }
 
     #[test]

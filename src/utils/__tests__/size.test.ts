@@ -21,4 +21,16 @@ describe("missingBytes", () => {
       }),
     ).toBe(250);
   });
+
+  it("does not count files that can be reused from another model", () => {
+    expect(
+      missingBytes({
+        files: [
+          { approx_bytes: 100, installed: true },
+          { approx_bytes: 250, installed: false, reusable: true },
+          { approx_bytes: 40, installed: false, reusable: false },
+        ],
+      }),
+    ).toBe(40);
+  });
 });

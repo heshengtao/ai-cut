@@ -40,7 +40,9 @@ const REVISION: &str = "sd-master-1031-c6dfa9d";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SdcppBackend {
-    /// 按显卡自动挑（有 NVIDIA 且装了 CUDA 12 → CUDA 12，否则 Vulkan，最后 CPU）。
+    /// 旧配置兼容 / 内部兜底：按显卡自动挑（有 NVIDIA 且装了 CUDA 12 → CUDA 12，
+    /// 否则 Vulkan，最后 CPU）。界面**不再**把它当作一个可选项，`info()` 会换算成
+    /// 实际挑中的那一份。
     #[default]
     Auto,
     /// 纯 CPU（全平台可用，最慢）。
@@ -267,10 +269,6 @@ fn pack_for_device(device: &str) -> Option<&'static Pack> {
     packs().iter().find(|pack| pack.device == device)
 }
 
-fn usable(device: &str) -> bool {
-    SdcppBackend::from_device(device).is_some_and(|backend| backend.platform_ok())
-}
-
 struct Installer {
     running: AtomicBool,
     cancel: AtomicBool,
@@ -313,6 +311,8 @@ pub struct SdcppStatus {
     /// 用户挑的那一份（没挑过时是自动挑中的那一份）。
     pub selected: bool,
     pub automatic: bool,
+    /// 本机能不能跑这份构建（AMD 机器上的 CUDA = false）。
+    pub usable: bool,
     pub license: String,
     pub dir: String,
 }
@@ -323,7 +323,12 @@ pub struct SdcppOption {
     pub kind: String,
     pub label: String,
     pub note: String,
+    /// 平台有没有这份构建（Windows 上 CUDA 恒为 true）。
     pub available: bool,
+    /// 本机**能不能跑**（CUDA 要求 NVIDIA 显卡；Metal 要求 Apple Silicon）。
+    pub usable: bool,
+    /// 是不是本机最优选择（与装没装无关）。
+    pub recommended: bool,
     pub installed: bool,
     pub bytes: u64,
 }
@@ -333,15 +338,15 @@ pub struct SdcppOption {
 pub struct SdcppInfo {
     pub preference: String,
     pub current: String,
+    /// 本机最优的引擎（**不看装没装**）：NVIDIA → `cuda12`；macOS → `metal`；
+    /// 其它有显卡的桌面平台 → `vulkan`；都没有 → `cpu`。
     pub recommended: String,
     pub platform: String,
     pub options: Vec<SdcppOption>,
 }
 
 pub fn root(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = crate::paths::config_dir(app)?
-        .join("runtime")
-        .join("sdcpp");
+    let dir = crate::paths::config_dir(app)?.join("runtime").join("sdcpp");
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     Ok(dir)
 }
@@ -393,17 +398,41 @@ fn preference(app: &AppHandle) -> SdcppBackend {
 }
 
 fn nvidia_present() -> bool {
-    if !cfg!(target_os = "windows") {
-        return false;
+    crate::backend::device_profile().vendor == "nvidia"
+}
+
+/// 本机**能不能跑**这套构建（与「装没装」无关）。
+///
+/// 与 [`SdcppBackend::platform_ok`] 的区别：后者只说「这个平台有这份构建」，
+/// Windows 上任何机器都成立；这里还要看显卡——AMD 机器上装一份 917 MB 的 CUDA
+/// 引擎，只会在启动 `sd-cli` 时报「找不到 nvcuda.dll」。
+pub fn usable_device(device: &str) -> bool {
+    match device {
+        "cpu" => true,
+        // Vulkan 走各家驱动，N 卡 / A 卡 / 核显都能用。
+        "vulkan" => cfg!(any(target_os = "windows", target_os = "linux")),
+        // sd.cpp 官方只发 CUDA 12 构建；判定依据是「有没有 N 卡」。
+        "cuda12" | "cuda13" => nvidia_present(),
+        "metal" => cfg!(all(target_os = "macos", target_arch = "aarch64")),
+        _ => false,
     }
-    static PRESENT: OnceLock<bool> = OnceLock::new();
-    *PRESENT.get_or_init(|| {
-        std::process::Command::new("nvidia-smi")
-            .arg("-L")
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
-    })
+}
+
+/// 本机最优的引擎（**不看装没装**，用来推荐下载）。
+///
+/// 平台里没有这份构建时继续往下退：Linux 没有 CUDA 构建，N 卡也只会推荐 Vulkan。
+pub fn best_device() -> &'static str {
+    let has = |device: &str| packs().iter().any(|pack| pack.device == device);
+    if cfg!(target_os = "macos") {
+        return if has("metal") { "metal" } else { "cpu" };
+    }
+    if nvidia_present() && has("cuda12") {
+        return "cuda12";
+    }
+    if usable_device("vulkan") && has("vulkan") {
+        return "vulkan";
+    }
+    "cpu"
 }
 
 pub fn auto_device(app: &AppHandle) -> &'static str {
@@ -412,14 +441,15 @@ pub fn auto_device(app: &AppHandle) -> &'static str {
             .map(|pack| installed(app, pack))
             .unwrap_or(false)
     };
-    if cfg!(target_os = "macos") {
-        return if has("metal") { "metal" } else { "cpu" };
+    // 最优的那份装了就用它；否则退到任意一份装好的（用户可能只下了 CPU 兜底）。
+    let best = best_device();
+    if has(best) {
+        return best;
     }
-    if cfg!(target_os = "windows") && nvidia_present() && has("cuda12") {
-        return "cuda12";
-    }
-    if has("vulkan") {
-        return "vulkan";
+    for device in ["metal", "cuda12", "vulkan", "cpu"] {
+        if usable_device(device) && has(device) {
+            return device;
+        }
     }
     "cpu"
 }
@@ -469,6 +499,7 @@ fn statuses(app: &AppHandle) -> Vec<SdcppStatus> {
             installed: installed(app, pack),
             selected: pack.device == chosen,
             automatic,
+            usable: usable_device(pack.device),
             license: "MIT".into(),
             dir: dir_of(app, pack)
                 .map(|dir| dir.to_string_lossy().into_owned())
@@ -478,29 +509,35 @@ fn statuses(app: &AppHandle) -> Vec<SdcppStatus> {
 }
 
 fn info(app: &AppHandle, preference: SdcppBackend) -> SdcppInfo {
-    let mut options = vec![SdcppOption {
-        kind: "auto".into(),
-        label: "sdcpp.auto".into(),
-        note: "sdcpp.auto.note".into(),
-        available: true,
-        installed: packs().iter().any(|pack| installed(app, pack)),
-        bytes: 0,
-    }];
-    options.extend(packs().iter().map(|pack| {
-        let backend = SdcppBackend::from_device(pack.device).unwrap_or_default();
-        SdcppOption {
-            kind: pack.device.to_string(),
-            label: format!("sdcpp.{}", pack.device),
-            note: format!("sdcpp.{}.note", pack.device),
-            available: backend.platform_ok(),
-            installed: installed(app, pack),
-            bytes: pack.bytes(),
-        }
-    }));
+    let current = effective_device(app);
+    let best = best_device();
+    // 界面没有「自动」这一档：旧配置里存的 auto（或本机不支持的后端）直接显示成
+    // 自动挑中的那一份，用户点选视频后端时才会写下一个具体选择。
+    let shown = if preference == SdcppBackend::Auto || !preference.platform_ok() {
+        SdcppBackend::from_device(current).unwrap_or(SdcppBackend::Cpu)
+    } else {
+        preference
+    };
+    let options = packs()
+        .iter()
+        .map(|pack| {
+            let backend = SdcppBackend::from_device(pack.device).unwrap_or_default();
+            SdcppOption {
+                kind: pack.device.to_string(),
+                label: format!("sdcpp.{}", pack.device),
+                note: format!("sdcpp.{}.note", pack.device),
+                available: backend.platform_ok(),
+                usable: usable_device(pack.device),
+                recommended: pack.device == best,
+                installed: installed(app, pack),
+                bytes: pack.bytes(),
+            }
+        })
+        .collect();
     SdcppInfo {
-        preference: preference.as_str().to_string(),
-        current: effective_device(app).to_string(),
-        recommended: auto_device(app).to_string(),
+        preference: shown.as_str().to_string(),
+        current: current.to_string(),
+        recommended: best.to_string(),
         platform: format!("{} / {}", std::env::consts::OS, std::env::consts::ARCH),
         options,
     }
@@ -512,10 +549,7 @@ pub fn sdcpp_catalog(app: AppHandle) -> Vec<SdcppStatus> {
 }
 
 #[tauri::command]
-pub fn sdcpp_info(
-    app: AppHandle,
-    state: tauri::State<'_, Arc<NetworkRuntime>>,
-) -> SdcppInfo {
+pub fn sdcpp_info(app: AppHandle, state: tauri::State<'_, Arc<NetworkRuntime>>) -> SdcppInfo {
     info(&app, state.get().sdcpp_backend)
 }
 
@@ -546,11 +580,10 @@ pub fn sdcpp_select(
             if !installed(&app, pack) {
                 return Err(format!("{} 还没下载", pack.device));
             }
-            if !usable(pack.device) {
+            if !usable_device(pack.device) {
                 return Err(format!("{} 在本机不可用", pack.device));
             }
-            SdcppBackend::from_device(pack.device)
-                .ok_or_else(|| format!("未知引擎：{id}"))?
+            SdcppBackend::from_device(pack.device).ok_or_else(|| format!("未知引擎：{id}"))?
         }
         None => SdcppBackend::Auto,
     };
@@ -661,17 +694,7 @@ async fn install_inner(app: &AppHandle, pack: &'static Pack) -> Result<(), Strin
             if installer().cancel.load(Ordering::Relaxed) {
                 return Err("已取消".into());
             }
-            match download(
-                app,
-                pack.id,
-                base,
-                total,
-                &client,
-                &source,
-                &archive,
-            )
-            .await
-            {
+            match download(app, pack.id, base, total, &client, &source, &archive).await {
                 Ok(()) => {
                     eprintln!(
                         "[sdcpp] {} 下载完成（{:.1} MB）",
@@ -684,7 +707,8 @@ async fn install_inner(app: &AppHandle, pack: &'static Pack) -> Result<(), Strin
                 Err(error) => {
                     last_error = error;
                     eprintln!("[sdcpp] {source} 源失败：{last_error}");
-                    let _ = fs::remove_file(&archive);
+                    // 不要删 `.part`：换源 / 重试时还能接着下。
+                    // 只有校验失败才需要从头来（那说明这份数据本身是坏的）。
                 }
             }
         }
@@ -756,9 +780,7 @@ fn flatten_cudart(dir: &Path, cli: &Path) {
         .max_depth(4)
         .into_iter()
         .filter_map(|entry| entry.ok())
-        .find(|entry| {
-            entry.file_type().is_dir() && entry.file_name().to_string_lossy() == "cudart"
-        })
+        .find(|entry| entry.file_type().is_dir() && entry.file_name().to_string_lossy() == "cudart")
         .map(|entry| entry.into_path())
     else {
         return;
@@ -827,6 +849,23 @@ fn candidates(sources: &[Source], network: &crate::network::NetworkConfig) -> Ve
     out
 }
 
+/// `.part` 断点文件的路径（`foo.zip` → `foo.zip.part`）。
+fn part_path(path: &Path) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .map(|value| value.to_os_string())
+        .unwrap_or_default();
+    name.push(".part");
+    path.with_file_name(name)
+}
+
+/// 下载一个归档到 `<path>.part`，**支持断点续传**，成功后改名成 `path`。
+///
+/// 为什么必须续传：CUDA 运行库单个包 563 MB、引擎包 917 MB，断一次就从 0 重来
+/// 对用户是很具体的伤害（尤其是在按流量 / 慢网环境下）。
+///
+/// 取消 / 读写出错时**保留** `.part`，下次接着下；只有「服务端对不上」
+/// （416）或校验失败才丢掉重来。
 #[allow(clippy::too_many_arguments)]
 async fn download(
     app: &AppHandle,
@@ -837,41 +876,74 @@ async fn download(
     url: &str,
     path: &Path,
 ) -> Result<(), String> {
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|error| format!("连接失败：{error}"))?;
-    if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status()));
-    }
-    let mut file = fs::File::create(path).map_err(|error| format!("创建临时文件失败：{error}"))?;
-    let mut received = 0u64;
-    let mut response = response;
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| format!("读取数据失败：{error}"))?
-    {
-        if installer().cancel.load(Ordering::Relaxed) {
-            drop(file);
-            let _ = fs::remove_file(path);
-            return Err("已取消".into());
+    let part = part_path(path);
+    let mut existing = fs::metadata(&part).map(|meta| meta.len()).unwrap_or(0);
+    let mut attempt = 0u8;
+
+    loop {
+        attempt += 1;
+        let mut request = client.get(url);
+        if existing > 0 {
+            request = request.header(reqwest::header::RANGE, format!("bytes={existing}-"));
         }
-        file.write_all(&chunk)
-            .map_err(|error| format!("写入失败：{error}"))?;
-        received += chunk.len() as u64;
-        emit(
-            app,
-            id,
-            "downloading",
-            (base + received).min(total),
-            total,
-            None,
-        );
+        let mut response = request.send().await.map_err(|error| format!("连接失败：{error}"))?;
+        let status = response.status();
+
+        if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+            // 本地断点和远端对不上（换了版本 / 文件被改过）：丢掉重来一次。
+            let _ = fs::remove_file(&part);
+            existing = 0;
+            if attempt >= 2 {
+                return Err("断点文件无效".into());
+            }
+            continue;
+        }
+        if !status.is_success() {
+            return Err(format!("HTTP {status}"));
+        }
+
+        // 服务器不认 Range（回 200 而不是 206）时只能从头写：把已有的截断。
+        let resumed = status == reqwest::StatusCode::PARTIAL_CONTENT && existing > 0;
+        if !resumed {
+            existing = 0;
+        }
+        let mut file = if resumed {
+            fs::OpenOptions::new().append(true).open(&part)
+        } else {
+            fs::File::create(&part)
+        }
+        .map_err(|error| format!("创建临时文件失败：{error}"))?;
+
+        let mut received = existing;
+        loop {
+            let chunk = match response.chunk().await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => break,
+                // 网络断了：保留 `.part`，下次续传。
+                Err(error) => return Err(format!("读取数据失败：{error}")),
+            };
+            if installer().cancel.load(Ordering::Relaxed) {
+                drop(file);
+                // 取消同样保留 `.part`：用户多半是「先停一下」而不是「不要了」。
+                return Err("已取消".into());
+            }
+            file.write_all(&chunk)
+                .map_err(|error| format!("写入失败：{error}"))?;
+            received += chunk.len() as u64;
+            emit(
+                app,
+                id,
+                "downloading",
+                (base + received).min(total),
+                total,
+                None,
+            );
+        }
+        file.flush().map_err(|error| error.to_string())?;
+        drop(file);
+        fs::rename(&part, path).map_err(|error| format!("落盘失败：{error}"))?;
+        return Ok(());
     }
-    file.flush().map_err(|error| error.to_string())?;
-    Ok(())
 }
 
 fn sha256_file(path: &Path) -> Result<String, String> {
@@ -929,6 +1001,8 @@ mod tests {
             assert!(pack.id.starts_with("sdcpp-"));
             assert!(SdcppBackend::from_device(pack.device).is_some());
         }
+        // 「自动」不是引擎、也不是界面上的选项：它只作为旧配置与兜底留在内部。
+        assert_eq!(SdcppBackend::from_device("auto"), None);
         if cfg!(target_os = "windows") {
             assert_eq!(packs().len(), 3);
             let cuda = pack("sdcpp-cuda12").unwrap();
@@ -998,6 +1072,27 @@ mod tests {
         assert_eq!(out[0], "https://m/https://github.com/a.zip");
         assert_eq!(out[1], "https://p/https://github.com/a.zip");
         assert!(out.contains(&"https://github.com/a.zip".to_string()));
+    }
+
+    #[test]
+    fn best_device_is_always_usable() {
+        // 「推荐」不能推一份本机跑不起来的构建（AMD 机器上推 CUDA 是最典型的 bug）。
+        let best = best_device();
+        assert!(packs().iter().any(|pack| pack.device == best), "{best} 不在清单里");
+        assert!(usable_device(best), "{best} 在本机不可用");
+    }
+
+    #[test]
+    fn usable_device_matches_platform_rules() {
+        assert!(usable_device("cpu"));
+        assert_eq!(
+            usable_device("metal"),
+            cfg!(all(target_os = "macos", target_arch = "aarch64"))
+        );
+        assert_eq!(
+            usable_device("vulkan"),
+            cfg!(any(target_os = "windows", target_os = "linux"))
+        );
     }
 
     #[test]

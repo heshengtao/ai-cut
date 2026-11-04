@@ -21,6 +21,8 @@ export interface SelectOption {
   group?: string;
   /** 比例预览（可选），例如 16 / 9。 */
   ratio?: number;
+  /** 缩略图 URL（可选）：触发器与菜单项都显示，用于选图片 / 素材。 */
+  thumb?: string;
   /** 操作项：点击只触发 `action`，不会改变当前选中值。 */
   action?: boolean;
 }
@@ -166,6 +168,7 @@ onUnmounted(() => {
       :aria-label="label"
       @click="toggle"
     >
+      <img v-if="selected?.thumb" class="trigger-thumb" :src="selected.thumb" alt="" />
       <span class="value" :class="{ placeholder: !selected }">{{ text }}</span>
       <ChevronDownIcon class="caret" :class="{ up: open }" />
     </button>
@@ -193,6 +196,7 @@ onUnmounted(() => {
               :aria-selected="o.id === modelValue"
               @click="pick(o)"
             >
+              <img v-if="o.thumb" class="item-thumb" :src="o.thumb" alt="" loading="lazy" />
               <span class="item-main">
                 <span class="item-label">{{ o.label }}</span>
                 <span v-if="o.hint" class="item-hint">{{ o.hint }}</span>
@@ -253,10 +257,24 @@ onUnmounted(() => {
   cursor: default;
 }
 .value {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.trigger-thumb {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 6px;
+  background-color: rgb(var(--md-surface-container-highest));
+}
+.md3-select.compact .trigger-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
 }
 .value.placeholder {
   color: rgb(var(--md-on-surface-variant));
@@ -318,6 +336,14 @@ onUnmounted(() => {
   gap: 2px;
   min-width: 0;
   flex: 1 1 auto;
+}
+.md3-select-menu .item-thumb {
+  width: 36px;
+  height: 27px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 7px;
+  background-color: rgb(var(--md-surface-container-highest));
 }
 .md3-select-menu .item-label {
   font-size: 12.5px;

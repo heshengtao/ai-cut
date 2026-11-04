@@ -392,18 +392,15 @@ fn word_times(
 }
 
 /// 对齐器常驻：1 GB 权重复用，别每段重载一次。
-static ALIGNER: std::sync::OnceLock<
-    std::sync::Mutex<Option<(PathBuf, crate::aligner::Aligner)>>,
-> = std::sync::OnceLock::new();
+static ALIGNER: std::sync::OnceLock<std::sync::Mutex<Option<(PathBuf, crate::aligner::Aligner)>>> =
+    std::sync::OnceLock::new();
 
 fn with_aligner<T>(
     dir: &PathBuf,
     run: impl FnOnce(&mut crate::aligner::Aligner) -> Result<T, String>,
 ) -> Result<T, String> {
     let cache = ALIGNER.get_or_init(|| std::sync::Mutex::new(None));
-    let mut guard = cache
-        .lock()
-        .map_err(|_| "对齐器状态锁失效".to_string())?;
+    let mut guard = cache.lock().map_err(|_| "对齐器状态锁失效".to_string())?;
     let stale = guard.as_ref().is_none_or(|(path, _)| path != dir);
     if stale {
         *guard = Some((dir.clone(), crate::aligner::Aligner::load(dir)?));
@@ -440,7 +437,8 @@ fn refine_with_aligner(
         if to > from + SAMPLE_RATE as usize / 4 {
             let text = join_words(&words[cursor..end]);
             let offset = from as f32 / sample_rate as f32;
-            if let Ok(aligned) = with_aligner(dir, |aligner| aligner.align(&samples[from..to], &text))
+            if let Ok(aligned) =
+                with_aligner(dir, |aligner| aligner.align(&samples[from..to], &text))
             {
                 if aligned.len() == end - cursor {
                     for (word, hit) in words[cursor..end].iter_mut().zip(aligned.iter()) {
@@ -788,7 +786,21 @@ fn create_recognizer(
         | ModelFamily::RealEsrganX4plus
         | ModelFamily::YoloxNano
         | ModelFamily::Yunet => return Err("视频模型不能用于语音识别".into()),
-        ModelFamily::MiniMaxH3 => return Err("视频生成模型不能用于语音识别".into()),
+        ModelFamily::MiniMaxH3
+        | ModelFamily::MiniMaxH3Ref2va
+        | ModelFamily::Wan21T2v
+        | ModelFamily::Wan22Ti2v
+        | ModelFamily::Wan22T2vA14b
+        | ModelFamily::HunyuanVideo15
+        | ModelFamily::Ltx23
+        | ModelFamily::Ltx25 => return Err("视频生成模型不能用于语音识别".into()),
+        ModelFamily::Sd15
+        | ModelFamily::Sdxl
+        | ModelFamily::ZImageTurbo
+        | ModelFamily::Flux1Schnell
+        | ModelFamily::Flux1Kontext
+        | ModelFamily::QwenImage
+        | ModelFamily::QwenImageEdit => return Err("图像生成模型不能用于语音识别".into()),
     }
 
     OfflineRecognizer::create(&config).ok_or_else(|| "无法创建语音识别器".into())
@@ -1008,7 +1020,12 @@ mod word_tests {
 
     #[test]
     fn chinese_tokens_become_one_word_per_character() {
-        let words = words_from_tokens(&tokens(&["你", "好", "世", "界"]), &[0.0, 0.2, 0.5, 0.9], 1.0, 2.0);
+        let words = words_from_tokens(
+            &tokens(&["你", "好", "世", "界"]),
+            &[0.0, 0.2, 0.5, 0.9],
+            1.0,
+            2.0,
+        );
         assert_eq!(words.len(), 4);
         assert_eq!(words[0].text, "你");
         assert_eq!(words[0].start, 1.0);
@@ -1032,7 +1049,12 @@ mod word_tests {
 
     #[test]
     fn special_tokens_are_skipped() {
-        let words = words_from_tokens(&tokens(&["<blank>", "嗯", "</s>"]), &[0.0, 0.3, 0.6], 0.0, 1.0);
+        let words = words_from_tokens(
+            &tokens(&["<blank>", "嗯", "</s>"]),
+            &[0.0, 0.3, 0.6],
+            0.0,
+            1.0,
+        );
         assert_eq!(words.len(), 1);
         assert_eq!(words[0].text, "嗯");
         assert_eq!(words[0].start, 0.3);

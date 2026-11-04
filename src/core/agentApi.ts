@@ -192,6 +192,7 @@ export function backendFallback(): BackendInfo {
     current: "cpu",
     recommended: "cpu",
     platform: "—",
+    device: { vendor: "none", name: "", driver: null },
     loaded_runtime: null,
     restart_required: false,
     ep_ready: false,

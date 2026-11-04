@@ -18,7 +18,21 @@ export type ModelFamily =
   | "yolox_nano"
   | "yunet"
   | "qwen3_aligner"
-  | "minimax_h3";
+  | "minimax_h3"
+  | "minimax_h3_ref2va"
+  | "wan21_t2v"
+  | "wan22_ti2v"
+  | "wan22_t2v_a14b"
+  | "hunyuan_video_15"
+  | "ltx_23"
+  | "ltx_25"
+  | "sd15"
+  | "sdxl"
+  | "z_image_turbo"
+  | "flux1_schnell"
+  | "flux1_kontext"
+  | "qwen_image"
+  | "qwen_image_edit";
 export type ModelFeature =
   | "asr"
   | "vad"
@@ -31,7 +45,8 @@ export type ModelFeature =
   | "track"
   | "reframe"
   | "align"
-  | "video-gen";
+  | "video-gen"
+  | "image-gen";
 export type ModelTag = "text" | "audio" | "visual";
 export type ModelRegion = "intl" | "cn";
 /** 模型下载源区域偏好。 */
@@ -47,6 +62,8 @@ export interface ModelFileStatus {
   filename: string;
   approx_bytes: number;
   installed: boolean;
+  /** 本地还没有，但另一个模型已经装了同一份文件，下载时会直接复用。 */
+  reusable: boolean;
   bytes: number | null;
 }
 
@@ -72,6 +89,10 @@ export interface ModelStatus {
   path: string | null;
   total_files: number;
   installed_files: number;
+  /** 尚未安装、但可以从其它已安装模型复用的字节数。 */
+  reusable_bytes: number;
+  /** 与其它模型档共用的字节数（硬链接；删除本档不影响对方）。 */
+  shared_bytes: number;
   /** 覆盖的区域：`["cn"]` / `["cn","intl"]`。 */
   regions: ModelRegion[];
   /** 全部官方源（界面显示「魔搭 + HuggingFace」，悬停看 URL）。 */
