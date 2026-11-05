@@ -21,6 +21,7 @@ const emit = defineEmits<{
   (e: "rename", trackId: string, name: string): void;
   (e: "reorder", trackId: string, event: PointerEvent): void;
   (e: "select", trackId: string): void;
+  (e: "menu", payload: { trackId: string; event: MouseEvent }): void;
 }>();
 
 const i18n = useI18n();
@@ -59,7 +60,12 @@ function onHeadClick(event: MouseEvent): void {
 </script>
 
 <template>
-  <div class="track-head" :class="{ dragging }" @click="onHeadClick">
+  <div
+    class="track-head"
+    :class="{ dragging }"
+    @click="onHeadClick"
+    @contextmenu.prevent.stop="emit('menu', { trackId: track.id, event: $event })"
+  >
     <div class="th-main">
       <button
         class="th-grip"

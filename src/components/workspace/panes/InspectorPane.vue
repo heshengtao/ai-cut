@@ -51,9 +51,7 @@ import {
 } from "@/core/clipColor";
 import {
   applyClipAttributes,
-  copyClipAttributes,
   resetClipAttributes,
-  type ClipAttributes,
 } from "@/core/clipAttributes";
 import {
   DEFAULT_OFX_TRANSITION_DURATION,
@@ -97,6 +95,7 @@ import { useProjectStore } from "@/stores/project";
 import { useSelectionStore } from "@/stores/selection";
 import { useTextPresetsStore } from "@/stores/textPresets";
 import { useAudioAiStore } from "@/stores/audioAi";
+import { useClipAttributesStore } from "@/stores/clipAttributes";
 import { useVideoDspStore } from "@/stores/videoDsp";
 import { useOfxStore } from "@/stores/ofx";
 import { usePluginsStore } from "@/stores/plugins";
@@ -120,6 +119,7 @@ const videoDsp = useVideoDspStore();
 const ofx = useOfxStore();
 const plugins = usePluginsStore();
 const layout = useLayoutStore();
+const clipAttributes = useClipAttributesStore();
 const i18n = useI18n();
 const timelineActions = useTimelineActions();
 
@@ -128,7 +128,6 @@ const moreOpen = ref(false);
 const moreButtonEl = ref<HTMLElement | null>(null);
 const moreMenuEl = ref<HTMLElement | null>(null);
 const moreMenuStyle = ref<Record<string, string>>({});
-const attrClipboard = ref<ClipAttributes | null>(null);
 
 function placeMoreMenu(): void {
   const el = moreButtonEl.value;
@@ -191,12 +190,12 @@ onUnmounted(() => {
 function copyAttributes(): void {
   const target = clip.value;
   if (!target) return;
-  attrClipboard.value = copyClipAttributes(target);
+  clipAttributes.copy(target);
   toast(i18n.t("inspector.attributesCopied"));
 }
 
 function pasteAttributes(): void {
-  const attrs = attrClipboard.value;
+  const attrs = clipAttributes.clipboard;
   if (!attrs) return;
   applySelected((doc, target) => applyClipAttributes(doc, target.id, attrs));
   toast(i18n.t("inspector.attributesPasted"));
@@ -1137,7 +1136,7 @@ async function relink(): Promise<void> {
             <button
               class="menu-item"
               role="menuitem"
-              :disabled="!clip || !attrClipboard"
+              :disabled="!clip || !clipAttributes.clipboard"
               @click="runMore(pasteAttributes)"
             >
               {{ i18n.t("inspector.pasteAttributes") }}

@@ -1,4 +1,4 @@
-/** 音频 AI / DSP 任务：进度事�?+ 统一的忙碌状态�?*/
+/** 音频 AI / DSP 任务：进度事件 + 统一的忙碌状态。*/
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import {
@@ -28,9 +28,9 @@ export type AudioAiTask =
 
 export const useAudioAiStore = defineStore("audioAi", () => {
   const running = ref(false);
-  /** 当前运行的是哪一项能力：进度条只显示在对应卡片上�?*/
+  /** 当前运行的是哪一项能力：进度条只显示在对应卡片上。*/
   const task = ref<AudioAiTask | null>(null);
-  /** 当前任务是否能被 `audio_ai_cancel` 真正取消（ffmpeg DSP 不支持中途取消）�?*/
+  /** 当前任务是否能被 `audio_ai_cancel` 真正取消（ffmpeg DSP 不支持中途取消）。*/
   const cancellable = ref(false);
   const state = ref<AudioAiState>("idle");
   const progress = ref(0);
@@ -183,7 +183,7 @@ export const useAudioAiStore = defineStore("audioAi", () => {
     try {
       await audioAiCancel();
     } catch {
-      // 终态事件会纠正状态�?
+      // 终态事件会纠正状态。
     }
   }
 

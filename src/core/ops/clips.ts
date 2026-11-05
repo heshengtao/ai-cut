@@ -330,7 +330,7 @@ export function duplicateClips(
 }
 
 /**
- * 波纹删除：删除片段，并把同一轨道上位于删除区间之后的片段整体左移，
+ * 删除并左移后续片段（波纹删除）：删除片段，并把同一轨道上位于删除区间之后的片段整体左移，
  * 补上被删片段留下的空隙。其他轨道不受影响。
  */
 export function rippleDeleteClips(doc: Project, clipIds: string[]): Project {

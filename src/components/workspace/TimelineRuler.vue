@@ -34,7 +34,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "seek", seconds: number): void;
   (e: "rename-marker", marker: Marker): void;
-  (e: "remove-marker", marker: Marker): void;
+  (e: "menu-marker", payload: { marker: Marker; event: MouseEvent }): void;
+  (e: "menu", payload: { event: MouseEvent; time: number }): void;
 }>();
 
 /** 刻度间隔：随缩放自适应，取 1/2/5/10/30/60 秒里最合适的一档。 */
@@ -57,10 +58,17 @@ function seekFromEvent(event: PointerEvent): void {
   const x = event.clientX - host.getBoundingClientRect().left;
   emit("seek", Math.max(0, x / props.pxPerSecond));
 }
+
+/** 右键标尺：把鼠标位置换算成时间线时间，交给外层弹菜单。 */
+function onRulerMenu(event: MouseEvent): void {
+  const host = event.currentTarget as HTMLElement;
+  const x = event.clientX - host.getBoundingClientRect().left;
+  emit("menu", { event, time: Math.max(0, x / props.pxPerSecond) });
+}
 </script>
 
 <template>
-  <div class="ruler" @pointerdown="seekFromEvent" @pointermove="($event.buttons & 1) === 1 && seekFromEvent($event)">
+  <div class="ruler" @pointerdown="seekFromEvent" @pointermove="($event.buttons & 1) === 1 && seekFromEvent($event)" @contextmenu.prevent="onRulerMenu">
     <div v-for="tick in ticks" :key="tick.seconds" class="tick" :style="{ left: `${tick.x}px` }">
       <span class="tick-label tabular">{{ tick.label }}</span>
     </div>
@@ -77,7 +85,7 @@ function seekFromEvent(event: PointerEvent): void {
       @pointerdown.stop
       @click.stop="emit('seek', marker.time)"
       @dblclick.stop="emit('rename-marker', marker)"
-      @contextmenu.prevent.stop="emit('remove-marker', marker)"
+      @contextmenu.prevent.stop="emit('menu-marker', { marker, event: $event })"
     >
       <span
         class="marker-pin"

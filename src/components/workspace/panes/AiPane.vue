@@ -46,6 +46,7 @@ import { insertCueTrack } from "@/core/subtitleTrack";
 import { placeVoiceover } from "@/core/voiceover";
 import { useAsrStore } from "@/stores/asr";
 import { useAudioAiStore } from "@/stores/audioAi";
+import { useAiLaunchStore, type AiLaunchRequest } from "@/stores/aiLaunch";
 import { useCutReviewStore } from "@/stores/cutReview";
 import { useModelsStore } from "@/stores/models";
 import { useVideoAiStore } from "@/stores/videoAi";
@@ -95,6 +96,21 @@ const device = useDeviceStore();
 
 /** 侧栏整页：AI 视频生成 / AI 画图与图像编辑（列表里只留模型选择与入口）。 */
 const aiPage = ref<null | "video" | "image">(null);
+
+/** 时间线右键菜单带过来的「打开某个生成页并预填」请求。 */
+const aiLaunch = useAiLaunchStore();
+const launchRequest = ref<AiLaunchRequest | null>(null);
+const videoLaunch = computed(() =>
+  launchRequest.value?.page === "video" ? launchRequest.value : null,
+);
+const imageLaunch = computed(() =>
+  launchRequest.value?.page === "image" ? launchRequest.value : null,
+);
+
+function closeGenPage(): void {
+  aiPage.value = null;
+  launchRequest.value = null;
+}
 
 const activeTag = ref<AiTag>("all");
 
@@ -1914,6 +1930,25 @@ function openImageGen(): void {
   });
 }
 
+/**
+ * 右键菜单的生成请求：先记下预填参数，再走「准备引擎 → 进子页」的同一条路径。
+ * 请求在进入时消费掉，避免 AI 面板重新挂载时重复打开。
+ */
+function handleLaunch(request: AiLaunchRequest): void {
+  launchRequest.value = request;
+  aiLaunch.consume(request.id);
+  layout.openTab("ai");
+  if (request.page === "video") openVideoGen();
+  else openImageGen();
+}
+
+watch(
+  () => aiLaunch.pending,
+  (request) => {
+    if (request) handleLaunch(request);
+  },
+);
+
 onMounted(() => {
   void refresh();
   void loadBackend();
@@ -1925,28 +1960,44 @@ onMounted(() => {
   audioAi.watch();
   videoAi.watch();
   void tts.loadProviders(true);
-  void cloudGenConfig()
-    .then((config) => {
-      genProviders.value = config.providers;
-    })
-    .catch(() => {
-      genProviders.value = [];
-    });
-  void cloudGenPresets()
-    .then((presets) => {
-      genPresets.value = presets;
-    })
-    .catch(() => {
-      genPresets.value = [];
-    });
-  if (models.catalog.length === 0) void models.load();
+
+  // 先把模型 / 云服务清单读完，再消费右键菜单带来的生成请求：
+  // 否则「已配置云端」会在清单回来之前被误判成「缺 sd.cpp 引擎」。
+  void (async () => {
+    if (models.catalog.length === 0) await models.load();
+    const [providers, presets] = await Promise.all([
+      cloudGenConfig()
+        .then((config) => config.providers)
+        .catch(() => []),
+      cloudGenPresets()
+        .then((items) => items)
+        .catch(() => []),
+    ]);
+    genProviders.value = providers;
+    genPresets.value = presets;
+    const pending = aiLaunch.pending;
+    if (pending) handleLaunch(pending);
+  })();
 });
 </script>
 
 <template>
   <div class="pane">
-    <AiVideoPage v-if="aiPage === 'video'" @back="aiPage = null" />
-    <AiImagePage v-else-if="aiPage === 'image'" @back="aiPage = null" />
+    <AiVideoPage
+      v-if="aiPage === 'video'"
+      :key="`video-${launchRequest?.id ?? 0}`"
+      :initial-prompt="videoLaunch?.prompt ?? ''"
+      :initial-image-id="videoLaunch?.imageAssetId ?? ''"
+      @back="closeGenPage"
+    />
+    <AiImagePage
+      v-else-if="aiPage === 'image'"
+      :key="`image-${launchRequest?.id ?? 0}`"
+      :initial-prompt="imageLaunch?.prompt ?? ''"
+      :initial-mode="imageLaunch?.mode ?? 'draw'"
+      :initial-source-id="imageLaunch?.sourceAssetId ?? ''"
+      @back="closeGenPage"
+    />
     <template v-else>
     <div class="tags" role="group" :aria-label="i18n.t('ai.tagFilter')">
       <button

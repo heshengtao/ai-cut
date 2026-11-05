@@ -68,6 +68,13 @@ import {
 
 const emit = defineEmits<{ (e: "back"): void }>();
 
+/** 从时间线右键菜单进来时预填的模式 / 提示词 / 改图原图。 */
+const props = defineProps<{
+  initialPrompt?: string;
+  initialMode?: ImageGenMode;
+  initialSourceId?: string;
+}>();
+
 const i18n = useI18n();
 const layout = useLayoutStore();
 const models = useModelsStore();
@@ -81,6 +88,7 @@ const playback = usePlaybackStore();
 
 const mode = ref<ImageGenMode>("draw");
 const prompt = ref("");
+const promptEl = ref<HTMLTextAreaElement | null>(null);
 const negative = ref("");
 const presetId = ref("1024");
 const steps = ref(8);
@@ -631,6 +639,12 @@ function undoMask(): void {
 }
 
 onMounted(async () => {
+  if (props.initialMode) mode.value = props.initialMode;
+  if (props.initialSourceId && imageAssets.value.some((asset) => asset.id === props.initialSourceId)) {
+    sourceAssetId.value = props.initialSourceId;
+  }
+  if (props.initialPrompt) prompt.value = props.initialPrompt;
+  promptEl.value?.focus();
   imageGen.watch();
   cloudGen.watch();
   await Promise.all([
@@ -869,6 +883,7 @@ onUnmounted(() => {
         <span class="card-title">{{ i18n.t("aiImage.prompt") }}</span>
       </div>
       <textarea
+        ref="promptEl"
         v-model="prompt"
         class="prompt"
         rows="4"

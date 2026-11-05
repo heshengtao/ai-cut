@@ -4,6 +4,7 @@ import { onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import AppShell from "@/components/layout/AppShell.vue";
 import Toast from "@/components/common/Toast.vue";
+import AiTaskHud from "@/components/common/AiTaskHud.vue";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
 import ExportModal from "@/components/common/ExportModal.vue";
 import CutSettingsDialog from "@/components/common/CutSettingsDialog.vue";
@@ -80,6 +81,7 @@ onUnmounted(() => {
 <template>
   <AppShell />
   <Toast />
+  <AiTaskHud />
   <ConfirmDialog />
   <ExportModal />
   <CutSettingsDialog />

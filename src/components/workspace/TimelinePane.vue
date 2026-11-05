@@ -15,12 +15,14 @@ import {
 import TimelineRuler from "./TimelineRuler.vue";
 import TrackHeader from "./TrackHeader.vue";
 import TimelineClip from "./TimelineClip.vue";
-import TimelineContextMenu from "./TimelineContextMenu.vue";
+import ContextMenu from "@/components/common/ContextMenu.vue";
+import type { MenuItem } from "@/components/common/contextMenu";
 import Tooltip from "@/components/common/Tooltip.vue";
 import ReviewNoteDialog from "@/components/common/ReviewNoteDialog.vue";
 import type { MarkerPatch } from "@/core/ops";
 import CutIcon from "@/components/common/CutIcon.vue";
 import KeyframeIcon from "@/components/common/KeyframeIcon.vue";
+import RippleDeleteIcon from "@/components/common/RippleDeleteIcon.vue";
 import { useProjectStore } from "@/stores/project";
 import { MAX_ZOOM, MIN_ZOOM, usePlaybackStore } from "@/stores/playback";
 import { useSelectionStore } from "@/stores/selection";
@@ -30,8 +32,6 @@ import { formatTimecode, snapToFrame } from "@/core/time";
 import { cutTimelineLength, cutTimelineStart, removeCut } from "@/core/cuts";
 import {
   addClip,
-  addTrack,
-  addTrackAt,
   moveClips,
   moveTrack,
   removeMarker,
@@ -43,15 +43,21 @@ import {
 } from "@/core/ops";
 import { createClip } from "@/core/factory";
 import { snapEdge, snapMove } from "@/core/snapping";
-import { resolveTextStyle } from "@/core/clipStyle";
+import {
+  placeWithoutOverlap,
+  resolveDropTrack,
+  type DropPlacement,
+} from "@/core/timelinePlacement";
 import { useTimelineActions } from "@/composables/useTimelineActions";
+import { useTimelineInsert } from "@/composables/useTimelineInsert";
+import { useTimelineMenus, type TimelineMenuTarget } from "@/composables/useTimelineMenus";
 import { toast } from "@/composables/useToast";
 import { confirm } from "@/composables/useConfirm";
 import { baseName } from "@/core/media";
 import { clearDragPayload, getDragPayload } from "@/core/dragPayload";
 import { useTextPresetsStore } from "@/stores/textPresets";
 import { TEXT_PRESET_SECONDS } from "@/core/textPresets";
-import type { Clip, ClipTextStyle, Marker, MediaAsset, Project } from "@/types/project";
+import type { Clip, Marker, MediaAsset, Project } from "@/types/project";
 import { useI18n } from "@/i18n";
 
 const project = useProjectStore();
@@ -86,6 +92,7 @@ const showCutMarks = computed(
   () => layout.showPanel && layout.activeTab === "cutReview",
 );
 const actions = useTimelineActions();
+const insert = useTimelineInsert();
 const textPresets = useTextPresetsStore();
 const i18n = useI18n();
 
@@ -95,6 +102,13 @@ const markerDialogOpen = computed({
   set: (open: boolean) => {
     if (!open) markerDialog.value = null;
   },
+});
+
+const menus = useTimelineMenus({
+  editMarker: (marker) => {
+    markerDialog.value = marker;
+  },
+  removeMarker: (marker) => void onMarkerRemove(marker),
 });
 
 /** 横向滚动容器：缩放锚点与滚动位置都以它为准。 */
@@ -500,27 +514,49 @@ async function onRemoveTrack(trackId: string): Promise<void> {
 }
 
 /**
- * 片段右键菜单：右键先选中（未选中时），再在鼠标位置弹出复制 / 剪切 / 粘贴 / 删除。
- * 之前右键直接删片段，误触就丢内容；现在危险操作要再点一次。
+ * 右键菜单：片段 / 空白轨道 / 标尺共用同一个浮层，内容由 useTimelineMenus 按目标生成。
+ * 片段右键先选中（未选中时），危险操作（删除）要再点一次。
  */
-const clipMenu = ref<{ x: number; y: number } | null>(null);
+const contextMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
+
+function openContextMenu(event: MouseEvent, target: TimelineMenuTarget): void {
+  event.preventDefault();
+  const items = menus.build(target);
+  if (items.length === 0) return;
+  contextMenu.value = { x: event.clientX, y: event.clientY, items };
+}
 
 function onClipMenu(payload: { clipId: string; event: MouseEvent }): void {
   const { clipId, event } = payload;
   if (!selection.isSelected(clipId)) selection.select(clipId);
-  clipMenu.value = { x: event.clientX, y: event.clientY };
+  openContextMenu(event, { kind: "clip", clipId });
 }
 
-function onClipMenuAction(action: "copy" | "cut" | "paste" | "delete"): void {
-  clipMenu.value = null;
-  if (action === "copy") actions.copySelected();
-  else if (action === "cut") actions.cutSelected();
-  else if (action === "paste") actions.pasteClipboard();
-  else actions.deleteSelected();
+/** 空白轨道区域右键：AI 生成、粘贴到此处、轨道操作。 */
+function onLaneMenu(event: MouseEvent): void {
+  const trackId = trackIdFromClientY(event.clientY);
+  const time = timeFromClientX(event.clientX);
+  const index = trackId
+    ? shownDoc.value.tracks.findIndex((track) => track.id === trackId) + 1
+    : shownDoc.value.tracks.length;
+  if (trackId) selection.setActiveTrack(trackId);
+  openContextMenu(event, { kind: "lane", trackId, index, time });
 }
 
-/** 拖放位置：落在某条轨道上，或在两条轨道之间插入新轨。 */
-type DropPlacement = { kind: "lane"; trackId: string } | { kind: "insert"; index: number };
+/** 标尺右键：在此定位 / 分割 / 打标记，或直接在此时刻生成。 */
+function onRulerMenu(payload: { event: MouseEvent; time: number }): void {
+  openContextMenu(payload.event, { kind: "ruler", time: payload.time });
+}
+
+/** 标记右键：定位 / 编辑 / 删除，不再右键直接删。 */
+function onMarkerMenu(payload: { marker: Marker; event: MouseEvent }): void {
+  openContextMenu(payload.event, { kind: "marker", markerId: payload.marker.id });
+}
+
+/** 轨道头右键：轨道开关、选中全轨、新建 / 删除轨道。 */
+function onTrackHeaderMenu(payload: { trackId: string; event: MouseEvent }): void {
+  openContextMenu(payload.event, { kind: "track", trackId: payload.trackId });
+}
 
 /** 轨道上下边缘的吸附带宽度（px），落在其中表示「在此插入新轨」。 */
 const DROP_EDGE_PX = 14;
@@ -616,118 +652,6 @@ function onTrackDragEnd(): void {
 // 拖放素材：落到轨道上 / 在轨道之间插入新轨
 // ---------------------------------------------------------------------------
 
-/** 解析拖放目标；需要新轨时在指定位置创建。 */
-function resolveDropTrack(
-  doc: Project,
-  placement: DropPlacement,
-): { doc: Project; trackId: string | null } {
-  if (placement.kind === "lane") {
-    const track = doc.tracks.find((t) => t.id === placement.trackId);
-    return { doc, trackId: track && !track.locked ? track.id : null };
-  }
-  const next = addTrackAt(doc, placement.index);
-  return { doc: next, trackId: next.tracks[placement.index].id };
-}
-
-/**
- * 让新片段落到不与已有片段重叠的位置：与任何片段相交时顺延到其右缘。
- * 片段按 start 升序，顺延只会让 start 变大，一遍即可。
- */
-function placeWithoutOverlap(startSec: number, duration: number, clips: Clip[], fps: number): number {
-  let start = snapToFrame(Math.max(0, startSec), fps);
-  const sorted = [...clips].sort((a, b) => a.start - b.start);
-  for (const clip of sorted) {
-    const overlaps = start < clip.start + clip.duration && clip.start < start + duration;
-    if (!overlaps) continue;
-    start = snapToFrame(clip.start + clip.duration, fps);
-  }
-  return start;
-}
-
-/**
- * 在指定时间插入文字片段，并打开属性面板。
- * 有拖放目标时严格落到目标轨道（越界则新建）；否则用第一条未锁定轨道，必要时新建。
- */
-function insertTextClip(
-  rawStart: number,
-  text: string,
-  duration = 15,
-  placement?: DropPlacement,
-  textStyle?: ClipTextStyle,
-): void {
-  const holder: { clip: Clip | null } = { clip: null };
-  let locked = false;
-
-  project.dispatch((doc) => {
-    let next = doc;
-    let trackId: string | null = null;
-
-    if (placement) {
-      const resolved = resolveDropTrack(next, placement);
-      next = resolved.doc;
-      trackId = resolved.trackId;
-    } else {
-      const track = next.tracks.find((t) => !t.locked);
-      if (track) {
-        trackId = track.id;
-      } else {
-        next = addTrack(next);
-        trackId = next.tracks[next.tracks.length - 1].id;
-      }
-    }
-
-    if (!trackId) {
-      locked = true;
-      return doc;
-    }
-
-    const track = next.tracks.find((t) => t.id === trackId);
-    if (!track) return doc;
-
-    const fps = next.fps;
-    const start = placeWithoutOverlap(rawStart, duration, track.clips, fps);
-
-    const clip = createClip({
-      assetId: "",
-      trackId: track.id,
-      start,
-      duration,
-      text,
-      ...(textStyle ? { textStyle } : {}),
-    });
-    holder.clip = clip;
-    return addClip(next, track.id, clip);
-  });
-
-  if (locked) {
-    toast(i18n.t("timeline.locked"), "error");
-    return;
-  }
-  if (holder.clip) {
-    if (textStyle) textPresets.rememberStyle(textStyle);
-    selection.select(holder.clip.id);
-    layout.openTab("inspector");
-  }
-}
-
-/** 在播放头处加一个文字片段：优先复用当前选中文字片段的样式，其次上一次操作的样式。 */
-function addTextAtPlayhead(): void {
-  const selectedText =
-    selection.selectedClipIds.length === 1
-      ? shownDoc.value.tracks
-          .flatMap((track) => track.clips)
-          .find((clip) => clip.id === selection.selectedClipIds[0] && clip.assetId === "")
-      : undefined;
-  const style = selectedText ? resolveTextStyle(selectedText) : textPresets.lastStyle;
-  insertTextClip(
-    playback.playhead,
-    i18n.t("textPreset.default.text"),
-    TEXT_PRESET_SECONDS,
-    undefined,
-    style,
-  );
-}
-
 /** 图片 / 文字拖入的默认时长；音视频按完整源时长插入。 */
 const DEFAULT_INSERT_SECONDS = 15;
 
@@ -774,7 +698,7 @@ function onLaneDrop(event: DragEvent): void {
     const placement = dropTarget.value ?? dropPlacementFromClientY(event.clientY);
     dropTarget.value = null;
     clearDragPayload();
-    insertTextClip(
+    insert.insertTextClip(
       timeFromClientX(event.clientX),
       i18n.t("textPreset.default.text"),
       TEXT_PRESET_SECONDS,
@@ -913,6 +837,16 @@ function onLaneDrop(event: DragEvent): void {
             <DocumentDuplicateIcon class="w-[16px] h-[16px]" />
           </button>
         </Tooltip>
+        <Tooltip :text="i18n.t('timeline.rippleDelete')">
+          <button
+            class="icon-btn"
+            :disabled="!actions.canDelete"
+            :aria-label="i18n.t('timeline.rippleDeleteLabel')"
+            @click="actions.rippleDeleteSelected"
+          >
+            <RippleDeleteIcon class="w-[16px] h-[16px]" />
+          </button>
+        </Tooltip>
         <Tooltip :text="i18n.t('timeline.delete')">
           <button
             class="icon-btn"
@@ -934,7 +868,7 @@ function onLaneDrop(event: DragEvent): void {
           </button>
         </Tooltip>
         <Tooltip :text="i18n.t('timeline.addText')">
-          <button class="icon-btn" :aria-label="i18n.t('timeline.addTextLabel')" @click="addTextAtPlayhead">
+          <button class="icon-btn" :aria-label="i18n.t('timeline.addTextLabel')" @click="insert.addTextAtPlayhead">
             <DocumentTextIcon class="w-[16px] h-[16px]" />
           </button>
         </Tooltip>
@@ -989,6 +923,7 @@ function onLaneDrop(event: DragEvent): void {
             @remove="onRemoveTrack"
             @rename="onRenameTrack"
             @reorder="onTrackReorderStart"
+            @menu="onTrackHeaderMenu"
           />
         </div>
         <div
@@ -1008,13 +943,14 @@ function onLaneDrop(event: DragEvent): void {
             :markers="project.doc.markers"
             @seek="playback.setPlayhead"
             @rename-marker="onMarkerRename"
-            @remove-marker="onMarkerRemove"
+            @menu-marker="onMarkerMenu"
+            @menu="onRulerMenu"
           />
 
           <div
             class="lanes"
             @pointerdown.self="onMarqueeStart"
-            @contextmenu.prevent
+            @contextmenu.prevent="onLaneMenu($event)"
             @dragover="onLaneDragOver"
             @dragleave="onLaneDragLeave"
             @drop="onLaneDrop($event)"
@@ -1092,17 +1028,12 @@ function onLaneDrop(event: DragEvent): void {
       </div>
     </div>
 
-    <TimelineContextMenu
-      :open="clipMenu !== null"
-      :x="clipMenu?.x ?? 0"
-      :y="clipMenu?.y ?? 0"
-      :can-paste="actions.canPaste"
-      :has-selection="selection.selectedClipIds.length > 0"
-      @copy="onClipMenuAction('copy')"
-      @cut="onClipMenuAction('cut')"
-      @paste="onClipMenuAction('paste')"
-      @delete="onClipMenuAction('delete')"
-      @close="clipMenu = null"
+    <ContextMenu
+      :open="contextMenu !== null"
+      :x="contextMenu?.x ?? 0"
+      :y="contextMenu?.y ?? 0"
+      :items="contextMenu?.items ?? []"
+      @close="contextMenu = null"
     />
 
     <ReviewNoteDialog

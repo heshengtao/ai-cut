@@ -14,6 +14,24 @@
   `AICUT_TEST_RUNTIME=<runtime/ort/cuda or cuda13> AICUT_TEST_MODEL=<a .onnx>` then
   `cargo test --lib cuda_runs_a_model -- --ignored --nocapture`.
 
+## Timeline context menu
+
+- Generic menu lives in `src/components/common/`: `ContextMenu.vue` handles the host / global
+  closing, `MenuPanel.vue` renders one panel and recursively renders submenus. The item model is
+  `contextMenu.ts` (`action` / `submenu` / `separator` / `label`).
+- Content is built **per target** in `src/composables/useTimelineMenus.ts`: `clip`, `lane`
+  (empty track area), `ruler`, `marker`, `track` header. Keep the AI group first, and keep each
+  root menu short by moving groups into submenus instead of adding more top-level rows.
+- AI actions go through `src/composables/useAiClipActions.ts`: it checks installed models, calls
+  `core/aiActions` directly, and reports through the global `AiTaskHud` (cancel included).
+  Generation entries must open the AI pane through `stores/aiLaunch` with a prefilled
+  prompt/image — do not duplicate the generation forms inside the menu.
+- A menu item only appears for blocks where it is valid: audio / video clips get audio and/or
+  visual AI, image clips get image AI, text clips get voiceover; "generate from nothing" belongs
+  to the empty-area / ruler menus only.
+- When adding items, add `menu.*` keys to **both** `src/i18n/zh.ts` and `src/i18n/en.ts`, and
+  extend `src/composables/__tests__/timelineMenus.test.ts` for the block-type rule.
+
 ## Data folder (where models / plugins / history live)
 
 - All persistent state is resolved through `src-tauri/src/paths.rs` — never call

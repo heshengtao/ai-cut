@@ -71,6 +71,12 @@ import {
 
 const emit = defineEmits<{ (e: "back"): void }>();
 
+/** 从时间线右键菜单进来时预填的提示词 / 首帧参考图。 */
+const props = defineProps<{
+  initialPrompt?: string;
+  initialImageId?: string;
+}>();
+
 const i18n = useI18n();
 const layout = useLayoutStore();
 const models = useModelsStore();
@@ -83,6 +89,7 @@ const project = useProjectStore();
 const playback = usePlaybackStore();
 
 const prompt = ref("");
+const promptEl = ref<HTMLTextAreaElement | null>(null);
 const aspectId = ref<string>(aspectFromSize(project.doc.width, project.doc.height));
 const resolutionId = ref("480p");
 const duration = ref(5);
@@ -678,6 +685,8 @@ const statusLine = computed(() => {
 });
 
 onMounted(async () => {
+  if (props.initialPrompt) prompt.value = props.initialPrompt;
+  promptEl.value?.focus();
   videoGen.watch();
   cloudGen.watch();
   await Promise.all([
@@ -701,6 +710,20 @@ onMounted(async () => {
         cloudPresets.value = [];
       }),
   ]);
+  // 从「图生视频」进来：当前模型不支持首帧时，自动换一个已安装的 I2V 家族，
+  // 否则参考图会被 watch 清掉，用户看到的还是一个纯文生视频表单。
+  if (props.initialImageId) {
+    const exists = imageAssets.value.some((asset) => asset.id === props.initialImageId);
+    if (exists) {
+      if (!supportsFirstFrame.value) {
+        const candidate = videoModels.value.find(
+          (model) => model.installed && videoModelSpec(model.family).initImage,
+        );
+        if (candidate) sourceId.value = sourceIdFor("local", candidate.id);
+      }
+      if (supportsFirstFrame.value) firstFrameId.value = props.initialImageId;
+    }
+  }
   // 首次进来缺引擎 / 缺模型：自动弹一次「准备」向导（同一后端只弹一次）。
   if (!cloudSelected.value) setup.maybePrompt();
 });
@@ -961,6 +984,7 @@ onUnmounted(() => {
         </div>
       </div>
       <textarea
+        ref="promptEl"
         v-model="prompt"
         class="prompt"
         rows="4"
