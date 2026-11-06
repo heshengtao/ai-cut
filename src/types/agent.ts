@@ -59,12 +59,20 @@ export type AgentEvent =
   | { type: "turn_finished"; session_id: string; head: string; title: string; stopped: boolean }
   | { type: "error"; message: string };
 
-/** MCP 服务器状态。 */
+/** MCP 服务器状态（与后端 `mcp::McpStatus` 对应）。 */
 export interface McpStatus {
   enabled: boolean;
+  /** 配置里写的端口（用户填的；下次启动还会先试它）。 */
   port: number;
   running: boolean;
+  /** 实际接入地址；未监听时为 null。 */
   url: string | null;
+  /** 实际监听的端口；配置端口被占用、退回临时端口时它会和 `port` 不同。 */
+  boundPort?: number | null;
+  /** 本次运行退回了系统临时端口。 */
+  fallback?: boolean;
+  /** 退回临时端口的原因。 */
+  portConflict?: "busy" | "denied" | null;
 }
 
 /** 命令行挂载状态。 */

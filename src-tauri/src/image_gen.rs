@@ -679,7 +679,7 @@ fn run(
     offload_to_cpu: bool,
     vae_tiling: bool,
 ) -> Result<(), String> {
-    let args = command_args(
+    let mut args = command_args(
         spec,
         files,
         output,
@@ -697,6 +697,11 @@ fn run(
         offload_to_cpu,
         vae_tiling,
     );
+    // macOS 的 CPU 是「Metal 包 + 强制 CPU」：不传这一条，包里默认走 Metal。
+    if let Some(backend) = sdcpp::backend_arg(sdcpp::effective_device(app)) {
+        args.push("--backend".to_string());
+        args.push(backend.to_string());
+    }
     let mut command = Command::new(cli);
     command
         .args(&args)

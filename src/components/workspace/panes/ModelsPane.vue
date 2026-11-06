@@ -40,6 +40,14 @@ const downloads = useDownloadsStore();
 const plugins = usePluginsStore();
 const layout = useLayoutStore();
 const i18n = useI18n();
+
+/**
+ * 能出现在列表里的引擎：本机能跑的，或者已经装好的。
+ *
+ * NVIDIA 机器上不该出现 ROCm（A 卡专用）、AMD 机器上也不该出现 CUDA——装了也只会报
+ * 「找不到对应显卡」。但**已安装**的仍要显示，否则换了显卡之后用户连删都找不到它。
+ */
+const sdcppPacks = computed(() => sdcpp.items.filter((pack) => pack.usable || pack.installed));
 const tab = ref<Tab>("installed");
 const kind = ref<Kind>("all");
 const query = ref("");
@@ -115,7 +123,7 @@ const availableTotal = computed(
   () =>
     models.catalog.filter((model) => !model.installed).length +
     runtimes.items.filter((runtime) => !runtime.installed && !runtime.bundled).length +
-    sdcpp.items.filter((pack) => !pack.installed).length +
+    sdcppPacks.value.filter((pack) => !pack.installed).length +
     plugins.availablePlugins.filter((plugin) => plugin.compatible).length,
 );
 
@@ -533,9 +541,9 @@ onUnmounted(() => {
       </div>
       <p class="policy">{{ i18n.t("sdcpp.officialOnly") }}</p>
       <p v-if="sdcpp.error" class="runtime-error">{{ sdcpp.error }}</p>
-      <ul v-if="sdcpp.items.length > 0" class="list">
+      <ul v-if="sdcppPacks.length > 0" class="list">
         <li
-          v-for="pack in sdcpp.items"
+          v-for="pack in sdcppPacks"
           :key="pack.id"
           class="card"
           :data-download-id="pack.id"
@@ -627,7 +635,7 @@ onUnmounted(() => {
       </ul>
 
       <div
-        v-if="coreRuntimes.length === 0 && visibleParts.length === 0 && sdcpp.items.length === 0"
+        v-if="coreRuntimes.length === 0 && visibleParts.length === 0 && sdcppPacks.length === 0"
         class="empty"
       >
         <p class="empty-text">{{ i18n.t("runtime.empty") }}</p>

@@ -5,9 +5,11 @@
 //!
 //! ```text
 //! <应用配置目录>/runtime/sdcpp/
-//!   cpu/       sd-cli.exe + ggml*.dll
+//!   cpu/       sd-cli.exe + ggml*.dll        （macOS 上没有这个目录：CPU 复用 metal/）
 //!   vulkan/    同上（Vulkan 后端）
 //!   cuda12/    同上 + CUDA 12 运行库
+//!   rocm/      同上 + HIP / ROCm 运行库（Windows 包自带；Linux 要系统装 ROCm）
+//!   metal/     macOS 的 Metal 构建（也用来跑「强制 CPU」，靠 --backend cpu）
 //!   preferred  用户挑的那一份（不写则按显卡自动挑）
 //! ```
 //!
@@ -36,22 +38,28 @@ pub const EVENT_SDCPP: &str = "sdcpp-progress";
 const REVISION: &str = "sd-master-1031-c6dfa9d";
 
 /// sd.cpp 的执行后端。与 ONNX Runtime 的 CPU / CUDA **不是同一套**：
-/// 这里是 ggml 的 CPU / Vulkan / CUDA，选择结果只影响视频生成进程。
+/// 这里是 ggml 的 CPU / Vulkan / CUDA / ROCm / Metal，选择结果只影响视频生成进程。
+///
+/// 注意 CPU 在 macOS 上没有独立构建：它复用 Metal 包，用 `--backend cpu` 强制跑 CPU
+/// （包里的 `libstable-diffusion.dylib` 本来就带着 ggml-cpu）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SdcppBackend {
     /// 旧配置兼容 / 内部兜底：按显卡自动挑（有 NVIDIA 且装了 CUDA 12 → CUDA 12，
-    /// 否则 Vulkan，最后 CPU）。界面**不再**把它当作一个可选项，`info()` 会换算成
-    /// 实际挑中的那一份。
+    /// 有 AMD 且装了 ROCm → ROCm，否则 Vulkan，最后 CPU）。界面**不再**把它当作一个可选项，
+    /// `info()` 会换算成实际挑中的那一份。
     #[default]
     Auto,
-    /// 纯 CPU（全平台可用，最慢）。
+    /// 纯 CPU（全平台可用，最慢）。macOS 上复用 Metal 包、强制 CPU 后端。
     Cpu,
     /// Vulkan（Windows / Linux；AMD / Intel / NVIDIA 都能用）。
     Vulkan,
     /// NVIDIA CUDA 12（Windows x86_64）。
     #[serde(rename = "cuda12")]
     Cuda12,
+    /// AMD ROCm / HIP（Windows / Linux x86_64）。
+    #[serde(rename = "rocm")]
+    Rocm,
     /// Apple Silicon Metal（macOS）。
     Metal,
 }
@@ -63,6 +71,7 @@ impl SdcppBackend {
             Self::Cpu => "cpu",
             Self::Vulkan => "vulkan",
             Self::Cuda12 => "cuda12",
+            Self::Rocm => "rocm",
             Self::Metal => "metal",
         }
     }
@@ -73,16 +82,20 @@ impl SdcppBackend {
             Self::Cpu => "CPU",
             Self::Vulkan => "Vulkan",
             Self::Cuda12 => "CUDA 12",
+            Self::Rocm => "ROCm",
             Self::Metal => "Metal",
         }
     }
 
     pub fn platform_ok(self) -> bool {
         match self {
-            Self::Auto => true,
-            Self::Cpu => true,
+            Self::Auto | Self::Cpu => true,
             Self::Vulkan => cfg!(any(target_os = "windows", target_os = "linux")),
             Self::Cuda12 => cfg!(all(target_os = "windows", target_arch = "x86_64")),
+            Self::Rocm => cfg!(all(
+                any(target_os = "windows", target_os = "linux"),
+                target_arch = "x86_64"
+            )),
             Self::Metal => cfg!(all(target_os = "macos", target_arch = "aarch64")),
         }
     }
@@ -92,6 +105,7 @@ impl SdcppBackend {
             "cpu" => Some(Self::Cpu),
             "vulkan" => Some(Self::Vulkan),
             "cuda12" => Some(Self::Cuda12),
+            "rocm" => Some(Self::Rocm),
             "metal" => Some(Self::Metal),
             _ => None,
         }
@@ -207,6 +221,17 @@ const WINDOWS_PACKS: &[Pack] = &[
             },
         ],
     },
+    Pack {
+        id: "sdcpp-rocm",
+        device: "rocm",
+        // AMD 的 HIP 运行库整包自带（amdhip64 / amd_comgr），不需要额外的运行库包。
+        parts: &[Part {
+            bytes: 265_663_896,
+            sha256: "d6046d4c35f2767bdb5c53de19f67a64a465eac305426efa32bcd8a9d798a743",
+            archive: "sd-master-c6dfa9d-bin-win-rocm-10.1.0-x64.zip",
+            sources: &[gh_source!("sd-master-c6dfa9d-bin-win-rocm-10.1.0-x64.zip")],
+        }],
+    },
 ];
 
 const LINUX_PACKS: &[Pack] = &[
@@ -234,6 +259,19 @@ const LINUX_PACKS: &[Pack] = &[
                 gh_source!("sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip"),
                 ms_source!("linux/sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip"),
             ],
+        }],
+    },
+    Pack {
+        id: "sdcpp-rocm",
+        device: "rocm",
+        // 和 Windows 那份一样：HIP / ROCm 运行库都在包里，装完只需要系统的 AMD 驱动。
+        parts: &[Part {
+            bytes: 297_941_221,
+            sha256: "c6785c3c961a1ddb02fcddc6edbd42b6aad6b001ddc8c4b915f545da8151b495",
+            archive: "sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64-rocm-10.1.0.zip",
+            sources: &[gh_source!(
+                "sd-master-c6dfa9d-bin-Linux-Ubuntu-24.04-x86_64-rocm-10.1.0.zip"
+            )],
         }],
     },
 ];
@@ -265,8 +303,36 @@ fn pack(id: &str) -> Option<&'static Pack> {
     packs().iter().find(|pack| pack.id == id)
 }
 
+/// 某个后端实际用哪份构建。
+///
+/// macOS 的 `cpu` 不是独立下载，而是**复用 Metal 包**（用 `--backend cpu` 强制 CPU）——
+/// 官方从来没发过 macOS 的 CPU-only 构建，但 Metal 包里带着 ggml-cpu。
 fn pack_for_device(device: &str) -> Option<&'static Pack> {
-    packs().iter().find(|pack| pack.device == device)
+    packs()
+        .iter()
+        .find(|pack| pack.device == build_device_for(device, cfg!(target_os = "macos")))
+}
+
+/// `device` 落在哪份构建上。抽成纯函数，macOS 的「CPU 借用 Metal」在 Windows 上也能测。
+fn build_device_for(device: &str, macos: bool) -> &str {
+    if macos && device == "cpu" {
+        "metal"
+    } else {
+        device
+    }
+}
+
+/// 平台有没有这个后端的**构建**（macOS 的 CPU 用 Metal 包，算有）。
+fn has_device(device: &str) -> bool {
+    pack_for_device(device).is_some()
+}
+
+/// 传给 `sd-cli --backend` 的参数值。
+///
+/// 只有「强制 CPU」需要显式指定：macOS 的 Metal 包里默认走 GPU，不传就永远用不到 CPU；
+/// 其余后端各自是独立的构建，二进制里只有一种设备，传不传都一样。
+pub(crate) fn backend_arg(device: &str) -> Option<&'static str> {
+    (device == "cpu").then_some("cpu")
 }
 
 struct Installer {
@@ -325,12 +391,14 @@ pub struct SdcppOption {
     pub note: String,
     /// 平台有没有这份构建（Windows 上 CUDA 恒为 true）。
     pub available: bool,
-    /// 本机**能不能跑**（CUDA 要求 NVIDIA 显卡；Metal 要求 Apple Silicon）。
+    /// 本机**能不能跑**（CUDA 要求 NVIDIA 显卡；ROCm 要求 AMD 显卡；Metal 要求 Apple Silicon）。
     pub usable: bool,
     /// 是不是本机最优选择（与装没装无关）。
     pub recommended: bool,
     pub installed: bool,
     pub bytes: u64,
+    /// 选它要下载哪一份构建（macOS 的 CPU 复用 Metal 包）。界面直接拿它去下载管理器。
+    pub download_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -401,6 +469,10 @@ fn nvidia_present() -> bool {
     crate::backend::device_profile().vendor == "nvidia"
 }
 
+fn amd_present() -> bool {
+    crate::backend::device_profile().vendor == "amd"
+}
+
 /// 本机**能不能跑**这套构建（与「装没装」无关）。
 ///
 /// 与 [`SdcppBackend::platform_ok`] 的区别：后者只说「这个平台有这份构建」，
@@ -413,6 +485,13 @@ pub fn usable_device(device: &str) -> bool {
         "vulkan" => cfg!(any(target_os = "windows", target_os = "linux")),
         // sd.cpp 官方只发 CUDA 12 构建；判定依据是「有没有 N 卡」。
         "cuda12" | "cuda13" => nvidia_present(),
+        // ROCm 只对 A 卡有意义（N 卡装上也只会报找不到 HIP 设备）。
+        "rocm" => {
+            cfg!(all(
+                any(target_os = "windows", target_os = "linux"),
+                target_arch = "x86_64"
+            )) && amd_present()
+        }
         "metal" => cfg!(all(target_os = "macos", target_arch = "aarch64")),
         _ => false,
     }
@@ -420,16 +499,19 @@ pub fn usable_device(device: &str) -> bool {
 
 /// 本机最优的引擎（**不看装没装**，用来推荐下载）。
 ///
-/// 平台里没有这份构建时继续往下退：Linux 没有 CUDA 构建，N 卡也只会推荐 Vulkan。
+/// 平台里没有这份构建时继续往下退：Linux 没有 CUDA 构建，N 卡也只会推荐 Vulkan；
+/// AMD 优先 ROCm（比 Vulkan 快），没装/不支持时再退 Vulkan。
 pub fn best_device() -> &'static str {
-    let has = |device: &str| packs().iter().any(|pack| pack.device == device);
     if cfg!(target_os = "macos") {
-        return if has("metal") { "metal" } else { "cpu" };
+        return if has_device("metal") { "metal" } else { "cpu" };
     }
-    if nvidia_present() && has("cuda12") {
+    if nvidia_present() && has_device("cuda12") {
         return "cuda12";
     }
-    if usable_device("vulkan") && has("vulkan") {
+    if amd_present() && usable_device("rocm") && has_device("rocm") {
+        return "rocm";
+    }
+    if usable_device("vulkan") && has_device("vulkan") {
         return "vulkan";
     }
     "cpu"
@@ -446,7 +528,7 @@ pub fn auto_device(app: &AppHandle) -> &'static str {
     if has(best) {
         return best;
     }
-    for device in ["metal", "cuda12", "vulkan", "cpu"] {
+    for device in ["metal", "cuda12", "rocm", "vulkan", "cpu"] {
         if usable_device(device) && has(device) {
             return device;
         }
@@ -460,7 +542,10 @@ pub fn effective_device(app: &AppHandle) -> &'static str {
         return auto_device(app);
     }
     let device = chosen.as_str();
+    // 三重条件缺一不可：平台有这份构建、本机真能跑（A 卡别选 CUDA）、确实装好了。
+    // 任何一条不满足都退回自动——而不是「选了 CPU / ROCm 却悄悄跑在别的后端上」。
     if chosen.platform_ok()
+        && usable_device(device)
         && pack_for_device(device)
             .map(|pack| installed(app, pack))
             .unwrap_or(false)
@@ -488,6 +573,10 @@ pub(crate) fn cli_path(app: &AppHandle, pack: &Pack) -> Option<PathBuf> {
 fn statuses(app: &AppHandle) -> Vec<SdcppStatus> {
     let chosen = effective_device(app);
     let automatic = preference(app) == SdcppBackend::Auto;
+    // 实际在用的那份构建（macOS 选 CPU 时是 Metal 包），用来给下载列表打「已选」。
+    let active = pack_for_device(chosen)
+        .filter(|pack| installed(app, pack))
+        .map(|pack| pack.id);
     packs()
         .iter()
         .map(|pack| SdcppStatus {
@@ -497,7 +586,7 @@ fn statuses(app: &AppHandle) -> Vec<SdcppStatus> {
             device: pack.device.to_string(),
             bytes: pack.bytes(),
             installed: installed(app, pack),
-            selected: pack.device == chosen,
+            selected: pack.device == chosen || active == Some(pack.id),
             automatic,
             usable: usable_device(pack.device),
             license: "MIT".into(),
@@ -513,12 +602,23 @@ fn info(app: &AppHandle, preference: SdcppBackend) -> SdcppInfo {
     let best = best_device();
     // 界面没有「自动」这一档：旧配置里存的 auto（或本机不支持的后端）直接显示成
     // 自动挑中的那一份，用户点选视频后端时才会写下一个具体选择。
+    //
+    // 一份引擎都没装时显示**本机最优**（N 卡是 CUDA、macOS 是 Metal），而不是永远落在
+    // CPU 上——否则第一次打开设置的人会以为这台机器只支持 CPU。
     let shown = if preference == SdcppBackend::Auto || !preference.platform_ok() {
-        SdcppBackend::from_device(current).unwrap_or(SdcppBackend::Cpu)
+        let auto = if pack_for_device(current)
+            .map(|pack| installed(app, pack))
+            .unwrap_or(false)
+        {
+            current
+        } else {
+            best
+        };
+        SdcppBackend::from_device(auto).unwrap_or(SdcppBackend::Cpu)
     } else {
         preference
     };
-    let options = packs()
+    let mut options: Vec<SdcppOption> = packs()
         .iter()
         .map(|pack| {
             let backend = SdcppBackend::from_device(pack.device).unwrap_or_default();
@@ -531,9 +631,31 @@ fn info(app: &AppHandle, preference: SdcppBackend) -> SdcppInfo {
                 recommended: pack.device == best,
                 installed: installed(app, pack),
                 bytes: pack.bytes(),
+                download_id: pack.id.to_string(),
             }
         })
         .collect();
+    // macOS 的 CPU 没有独立构建：复用 Metal 包、启动时加 `--backend cpu`。
+    // 官方的 Metal 包本来就把 ggml-cpu 编进去了，所以不用多下一份。
+    // 放在**最前**：Windows / Linux 的清单也是 CPU 打头（它是全平台兜底），macOS 不该例外。
+    if cfg!(target_os = "macos") {
+        if let Some(metal) = pack_for_device("metal") {
+            options.insert(
+                0,
+                SdcppOption {
+                    kind: "cpu".into(),
+                    label: "sdcpp.cpu".into(),
+                    note: "sdcpp.cpuMac.note".into(),
+                    available: true,
+                    usable: true,
+                    recommended: false,
+                    installed: installed(app, metal),
+                    bytes: metal.bytes(),
+                    download_id: metal.id.to_string(),
+                },
+            );
+        }
+    }
     SdcppInfo {
         preference: shown.as_str().to_string(),
         current: current.to_string(),
@@ -559,8 +681,13 @@ pub fn sdcpp_set_backend(
     state: tauri::State<'_, Arc<NetworkRuntime>>,
     backend: SdcppBackend,
 ) -> Result<SdcppInfo, String> {
-    if !backend.platform_ok() {
-        return Err(format!("{} 在本机不可用", backend.label()));
+    // 「自动」只留给旧配置；界面上点到的必须是本机真能跑的后端。
+    if backend != SdcppBackend::Auto && (!backend.platform_ok() || !usable_device(backend.as_str()))
+    {
+        return Err(format!(
+            "{} 在本机不可用（需要对应的显卡 / 驱动）",
+            backend.label()
+        ));
     }
     let mut config = state.get();
     config.sdcpp_backend = backend;
@@ -1004,11 +1131,41 @@ mod tests {
         // 「自动」不是引擎、也不是界面上的选项：它只作为旧配置与兜底留在内部。
         assert_eq!(SdcppBackend::from_device("auto"), None);
         if cfg!(target_os = "windows") {
-            assert_eq!(packs().len(), 3);
+            assert_eq!(packs().len(), 4, "Windows 应有 CPU / Vulkan / CUDA 12 / ROCm");
             let cuda = pack("sdcpp-cuda12").unwrap();
             assert_eq!(cuda.parts.len(), 2, "CUDA 需要引擎 + 运行库两个包");
             assert_eq!(cuda.bytes(), 354_188_849 + 563_452_046);
         }
+    }
+
+    /// macOS 的 CPU 不是独立构建：它落在 Metal 包里，启动时靠 `--backend cpu` 强制 CPU。
+    #[test]
+    fn macos_cpu_reuses_the_metal_build() {
+        assert_eq!(build_device_for("cpu", true), "metal");
+        assert_eq!(build_device_for("cpu", false), "cpu");
+        assert_eq!(build_device_for("metal", true), "metal");
+        assert_eq!(build_device_for("rocm", true), "rocm");
+        // 只有强制 CPU 才需要 `--backend`；其余后端是独立构建，二进制里只有一种设备。
+        assert_eq!(backend_arg("cpu"), Some("cpu"));
+        assert_eq!(backend_arg("metal"), None);
+        assert_eq!(backend_arg("rocm"), None);
+    }
+
+    /// ROCm 只在 x86_64 的 Windows / Linux 上、且本机确实是 A 卡时才算可用。
+    #[test]
+    fn rocm_is_an_x86_64_amd_backend() {
+        assert_eq!(
+            SdcppBackend::Rocm.platform_ok(),
+            cfg!(all(
+                any(target_os = "windows", target_os = "linux"),
+                target_arch = "x86_64"
+            ))
+        );
+        assert_eq!(serde_json::to_string(&SdcppBackend::Rocm).unwrap(), "\"rocm\"");
+        assert_eq!(
+            SdcppBackend::from_device("rocm"),
+            Some(SdcppBackend::Rocm)
+        );
     }
 
     #[test]
@@ -1041,20 +1198,35 @@ mod tests {
                             "https://github.com/leejet/stable-diffusion.cpp/releases/download/",
                         )
                 });
-                let has_cn = part.sources.iter().any(|source| {
-                    source.region == "cn"
-                        && source.url.starts_with(
-                            "https://modelscope.cn/models/ailm32442/sd-cpp-binaries/resolve/master/",
-                        )
-                });
                 assert!(has_intl, "{} 缺少 GitHub 官方源", part.archive);
-                assert!(has_cn, "{} 缺少魔搭镜像", part.archive);
+                // ROCm 是官方后补的构建，魔搭镜像里没有：只要求「有镜像时必须是官方镜像」，
+                // 不能要求每个包都有。
+                for source in part.sources.iter().filter(|source| source.region == "cn") {
+                    assert!(
+                        source.url.starts_with(
+                            "https://modelscope.cn/models/ailm32442/sd-cpp-binaries/resolve/master/"
+                        ),
+                        "{} 的镜像源不是官方镜像：{}",
+                        part.archive,
+                        source.url
+                    );
+                }
                 assert!(part
                     .sources
                     .iter()
                     .all(|source| !source.url.contains("ghproxy")
                         && !source.url.contains("gh-proxy")
                         && !source.url.contains("hf-mirror")));
+            }
+        }
+        // 除了 ROCm，其它包都该有国内镜像（别让用户只能挤 GitHub）。
+        for pack in packs().iter().filter(|pack| pack.device != "rocm") {
+            for part in pack.parts {
+                assert!(
+                    part.sources.iter().any(|source| source.region == "cn"),
+                    "{} 缺少魔搭镜像",
+                    part.archive
+                );
             }
         }
     }
@@ -1093,6 +1265,13 @@ mod tests {
             usable_device("vulkan"),
             cfg!(any(target_os = "windows", target_os = "linux"))
         );
+        // ROCm 还要看显卡：N 卡 / 没卡时不成立。
+        if !cfg!(all(
+            any(target_os = "windows", target_os = "linux"),
+            target_arch = "x86_64"
+        )) {
+            assert!(!usable_device("rocm"));
+        }
     }
 
     #[test]

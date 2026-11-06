@@ -592,9 +592,11 @@ const sdcppSegOptions = computed(() =>
 );
 
 function openSdcppManager(): void {
-  const raw = sdcpp.info?.preference;
-  const target = raw || sdcpp.info?.recommended || sdcppActiveKind.value || "cpu";
-  downloads.requestFocus("sdcpp", `sdcpp-${target}`);
+  // macOS 的 CPU 复用 Metal 包：target 要落到真实的构建 id 上，不能拼 `sdcpp-cpu`。
+  const target =
+    sdcppCurrent.value?.downloadId ??
+    `sdcpp-${sdcpp.info?.preference || sdcpp.info?.recommended || "cpu"}`;
+  downloads.requestFocus("sdcpp", target);
   layout.closeSettings();
   layout.openDownloads("models");
 }
@@ -623,8 +625,10 @@ async function setSdcppBackend(kind: string): Promise<void> {
     sdcppSaving.value = true;
     layout.closeSettings();
     layout.openDownloads("models");
-    downloads.requestFocus("sdcpp", `sdcpp-${kind}`);
-    const ok = await downloads.run([{ section: "sdcpp", id: `sdcpp-${kind}`, label }]);
+    downloads.requestFocus("sdcpp", option.downloadId);
+    const ok = await downloads.run([
+      { section: "sdcpp", id: option.downloadId, label },
+    ]);
     if (!ok) {
       sdcppSaving.value = false;
       layout.openSettings("ai");
@@ -661,6 +665,16 @@ const mcpError = ref("");
 const mcpOn = computed(() => mcp.value?.enabled ?? false);
 const mcpRunning = computed(() => mcp.value?.running ?? false);
 const mcpEndpoint = computed(() => mcp.value?.url ?? null);
+/** 配置端口没绑上、退回了临时端口时的一句话说明；正常监听时为 null。 */
+const mcpFallbackNote = computed(() => {
+  const status = mcp.value;
+  if (!status?.fallback) return null;
+  const key =
+    status.portConflict === "denied"
+      ? "settings.mcp.portConflictDenied"
+      : "settings.mcp.portConflictBusy";
+  return i18n.t(key, { port: status.port, bound: status.boundPort ?? status.port });
+});
 
 // ---- 网络 ----
 const proxyMode = ref<ProxyMode>("system");
@@ -2627,6 +2641,12 @@ onUnmounted(() => {
                       : i18n.t("settings.mcp.stopped"))
                   }}
                 </span>
+              </div>
+              <div v-if="mcpFallbackNote" class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.mcp.portConflict") }}</span>
+                  <span class="row-sub warn">{{ mcpFallbackNote }}</span>
+                </div>
               </div>
             </div>
           </div>

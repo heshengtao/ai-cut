@@ -110,7 +110,15 @@ export function onAgentEvent(handler: (event: AgentEvent) => void): Promise<Unli
 }
 
 export function mcpStatus(): Promise<McpStatus> {
-  return call("mcp_status", {}, { enabled: false, port: 50563, running: false, url: null });
+  return call("mcp_status", {}, {
+    enabled: false,
+    port: 50563,
+    running: false,
+    url: null,
+    boundPort: null,
+    fallback: false,
+    portConflict: null,
+  });
 }
 
 export function setMcpConfig(enabled: boolean, port: number): Promise<McpStatus> {
@@ -119,6 +127,9 @@ export function setMcpConfig(enabled: boolean, port: number): Promise<McpStatus>
     port,
     running: false,
     url: null,
+    boundPort: null,
+    fallback: false,
+    portConflict: null,
   });
 }
 

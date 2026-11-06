@@ -33,12 +33,14 @@ export interface SdcppOption {
   note: string;
   /** 平台有没有这份构建（Windows 上 CUDA 恒为 true）。 */
   available: boolean;
-  /** 本机能不能跑：CUDA 要求 NVIDIA 显卡，Metal 要求 Apple Silicon。 */
+  /** 本机能不能跑：CUDA 要求 NVIDIA 显卡，ROCm 要求 AMD 显卡，Metal 要求 Apple Silicon。 */
   usable: boolean;
   /** 本机最优选择（与装没装无关）。 */
   recommended: boolean;
   installed: boolean;
   bytes: number;
+  /** 选它要下载哪一份构建（macOS 的 CPU 复用 Metal 包）。 */
+  downloadId: string;
 }
 
 export interface SdcppInfo {

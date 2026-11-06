@@ -4,7 +4,8 @@
 //! - 工具面由 `tools` 统一提供，和内置剪辑智能体共用。
 //! - 只监听 `127.0.0.1`；不引入额外鉴权，和 ai-daw 的安全模型一致。
 
-use std::net::SocketAddr;
+use std::io::ErrorKind;
+use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -26,6 +27,13 @@ use crate::tools;
 
 pub const DEFAULT_MCP_PORT: u16 = 50563;
 
+/// 停服时等 axum 退出（监听 socket 关闭）的上限；正常是毫秒级。
+const STOP_WAIT: Duration = Duration::from_secs(2);
+
+/// 固定端口绑不上时的重试窗口：留给**自己上一轮**的监听收尾，不是等别的进程让出端口。
+const BUSY_RETRIES: u32 = 30;
+const BUSY_INTERVAL: Duration = Duration::from_millis(50);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct McpConfig {
@@ -42,17 +50,66 @@ impl Default for McpConfig {
     }
 }
 
+/// 配置端口没绑上、退回系统临时端口的原因。
+///
+/// 前端据此给出一句人话（而不是只把端口悄悄换掉，让人拿着旧地址去配客户端）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PortConflict {
+    /// 端口被别的进程占着（也可能是同一台机器上的另一个 AI Cut 实例）。
+    Busy,
+    /// 端口被系统保留 / 当前用户无权限（Windows 排除端口区、1024 以下的特权端口）。
+    Denied,
+}
+
+impl PortConflict {
+    fn reason(self) -> &'static str {
+        match self {
+            PortConflict::Busy => "已被其他程序占用",
+            PortConflict::Denied => "被系统保留或没有权限",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct McpStatus {
-    pub enabled: bool,
+    /// 配置里写的端口（用户填的；下次启动还会先试它）。
     pub port: u16,
+    pub enabled: bool,
     pub running: bool,
+    /// 实际接入地址，形如 `http://127.0.0.1:50563/mcp`；未运行时为 `None`。
     pub url: Option<String>,
+    /// 实际监听的端口；未运行时为 `None`。配置端口被占用时它会和 `port` 不同。
+    #[serde(rename = "boundPort")]
+    pub bound_port: Option<u16>,
+    /// 实际端口 ≠ 配置端口，说明本次运行退回了系统临时端口。
+    pub fallback: bool,
+    /// 退回临时端口的原因；没退回时为 `None`。
+    #[serde(rename = "portConflict")]
+    pub port_conflict: Option<PortConflict>,
+}
+
+impl McpStatus {
+    fn stopped(config: &McpConfig) -> Self {
+        Self {
+            enabled: config.enabled,
+            port: config.port,
+            running: false,
+            url: None,
+            bound_port: None,
+            fallback: false,
+            port_conflict: None,
+        }
+    }
 }
 
 struct Running {
     addr: SocketAddr,
+    /// 本次监听是否退回了临时端口；`None` 表示用的是配置端口。
+    conflict: Option<PortConflict>,
     cancel: CancellationToken,
+    /// serve 任务真正退出（监听 socket 已关闭）后收到 `()`；`stop` 用它避免重启抢跑。
+    done: Option<std::sync::mpsc::Receiver<()>>,
 }
 
 struct Inner {
@@ -109,21 +166,21 @@ impl McpRuntime {
 
     pub fn status(&self) -> McpStatus {
         let Ok(inner) = self.inner.lock() else {
-            return McpStatus {
+            // 锁中毒（某次 panic 发生在持锁期间）：按「没开」报，别把界面显示成「已启用但没监听」。
+            return McpStatus::stopped(&McpConfig {
                 enabled: false,
                 port: DEFAULT_MCP_PORT,
-                running: false,
-                url: None,
-            };
+            });
         };
+        let running = inner.running.as_ref();
         McpStatus {
             enabled: inner.config.enabled,
             port: inner.config.port,
-            running: inner.running.is_some(),
-            url: inner
-                .running
-                .as_ref()
-                .map(|running| format!("http://{}/mcp", running.addr)),
+            running: running.is_some(),
+            url: running.map(|running| format!("http://{}/mcp", running.addr)),
+            bound_port: running.map(|running| running.addr.port()),
+            fallback: running.is_some_and(|running| running.conflict.is_some()),
+            port_conflict: running.and_then(|running| running.conflict),
         }
     }
 
@@ -157,26 +214,25 @@ impl McpRuntime {
             }
         }
 
-        let config = self
+        let port = self
             .inner
             .lock()
             .map_err(|_| "MCP 状态锁失败".to_string())?
             .config
-            .clone();
+            .port;
 
-        let listener = match bind_loopback(config.port) {
-            Ok(listener) => listener,
-            Err(error) if config.port != 0 => {
-                eprintln!("[mcp] 端口 {} 不可用（{error}），改用临时端口", config.port);
-                bind_loopback(0).map_err(|error| format!("绑定回环端口失败：{error}"))?
-            }
-            Err(error) => return Err(format!("绑定回环端口失败：{error}")),
-        };
+        // 上一轮可能留下一个指向已死地址的发现文件；绑定成功后再写新的。
+        // 否则启动失败时，外部 harness 会拿着旧地址一直重连。
+        remove_file(&self.url_path);
+
+        // 首选配置端口；被占用 / 被系统保留时退回系统临时端口，并记下原因给界面。
+        let (listener, conflict) = bind_preferred(port).map_err(|error| error.message())?;
         let addr = listener
             .local_addr()
             .map_err(|error| format!("读取监听地址失败：{error}"))?;
 
         let cancel = CancellationToken::new();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
         {
             let mut inner = self
                 .inner
@@ -184,11 +240,19 @@ impl McpRuntime {
                 .map_err(|_| "MCP 状态锁失败".to_string())?;
             inner.running = Some(Running {
                 addr,
+                conflict,
                 cancel: cancel.clone(),
+                done: Some(done_rx),
             });
         }
         if let Err(error) = write_file(&self.url_path, &format!("http://{addr}/mcp")) {
             eprintln!("[mcp] 写入发现文件失败：{error}");
+        }
+        if let Some(conflict) = conflict {
+            eprintln!(
+                "[mcp] 端口 {port} {}，本次运行改用临时端口 {addr}（外部客户端请读 mcp-url）",
+                conflict.reason()
+            );
         }
 
         let app = self.app.clone();
@@ -199,6 +263,8 @@ impl McpRuntime {
                 Ok(listener) => listener,
                 Err(error) => {
                     eprintln!("[mcp] 转换监听器失败：{error}");
+                    // 提前返回也要通知 stop()，否则它会把 2 秒的等待窗口用完。
+                    let _ = done_tx.send(());
                     return;
                 }
             };
@@ -220,6 +286,8 @@ impl McpRuntime {
             {
                 eprintln!("[mcp] 服务退出：{error}");
             }
+            // 走到这里监听 socket 已经关闭；停服 / 换端口重启可以安全地重绑同一端口了。
+            let _ = done_tx.send(());
         });
         Ok(())
     }
@@ -232,6 +300,11 @@ impl McpRuntime {
             .and_then(|mut inner| inner.running.take());
         if let Some(running) = running {
             running.cancel.cancel();
+            // 等 axum 真正退出：只 cancel 就返回的话，紧跟着的「关 → 开」会撞上自己上一轮的
+            // 监听，被误判成「端口被占用」而白白退回临时端口。
+            if let Some(done) = running.done {
+                let _ = done.recv_timeout(STOP_WAIT);
+            }
         }
         remove_file(&self.url_path);
     }
@@ -254,21 +327,137 @@ impl McpRuntime {
     }
 }
 
-fn bind_loopback(port: u16) -> std::io::Result<std::net::TcpListener> {
-    let mut last_error = None;
-    for _ in 0..20 {
-        match std::net::TcpListener::bind(("127.0.0.1", port)) {
+/// 绑定回环地址失败的原因。区分它俩是为了：占用值得等一小会儿（可能是自己上一轮还没退干净），
+/// 系统保留 / 权限不足则一次都不用重试。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BindFailure {
+    Busy,
+    Denied,
+    Failed,
+}
+
+impl BindFailure {
+    fn conflict(self) -> Option<PortConflict> {
+        match self {
+            BindFailure::Busy => Some(PortConflict::Busy),
+            BindFailure::Denied => Some(PortConflict::Denied),
+            BindFailure::Failed => None,
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            BindFailure::Busy => "端口已被占用（可能是另一个 AI Cut 实例或别的程序）；关掉它，或换一个端口",
+            BindFailure::Denied => {
+                "该端口被系统保留或当前用户没有权限（Windows 的 Hyper-V/WSL 排除端口区、1024 以下的特权端口）；换到 20000–49151 之间"
+            }
+            BindFailure::Failed => "无法绑定回环地址",
+        }
+    }
+}
+
+#[derive(Debug)]
+struct BindError {
+    failure: BindFailure,
+    port: u16,
+    detail: String,
+}
+
+impl BindError {
+    fn message(&self) -> String {
+        format!(
+            "监听 127.0.0.1:{} 失败：{}（{}）",
+            self.port,
+            self.detail,
+            self.failure.hint()
+        )
+    }
+}
+
+/// 先试配置端口；被占用 / 被系统保留时退回系统临时端口，并把原因带回给界面。
+///
+/// 退回只是**本次运行**的行为：`mcp.json` 里仍保留用户填的端口，下次启动会再试一次。
+fn bind_preferred(port: u16) -> Result<(TcpListener, Option<PortConflict>), BindError> {
+    bind_preferred_with(port, BUSY_RETRIES, BUSY_INTERVAL)
+}
+
+fn bind_preferred_with(
+    port: u16,
+    attempts: u32,
+    interval: Duration,
+) -> Result<(TcpListener, Option<PortConflict>), BindError> {
+    match bind_loopback_with(port, attempts, interval) {
+        Ok(listener) => Ok((listener, None)),
+        Err(error) if port != 0 && error.failure != BindFailure::Failed => {
+            let listener = bind_loopback_with(0, 1, interval).map_err(|fallback| BindError {
+                failure: fallback.failure,
+                port: 0,
+                detail: format!(
+                    "配置端口 {port} 不可用（{}），临时端口也绑不上：{}",
+                    error.detail, fallback.detail
+                ),
+            })?;
+            Ok((listener, error.failure.conflict()))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn bind_loopback_with(
+    port: u16,
+    attempts: u32,
+    interval: Duration,
+) -> Result<TcpListener, BindError> {
+    let attempts = attempts.max(1);
+    let mut last: Option<std::io::Error> = None;
+    for attempt in 0..attempts {
+        match TcpListener::bind(("127.0.0.1", port)) {
             Ok(listener) => {
-                listener.set_nonblocking(true)?;
+                listener.set_nonblocking(true).map_err(|error| BindError {
+                    failure: BindFailure::Failed,
+                    port,
+                    detail: error.to_string(),
+                })?;
                 return Ok(listener);
             }
             Err(error) => {
-                last_error = Some(error);
-                std::thread::sleep(Duration::from_millis(50));
+                let failure = classify_bind_error(&error);
+                // 只有「占用」值得等：系统保留端口不会自己让出来。
+                if failure != BindFailure::Busy {
+                    return Err(BindError {
+                        failure,
+                        port,
+                        detail: error.to_string(),
+                    });
+                }
+                last = Some(error);
+                if attempt + 1 < attempts {
+                    std::thread::sleep(interval);
+                }
             }
         }
     }
-    Err(last_error.unwrap_or_else(|| std::io::Error::other("未知绑定错误")))
+    Err(BindError {
+        failure: BindFailure::Busy,
+        port,
+        detail: last
+            .map(|error| error.to_string())
+            .unwrap_or_else(|| "端口一直处于占用状态".to_string()),
+    })
+}
+
+fn classify_bind_error(error: &std::io::Error) -> BindFailure {
+    match error.kind() {
+        ErrorKind::AddrInUse => BindFailure::Busy,
+        ErrorKind::PermissionDenied | ErrorKind::AddrNotAvailable => BindFailure::Denied,
+        // Windows 上个别 Win32 错误会落到 Uncategorized：10048 = WSAEADDRINUSE，
+        // 10013 = WSAEACCES（绑定排除端口区就是这个）。
+        _ => match error.raw_os_error() {
+            Some(10048) => BindFailure::Busy,
+            Some(10013) => BindFailure::Denied,
+            _ => BindFailure::Failed,
+        },
+    }
 }
 
 fn write_file(path: &Option<PathBuf>, text: &str) -> Result<(), String> {
@@ -400,12 +589,89 @@ async fn call_tool(state: &McpServerState, params: Value) -> Result<Value, Value
 
 #[cfg(test)]
 mod tests {
-    use super::McpConfig;
+    use super::*;
 
     #[test]
     fn mcp_config_defaults() {
         let config = McpConfig::default();
         assert!(config.enabled);
-        assert_eq!(config.port, super::DEFAULT_MCP_PORT);
+        assert_eq!(config.port, DEFAULT_MCP_PORT);
+    }
+
+    /// 端口被别的 socket 占着：分类成`占用`，且不会把整个重试窗口耗光。
+    #[test]
+    fn busy_port_is_reported_as_busy() {
+        let held = TcpListener::bind(("127.0.0.1", 0)).expect("先占一个回环端口");
+        let port = held.local_addr().unwrap().port();
+
+        let started = std::time::Instant::now();
+        let error = bind_loopback_with(port, 3, Duration::from_millis(5)).unwrap_err();
+
+        assert_eq!(error.failure, BindFailure::Busy);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(error.message().contains("占用"), "{}", error.message());
+    }
+
+    /// 配置端口被占用时仍然起得来：退回临时端口，并把原因标出来。
+    #[test]
+    fn falls_back_to_ephemeral_port() {
+        let held = TcpListener::bind(("127.0.0.1", 0)).expect("先占一个回环端口");
+        let port = held.local_addr().unwrap().port();
+
+        let (listener, conflict) =
+            bind_preferred_with(port, 2, Duration::from_millis(5)).expect("占用时应该退回临时端口");
+
+        assert_eq!(conflict, Some(PortConflict::Busy));
+        let bound = listener.local_addr().unwrap().port();
+        assert_ne!(bound, 0);
+        assert_ne!(bound, port);
+    }
+
+    /// 端口填 0（自动分配）时不算冲突：前端不该弹「端口被占用」。
+    #[test]
+    fn ephemeral_config_is_not_a_conflict() {
+        let (listener, conflict) = bind_preferred_with(0, 1, Duration::from_millis(1)).unwrap();
+        assert_eq!(conflict, None);
+        assert_ne!(listener.local_addr().unwrap().port(), 0);
+    }
+
+    /// 权限 / 系统保留类错误不重试：立刻返回，不能让人干等 1.5 秒。
+    #[test]
+    fn classifies_bind_errors() {
+        let denied = std::io::Error::from(ErrorKind::PermissionDenied);
+        let busy = std::io::Error::from(ErrorKind::AddrInUse);
+        assert_eq!(classify_bind_error(&denied), BindFailure::Denied);
+        assert_eq!(classify_bind_error(&busy), BindFailure::Busy);
+        assert_eq!(BindFailure::Denied.conflict(), Some(PortConflict::Denied));
+        assert_eq!(BindFailure::Failed.conflict(), None);
+    }
+
+    /// 状态字段是前端契约：实际端口 / 退回标记 / 原因都得露出来。
+    #[test]
+    fn status_exposes_bound_port_and_conflict() {
+        let status = McpStatus {
+            enabled: true,
+            port: 50563,
+            running: true,
+            url: Some("http://127.0.0.1:60001/mcp".into()),
+            bound_port: Some(60001),
+            fallback: true,
+            port_conflict: Some(PortConflict::Busy),
+        };
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["boundPort"], 60001);
+        assert_eq!(json["fallback"], true);
+        assert_eq!(json["portConflict"], "busy");
+        assert_eq!(json["port"], 50563);
+    }
+
+    /// 停着的状态没有实际端口，前端看到的是「未监听」而不是 0。
+    #[test]
+    fn stopped_status_has_no_bound_port() {
+        let status = McpStatus::stopped(&McpConfig::default());
+        assert!(!status.running);
+        assert_eq!(status.bound_port, None);
+        assert!(!status.fallback);
+        assert_eq!(status.port_conflict, None);
     }
 }

@@ -825,6 +825,10 @@ fn run(
         .arg(&files.dit)
         .arg("--vae")
         .arg(&files.vae);
+    // macOS 的 CPU 是「Metal 包 + 强制 CPU」：不传这一条，包里默认走 Metal。
+    if let Some(backend) = sdcpp::backend_arg(sdcpp::effective_device(app)) {
+        command.arg("--backend").arg(backend);
+    }
     // Wan2.2 A14B：high noise 专家先跑，low noise 收尾。
     if let Some(high) = &files.dit_high {
         command.arg("--high-noise-diffusion-model").arg(high);
