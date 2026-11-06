@@ -15,18 +15,13 @@ import {
   ArrowDownTrayIcon,
 } from "@heroicons/vue/24/outline";
 import type { AssetKind, Clip, ClipTextStyle, MediaAsset } from "@/types/project";
-import {
-  importAssetAt,
-  pickMediaFiles,
-  pickSubtitleFile,
-  pickSubtitleSavePath,
-} from "@/core/media";
+import { pickSubtitleFile, pickSubtitleSavePath } from "@/core/media";
 import {
   collectSubtitleEntries,
   exportSubtitlesToFile,
   importSubtitlesFromFile,
 } from "@/core/subtitleActions";
-import { addAsset, addClip, addTrack, removeAsset, setClipTextStyle } from "@/core/ops";
+import { addClip, addTrack, removeAsset, setClipTextStyle } from "@/core/ops";
 import { createClip } from "@/core/factory";
 import { assetThumbnailUrl } from "@/core/thumbnails";
 import { snapToFrame } from "@/core/time";
@@ -39,6 +34,7 @@ import { useLayoutStore } from "@/stores/layout";
 import { useTextPresetsStore } from "@/stores/textPresets";
 import { toast } from "@/composables/useToast";
 import { confirm } from "@/composables/useConfirm";
+import { useMediaImport } from "@/composables/useMediaImport";
 import { useI18n } from "@/i18n";
 
 const project = useProjectStore();
@@ -46,6 +42,7 @@ const playback = usePlaybackStore();
 const selection = useSelectionStore();
 const layout = useLayoutStore();
 const textPresets = useTextPresetsStore();
+const { importing, importMedia } = useMediaImport();
 const i18n = useI18n();
 
 /** 图片 / 文字的默认插入时长（秒）。 */
@@ -168,7 +165,6 @@ type LibraryEntry =
 
 const activeFilter = ref<FilterId>("all");
 const query = ref("");
-const importing = ref(false);
 
 const entries = computed<LibraryEntry[]>(() => {
   const keyword = query.value.trim().toLowerCase();
@@ -244,31 +240,6 @@ function infoLabel(asset: MediaAsset): string {
 function textDuration(): string {
   const total = Math.round(TEXT_PRESET_SECONDS);
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-}
-
-async function importMedia(): Promise<void> {
-  if (importing.value) return;
-  const paths = await pickMediaFiles();
-  if (paths.length === 0) return;
-
-  importing.value = true;
-  let added = 0;
-  for (const path of paths) {
-    try {
-      const asset = await importAssetAt(path);
-      project.dispatch((doc) => addAsset(doc, asset));
-      added += 1;
-    } catch (error) {
-      toast(
-        i18n.t("media.importFailed", {
-          error: error instanceof Error ? error.message : String(error),
-        }),
-        "error",
-      );
-    }
-  }
-  importing.value = false;
-  if (added > 0) toast(i18n.t("media.imported", { count: added }));
 }
 
 const subtitleBusy = ref(false);
@@ -404,7 +375,7 @@ async function onDeletePreset(preset: TextPreset): Promise<void> {
 </script>
 
 <template>
-  <div class="pane">
+  <div class="pane" data-tour="media">
     <header class="pane-head">
       <div>
         <h2 class="pane-title">{{ i18n.t("media.title") }}</h2>
@@ -440,7 +411,7 @@ async function onDeletePreset(preset: TextPreset): Promise<void> {
           class="import-pill"
           :disabled="importing"
           :aria-label="i18n.t('media.import')"
-          @click="importMedia"
+          @click="importMedia()"
         >
           <PlusIcon class="w-[15px] h-[15px]" />
           <span>{{ importing ? i18n.t("media.importing") : i18n.t("media.import") }}</span>
@@ -477,12 +448,13 @@ async function onDeletePreset(preset: TextPreset): Promise<void> {
         }}
       </p>
 
-      <div class="grid">
-        <template v-for="entry in entries" :key="entry.key">
+      <div class="grid anim-stagger">
+        <template v-for="(entry, index) in entries" :key="entry.key">
           <article
             v-if="entry.type === 'asset'"
             class="asset"
             :class="{ offline: entry.asset.offline }"
+            :style="{ '--i': index }"
             draggable="true"
             @dragstart="onDragStart($event, entry.asset)"
             @dragend="onDragEnd"
@@ -516,6 +488,7 @@ async function onDeletePreset(preset: TextPreset): Promise<void> {
           <article
             v-else
             class="asset"
+            :style="{ '--i': index }"
             draggable="true"
             @dragstart="onTextDragStart($event, entry.preset)"
             @dragend="onDragEnd"

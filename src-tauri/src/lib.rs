@@ -42,7 +42,15 @@ use tauri::Manager;
 /// 窗口在配置里是 `create: false`，因此由这里显式创建，才能在构建器上改标题栏样式。
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
     let config = &app.config().app.windows[0];
-    let mut builder = tauri::WebviewWindowBuilder::from_config(app, config)?;
+    let mut builder = tauri::WebviewWindowBuilder::from_config(app, config)?.on_page_load(
+        |window, payload| {
+            // 配置里是 `visible: false`：页面真的加载完再显示，避免用户先看到一块
+            // 「只有底色」的黑屏。前端首帧就绪时还会调一次 `app_ready`（幂等）。
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                let _ = window.show();
+            }
+        },
+    );
 
     #[cfg(target_os = "macos")]
     {
@@ -59,6 +67,18 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWind
     builder.build()
 }
 
+/// 前端首帧已经画好：把窗口显示出来。
+///
+/// 正常路径下窗口在 webview 加载完成时已经显示过；这里再兜一次（幂等），
+/// 也覆盖「前端先调、加载事件后到」的顺序。
+#[tauri::command]
+fn app_ready(window: tauri::WebviewWindow) {
+    if window.label() != "main" {
+        return;
+    }
+    let _ = window.show();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 数据目录必须在**任何路径解析之前**定下来：模型、运行时、插件、历史都按它落盘。
@@ -71,6 +91,7 @@ pub fn run() {
         .manage(export::ExportState::default())
         .manage(video_dsp::VideoDspState::default())
         .invoke_handler(tauri::generate_handler![
+            app_ready,
             paths::data_dir_info,
             paths::data_dir_migrate,
             paths::data_dir_cleanup_previous,
@@ -264,6 +285,19 @@ pub fn run() {
             cli::publish_path(app.handle());
 
             build_main_window(app.handle())?;
+            // 页面万一没起来（dev server 没起、前端脚本报错），也不能永远不出窗口：
+            // 6 秒后兜底显示。正常的显示由 webview 加载完成 / 前端 `app_ready` 触发。
+            {
+                let handle = app.handle().clone();
+                let _ = std::thread::Builder::new()
+                    .name("ai-cut-window-fallback".into())
+                    .spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(6));
+                        if let Some(window) = handle.get_webview_window("main") {
+                            let _ = window.show();
+                        }
+                    });
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -27,6 +27,8 @@ import { humanSize, missingBytes } from "@/utils/size";
 import { appRestart } from "@/core/runtimeApi";
 import { toast } from "@/composables/useToast";
 import { regionsLabel, sourceKindLabel } from "@/utils/modelSource";
+import { isRestrictedLicense, licenseTier } from "@/utils/modelLicense";
+import { confirm } from "@/composables/useConfirm";
 import type { ModelSourceStatus } from "@/types/models";
 import type { PluginStatus } from "@/types/plugins";
 
@@ -141,7 +143,35 @@ function summary(model: { total_files: number; installed_files: number; files: {
   });
 }
 
+/** 卡片上的许可徽标：只给「宽松许可之外」的模型显示。 */
+function licenseBadge(license: string): string {
+  return i18n.t(`models.licenseTier.${licenseTier(license)}`);
+}
+
+/** 徽标悬停说明：一句话讲清这类许可最重要的限制。 */
+function licenseHint(license: string): string {
+  return i18n.t(`models.licenseHint.${licenseTier(license)}`);
+}
+
+function isNcLicense(license: string): boolean {
+  return licenseTier(license) === "noncommercial";
+}
+
 async function download(id: string): Promise<void> {
+  const model = models.catalog.find((entry) => entry.id === id);
+  // 受限许可（社区 / RAIL / 非商业 / 上游未声明）下载前先确认一次：
+  // 用户点「下载」时就应该知道这不是一个随便能商用的权重。
+  if (model && isRestrictedLicense(model.license)) {
+    const accepted = await confirm({
+      title: i18n.t("models.licenseConfirmTitle", { name: model.name }),
+      message: i18n.t("models.licenseConfirmMessage", {
+        license: model.license,
+        note: licenseHint(model.license),
+      }),
+      confirmText: i18n.t("models.licenseConfirmOk"),
+    });
+    if (!accepted) return;
+  }
   try {
     await models.download(id);
   } catch {
@@ -669,6 +699,15 @@ onUnmounted(() => {
         <div class="card-top">
           <span class="card-name">{{ model.name }}</span>
           <span class="badge">{{ featureLabel(model.feature) }}</span>
+          <!-- 受限许可（社区 / RAIL / 非商业 / 上游条款）：下载前就该看见 -->
+          <span
+            v-if="isRestrictedLicense(model.license)"
+            class="badge license"
+            :class="{ nc: isNcLicense(model.license) }"
+            :title="licenseHint(model.license)"
+          >
+            {{ licenseBadge(model.license) }}
+          </span>
           <span v-if="model.recommended" class="badge on">
             {{ i18n.t("models.recommended") }}
           </span>
@@ -1138,6 +1177,15 @@ onUnmounted(() => {
   color: rgb(var(--md-primary));
 }
 .badge.warn {
+  background-color: rgb(var(--md-error) / 0.12);
+  color: rgb(var(--md-error));
+}
+/* 受限许可：社区 / RAIL / 上游条款用 tertiary，仅限非商业用 error 色 */
+.badge.license {
+  background-color: rgb(var(--md-tertiary) / 0.16);
+  color: rgb(var(--md-tertiary));
+}
+.badge.license.nc {
   background-color: rgb(var(--md-error) / 0.12);
   color: rgb(var(--md-error));
 }

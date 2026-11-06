@@ -30,6 +30,7 @@ import { fileUrl, pickExportPath } from "@/core/media";
 import { renderFrame } from "@/core/export/frame";
 import { safeFileName } from "@/core/export/escape";
 import { toast } from "@/composables/useToast";
+import { useMediaImport } from "@/composables/useMediaImport";
 import { formatTimecode } from "@/core/time";
 import { containSize } from "@/core/transform";
 import { clipColorCss } from "@/core/clipColor";
@@ -87,6 +88,7 @@ const playback = usePlaybackStore();
 const effectRender = useEffectRenderStore();
 const selection = useSelectionStore();
 const layout = useLayoutStore();
+const { importing, importMedia } = useMediaImport();
 const i18n = useI18n();
 const frameBusy = ref(false);
 
@@ -1683,6 +1685,7 @@ watch(
   <section
     ref="previewEl"
     class="preview"
+    data-tour="preview"
     :class="{ portrait: layout.layoutMode === 'portrait' }"
   >
     <header class="preview-head">
@@ -1768,7 +1771,46 @@ watch(
           />
 
           <div v-if="projectIsEmpty" class="black-frame">
-            <span>{{ i18n.t("preview.importHint") }}</span>
+            <div class="empty-coach">
+              <svg class="coach-art" viewBox="0 0 180 90" aria-hidden="true" focusable="false">
+                <rect
+                  x="10"
+                  y="20"
+                  width="160"
+                  height="52"
+                  rx="12"
+                  fill="none"
+                  stroke="rgba(255,255,255,0.28)"
+                  stroke-width="1.5"
+                  stroke-dasharray="7 6"
+                />
+                <g fill="rgba(255,255,255,0.2)">
+                  <rect x="30" y="42" width="3" height="24" rx="1.5" />
+                  <rect x="43" y="49" width="3" height="20" rx="1.5" />
+                  <rect x="56" y="38" width="3" height="28" rx="1.5" />
+                  <rect x="69" y="46" width="3" height="22" rx="1.5" />
+                  <rect x="82" y="52" width="3" height="18" rx="1.5" />
+                  <rect x="95" y="40" width="3" height="26" rx="1.5" />
+                  <rect x="108" y="48" width="3" height="20" rx="1.5" />
+                  <rect x="121" y="36" width="3" height="30" rx="1.5" />
+                  <rect x="134" y="46" width="3" height="22" rx="1.5" />
+                  <rect x="147" y="50" width="3" height="18" rx="1.5" />
+                </g>
+                <circle cx="90" cy="46" r="16" fill="rgba(255,255,255,0.12)" />
+                <path d="M85 39l13 7-13 7z" fill="rgba(255,255,255,0.75)" />
+              </svg>
+              <p class="coach-title">{{ i18n.t("preview.emptyTitle") }}</p>
+              <p class="coach-sub">{{ i18n.t("preview.emptySub") }}</p>
+              <div class="coach-actions">
+                <button class="coach-primary" :disabled="importing" @click="importMedia()">
+                  {{ importing ? i18n.t("media.importing") : i18n.t("media.import") }}
+                </button>
+                <button class="coach-ghost" @click="layout.openTab('ai')">
+                  {{ i18n.t("preview.emptyAi") }}
+                </button>
+              </div>
+              <p class="coach-note">{{ i18n.t("preview.emptyNote") }}</p>
+            </div>
           </div>
         </div>
 
@@ -2118,9 +2160,98 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;
   color: rgb(255 255 255 / 0.42);
   font-size: 12px;
   pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgb(103 80 164 / 0.22), transparent 65%),
+    #000;
+}
+.empty-coach {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 360px;
+  text-align: center;
+  pointer-events: auto;
+  animation: m3-rise var(--md-duration-medium-2) var(--md-ease-emphasized-decel) both;
+}
+.coach-art {
+  width: min(190px, 64%);
+  height: auto;
+  margin-bottom: 6px;
+  opacity: 0.9;
+}
+.coach-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  color: rgb(255 255 255 / 0.94);
+}
+.coach-sub {
+  margin: 5px 0 14px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: rgb(255 255 255 / 0.62);
+}
+.coach-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.coach-primary,
+.coach-ghost {
+  height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform var(--md-duration-short-2) var(--md-ease-standard),
+    filter var(--md-duration-short-2) var(--md-ease-standard),
+    background-color var(--md-duration-short-2) var(--md-ease-standard);
+}
+.coach-primary {
+  background-color: rgb(var(--md-primary));
+  color: rgb(var(--md-on-primary));
+  box-shadow: 0 2px 12px -3px rgb(var(--md-primary) / 0.7);
+}
+.coach-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+.coach-primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.coach-ghost {
+  background-color: rgb(255 255 255 / 0.12);
+  color: rgb(255 255 255 / 0.9);
+}
+.coach-ghost:hover {
+  background-color: rgb(255 255 255 / 0.18);
+}
+.coach-primary:active,
+.coach-ghost:active {
+  transform: scale(0.97);
+}
+.coach-primary:focus-visible,
+.coach-ghost:focus-visible {
+  outline: 2px solid rgb(var(--md-primary));
+  outline-offset: 2px;
+}
+.coach-note {
+  margin: 12px 0 0;
+  font-size: 10.5px;
+  color: rgb(255 255 255 / 0.42);
 }
 
 /* ---- 选择框 ---- */

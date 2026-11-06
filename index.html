@@ -5,10 +5,91 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Cut</title>
+    <style>
+      /* 启动占位：窗口在页面加载完成之前是隐藏的；一旦显示而 Vue 还没挂载，
+         用户看到的就是一块纯色。给它品牌标记 + 呼吸点，至少能区分「正在启动」
+         和「卡死」。样式必须内联：它要在 main.css 之前生效，`#app` 会在挂载时被清空。 */
+      .boot {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 22px;
+        color: #6750a4;
+      }
+      html.dark .boot {
+        color: #d0bcff;
+      }
+      .boot-mark {
+        width: 58px;
+        height: 58px;
+        border-radius: 18px;
+        box-shadow: 0 12px 34px -12px rgba(103, 80, 164, 0.55);
+        animation: boot-breathe 2s ease-in-out infinite;
+      }
+      .boot-dots {
+        display: flex;
+        gap: 6px;
+      }
+      .boot-dots span {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background-color: currentColor;
+        opacity: 0.35;
+        animation: boot-pulse 1.2s ease-in-out infinite;
+      }
+      .boot-dots span:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+      .boot-dots span:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+      @keyframes boot-breathe {
+        0%,
+        100% {
+          opacity: 0.85;
+          transform: scale(0.97);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+      @keyframes boot-pulse {
+        0%,
+        100% {
+          opacity: 0.25;
+        }
+        50% {
+          opacity: 0.9;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-mark,
+        .boot-dots span {
+          animation: none;
+        }
+      }
+    </style>
   </head>
 
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="boot" role="status" aria-label="AI Cut">
+        <svg class="boot-mark" viewBox="0 0 1024 1024" aria-hidden="true">
+          <rect width="1024" height="1024" rx="232" fill="#6750A4" />
+          <rect x="200" y="242" width="120" height="540" rx="60" fill="#FFB74D" />
+          <path
+            d="M 404 337.247 L 404 686.753 Q 404 782 484.119 730.495 L 755.958 555.741 Q 824 512 755.958 468.259 L 484.119 293.505 Q 404 242 404 337.247 Z"
+            fill="#FFFFFF"
+          />
+        </svg>
+        <div class="boot-dots"><span></span><span></span><span></span></div>
+      </div>
+    </div>
     <script>
       // 在样式加载前先把底色铺上：否则窗口打开时会先闪一帧白。
       // 这段判断必须与 `composables/useTheme` 保持一致（同一个 localStorage 键、同一个默认值）。
@@ -19,6 +100,8 @@
             mode === "dark" ||
             (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
           document.documentElement.style.backgroundColor = dark ? "#1c1b1f" : "#fef7ff";
+          // 启动占位的配色也跟着主题走（`initTheme` 挂载后会再设一次同样的值）。
+          document.documentElement.classList.toggle("dark", dark);
         } catch (e) {
           /* 隐私模式读不到 localStorage：留着浏览器默认底色就好 */
         }

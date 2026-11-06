@@ -7,6 +7,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ArrowLeftIcon } from "@heroicons/vue/24/outline";
 import NumberField from "@/components/common/NumberField.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
+import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
 import ComboField from "@/components/common/ComboField.vue";
 import {
@@ -27,6 +28,7 @@ import {
   type SettingsSection,
 } from "@/stores/layout";
 import { useProjectStore } from "@/stores/project";
+import { useOnboardingStore } from "@/stores/onboarding";
 import { useAgentStore } from "@/stores/agent";
 import { useModelsStore } from "@/stores/models";
 import { useRuntimesStore } from "@/stores/runtimes";
@@ -168,6 +170,7 @@ const APP_VERSION = "0.2.3";
 
 const i18n = useI18n();
 const layout = useLayoutStore();
+const onboarding = useOnboardingStore();
 const runtimes = useRuntimesStore();
 const sdcpp = useSdcppStore();
 const downloads = useDownloadsStore();
@@ -1964,6 +1967,12 @@ function back(): void {
   layout.closeSettings();
 }
 
+/** 重看引导：先回到工作区，等界面切换完再量锚点（设置页里没有那些区域）。 */
+function replayTour(): void {
+  layout.closeSettings();
+  window.setTimeout(() => onboarding.startTour(), 260);
+}
+
 onMounted(() => {
   void updater.loadVersion();
   void loadAgent();
@@ -2049,6 +2058,32 @@ onUnmounted(() => {
                     {{ l.label }}
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.startup") }}</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.welcome.label") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.welcome.hint") }}</span>
+                </div>
+                <ToggleSwitch
+                  :model-value="onboarding.welcomeOnStart"
+                  :label="i18n.t('settings.welcome.label')"
+                  @update:model-value="onboarding.setWelcomeOnStart"
+                />
+              </div>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.welcome.replay") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.welcome.replayHint") }}</span>
+                </div>
+                <button class="scan-btn" @click="replayTour">
+                  {{ i18n.t("settings.welcome.replayAction") }}
+                </button>
               </div>
             </div>
           </div>
@@ -3538,6 +3573,7 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   background-color: var(--app-card);
+  background-image: var(--app-wash);
 }
 
 /* ---- 设置侧栏 ---- */

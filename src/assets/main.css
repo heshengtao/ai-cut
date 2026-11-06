@@ -79,13 +79,28 @@
     --md-state-focus-alpha: 0.12;
     --md-state-press-alpha: 0.12;
 
-    /* Expressive motion — springs (MD3 Expressive) */
-    --md-spring-fast: 340ms cubic-bezier(0.34, 1.56, 0.64, 1);
-    --md-spring-default: 520ms cubic-bezier(0.34, 1.42, 0.5, 1);
-    --md-spring-slow: 720ms cubic-bezier(0.22, 1.28, 0.36, 1);
+    /* Expressive motion — 弹簧只给缓动曲线，不带时长。
+       时长一律由 --md-duration-* 给：两个时间值相邻时 CSS 会把后者当成 delay。 */
+    --md-ease-spring-fast: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --md-ease-spring-default: cubic-bezier(0.34, 1.42, 0.5, 1);
+    --md-ease-spring-slow: cubic-bezier(0.22, 1.28, 0.36, 1);
     --md-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
     --md-ease-emphasized-decel: cubic-bezier(0.05, 0.7, 0.1, 1);
     --md-ease-emphasized-accel: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+    /* MD3 motion 时序 token：桌面端要「跟手」，整体收紧到 90/130/180/240/320。 */
+    --md-duration-short-1: 90ms;
+    --md-duration-short-2: 130ms;
+    --md-duration-medium-1: 180ms;
+    --md-duration-medium-2: 240ms;
+    --md-duration-long-1: 320ms;
+    --md-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --md-ease-standard-decel: cubic-bezier(0, 0, 0, 1);
+    --md-ease-standard-accel: cubic-bezier(0.3, 0, 1, 1);
+
+    /* 工作区的环境光：两块极淡的径向渐变，让一片同色的面板之间出现层次。 */
+    --app-wash: radial-gradient(1100px 420px at 18% -12%, rgb(var(--md-primary) / 0.05), transparent 68%),
+      radial-gradient(900px 380px at 88% 112%, rgb(var(--md-tertiary) / 0.04), transparent 70%);
 
     color-scheme: light;
   }
@@ -130,6 +145,10 @@
     --app-bg:   rgb(var(--md-surface));
     --app-card: rgb(var(--md-surface-container-high));
     --app-inset: rgb(var(--md-surface-container));
+
+    /* 深色下强调色本身更亮，环境光反而要压低一点，否则整块背景发灰。 */
+    --app-wash: radial-gradient(1100px 420px at 18% -12%, rgb(var(--md-primary) / 0.07), transparent 68%),
+      radial-gradient(900px 380px at 88% 112%, rgb(var(--md-tertiary) / 0.05), transparent 70%);
 
     --md-elevation-1: 0 1px 2px 0 rgba(0 0 0 / 0.3), 0 1px 3px 1px rgba(0 0 0 / 0.15);
     --md-elevation-2: 0 1px 2px 0 rgba(0 0 0 / 0.3), 0 2px 6px 2px rgba(0 0 0 / 0.15);
@@ -746,4 +765,133 @@
 .learn-markdown img {
   max-width: 100%;
   border-radius: 8px;
+}
+
+/* ===== 动效原语 =====
+   只放跨组件复用的几条；组件自己的一次性动画仍写在各自 <style> 里。
+   所有动画只动 opacity / transform，并且都尊重 prefers-reduced-motion。
+
+   这些规则必须留在 @layer 外面：Tailwind v3 的 JIT 会把模板里搜不到的类裁掉，
+   而 `.pane-enter-active` 这类过渡类是 Vue 在运行时才挂上去的。 */
+
+@keyframes m3-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes m3-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes m3-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 块级内容入场：标题、空态卡片、欢迎面板都用它，节奏统一。 */
+.anim-rise {
+  animation: m3-rise var(--md-duration-medium-2) var(--md-ease-emphasized-decel) both;
+}
+
+.anim-fade {
+  animation: m3-fade var(--md-duration-medium-1) var(--md-ease-standard) both;
+}
+
+.anim-pop {
+  animation: m3-pop var(--md-duration-medium-2) var(--md-ease-spring-fast) both;
+}
+
+/* 列表逐项入场：子元素写 `style="--i: 3"`，延迟按序叠加。
+   延迟压在 8 项 × 16ms 以内：再长就成了「等它一个个出来」。 */
+.anim-stagger > * {
+  animation: m3-rise var(--md-duration-medium-1) var(--md-ease-emphasized-decel) both;
+  animation-delay: calc(min(var(--i, 0), 8) * 16ms);
+}
+
+/* 悬停微抬升：卡片、起步入口这类「可以点」的东西用它。
+   表格行、检查器里的行不要用（密集区域会跳）。 */
+.hover-lift {
+  transition:
+    transform var(--md-duration-medium-1) var(--md-ease-standard-decel),
+    box-shadow var(--md-duration-medium-1) var(--md-ease-standard),
+    border-color var(--md-duration-medium-1) var(--md-ease-standard);
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--md-elevation-2);
+}
+.hover-lift:active {
+  transform: translateY(0) scale(0.99);
+}
+
+/* ---- 右侧面板换标签：只淡入 + 轻微上浮，不做横向滑动 ----
+   退场不做过渡：`mode="out-in"` 是串行的，淡出只会让用户多等一段。 */
+.pane-enter-active {
+  transition:
+    opacity var(--md-duration-short-2) var(--md-ease-standard-decel),
+    transform var(--md-duration-short-2) var(--md-ease-emphasized-decel);
+  will-change: opacity, transform;
+}
+.pane-leave-active {
+  transition: none;
+}
+.pane-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+/* ---- 设置页 / 工作区切换：整块内容淡入 ---- */
+.shell-enter-active {
+  transition:
+    opacity var(--md-duration-short-2) var(--md-ease-standard-decel),
+    transform var(--md-duration-short-2) var(--md-ease-emphasized-decel);
+  will-change: opacity, transform;
+}
+.shell-leave-active {
+  transition: none;
+}
+.shell-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-rise,
+  .anim-fade,
+  .anim-pop,
+  .anim-stagger > * {
+    animation: none !important;
+  }
+  .hover-lift,
+  .hover-lift:hover {
+    transition: none;
+    transform: none;
+  }
+  .pane-enter-active,
+  .pane-leave-active,
+  .shell-enter-active,
+  .shell-leave-active {
+    transition-duration: 1ms;
+  }
 }

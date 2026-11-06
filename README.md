@@ -221,7 +221,7 @@ No. The bundled AI models run on CPU; there is no CUDA or driver setup. Larger m
 
 ### Which AI models ship with the app?
 
-Small models ship in the bundle so basic features work immediately. Larger models — speech recognition, TTS, source separation, super resolution, and frame interpolation — download on demand from the in-app model manager and are stored outside the source tree.
+Small models ship in the bundle so basic features work immediately. Larger models — speech recognition, TTS, source separation, super resolution, and frame interpolation — download on demand from the in-app model manager and are stored outside the source tree. Licenses — including the community-licensed video models and the non-commercial FLUX.1 [dev] weights — are listed in [MODELS.md](MODELS.md).
 
 ### Which effect plugin formats are supported?
 
@@ -237,8 +237,19 @@ Yes. `export_video` renders the timeline over MCP — MP4, ProRes, or GIF. `outp
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+The application **code** is Apache-2.0 — see [LICENSE](LICENSE).
+
+Model **weights** are a separate layer: the repository and the installers only carry the
+five small permissive models that ship with the app; everything else is downloaded on
+demand from its publisher and verified against a pinned `sha256`. Each model keeps its
+own license — see **[MODELS.md](MODELS.md)** for the full table, including the community
+licenses (LTX-2, Hunyuan, MiniMax-H3), the CreativeML Open RAIL models, and the
+non-commercial FLUX.1 [dev] weights.
 
 ## Third-Party Licenses
 
-This project builds on third-party open source software. Dependency licenses are declared in `package.json`, `src-tauri/Cargo.toml`, and the manifests under `crates/`. Bundled FFmpeg binaries and AI model weights keep their own upstream licenses; model licenses are collected in `src-tauri/resources/models/LICENSES/`.
+This project builds on third-party open source software. Dependency licenses are declared
+in `package.json`, `src-tauri/Cargo.toml`, and the manifests under `crates/`. Bundled
+FFmpeg binaries keep their own upstream licenses. Model weights — bundled and on-demand,
+with their licenses, sources and restrictions — are listed in [MODELS.md](MODELS.md); the
+verbatim texts for the bundled models are in `src-tauri/resources/models/LICENSES/`.

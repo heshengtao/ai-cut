@@ -37,47 +37,49 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
 
     <TopBar />
 
-    <div v-if="layout.settingsOpen" class="settings-main">
-      <SettingsView />
-    </div>
-
-    <!-- 竖屏：左侧预览（可拖动），右侧上下分栏（上：标签页面板，下：时间线） -->
-    <div v-else-if="layout.layoutMode === 'portrait'" class="app-row portrait">
-      <main class="portrait-preview" :style="{ flexBasis: `${layout.previewRatio * 100}%` }">
-        <PreviewStage />
-      </main>
-
-      <PanelResizer side="left" @resize="layout.resizePreview" />
-
-      <div class="portrait-stack">
-        <div v-if="layout.showPanel" class="portrait-panel-wrap">
-          <RightPanel :style="{ flex: '1 1 auto', width: '100%', height: 'auto', minHeight: 0 }" />
-        </div>
-
-        <template v-if="layout.showPanel && layout.showTimeline">
-          <PanelResizer side="bottom" @resize="layout.resizeTimeline" />
-        </template>
-
-        <TimelinePane v-if="layout.showTimeline" :style="portraitTimelineStyle" />
+    <Transition name="shell" mode="out-in">
+      <div v-if="layout.settingsOpen" key="settings" class="settings-main">
+        <SettingsView />
       </div>
-    </div>
 
-    <div v-else class="app-row">
-      <!-- 中：预览（上）+ 时间线（下） -->
-      <main class="app-main">
-        <PreviewStage />
-        <template v-if="layout.showTimeline">
-          <PanelResizer side="bottom" @resize="layout.resizeTimeline" />
-          <TimelinePane :style="{ height: `${layout.timelineHeight}px` }" />
+      <!-- 竖屏：左侧预览（可拖动），右侧上下分栏（上：标签页面板，下：时间线） -->
+      <div v-else-if="layout.layoutMode === 'portrait'" key="portrait" class="app-row portrait">
+        <main class="portrait-preview" :style="{ flexBasis: `${layout.previewRatio * 100}%` }">
+          <PreviewStage />
+        </main>
+
+        <PanelResizer side="left" @resize="layout.resizePreview" />
+
+        <div class="portrait-stack">
+          <div v-if="layout.showPanel" class="portrait-panel-wrap">
+            <RightPanel :style="{ flex: '1 1 auto', width: '100%', height: 'auto', minHeight: 0 }" />
+          </div>
+
+          <template v-if="layout.showPanel && layout.showTimeline">
+            <PanelResizer side="bottom" @resize="layout.resizeTimeline" />
+          </template>
+
+          <TimelinePane v-if="layout.showTimeline" :style="portraitTimelineStyle" />
+        </div>
+      </div>
+
+      <div v-else key="workspace" class="app-row">
+        <!-- 中：预览（上）+ 时间线（下） -->
+        <main class="app-main">
+          <PreviewStage />
+          <template v-if="layout.showTimeline">
+            <PanelResizer side="bottom" @resize="layout.resizeTimeline" />
+            <TimelinePane :style="{ height: `${layout.timelineHeight}px` }" />
+          </template>
+        </main>
+
+        <!-- 右：标签页面板（全高，标签栏在顶栏里） -->
+        <template v-if="layout.showPanel">
+          <PanelResizer side="right" @resize="layout.resizePanel" />
+          <RightPanel :style="{ width: `${layout.panelWidth}px` }" />
         </template>
-      </main>
-
-      <!-- 右：标签页面板（全高，标签栏在顶栏里） -->
-      <template v-if="layout.showPanel">
-        <PanelResizer side="right" @resize="layout.resizePanel" />
-        <RightPanel :style="{ width: `${layout.panelWidth}px` }" />
-      </template>
-    </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -127,6 +129,7 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
   flex-direction: column;
   overflow: hidden;
   background-color: var(--app-card);
+  background-image: var(--app-wash);
 }
 /* 竖屏左栏：宽度由 previewRatio 控制，拖动分隔线时更新 */
 .portrait-preview {

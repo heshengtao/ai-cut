@@ -106,6 +106,8 @@ export async function restoreLastSession(): Promise<void> {
   try {
     project.reset(await project.markOfflineAssets(session.project), session.path);
     project.dirty = session.dirty;
+    // 欢迎页据此把「打开上次工程」而不是「打开空白工程」作为推荐项。
+    project.restoredFromSession = true;
 
     // 当前工程也放进历史列表，重启后不会只剩一份孤零零的自动保存。
     recordProjectHistory(project.doc, session.path, session.dirty);

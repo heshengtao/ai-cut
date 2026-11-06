@@ -179,6 +179,9 @@ export const useLayoutStore = defineStore("layout", () => {
   const settingsOpen = ref(false);
   /** 打开设置页时定位到哪个分区（不持久化）。 */
   const settingsSection = ref<SettingsSection | null>(null);
+  /** 历史工程 / 快捷键弹窗（不持久化，由顶栏、欢迎页和帮助菜单共同触发）。 */
+  const historyOpen = ref(false);
+  const shortcutsOpen = ref(false);
 
   const hasTabs = computed(() => tabs.value.length > 0);
 
@@ -317,6 +320,8 @@ export const useLayoutStore = defineStore("layout", () => {
     downloadSection,
     settingsOpen,
     settingsSection,
+    historyOpen,
+    shortcutsOpen,
     hasTabs,
     openTab,
     closeTab,

@@ -75,6 +75,13 @@ export const useProjectStore = defineStore("project", () => {
   const doc = shallowRef<Project>(makeProject());
   const dirty = ref(false);
   const filePath = ref<string | null>(null);
+  /**
+   * 启动时是否从上次会话恢复了一份非空工程。
+   *
+   * 欢迎页据此把「打开上次工程」而不是「打开空白工程」作为推荐项；只在本进程内有意义，
+   * 新建 / 打开工程不会改写它（它描述的是「这次启动来自哪里」）。
+   */
+  const restoredFromSession = ref(false);
   const undoStack = shallowRef<HistoryStep[]>([]);
   const redoStack = shallowRef<HistoryStep[]>([]);
   /** 连续同类操作（滑杆拖动）的合并键；不同键则另记一步历史。 */
@@ -776,6 +783,7 @@ export const useProjectStore = defineStore("project", () => {
     doc,
     dirty,
     filePath,
+    restoredFromSession,
     revision,
     busy,
     opLog,

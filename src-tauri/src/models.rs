@@ -3254,6 +3254,9 @@ pub(crate) fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// 可以随安装包分发的许可（宽松许可白名单）。社区 / RAIL / 非商用许可都不在里面。
+    const PERMISSIVE_LICENSES: &[&str] = &["Apache-2.0", "MIT", "BSD-3-Clause"];
+
     fn network_with(mirrors: &[&str], preference: ModelSourcePreference) -> NetworkConfig {
         NetworkConfig {
             model_mirrors: mirrors.iter().map(|mirror| mirror.to_string()).collect(),
@@ -3537,12 +3540,41 @@ mod tests {
         }
     }
 
+    /// 随包分发的硬约束：**只有宽松许可**的权重能进安装包，体积小不是理由。
+    ///
+    /// 社区许可（LTX-2 / 混元 / MiniMax-H3）、RAIL 与「仅限非商业」的权重只能走
+    /// 「用户点了才下载」，否则安装包就不能再当作 Apache-2.0 发行物分发。
+    #[test]
+    fn bundled_weights_keep_a_permissive_license() {
+        for entry in all().iter().filter(|entry| entry.bundled) {
+            assert!(
+                PERMISSIVE_LICENSES.contains(&entry.license),
+                "{} 的许可是「{}」，不能随安装包分发（只允许 {:?}）",
+                entry.id,
+                entry.license,
+                PERMISSIVE_LICENSES
+            );
+        }
+    }
+
     #[test]
     fn every_small_model_is_bundled() {
         for entry in all()
             .iter()
             .filter(|entry| entry.total_bytes() <= BUNDLE_LIMIT)
         {
+            // 小模型默认随包，但许可不宽松的必须例外：不能为了「开箱能用」把受限权重
+            // 塞进安装包。
+            if !PERMISSIVE_LICENSES.contains(&entry.license) {
+                assert!(
+                    !entry.bundled,
+                    "{} 只有 {} 字节，但许可为「{}」，仍然不能随包",
+                    entry.id,
+                    entry.total_bytes(),
+                    entry.license
+                );
+                continue;
+            }
             assert!(
                 entry.bundled,
                 "{} 只有 {} 字节，应该随包",

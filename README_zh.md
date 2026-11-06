@@ -220,7 +220,7 @@ ffmpeg 与 ffprobe 以静态二进制随包分发，用户不需要自己安装�
 
 ### 哪些 AI 模型随应用一起提供？
 
-小模型随包分发，装好即可使用。较大的模型——语音识别、TTS、音源分离、超分与补帧——由应用内的模型管理器按需下载，存放在源码树之外。
+小模型随包分发，装好即可使用。较大的模型——语音识别、TTS、音源分离、超分与补帧——由应用内的模型管理器按需下载，存放在源码树之外。各模型的许可（包括社区许可的视频模型与**仅限非商业**的 FLUX.1 [dev]）见 [MODELS.md](MODELS.md)。
 
 ### 支持哪些特效插件格式？
 
@@ -236,8 +236,16 @@ ffmpeg 与 ffprobe 以静态二进制随包分发，用户不需要自己安装�
 
 ## 许可
 
-Apache-2.0，见 [LICENSE](LICENSE)。
+**代码**是 Apache-2.0，见 [LICENSE](LICENSE)。
+
+模型**权重**是另一层：仓库与安装包里只有随包分发的五个小型宽松许可模型，其余权重由应用
+按需从发布方下载（并逐个校验 `sha256`），各自沿用发布方的许可。完整的模型 / 许可 / 来源
+对照表见 **[MODELS.md](MODELS.md)**，其中包括社区许可（LTX-2、混元、MiniMax-H3）、
+CreativeML Open RAIL 系列，以及**仅限非商业**的 FLUX.1 [dev] 权重。
 
 ## 第三方许可
 
-本项目建立在第三方开源软件之上。依赖许可见 `package.json`、`src-tauri/Cargo.toml` 与 `crates/` 下的清单。随包分发的 FFmpeg 二进制与 AI 模型权重保留各自的上游许可；模型许可收集在 `src-tauri/resources/models/LICENSES/`。
+本项目建立在第三方开源软件之上。依赖许可见 `package.json`、`src-tauri/Cargo.toml` 与
+`crates/` 下的清单。随包分发的 FFmpeg 二进制保留各自上游许可；模型权重（随包与按需下载）
+的许可、来源与限制见 [MODELS.md](MODELS.md)，随包模型的许可原文在
+`src-tauri/resources/models/LICENSES/`。

@@ -10,7 +10,6 @@ import {
   MagnifyingGlassPlusIcon,
   TrashIcon,
   DocumentTextIcon,
-  FolderOpenIcon,
 } from "@heroicons/vue/24/outline";
 import TimelineRuler from "./TimelineRuler.vue";
 import TrackHeader from "./TrackHeader.vue";
@@ -51,6 +50,7 @@ import {
 import { useTimelineActions } from "@/composables/useTimelineActions";
 import { useTimelineInsert } from "@/composables/useTimelineInsert";
 import { useTimelineMenus, type TimelineMenuTarget } from "@/composables/useTimelineMenus";
+import { useMediaImport } from "@/composables/useMediaImport";
 import { toast } from "@/composables/useToast";
 import { confirm } from "@/composables/useConfirm";
 import { baseName } from "@/core/media";
@@ -59,9 +59,11 @@ import { useTextPresetsStore } from "@/stores/textPresets";
 import { TEXT_PRESET_SECONDS } from "@/core/textPresets";
 import type { Clip, Marker, MediaAsset, Project } from "@/types/project";
 import { useI18n } from "@/i18n";
+import EmptyTimeline from "@/components/onboarding/EmptyTimeline.vue";
 
 const project = useProjectStore();
 const playback = usePlaybackStore();
+const { importing, importMedia } = useMediaImport();
 
 /** 时间轴上的剪口：每条一行细竖线，点一下还原。 */
 const cutMarks = computed(() =>
@@ -769,7 +771,7 @@ function onLaneDrop(event: DragEvent): void {
 </script>
 
 <template>
-  <section class="timeline">
+  <section class="timeline" data-tour="timeline">
     <header class="tl-head">
       <span class="tl-title">{{ i18n.t("timeline.title") }}</span>
 
@@ -1008,8 +1010,12 @@ function onLaneDrop(event: DragEvent): void {
             </template>
 
             <div v-if="hasNoTracks" class="empty-lanes">
-              <FolderOpenIcon class="w-[18px] h-[18px]" />
-              <span>{{ i18n.t("timeline.dropHint") }}</span>
+              <EmptyTimeline class="empty-art" />
+              <p class="empty-title">{{ i18n.t("timeline.emptyTitle") }}</p>
+              <p class="empty-sub">{{ i18n.t("timeline.emptySub") }}</p>
+              <button class="empty-cta" :disabled="importing" @click="importMedia()">
+                {{ importing ? i18n.t("media.importing") : i18n.t("media.import") }}
+              </button>
             </div>
           </div>
 
@@ -1051,6 +1057,7 @@ function onLaneDrop(event: DragEvent): void {
   display: flex;
   flex-direction: column;
   background-color: var(--app-card);
+  background-image: var(--app-wash);
   overflow: hidden;
 }
 
@@ -1258,14 +1265,64 @@ function onLaneDrop(event: DragEvent): void {
   inset: 8px;
   z-index: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 4px;
+  padding: 12px 16px;
   border: 1px dashed rgb(var(--md-outline) / 0.45);
   border-radius: 12px;
   color: rgb(var(--md-on-surface-muted));
   font-size: 12px;
   pointer-events: none;
+  animation: m3-fade var(--md-duration-medium-1) var(--md-ease-standard) both;
+}
+.empty-art {
+  width: min(230px, 72%);
+  margin-bottom: 2px;
+  opacity: 0.9;
+}
+.empty-title {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgb(var(--md-on-surface));
+}
+.empty-sub {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgb(var(--md-on-surface-variant));
+  text-align: center;
+}
+.empty-cta {
+  pointer-events: auto;
+  margin-top: 8px;
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background-color: rgb(var(--md-secondary-container));
+  color: rgb(var(--md-on-secondary-container));
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    filter var(--md-duration-short-2) var(--md-ease-standard),
+    transform var(--md-duration-short-2) var(--md-ease-standard);
+}
+.empty-cta:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+.empty-cta:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.empty-cta:focus-visible {
+  outline: 2px solid rgb(var(--md-primary));
+  outline-offset: 2px;
 }
 .marquee {
   position: absolute;
