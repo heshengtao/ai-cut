@@ -35,7 +35,8 @@ function runAction(item: ToastItem): void {
   position: fixed;
   right: 18px;
   bottom: 18px;
-  z-index: 200;
+  /* 弹窗（300 / 420）里触发的提示也要看得见，所以放在确认框之上。 */
+  z-index: 480;
   display: flex;
   flex-direction: column;
   align-items: flex-end;

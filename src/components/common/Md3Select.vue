@@ -295,7 +295,8 @@ onUnmounted(() => {
 /* 菜单 Teleport 到 body，所以不能写在 scoped 里 */
 .md3-select-menu {
   position: fixed;
-  z-index: 320;
+  /* 必须高过 ModalShell 的遮罩（420）：弹窗里的下拉否则会被遮罩盖住、点不到。 */
+  z-index: 440;
   display: flex;
   flex-direction: column;
   gap: 2px;

@@ -66,7 +66,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown, true));
 .scrim {
   position: fixed;
   inset: 0;
-  z-index: 400;
+  /* 确认框可以从弹窗（ModalShell 遮罩 420）里弹出，必须盖在它上面。 */
+  z-index: 460;
   display: flex;
   align-items: center;
   justify-content: center;
