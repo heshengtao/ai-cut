@@ -103,6 +103,7 @@ pub fn run() {
             media::make_waveform,
             media::extract_audio_preview,
             media::make_video_preview,
+            media::copy_media_files,
             project_io::read_project,
             project_io::write_project,
             project_io::path_exists,

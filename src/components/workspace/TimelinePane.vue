@@ -1013,8 +1013,12 @@ function onLaneDrop(event: DragEvent): void {
               <EmptyTimeline class="empty-art" />
               <p class="empty-title">{{ i18n.t("timeline.emptyTitle") }}</p>
               <p class="empty-sub">{{ i18n.t("timeline.emptySub") }}</p>
-              <button class="empty-cta" :disabled="importing" @click="importMedia()">
-                {{ importing ? i18n.t("media.importing") : i18n.t("media.import") }}
+              <button
+                class="empty-cta"
+                :disabled="importing"
+                @click="importMedia({ insertToTimeline: true })"
+              >
+                {{ importing ? i18n.t("media.importing") : i18n.t("media.importAndPlace") }}
               </button>
             </div>
           </div>

@@ -13,7 +13,9 @@ import {
   TrashIcon,
   LanguageIcon,
   ArrowDownTrayIcon,
+  ArchiveBoxIcon,
 } from "@heroicons/vue/24/outline";
+import { invoke } from "@tauri-apps/api/core";
 import type { AssetKind, Clip, ClipTextStyle, MediaAsset } from "@/types/project";
 import { pickSubtitleFile, pickSubtitleSavePath } from "@/core/media";
 import {
@@ -21,10 +23,10 @@ import {
   exportSubtitlesToFile,
   importSubtitlesFromFile,
 } from "@/core/subtitleActions";
-import { addClip, addTrack, removeAsset, setClipTextStyle } from "@/core/ops";
+import { addClip, addTrack, removeAsset, setClipTextStyle, updateAsset } from "@/core/ops";
 import { createClip } from "@/core/factory";
 import { assetThumbnailUrl } from "@/core/thumbnails";
-import { snapToFrame } from "@/core/time";
+import { placeWithoutOverlap } from "@/core/timelinePlacement";
 import { TEXT_PRESET_SECONDS, type TextPreset } from "@/core/textPresets";
 import { clearDragPayload, setDragPayload } from "@/core/dragPayload";
 import { useProjectStore } from "@/stores/project";
@@ -47,22 +49,6 @@ const i18n = useI18n();
 
 /** 图片 / 文字的默认插入时长（秒）。 */
 const DEFAULT_INSERT_SECONDS = 15;
-
-/** 让新片段落在不与已有片段重叠的位置。 */
-function placeWithoutOverlap(
-  startSec: number,
-  duration: number,
-  clips: Clip[],
-  fps: number,
-): number {
-  let start = snapToFrame(Math.max(0, startSec), fps);
-  for (const clip of [...clips].sort((a, b) => a.start - b.start)) {
-    if (start < clip.start + clip.duration && clip.start < start + duration) {
-      start = snapToFrame(clip.start + clip.duration, fps);
-    }
-  }
-  return start;
-}
 
 /** 双击素材：插入到播放头处，并切到检查器编辑属性。 */
 function insertAtPlayhead(
@@ -372,6 +358,63 @@ async function onDeletePreset(preset: TextPreset): Promise<void> {
   textPresets.removePreset(preset.id);
   toast(i18n.t("media.presetDeleted", { name: preset.name }));
 }
+
+/** 工程目录名（不含 .json），作为 `<工程名>-media` 的基名。 */
+function projectStem(): string {
+  const path = project.filePath ?? "";
+  const name = path.split(/[\\/]/).pop() ?? "";
+  return name.replace(/\.json$/i, "") || project.doc.name || "project";
+}
+
+/** 整理工程素材：把引用的文件复制到工程旁边的 `<工程名>-media/`，并改写素材路径。 */
+async function collectMedia(): Promise<void> {
+  if (!project.filePath) {
+    toast(i18n.t("media.collectNoProject"), "error");
+    return;
+  }
+  const targets = project.doc.assets.filter((asset) => !asset.offline && asset.src);
+  if (targets.length === 0) {
+    toast(i18n.t("media.collectEmpty"));
+    return;
+  }
+  const ok = await confirm({
+    title: i18n.t("media.collect"),
+    message: i18n.t("media.collectConfirm", { count: targets.length }),
+    confirmText: i18n.t("media.collect"),
+    cancelText: i18n.t("confirm.cancel"),
+  });
+  if (!ok) return;
+
+  const slash = project.filePath.includes("\\") ? "\\" : "/";
+  const dir = project.filePath.slice(0, project.filePath.lastIndexOf(slash));
+  const target = `${dir}${slash}${projectStem()}-media`;
+  try {
+    const copied = await invoke<{ src: string; dest: string; bytes: number }[]>(
+      "copy_media_files",
+      { dir: target, files: targets.map((asset) => asset.src) },
+    );
+    const bySrc = new Map(copied.map((item) => [item.src, item.dest]));
+    project.dispatch(
+      (doc) => {
+        let next = doc;
+        for (const asset of doc.assets) {
+          const dest = bySrc.get(asset.src);
+          if (dest && dest !== asset.src) next = updateAsset(next, asset.id, { src: dest });
+        }
+        return next;
+      },
+      { kind: "asset.update", label: i18n.t("media.collect") },
+    );
+    toast(i18n.t("media.collectDone", { count: copied.length }));
+  } catch (error) {
+    toast(
+      i18n.t("media.collectFailed", {
+        message: error instanceof Error ? error.message : String(error),
+      }),
+      "error",
+    );
+  }
+}
 </script>
 
 <template>
@@ -389,6 +432,14 @@ async function onDeletePreset(preset: TextPreset): Promise<void> {
         </p>
       </div>
       <div class="head-actions">
+        <button
+          class="icon-btn"
+          :title="i18n.t('media.collect')"
+          :aria-label="i18n.t('media.collect')"
+          @click="collectMedia"
+        >
+          <ArchiveBoxIcon class="w-[16px] h-[16px]" />
+        </button>
         <button
           class="icon-btn"
           :disabled="subtitleBusy"

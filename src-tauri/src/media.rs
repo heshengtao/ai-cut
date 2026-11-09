@@ -504,3 +504,126 @@ pub(crate) fn cache_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, Strin
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建缓存目录失败：{e}"))?;
     Ok(dir)
 }
+
+/// 整理工程素材：把外部文件复制进工程目录，返回 `src → dest` 映射。
+///
+/// 同名文件先比大小：大小相同就复用（重复整理是幂等的），不同则依次加 `-2`、`-3`。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopiedMedia {
+    pub src: String,
+    pub dest: String,
+    pub bytes: u64,
+}
+
+#[tauri::command]
+pub fn copy_media_files(dir: String, files: Vec<String>) -> Result<Vec<CopiedMedia>, String> {
+    let root = PathBuf::from(dir.trim());
+    if root.as_os_str().is_empty() {
+        return Err("缺少目标目录".into());
+    }
+    std::fs::create_dir_all(&root).map_err(|error| format!("创建目录失败：{error}"))?;
+    let mut copied = Vec::new();
+    for file in files {
+        let src = PathBuf::from(&file);
+        if !src.is_file() {
+            continue;
+        }
+        let name = src
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("media");
+        let dest = unique_destination(&root, name, &src)?;
+        let bytes = std::fs::metadata(&src).map(|meta| meta.len()).unwrap_or(0);
+        if dest != src {
+            std::fs::copy(&src, &dest).map_err(|error| format!("复制失败 {file}：{error}"))?;
+        }
+        copied.push(CopiedMedia {
+            src: file,
+            dest: dest.to_string_lossy().into_owned(),
+            bytes,
+        });
+    }
+    Ok(copied)
+}
+
+fn unique_destination(root: &std::path::Path, name: &str, src: &std::path::Path) -> Result<PathBuf, String> {
+    let direct = root.join(name);
+    if !direct.exists() {
+        return Ok(direct);
+    }
+    let same_size = match (std::fs::metadata(src), std::fs::metadata(&direct)) {
+        (Ok(left), Ok(right)) => left.len() == right.len(),
+        _ => false,
+    };
+    if same_size {
+        return Ok(direct);
+    }
+    let stem = std::path::Path::new(name)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("media");
+    let ext = std::path::Path::new(name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("");
+    for index in 2..10_000 {
+        let candidate = if ext.is_empty() {
+            format!("{stem}-{index}")
+        } else {
+            format!("{stem}-{index}.{ext}")
+        };
+        let path = root.join(candidate);
+        if !path.exists() {
+            return Ok(path);
+        }
+    }
+    Err(format!("目标目录里同名文件太多：{name}"))
+}
+
+#[cfg(test)]
+mod copy_tests {
+    use super::*;
+
+    #[test]
+    fn same_name_files_do_not_overwrite_each_other() {
+        let root = tempfile::tempdir().unwrap();
+        let a = root.path().join("a");
+        let b = root.path().join("b");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(a.join("clip.mp4"), b"one").unwrap();
+        std::fs::write(b.join("clip.mp4"), b"two-two").unwrap();
+        let dest = root.path().join("media");
+
+        let copied = copy_media_files(
+            dest.to_string_lossy().into_owned(),
+            vec![
+                a.join("clip.mp4").to_string_lossy().into_owned(),
+                b.join("clip.mp4").to_string_lossy().into_owned(),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(copied.len(), 2);
+        assert_ne!(copied[0].dest, copied[1].dest);
+        assert_eq!(std::fs::read(&copied[0].dest).unwrap(), b"one");
+        assert_eq!(std::fs::read(&copied[1].dest).unwrap(), b"two-two");
+    }
+
+    #[test]
+    fn collecting_twice_is_idempotent() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("clip.mp4");
+        std::fs::write(&source, b"same").unwrap();
+        let dest = root.path().join("media").to_string_lossy().into_owned();
+        let files = vec![source.to_string_lossy().into_owned()];
+
+        let first = copy_media_files(dest.clone(), files.clone()).unwrap();
+        let second = copy_media_files(dest, files).unwrap();
+
+        assert_eq!(first[0].dest, second[0].dest);
+        assert_eq!(std::fs::read(&first[0].dest).unwrap(), b"same");
+    }
+}

@@ -1802,8 +1802,12 @@ watch(
               <p class="coach-title">{{ i18n.t("preview.emptyTitle") }}</p>
               <p class="coach-sub">{{ i18n.t("preview.emptySub") }}</p>
               <div class="coach-actions">
-                <button class="coach-primary" :disabled="importing" @click="importMedia()">
-                  {{ importing ? i18n.t("media.importing") : i18n.t("media.import") }}
+                <button
+                  class="coach-primary"
+                  :disabled="importing"
+                  @click="importMedia({ insertToTimeline: true })"
+                >
+                  {{ importing ? i18n.t("media.importing") : i18n.t("media.importAndPlace") }}
                 </button>
                 <button class="coach-ghost" @click="layout.openTab('ai')">
                   {{ i18n.t("preview.emptyAi") }}

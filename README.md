@@ -94,6 +94,7 @@ Import a file and AI Cut probes it immediately: duration, resolution, frame rate
 - **Audio per clip** — gain, fades, pitch, stereo balance, mute
 - **Text styling** — font, size, colour, spacing, background, stroke, shadow, glow
 - **Project output** — resolution and frame rate changes re-fit clips proportionally
+- **Delivery helpers** — collect media into `<project>-media/` next to the project
 
 ### 🎛️ OFX plugins — Bring your own effects
 
