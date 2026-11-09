@@ -11,6 +11,7 @@ mod cli;
 mod cloud_gen;
 mod cloud_tts;
 mod export;
+mod fonts;
 mod history;
 mod image_gen;
 mod mcp;
@@ -149,6 +150,14 @@ pub fn run() {
             cli::install_cli,
             cli::uninstall_cli,
             opener::open_external_url,
+            fonts::font_registry,
+            fonts::font_list,
+            fonts::font_install,
+            fonts::font_cancel,
+            fonts::font_remove,
+            fonts::font_reveal,
+            fonts::font_probe,
+            fonts::font_import,
             models::model_catalog,
             models::model_download,
             models::model_probe,

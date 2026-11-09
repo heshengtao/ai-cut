@@ -41,6 +41,8 @@ uuid = { version = "1", features = ["v4"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "native-tls", "socks", "system-proxy", "multipart"] }
 futures-util = { version = "0.3", default-features = false }
 sha2 = "0.10"
+# 字体库里读取本地字体文件的 family / 字重（TTF / OTF），避免手写 name 表解析。
+ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 sherpa-onnx = "1.13.8"
 tar = "0.4"
 flate2 = "1"

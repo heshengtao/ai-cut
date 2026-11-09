@@ -7,6 +7,7 @@ import { cacheFilePath, fileStamp, pathExists } from "@/core/media";
 import { ofxBakeClip, ofxBakeTransition } from "@/core/ofxApi";
 import { ofxTransitionRange, type OfxTransitionSide } from "@/core/ofxTransition";
 import { t } from "@/i18n";
+import { ensureProjectFontsLoaded } from "@/core/installedFonts";
 import { stableHash } from "@/utils/hash";
 import { dataUrlToBase64, renderTextLayerPng, textLayerName } from "./textLayer";
 import { writeExportTextImage } from "./api";
@@ -50,6 +51,8 @@ export async function prepareLayers(
   height: number,
   options: PrepareLayersOptions = {},
 ): Promise<PreparedLayers> {
+  // Canvas 的文字渲染是同步的：先把 CJK 分片按实际文本加载完，否则会静默回退。
+  await ensureProjectFontsLoaded(project);
   const textImages = new Map<string, string>();
   for (const track of project.tracks) {
     if (!isVisible(track)) continue;

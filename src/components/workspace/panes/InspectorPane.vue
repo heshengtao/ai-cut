@@ -69,6 +69,11 @@ import {
 } from "@/core/keyframes";
 import { usePlaybackStore } from "@/stores/playback";
 import {
+  findInstalledFont,
+  installedFonts,
+  installedFontsReady,
+} from "@/core/installedFonts";
+import {
   BLEND_MODES,
   FONT_FAMILIES,
   TEXT_ALIGNS,
@@ -108,6 +113,7 @@ import ColorField from "@/components/common/ColorField.vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
 import ProjectDialog from "@/components/common/ProjectDialog.vue";
+import FontLibraryDialog from "@/components/common/FontLibraryDialog.vue";
 import { useI18n } from "@/i18n";
 
 const project = useProjectStore();
@@ -659,9 +665,60 @@ const presetInitialName = computed(() => {
   return text.length > 12 ? `${text.slice(0, 12)}…` : text;
 });
 
-const fontOptions = computed<SelectOption[]>(() =>
-  FONT_FAMILIES.map((font) => ({ id: font.id, label: i18n.t(font.labelKey) })),
-);
+/** 字体下拉里的“打开字体库”操作项。 */
+const FONT_MANAGE_ID = "__font_manage__";
+
+const fontLibraryOpen = ref(false);
+const fontLibraryTarget = ref("");
+
+const fontOptions = computed<SelectOption[]>(() => {
+  const options: SelectOption[] = [
+    {
+      id: FONT_MANAGE_ID,
+      label: i18n.t("font.manageEntry"),
+      hint: i18n.t("font.manageHint"),
+      action: true,
+    },
+  ];
+  const systemGroup = i18n.t("font.systemGroup");
+  for (const font of FONT_FAMILIES) {
+    options.push({ id: font.id, label: i18n.t(font.labelKey), group: systemGroup });
+  }
+  const installedGroup = i18n.t("font.installedGroup");
+  for (const font of installedFonts()) {
+    const source =
+      font.source === "local" ? i18n.t("font.localSource") : i18n.t("font.fontsourceSource");
+    options.push({
+      id: font.id,
+      label: font.family,
+      hint: `${source} · ${font.weights.join(" / ")}`,
+      group: installedGroup,
+    });
+  }
+  return options;
+});
+
+const missingFont = computed(() => {
+  const id = textStyle.value?.fontFamily;
+  if (!id || !installedFontsReady()) return "";
+  if (FONT_FAMILIES.some((font) => font.id === id)) return "";
+  return findInstalledFont(id) ? "" : id;
+});
+
+function onFontAction(id: string): void {
+  if (id !== FONT_MANAGE_ID) return;
+  fontLibraryTarget.value = textStyle.value?.fontFamily ?? "";
+  fontLibraryOpen.value = true;
+}
+
+function openFontLibrary(): void {
+  fontLibraryTarget.value = missingFont.value;
+  fontLibraryOpen.value = true;
+}
+
+function onFontApply(fontId: string): void {
+  onTextStyle({ fontFamily: fontId });
+}
 
 const blendOptions = computed<SelectOption[]>(() =>
   BLEND_MODES.map((mode) => ({
@@ -1213,8 +1270,15 @@ async function relink(): Promise<void> {
                 :options="fontOptions"
                 :label="i18n.t('inspector.font')"
                 @update:model-value="onTextStyle({ fontFamily: $event })"
+                @action="onFontAction"
               />
             </div>
+            <p v-if="missingFont" class="font-missing">
+              {{ i18n.t("font.missing", { name: missingFont }) }}
+              <button class="btn-text" type="button" @click="openFontLibrary">
+                {{ i18n.t("font.openLibrary") }}
+              </button>
+            </p>
             <div class="prop-row">
               <span>{{ i18n.t("inspector.fontSize") }}</span>
               <NumberField
@@ -2170,9 +2234,32 @@ async function relink(): Promise<void> {
     :confirm-text="i18n.t('textPreset.save')"
     @submit="saveTextPreset"
   />
+
+  <FontLibraryDialog
+    v-model:open="fontLibraryOpen"
+    :has-text-clip="isText"
+    :selected-font-id="fontLibraryTarget"
+    @apply="onFontApply"
+  />
 </template>
 
 <style scoped>
+.font-missing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 6px 9px;
+  border-radius: 10px;
+  background-color: rgb(var(--md-error) / 0.08);
+  color: rgb(var(--md-on-surface-variant));
+  font-size: 10.5px;
+}
+.font-missing .btn-text {
+  height: auto;
+  padding: 0;
+  font-size: 10.5px;
+}
 .hint-empty {
   margin: 8px 0 0;
   font-size: 12px;

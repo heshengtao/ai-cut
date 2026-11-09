@@ -78,7 +78,8 @@ id 规则：Fontsource → `fs-<sourceId>`；本地 → `local-<slug(family)>-<h
 1. 取 `https://api.fontsource.org/v1/fonts/<id>` 详情（含 variants / unicodeRange）。
 2. 每个字重、每个 style：
    - 存在数字分片 → 安装全部分片（CJK 完整字形，ASCII 也在分片内）；
-   - 否则安装 `latin`（回退 `defSubset`）。
+   - 否则安装**全部命名字集**（latin / cyrillic / arabic / devanagari…），任何语言的
+     字形都能用；主语言（`defSubset`，CJK 优先）排在最前。
 3. 并发 4 路下载到 `.tmp-<id>/files/`，URL 失败时把 `cdn.jsdelivr.net` 换成
    `fastly.jsdelivr.net` 重试 2 次。
 4. 写 manifest，删除旧目录后 rename 临时目录。
@@ -93,6 +94,7 @@ id 规则：Fontsource → `fs-<sourceId>`；本地 → `local-<slug(family)>-<h
 | --- | --- |
 | `src/core/fontsApi.ts` | invoke 包装、类型、进度订阅 |
 | `src/core/installedFonts.ts` | 模块级状态、CSS 注入、字体栈解析、导出前预载 |
+| `src/core/fontLanguages.ts` | subset → 语言映射、数据驱动的语言下拉、字体语言标签 |
 | `src/components/common/FontLibraryDialog.vue` | 字体库 / 已安装两页、预览、安装、导入、管理 |
 | `InspectorPane.vue` | 下拉操作项、缺失字体提示、打开弹窗、应用字体 |
 | `core/export/layers.ts` | `prepareLayers` 前 `await ensureProjectFontsLoaded` |
@@ -119,10 +121,13 @@ CSS 注入（`<style id="aicut-installed-fonts">`）：
 ## UI
 
 - 入口：字体下拉第一条 `{ action: true }`，文案「字体库…」；已安装字体单独分组。
-- 弹窗约 860×620：左列表（搜索、分类 / 中文筛选、首屏 60 条 + 加载更多），
+- 弹窗约 860×620：左列表（搜索、语言下拉 + 类别 chips、首屏 60 条 + 加载更多），
   右详情（样本文本、字重勾选、子集说明、许可、安装按钮 / 进度）。
-- 预览：选中时才加载 Fontsource 主语言单文件子集（中文优先），独立 family 名，
-  最多缓存 8 个；失败只影响预览。
+- 语言下拉不写死中文：`src/core/fontLanguages.ts` 把 Fontsource 的 `subsets` 映射成语言项，
+  可选语言由注册表实际数据决定（字体数 ≥ 3）；数据里新出现的 subset 会自动补一条，无需改
+  代码。默认把“界面语言对应的字体”排在前面（中文界面 → 中文优先，英文界面 → 拉丁优先）。
+- 预览：选中时才加载该字体主语言的单文件子集（不只中文），独立 family 名，最多缓存 8 个；
+  样本文本随主语言切换（拉丁 / 中文 / 日文 / 阿拉伯文…），也可手动编辑；失败只影响预览。
 - 安装成功后 toast；勾选「安装后应用到当前文字片段」则立即写回并刷新预览。
 - 已安装页：应用、更新（Fontsource 版本不同）、在文件夹中显示、移除（二次确认）。
 - 缺失字体：下拉显示「缺失：id」，Inspector 给出「去字体库」入口。

@@ -24,6 +24,7 @@ import { useMediaImport } from "@/composables/useMediaImport";
 import { restoreLastSession, startAutosave } from "@/core/autosave";
 import { installShortcuts } from "@/core/shortcuts";
 import { initProjectBridge } from "@/core/mcpBridge";
+import { ensureInstalledFontsLoaded } from "@/core/installedFonts";
 import { useI18n } from "@/i18n";
 import { toast } from "@/composables/useToast";
 import { isTauri } from "@/utils/platform";
@@ -69,6 +70,8 @@ function onWindowResize(): void {
 
 onMounted(() => {
   layout.clampPanes();
+  // 字体清单只影响文字渲染：不阻塞首屏，加载完自然刷新预览。
+  if (isTauri()) void ensureInstalledFontsLoaded();
   window.addEventListener("resize", onWindowResize);
   restoreTimer = window.setTimeout(() => {
     if (restoring.value) restoreOverlay.value = true;

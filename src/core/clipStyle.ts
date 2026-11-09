@@ -1,4 +1,5 @@
 /** 片段外观：文字样式、混合模式、描边、阴影与圆角的默认值 / 归一化。 */
+import { installedFontStack } from "./installedFonts";
 import type {
   BlendMode,
   Clip,
@@ -63,8 +64,11 @@ export const FONT_FAMILIES: FontFamilyOption[] = [
   },
 ];
 
+/** 字体栈解析：内置字体 → 已安装字体 → 默认苹方。 */
 export function fontStackOf(id: string): string {
-  return FONT_FAMILIES.find((font) => font.id === id)?.stack ?? FONT_FAMILIES[0].stack;
+  const builtin = FONT_FAMILIES.find((font) => font.id === id);
+  if (builtin) return builtin.stack;
+  return installedFontStack(id) ?? FONT_FAMILIES[0].stack;
 }
 
 export const BLEND_MODES: BlendMode[] = [

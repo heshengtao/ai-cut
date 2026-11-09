@@ -50,6 +50,11 @@
 - The installer hook is `src-tauri/nsis/data-dir-hook.nsh` (NSIS only — MSI has no hooks, MSI
   users migrate from Settings). It must stay UTF-8 **with BOM**, and it only prompts on a first
   install (`/S`, auto-updates and machines that already chose a folder must not be interrupted).
+- Fonts live in `<data dir>/fonts/`: Fontsource installs are `fs-<sourceId>/`, local imports
+  are `local-<slug>-<hash>/`, each with its own `manifest.json`. Projects only store the
+  `fontFamily` id; the front-end injects `@font-face` from the manifests
+  (`src/core/installedFonts.ts`) and must await `ensureProjectFontsLoaded()` before Canvas
+  export. The manifest's absolute `dir` is never persisted — it is filled on read.
 
 ## Local AI runtime (CUDA 12 / CUDA 13)
 
