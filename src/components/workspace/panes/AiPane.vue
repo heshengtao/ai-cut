@@ -57,6 +57,7 @@ import { useProjectStore } from "@/stores/project";
 import { useSelectionStore } from "@/stores/selection";
 import { useI18n } from "@/i18n";
 import { useModelChoice } from "@/composables/useModelChoice";
+import { useImageModelSource } from "@/composables/useImageModelSource";
 import { useEngineSetup, useRuntimeSetup } from "@/composables/useAiSetup";
 import { useModelChoiceStore } from "@/stores/modelChoice";
 import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
@@ -94,8 +95,8 @@ const videoAi = useVideoAiStore();
 const sdcpp = useSdcppStore();
 const device = useDeviceStore();
 
-/** 侧栏整页：AI 视频生成 / AI 画图与图像编辑（列表里只留模型选择与入口）。 */
-const aiPage = ref<null | "video" | "image">(null);
+/** 侧栏整页：AI 视频生成 / AI 画图 / 图像编辑（三个独立页面）。 */
+const aiPage = ref<null | "video" | "image" | "image-edit">(null);
 
 /** 时间线右键菜单带过来的「打开某个生成页并预填」请求。 */
 const aiLaunch = useAiLaunchStore();
@@ -105,6 +106,9 @@ const videoLaunch = computed(() =>
 );
 const imageLaunch = computed(() =>
   launchRequest.value?.page === "image" ? launchRequest.value : null,
+);
+const imageEditLaunch = computed(() =>
+  launchRequest.value?.page === "image-edit" ? launchRequest.value : null,
 );
 
 function closeGenPage(): void {
@@ -1679,9 +1683,6 @@ const videoChoice = useModelChoice(
 // ---- 云端生成服务：和 TTS 一样，列表开头放「配置生成服务…」 ----
 const genProviders = ref<CloudGenProvider[]>([]);
 const genPresets = ref<CloudGenPreset[]>([]);
-const imageCloudChoices = computed(() =>
-  providersForCapability(genProviders.value, "t2i", genPresets.value),
-);
 const videoCloudChoices = computed(() =>
   providersForCapability(genProviders.value, "t2v", genPresets.value),
 );
@@ -1744,74 +1745,43 @@ const videoModelId = computed<string | null>({
 });
 const videoReady = computed(() => videoChoice.current.value?.installed === true);
 
-// ---- AI 画图 / 图像编辑（同一批 sd.cpp 图像模型）：卡片只选模型，点进侧栏整页 ----
-const imageChoice = useModelChoice(
-  "image-gen",
-  () => models.catalog.filter((model) => model.feature === "image-gen"),
-  (list) =>
-    list.find((model) => model.id === "z-image-turbo") ??
-    list.find((model) => model.installed) ??
-    list[0] ??
-    null,
-);
-const imageModelOptions = computed<SelectOption[]>(() => {
-  const options: SelectOption[] = [
-    {
-      id: CLOUD_GEN_CONFIG_ACTION,
-      label: i18n.t("aiImage.configure"),
-      hint: i18n.t("aiImage.configureHint"),
-      action: true,
-    },
-  ];
-  for (const model of imageChoice.list.value) {
-    options.push({
-      id: sourceIdFor("local", model.id),
-      label: model.name,
-      group: i18n.t("aiImage.groupLocal"),
-      hint: model.installed
-        ? i18n.t("aiVideo.modelReady", { size: humanSize(model.approx_bytes) })
-        : i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(missingBytes(model)) }),
-    });
-  }
-  for (const provider of imageCloudChoices.value) {
-    options.push({
-      id: sourceIdFor("cloud", provider.id),
-      label: provider.name,
-      group: i18n.t("aiImage.groupCloud"),
-      hint: cloudHint(provider, provider.image_model),
-    });
-  }
-  return options;
+// ---- AI 画图 / 图像编辑：两个独立入口，模型清单按能力分开 ----
+// 画图页不列只能改图的模型（Kontext / Qwen-Image-Edit）；编辑页列所有能改图的档。
+const imageSource = useImageModelSource({
+  mode: "draw",
+  providers: () => genProviders.value,
+  presets: () => genPresets.value,
 });
-const imageCloudProvider = computed(
-  () => imageCloudChoices.value.find((item) => item.id === modelChoice.get("image-gen-cloud")) ?? null,
-);
-const imageModelId = computed<string | null>({
-  get: () => {
-    if (imageCloudProvider.value) return sourceIdFor("cloud", imageCloudProvider.value.id);
-    return imageChoice.id.value ? sourceIdFor("local", imageChoice.id.value) : null;
-  },
-  set: (value) => {
-    const parsed = splitSourceId(value);
-    if (!parsed) return;
-    if (parsed.kind === "cloud") {
-      modelChoice.set("image-gen-cloud", parsed.id);
-    } else {
-      modelChoice.set("image-gen-cloud", null);
-      imageChoice.id.value = parsed.id;
-    }
-  },
+const imageEditSource = useImageModelSource({
+  mode: "edit",
+  providers: () => genProviders.value,
+  presets: () => genPresets.value,
 });
-const imageReady = computed(() => imageChoice.current.value?.installed === true);
+
+const imageChoice = imageSource.choice;
+const imageModelOptions = imageSource.options;
+const imageCloudProvider = imageSource.cloudProvider;
+const imageModelId = imageSource.sourceId;
+const imageReady = imageSource.ready;
+
+const imageEditChoice = imageEditSource.choice;
+const imageEditModelOptions = imageEditSource.options;
+const imageEditCloudProvider = imageEditSource.cloudProvider;
+const imageEditModelId = imageEditSource.sourceId;
+const imageEditReady = imageEditSource.ready;
 
 // ---- 「准备运行环境」：缺引擎 / 缺模型 → 弹向导 → 跳管理器并自动开始下载 ----
-/** 画图 / 视频各有自己的会话（模型不同），但共用同一个 sd.cpp 引擎。 */
+/** 画图 / 改图 / 视频各有自己的会话（模型不同），但共用同一个 sd.cpp 引擎。 */
 const imageSetup = useEngineSetup("image", () => imageChoice.current.value);
+const imageEditSetup = useEngineSetup("image-edit", () => imageEditChoice.current.value);
 const videoSetup = useEngineSetup("video", () => videoChoice.current.value);
 const runtimeSetup = useRuntimeSetup();
 const imageSetupOpen = imageSetup.open;
 const imageSetupPlan = imageSetup.plan;
 const imageSetupForced = imageSetup.forced;
+const imageEditSetupOpen = imageEditSetup.open;
+const imageEditSetupPlan = imageEditSetup.plan;
+const imageEditSetupForced = imageEditSetup.forced;
 const videoSetupOpen = videoSetup.open;
 const videoSetupPlan = videoSetup.plan;
 const videoSetupForced = videoSetup.forced;
@@ -1832,6 +1802,9 @@ const recommendedEngineBytes = computed(() => {
 const imageNeedsSetup = computed(
   () => !imageCloudProvider.value && (!engineInstalled.value || !imageReady.value),
 );
+const imageEditNeedsSetup = computed(
+  () => !imageEditCloudProvider.value && (!engineInstalled.value || !imageEditReady.value),
+);
 const videoNeedsSetup = computed(
   () => !videoCloudProvider.value && (!engineInstalled.value || !videoReady.value),
 );
@@ -1850,6 +1823,14 @@ const imageSetupNote = computed(() =>
     : setupNote(
         !imageNeedsSetup.value,
         imageChoice.current.value ? missingBytes(imageChoice.current.value) : 0,
+      ),
+);
+const imageEditSetupNote = computed(() =>
+  imageEditCloudProvider.value
+    ? i18n.t("ai.cloudReady", { name: imageEditCloudProvider.value.name })
+    : setupNote(
+        !imageEditNeedsSetup.value,
+        imageEditChoice.current.value ? missingBytes(imageEditChoice.current.value) : 0,
       ),
 );
 const videoSetupNote = computed(() =>
@@ -1930,6 +1911,16 @@ function openImageGen(): void {
   });
 }
 
+function openImageEdit(): void {
+  if (imageEditCloudProvider.value || imageEditSetup.ensure()) {
+    aiPage.value = "image-edit";
+    return;
+  }
+  imageEditSetup.setDone(() => {
+    aiPage.value = "image-edit";
+  });
+}
+
 /**
  * 右键菜单的生成请求：先记下预填参数，再走「准备引擎 → 进子页」的同一条路径。
  * 请求在进入时消费掉，避免 AI 面板重新挂载时重复打开。
@@ -1939,6 +1930,7 @@ function handleLaunch(request: AiLaunchRequest): void {
   aiLaunch.consume(request.id);
   layout.openTab("ai");
   if (request.page === "video") openVideoGen();
+  else if (request.page === "image-edit") openImageEdit();
   else openImageGen();
 }
 
@@ -1993,9 +1985,16 @@ onMounted(() => {
     <AiImagePage
       v-else-if="aiPage === 'image'"
       :key="`image-${launchRequest?.id ?? 0}`"
+      mode="draw"
       :initial-prompt="imageLaunch?.prompt ?? ''"
-      :initial-mode="imageLaunch?.mode ?? 'draw'"
-      :initial-source-id="imageLaunch?.sourceAssetId ?? ''"
+      @back="closeGenPage"
+    />
+    <AiImagePage
+      v-else-if="aiPage === 'image-edit'"
+      :key="`image-edit-${launchRequest?.id ?? 0}`"
+      mode="edit"
+      :initial-prompt="imageEditLaunch?.prompt ?? ''"
+      :initial-source-id="imageEditLaunch?.sourceAssetId ?? ''"
       @back="closeGenPage"
     />
     <template v-else>
@@ -2299,7 +2298,7 @@ onMounted(() => {
       </li>
     </ul>
 
-    <!-- 画面 AI：超分 / 补帧 / 智能裁剪 / 镜头追踪 -->
+    <!-- 画面 AI：画图 / 图像编辑 / 视频生成 / 超分 / 补帧 / 智能裁剪 / 镜头追踪 -->
     <div v-if="activeTag === 'all'" class="section-label">
       {{ i18n.t("videoAi.section") }}
     </div>
@@ -2324,6 +2323,30 @@ onMounted(() => {
             :options="imageModelOptions"
             :label="i18n.t('aiVideo.model')"
             :empty="i18n.t('aiImage.noModel')"
+            @action="onCloudGenAction"
+          />
+        </div>
+      </li>
+      <li class="item">
+        <div class="item-row">
+          <div class="item-main">
+            <span class="item-name">
+              {{ i18n.t("ai.imageEdit") }}
+              <EngineTag :kind="imageEditCloudProvider ? 'cloud' : 'sdcpp'" />
+            </span>
+            <span class="item-note">{{ imageEditSetupNote }}</span>
+          </div>
+          <button class="run-btn" @click="openImageEdit">
+            {{ i18n.t(imageEditNeedsSetup ? "ai.prepare" : "ai.imageEditOpen") }}
+          </button>
+        </div>
+        <div class="param-field">
+          <span class="param-name">{{ i18n.t("aiVideo.model") }}</span>
+          <Md3Select
+            v-model="imageEditModelId"
+            :options="imageEditModelOptions"
+            :label="i18n.t('aiVideo.model')"
+            :empty="i18n.t('aiImage.noEditModel')"
             @action="onCloudGenAction"
           />
         </div>
@@ -2857,6 +2880,17 @@ onMounted(() => {
       @background="imageSetup.confirmBackground()"
       @cancel-download="imageSetup.cancelDownload()"
       @choose="imageSetup.choose"
+    />
+    <AiSetupDialog
+      :open="imageEditSetupOpen"
+      :plan="imageEditSetupPlan"
+      :dismissible="!imageEditSetupForced"
+      @update:open="(value: boolean) => (value ? undefined : imageEditSetup.cancel())"
+      @cancel="imageEditSetup.cancel()"
+      @confirm="imageEditSetup.confirm()"
+      @background="imageEditSetup.confirmBackground()"
+      @cancel-download="imageEditSetup.cancelDownload()"
+      @choose="imageEditSetup.choose"
     />
     <AiSetupDialog
       :open="videoSetupOpen"

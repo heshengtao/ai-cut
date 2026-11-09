@@ -5,6 +5,7 @@ import {
   alignImageSize,
   editSizeFromSource,
   imageModelSpec,
+  imageModelSupports,
 } from "@/types/imageGen";
 
 describe("image generation specs", () => {
@@ -19,7 +20,30 @@ describe("image generation specs", () => {
     expect(imageModelSpec("z_image_turbo").draw).toBe(true);
     expect(imageModelSpec("flux1_kontext").draw).toBe(false);
     expect(imageModelSpec("qwen_image_edit").draw).toBe(false);
+    // SD 1.5 这档是 inpainting 专用权重：只能改图。
+    expect(imageModelSpec("sd15").draw).toBe(false);
+    expect(imageModelSpec("sd15").edit).toBe(true);
     expect(imageModelSpec("flux1_kontext").edit).toBe(true);
+  });
+
+  it("keeps edit-only families out of the generation list", () => {
+    const families = [
+      "sd15",
+      "sdxl",
+      "z_image_turbo",
+      "flux1_schnell",
+      "flux1_kontext",
+      "qwen_image",
+      "qwen_image_edit",
+    ];
+    expect(families.filter((family) => imageModelSupports(family, "draw"))).toEqual([
+      "sdxl",
+      "z_image_turbo",
+      "flux1_schnell",
+      "qwen_image",
+    ]);
+    expect(families.filter((family) => imageModelSupports(family, "edit"))).toEqual(families);
+    expect(imageModelSupports("nope", "draw")).toBe(true);
   });
 
   it("aligns sizes to each family's multiple", () => {

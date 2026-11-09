@@ -60,13 +60,15 @@ export interface ImageModelSpec {
 }
 
 const SPECS: Record<string, ImageModelSpec> = {
+  // 清单里的 SD 1.5 是 **inpainting 专用权重**：它能接受 init + mask，
+  // 但没有按文生图训练；sd.cpp 不报错、只会警告，出图质量不可靠。
   sd15: {
     multiple: 64,
     steps: 20,
     cfg: 7.5,
     flowShift: null,
     negative: true,
-    draw: true,
+    draw: false,
     edit: true,
     refEdit: false,
     singleFile: true,
@@ -145,6 +147,20 @@ export const DEFAULT_IMAGE_SPEC: ImageModelSpec = SPECS.z_image_turbo;
 /** 按模型家族取完整规格。 */
 export function imageModelSpec(family: string | null | undefined): ImageModelSpec {
   return (family && SPECS[family]) || DEFAULT_IMAGE_SPEC;
+}
+
+/**
+ * 这个家族能不能用在某一页：画图页只列 `draw`，图像编辑页只列 `edit`。
+ *
+ * 指令改图模型（FLUX Kontext / Qwen-Image-Edit）只能改图，不能凭空画图，
+ * 所以它们只出现在图像编辑页的列表里。
+ */
+export function imageModelSupports(
+  family: string | null | undefined,
+  mode: ImageGenMode,
+): boolean {
+  const spec = imageModelSpec(family);
+  return mode === "edit" ? spec.edit : spec.draw;
 }
 
 /** 宽高对齐到模型要求的倍数（不小于 64）。 */

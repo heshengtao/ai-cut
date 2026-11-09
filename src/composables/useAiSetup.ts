@@ -268,7 +268,10 @@ function useSetupSession(options: SessionOptions) {
  *
  * 引擎没有「重启」概念（每次生成都起一个新进程），所以只需要装完切后端。
  */
-export function useEngineSetup(feature: "image" | "video", model: () => ModelStatus | null) {
+export function useEngineSetup(
+  feature: "image" | "image-edit" | "video",
+  model: () => ModelStatus | null,
+) {
   const i18n = useI18n();
   const sdcpp = useSdcppStore();
   const device = useDeviceStore();
@@ -312,8 +315,14 @@ export function useEngineSetup(feature: "image" | "video", model: () => ModelSta
         .map((item) => ({ kind: item.kind, label: i18n.t(item.label) })),
     };
 
+    const titleKey =
+      feature === "video"
+        ? "setup.title.video"
+        : feature === "image-edit"
+          ? "setup.title.image-edit"
+          : "setup.title.image";
     return {
-      title: i18n.t(feature === "image" ? "setup.title.image" : "setup.title.video"),
+      title: i18n.t(titleKey),
       lead: i18n.t("setup.lead", { backend: backend.label, reason: backend.reason }),
       deps,
       totalBytes: totalBytes(deps),

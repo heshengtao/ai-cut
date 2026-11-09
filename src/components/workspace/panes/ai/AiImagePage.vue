@@ -1,10 +1,13 @@
 <script setup lang="ts">
 /**
- * **AI 画图 / 图像编辑**：侧栏里的整页表单。
+ * **AI 画图 / 图像编辑**：侧栏里的整页表单，一个 `mode` 一个页面。
  *
  * 画图 = txt2img；图像编辑 = 从素材库选一张图，涂抹 mask（白色 = 重绘）后按强度
  * 局部重绘，或直接让 FLUX Kontext / Qwen-Image-Edit 按指令整图改。两种结果都通过
  * `insertGeneratedImage` 插到**新开的最上层轨道**，压在原画面之上，方便继续做叠加。
+ *
+ * 画图与编辑在 AI 面板里是两个入口：这里用 `mode` 决定页标题、模型清单
+ * （只改图的模型不会出现在画图页）以及是否显示原图 / mask 区块。
  *
  * 模型清单按体积从小到大排（SD 1.5 → Z-Image → SDXL → FLUX schnell → Kontext →
  * Qwen-Image → Qwen-Image-Edit），每档的默认步数 / CFG / flow shift 与宽高对齐
@@ -39,25 +42,19 @@ import { assetThumbnailUrl } from "@/core/thumbnails";
 import { useI18n } from "@/i18n";
 import { useDeviceStore } from "@/stores/device";
 import { useLayoutStore } from "@/stores/layout";
-import { useModelChoiceStore } from "@/stores/modelChoice";
 import { useModelsStore } from "@/stores/models";
 import { usePlaybackStore } from "@/stores/playback";
 import { useProjectStore } from "@/stores/project";
 import { useSdcppStore } from "@/stores/sdcpp";
 import { useImageGenStore } from "@/stores/imageGen";
 import { useCloudGenStore } from "@/stores/cloudGen";
-import { useModelChoice } from "@/composables/useModelChoice";
 import { useEngineSetup } from "@/composables/useAiSetup";
+import { useImageModelSource } from "@/composables/useImageModelSource";
 import { toast } from "@/composables/useToast";
-import { humanSize, missingBytes } from "@/utils/size";
+import { humanSize } from "@/utils/size";
 import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
 import type { CloudGenPreset, CloudGenProvider } from "@/types/cloudGen";
-import {
-  CLOUD_GEN_CONFIG_ACTION,
-  providersForCapability,
-  sourceIdFor,
-  splitSourceId,
-} from "@/utils/cloudGen";
+import { CLOUD_GEN_CONFIG_ACTION } from "@/utils/cloudGen";
 import {
   IMAGE_PRESETS,
   alignImageSize,
@@ -68,10 +65,13 @@ import {
 
 const emit = defineEmits<{ (e: "back"): void }>();
 
-/** 从时间线右键菜单进来时预填的模式 / 提示词 / 改图原图。 */
+/**
+ * 这一页只做一件事：`draw` = 文生图，`edit` = 图像编辑（图生图 / 局部重绘 / 指令改图）。
+ * 两页各自独立挂载，模型清单、记住的选择和准备向导都不混在一起。
+ */
 const props = defineProps<{
+  mode?: ImageGenMode;
   initialPrompt?: string;
-  initialMode?: ImageGenMode;
   initialSourceId?: string;
 }>();
 
@@ -82,11 +82,10 @@ const sdcpp = useSdcppStore();
 const device = useDeviceStore();
 const imageGen = useImageGenStore();
 const cloudGen = useCloudGenStore();
-const modelChoice = useModelChoiceStore();
 const project = useProjectStore();
 const playback = usePlaybackStore();
 
-const mode = ref<ImageGenMode>("draw");
+const mode = computed<ImageGenMode>(() => props.mode ?? "draw");
 const prompt = ref("");
 const promptEl = ref<HTMLTextAreaElement | null>(null);
 const negative = ref("");
@@ -105,10 +104,6 @@ const sourceAssetId = ref<string | null>(null);
 /** 「运行环境」默认收起；缺引擎时自动展开（见 onMounted）。 */
 const runtimeOpen = ref(false);
 
-function setMode(value: string): void {
-  mode.value = value as ImageGenMode;
-}
-
 function setErase(value: boolean): void {
   erasing.value = value;
 }
@@ -117,118 +112,31 @@ function onMaskDirty(value: boolean): void {
   maskDirty.value = value;
 }
 
-// ---- 模型：画图 / 改图各自只列能用的档 ----
-const imageModels = computed(() => models.catalog.filter((model) => model.feature === "image-gen"));
-const modeModels = computed(() =>
-  imageModels.value.filter((model) => {
-    const spec = imageModelSpec(model.family);
-    return mode.value === "draw" ? spec.draw : spec.edit;
-  }),
-);
+// ---- 模型：画图页只列能画图的档，编辑页只列能改图的档 ----
+const cloudProviders = ref<CloudGenProvider[]>([]);
+const cloudPresets = ref<CloudGenPreset[]>([]);
 
-const {
-  current: chosenModel,
-} = useModelChoice(
-  "image-gen",
-  () => modeModels.value,
-  (list) =>
-    list.find((model) => model.id === "z-image-turbo") ??
-    list.find((model) => model.installed) ??
-    list[0] ??
-    null,
-);
+const picker = useImageModelSource({
+  mode: props.mode ?? "draw",
+  providers: () => cloudProviders.value,
+  presets: () => cloudPresets.value,
+});
+const chosenModel = picker.choice.current;
+const modelSourceOptions = picker.options;
+const cloudProvider = picker.cloudProvider;
+const cloudSelected = picker.cloudSelected;
+const sourceId = picker.sourceId;
+const modelMissing = picker.missing;
+const modelDownloading = picker.downloading;
+const busy = computed(() => imageGen.running || cloudGen.running);
 
 /** 未知家族按 Z-Image 兜底（文案 key 也因此稳定）。 */
 const family = computed(() => chosenModel.value?.family ?? "z_image_turbo");
 const spec = computed(() => imageModelSpec(family.value));
 
-// ---- 云端服务：与本地模型共用同一个下拉框 ----
-const cloudProviders = ref<CloudGenProvider[]>([]);
-const cloudPresets = ref<CloudGenPreset[]>([]);
-const CLOUD_CHOICE_KEY = "image-gen-cloud";
-const cloudCapability = computed<"t2i" | "i2i">(() =>
-  mode.value === "edit" ? "i2i" : "t2i",
-);
-const cloudChoices = computed(() =>
-  providersForCapability(cloudProviders.value, cloudCapability.value, cloudPresets.value),
-);
-const cloudProviderId = computed<string | null>({
-  get: () => {
-    const saved = modelChoice.get(CLOUD_CHOICE_KEY);
-    return saved && cloudChoices.value.some((provider) => provider.id === saved) ? saved : null;
-  },
-  set: (value) => modelChoice.set(CLOUD_CHOICE_KEY, value),
-});
-const cloudProvider = computed(
-  () => cloudChoices.value.find((provider) => provider.id === cloudProviderId.value) ?? null,
-);
-const cloudSelected = computed(() => cloudProvider.value !== null);
-const busy = computed(() => imageGen.running || cloudGen.running);
-
-/** 云端服务共同使用的下拉值：`local:模型 id` / `cloud:服务 id`。 */
-const sourceId = computed<string | null>({
-  get: () => {
-    if (cloudProvider.value) return sourceIdFor("cloud", cloudProvider.value.id);
-    return chosenModel.value ? sourceIdFor("local", chosenModel.value.id) : null;
-  },
-  set: (value) => {
-    const parsed = splitSourceId(value);
-    if (!parsed) return;
-    if (parsed.kind === "cloud") {
-      modelChoice.set(CLOUD_CHOICE_KEY, parsed.id);
-    } else {
-      modelChoice.set(CLOUD_CHOICE_KEY, null);
-      modelChoice.set("image-gen", parsed.id);
-    }
-  },
-});
-
 function onSourceAction(id: string): void {
   if (id === CLOUD_GEN_CONFIG_ACTION) layout.openSettings("gen");
 }
-
-/**
- * 下拉列表：开头是「配置生成服务…」，下面按「本地模型 / 云端服务」分组。
- * 云端服务的副标题显示接口类型与模型名，选它就完全绕过 sd.cpp。
- */
-const modelSourceOptions = computed<SelectOption[]>(() => {
-  const options: SelectOption[] = [
-    {
-      id: CLOUD_GEN_CONFIG_ACTION,
-      label: i18n.t("aiImage.configure"),
-      hint: i18n.t("aiImage.configureHint"),
-      action: true,
-    },
-  ];
-  for (const model of modeModels.value) {
-    options.push({
-      id: sourceIdFor("local", model.id),
-      label: model.name,
-      group: i18n.t("aiImage.groupLocal"),
-      hint: model.installed
-        ? i18n.t("aiVideo.modelReady", { size: humanSize(model.approx_bytes) })
-        : i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(missingBytes(model)) }),
-    });
-  }
-  for (const provider of cloudChoices.value) {
-    const model =
-      mode.value === "edit"
-        ? provider.edit_model || provider.image_model
-        : provider.image_model;
-    options.push({
-      id: sourceIdFor("cloud", provider.id),
-      label: provider.name,
-      group: i18n.t("aiImage.groupCloud"),
-      hint: `${i18n.t(`settings.gen.kind.${provider.kind}`)}${model ? ` · ${model}` : ""}`,
-    });
-  }
-  return options;
-});
-
-const modelMissing = computed(() =>
-  chosenModel.value ? missingBytes(chosenModel.value) : 0,
-);
-const modelDownloading = computed(() => models.busyId === chosenModel.value?.id);
 
 /** 切换模型：换成该家族官方建议的默认步数 / CFG；画图时挑一档合适的分辨率。 */
 watch(
@@ -374,7 +282,10 @@ const engineDownloading = computed(() => sdcpp.busyId !== null);
  * 以前这两个按钮只是 `openTab("models")`，用户跳过去还得自己找卡片再点一次；
  * 管理器又默认停在「已安装」页签，未装的条目压根不显示 —— 看起来就是「点了没反应」。
  */
-const setup = useEngineSetup("image", () => chosenModel.value);
+const setup = useEngineSetup(
+  props.mode === "edit" ? "image-edit" : "image",
+  () => chosenModel.value,
+);
 const setupOpen = setup.open;
 const setupPlan = setup.plan;
 const setupForced = setup.forced;
@@ -475,7 +386,7 @@ const primaryDisabled = computed(() => {
 /** 固定在底部的状态行：缺什么就提示什么，都就绪时显示输出尺寸。 */
 const dockHint = computed(() => {
   if (cloudSelected.value) {
-    return `${i18n.t("aiImage.cloudHint")} · ${sizeHint.value}`;
+    return `${cloudHintText.value} · ${sizeHint.value}`;
   }
   if (primaryKind.value === "engine") return i18n.t("aiVideo.engineMissingHint");
   if (primaryKind.value === "model") {
@@ -592,6 +503,10 @@ async function addToTimeline(path: string): Promise<void> {
 
 /** 云端服务里只有 OpenAI 的编辑接口吃 mask；其余只按整图参考改。 */
 const cloudMaskSupported = computed(() => cloudProvider.value?.kind === "openai");
+/** 云端的说明按页面分开：画图页说生成，编辑页说要改什么 / mask 支持。 */
+const cloudHintText = computed(() =>
+  i18n.t(mode.value === "edit" ? "aiImage.cloudEditHint" : "aiImage.cloudHint"),
+);
 const showMask = computed(() => !cloudSelected.value || cloudMaskSupported.value);
 
 const maskHint = computed(() => {
@@ -623,7 +538,9 @@ const statusLine = computed(() => {
   }
   if (modelDownloading.value) return i18n.t("aiVideo.downloading");
   if (!engineReady.value) return i18n.t("aiVideo.engineMissingHint");
-  if (!chosenModel.value) return i18n.t("aiImage.noModel");
+  if (!chosenModel.value) {
+    return i18n.t(mode.value === "edit" ? "aiImage.noEditModel" : "aiImage.noModel");
+  }
   if (chosenModel.value.installed !== true) {
     return i18n.t("aiVideo.modelMissingHint", { size: humanSize(modelMissing.value) });
   }
@@ -639,8 +556,7 @@ function undoMask(): void {
 }
 
 onMounted(async () => {
-  if (props.initialMode) mode.value = props.initialMode;
-  if (props.initialSourceId && imageAssets.value.some((asset) => asset.id === props.initialSourceId)) {
+  if (props.mode === "edit" && props.initialSourceId && imageAssets.value.some((asset) => asset.id === props.initialSourceId)) {
     sourceAssetId.value = props.initialSourceId;
   }
   if (props.initialPrompt) prompt.value = props.initialPrompt;
@@ -688,7 +604,7 @@ onUnmounted(() => {
         <ArrowLeftIcon class="w-[15px] h-[15px]" />
       </button>
       <div class="head-text">
-        <h1 class="title">{{ i18n.t("aiImage.title") }}</h1>
+        <h1 class="title">{{ i18n.t(mode === "edit" ? "aiImage.editTitle" : "aiImage.drawTitle") }}</h1>
         <p class="sub">{{ statusLine }}</p>
       </div>
       <span class="badge" :class="{ on: cloudSelected || engineReady }">
@@ -699,17 +615,6 @@ onUnmounted(() => {
     <!-- 后台下载（「在后台下载」选的就是这条）：不跳管理器，进度留在这页 -->
     <DownloadStrip />
 
-    <!-- 模式：画图 / 图像编辑 -->
-    <SegmentedControl
-      :model-value="mode"
-      :options="[
-        { value: 'draw', label: i18n.t('aiImage.tabDraw'), disabled: busy },
-        { value: 'edit', label: i18n.t('aiImage.tabEdit'), disabled: busy },
-      ]"
-      :aria-label="i18n.t('aiImage.title')"
-      @update:model-value="setMode"
-    />
-
     <!-- 模型：整组权重一起装。主要选择常驻，引擎 / 后端收进下面的折叠面板。 -->
     <section class="card">
       <div class="card-head">
@@ -717,7 +622,7 @@ onUnmounted(() => {
         <span class="card-sub">
           {{
             cloudProvider
-              ? i18n.t("aiImage.cloudHint")
+              ? cloudHintText
               : chosenModel?.installed
                 ? i18n.t("aiVideo.modelReady", { size: humanSize(chosenModel.approx_bytes) })
                 : i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(modelMissing) })
@@ -728,7 +633,7 @@ onUnmounted(() => {
         v-model="sourceId"
         :options="modelSourceOptions"
         :label="i18n.t('aiVideo.model')"
-        :empty="i18n.t('aiImage.noModel')"
+        :empty="i18n.t(mode === 'edit' ? 'aiImage.noEditModel' : 'aiImage.noModel')"
         :disabled="busy || modelDownloading"
         @action="onSourceAction"
       />
@@ -743,9 +648,7 @@ onUnmounted(() => {
       <p v-if="!cloudSelected && chosenModel && chosenModel.installed !== true" class="hint">
         {{ i18n.t(`aiImage.modelHint.${family}`) }}
       </p>
-      <p v-else-if="cloudProvider" class="hint">
-        {{ i18n.t("aiImage.cloudHint") }}
-      </p>
+      <p v-else-if="cloudProvider" class="hint">{{ cloudHintText }}</p>
     </section>
 
     <!-- 运行环境：引擎 / 后端属于「配置一次就不动」，收起后不占版面 -->

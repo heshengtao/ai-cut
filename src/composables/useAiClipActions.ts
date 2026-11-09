@@ -323,8 +323,8 @@ export function useAiClipActions() {
     sourceAssetId?: string;
   }): void {
     playback.setPlayhead(options.at);
-    launch.open("image", {
-      ...(options.mode ? { mode: options.mode } : {}),
+    // 画图 / 改图各走独立页面：改图页才会带原图与 mask。
+    launch.open(options.mode === "edit" ? "image-edit" : "image", {
       ...(options.prompt ? { prompt: options.prompt } : {}),
       ...(options.sourceAssetId ? { sourceAssetId: options.sourceAssetId } : {}),
     });

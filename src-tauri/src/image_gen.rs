@@ -72,6 +72,8 @@ pub struct ImageSpec {
     pub vision: bool,
     /// 用 `--ref-image` 做整图指令编辑（Kontext / Qwen-Image-Edit）。
     pub ref_edit: bool,
+    /// 能不能文生图（SD 1.5 那档是 inpainting 专用权重，只能改图）。
+    pub draw: bool,
     /// 官方建议的采样步数。
     pub steps: u32,
     /// 官方建议的 CFG。
@@ -215,6 +217,7 @@ impl ImageSpec {
                 encoder: TextEncoder::None,
                 vision: false,
                 ref_edit: false,
+                draw: false,
                 steps: 20,
                 cfg: 7.5,
                 flow_shift: None,
@@ -228,6 +231,7 @@ impl ImageSpec {
                 encoder: TextEncoder::None,
                 vision: false,
                 ref_edit: false,
+                draw: true,
                 steps: 25,
                 cfg: 7.0,
                 flow_shift: None,
@@ -241,6 +245,7 @@ impl ImageSpec {
                 encoder: TextEncoder::Llm,
                 vision: false,
                 ref_edit: false,
+                draw: true,
                 steps: 8,
                 cfg: 1.0,
                 flow_shift: None,
@@ -254,6 +259,7 @@ impl ImageSpec {
                 encoder: TextEncoder::ClipLAndT5,
                 vision: false,
                 ref_edit: false,
+                draw: true,
                 steps: 4,
                 cfg: 1.0,
                 flow_shift: None,
@@ -267,6 +273,7 @@ impl ImageSpec {
                 encoder: TextEncoder::ClipLAndT5,
                 vision: false,
                 ref_edit: true,
+                draw: false,
                 steps: 20,
                 cfg: 1.0,
                 flow_shift: None,
@@ -280,6 +287,7 @@ impl ImageSpec {
                 encoder: TextEncoder::Llm,
                 vision: false,
                 ref_edit: false,
+                draw: true,
                 steps: 20,
                 cfg: 2.5,
                 flow_shift: Some(3.0),
@@ -293,6 +301,7 @@ impl ImageSpec {
                 encoder: TextEncoder::Llm,
                 vision: true,
                 ref_edit: true,
+                draw: false,
                 steps: 20,
                 cfg: 2.5,
                 flow_shift: Some(3.0),
@@ -917,6 +926,11 @@ pub async fn image_gen_start(
     if request.init_image.is_none() && request.mask_png.is_some() {
         return Err("涂抹 mask 前先选择一张图片".into());
     }
+    // 只改图的模型（SD 1.5 重绘 / Kontext / Qwen-Image-Edit）没有文生图能力：
+    // 界面上它们只在图像编辑页出现，这里再兜一层，防止旧快捷键 / 外部调用绕过界面。
+    if !spec.draw && request.init_image.is_none() {
+        return Err(format!("{} 只能用于图像编辑，请先选择一张原图", entry.name));
+    }
     let init = match request.init_image.as_deref() {
         Some(source) => Some(prepare_init_image(&app, source).await?),
         None => None,
@@ -1207,6 +1221,15 @@ mod tests {
         assert_eq!(value(&masked, "--init-img"), Some("init.png"));
         assert_eq!(value(&masked, "--mask"), Some("mask.png"));
         assert!(has(&masked, "--strength"));
+    }
+
+    #[test]
+    fn sd15_inpainting_is_edit_only() {
+        let sd = ImageSpec::for_family(models::ModelFamily::Sd15).unwrap();
+        assert!(!sd.draw, "SD 1.5 重绘没有文生图能力");
+        assert!(ImageSpec::for_family(models::ModelFamily::Sdxl).unwrap().draw);
+        assert!(!ImageSpec::for_family(models::ModelFamily::Flux1Kontext).unwrap().draw);
+        assert!(!ImageSpec::for_family(models::ModelFamily::QwenImageEdit).unwrap().draw);
     }
 
     #[test]

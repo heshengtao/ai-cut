@@ -11,6 +11,7 @@ import { createAsset, createClip, createMarker, newProject } from "@/core/factor
 import { useProjectStore } from "@/stores/project";
 import { useSelectionStore } from "@/stores/selection";
 import { useTimelineMenus } from "@/composables/useTimelineMenus";
+import { useAiLaunchStore } from "@/stores/aiLaunch";
 import type { MenuItem } from "@/components/common/contextMenu";
 import type { Clip } from "@/types/project";
 
@@ -37,6 +38,20 @@ function findAction(items: MenuItem[], id: string): Extract<MenuItem, { kind: "a
     (item): item is Extract<MenuItem, { kind: "action" }> =>
       item.kind === "action" && item.id === id,
   );
+}
+
+function findActionDeep(
+  items: MenuItem[],
+  id: string,
+): Extract<MenuItem, { kind: "action" }> | undefined {
+  const direct = findAction(items, id);
+  if (direct) return direct;
+  for (const item of items) {
+    if (item.kind !== "submenu") continue;
+    const nested = findActionDeep(item.items, id);
+    if (nested) return nested;
+  }
+  return undefined;
 }
 
 function setupProject(kind: "video" | "audio" | "image" | "text"): {
@@ -156,6 +171,34 @@ describe("空白区域右键菜单", () => {
     expect(findSubmenu(items, "lane-ai")).toBeDefined();
     expect(findAction(items, "lane-new-track")?.label).toBe("新建轨道");
     expect(findSubmenu(items, "lane-track")).toBeUndefined();
+  });
+});
+
+describe("画图 / 改图入口", () => {
+  it("图片块的「改图」打开图像编辑页并带上原图", () => {
+    const { clip } = setupProject("image");
+    const items = useTimelineMenus().build({ kind: "clip", clipId: clip.id });
+
+    findActionDeep(items, "ai-image-edit")?.run();
+
+    const pending = useAiLaunchStore().pending;
+    expect(pending?.page).toBe("image-edit");
+    expect(pending?.sourceAssetId).toBe(clip.assetId);
+  });
+
+  it("空白区域分别打开画图页与图像编辑页", () => {
+    const { trackId } = setupProject("video");
+    const lane = useTimelineMenus().build({ kind: "lane", trackId, index: 1, time: 2 });
+    const ai = findSubmenu(lane, "lane-ai");
+    expect(ai?.kind).toBe("submenu");
+
+    const draw = findAction(ai && ai.kind === "submenu" ? ai.items : [], "gen-image");
+    draw?.run();
+    expect(useAiLaunchStore().pending?.page).toBe("image");
+
+    const edit = findAction(ai && ai.kind === "submenu" ? ai.items : [], "gen-image-edit");
+    edit?.run();
+    expect(useAiLaunchStore().pending?.page).toBe("image-edit");
   });
 });
 
