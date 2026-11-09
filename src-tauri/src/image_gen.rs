@@ -667,10 +667,38 @@ fn command_args(
     args
 }
 
+/// Metal 上的已知 sd.cpp 缺陷规避（都在 [sd.cpp #2149] / [#1990] 里复现过）：
+///
+/// - `#2149`：Metal 的 `GROUP_NORM` 只写 batch 0，开启 batched CFG 后第二个分支
+///   保持未初始化，SD 1.5 / SDXL 会稳定产出全白图。关掉这一条即可绕开；
+///   CPU / CUDA / Vulkan 不受影响，保持默认（更快）。
+/// - `#1990`：Apple M5 的 Metal tensor API 会让 Z-Image Turbo 静默输出全白 PNG
+///   （退出码仍是 0）。Z-Image 在 Metal 上改用非 tensor 路径。
+///
+/// 注意：上游 PR #2296 已修 GROUP_NORM 的 batch 处理。等 `sdcpp.rs` 的 `REVISION`
+/// 换成包含该修复的 release 后，`--batched-cfg off` 就可以删掉。
+///
+/// [#2149]: https://github.com/leejet/stable-diffusion.cpp/issues/2149
+/// [#1990]: https://github.com/leejet/stable-diffusion.cpp/issues/1990
+fn metal_guard_args(device: &str) -> &'static [&'static str] {
+    if device == "metal" {
+        &["--batched-cfg", "off"]
+    } else {
+        &[]
+    }
+}
+
+/// Z-Image 在 Metal 上要关掉 tensor API（见 [`metal_guard_args`] 的 #1990）。
+fn metal_env(device: &str, family: models::ModelFamily) -> Option<(&'static str, &'static str)> {
+    (device == "metal" && family == models::ModelFamily::ZImageTurbo)
+        .then_some(("GGML_METAL_TENSOR_DISABLE", "1"))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run(
     app: &AppHandle,
     cli: &Path,
+    family: models::ModelFamily,
     spec: ImageSpec,
     files: &ModelFiles,
     output: &Path,
@@ -706,8 +734,11 @@ fn run(
         offload_to_cpu,
         vae_tiling,
     );
+    let device = sdcpp::effective_device(app);
+    // Metal 的 batched CFG 会产出全白图（sd.cpp #2149）。
+    args.extend(metal_guard_args(device).iter().map(|arg| arg.to_string()));
     // macOS 的 CPU 是「Metal 包 + 强制 CPU」：不传这一条，包里默认走 Metal。
-    if let Some(backend) = sdcpp::backend_arg(sdcpp::effective_device(app)) {
+    if let Some(backend) = sdcpp::backend_arg(device) {
         args.push("--backend".to_string());
         args.push(backend.to_string());
     }
@@ -717,6 +748,9 @@ fn run(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some((key, value)) = metal_env(device, family) {
+        command.env(key, value);
+    }
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -978,6 +1012,7 @@ pub async fn image_gen_start(
         run(
             &app_for_task,
             &cli_for_task,
+            entry.family,
             spec,
             &files,
             &output_for_task,
@@ -1230,6 +1265,25 @@ mod tests {
         assert!(ImageSpec::for_family(models::ModelFamily::Sdxl).unwrap().draw);
         assert!(!ImageSpec::for_family(models::ModelFamily::Flux1Kontext).unwrap().draw);
         assert!(!ImageSpec::for_family(models::ModelFamily::QwenImageEdit).unwrap().draw);
+    }
+
+    #[test]
+    fn metal_turns_batched_cfg_off() {
+        assert_eq!(metal_guard_args("metal"), &["--batched-cfg", "off"]);
+        assert!(metal_guard_args("cuda12").is_empty());
+        assert!(metal_guard_args("vulkan").is_empty());
+        assert!(metal_guard_args("cpu").is_empty());
+    }
+
+    #[test]
+    fn z_image_metal_disables_the_tensor_api() {
+        assert_eq!(
+            metal_env("metal", models::ModelFamily::ZImageTurbo),
+            Some(("GGML_METAL_TENSOR_DISABLE", "1"))
+        );
+        assert_eq!(metal_env("metal", models::ModelFamily::Sd15), None);
+        assert_eq!(metal_env("cpu", models::ModelFamily::ZImageTurbo), None);
+        assert_eq!(metal_env("cuda12", models::ModelFamily::ZImageTurbo), None);
     }
 
     #[test]
