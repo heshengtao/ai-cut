@@ -1392,6 +1392,7 @@ const zh: Record<string, string> = {
   "ai.subtitleDownloadingModel": "正在从 {source} 下载模型",
   "ai.manageModels": "打开下载管理器",
   "ai.voiceover": "AI 朗读",
+  "ai.voiceDownload": "下载模型",
   "ai.voiceChange": "AI 变声…",
   "ai.voiceChangeTrack": "AI 变声",
   "ai.voiceChangeRun": "开始变声",

@@ -1392,6 +1392,7 @@ const en: Record<string, string> = {
   "ai.subtitleDownloadingModel": "Downloading model from {source}",
   "ai.manageModels": "Open download manager",
   "ai.voiceover": "AI voiceover",
+  "ai.voiceDownload": "Download model",
   "ai.voiceChange": "AI voice change…",
   "ai.voiceChangeTrack": "AI voice",
   "ai.voiceChangeRun": "Convert voice",
