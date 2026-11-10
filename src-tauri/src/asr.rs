@@ -777,6 +777,7 @@ fn create_recognizer(
             return Err("朗读模型不能用于语音识别".into())
         }
         ModelFamily::ZipVoice => return Err("ZipVoice 模型不能用于语音识别".into()),
+        ModelFamily::MeanVc2 => return Err("变声模型不能用于语音识别".into()),
         ModelFamily::LocalVqe
         | ModelFamily::Htdemucs
         | ModelFamily::Htdemucs6s

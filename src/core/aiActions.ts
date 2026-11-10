@@ -27,6 +27,8 @@ import { insertCueTrack as insertSubtitleTrack } from "@/core/subtitleTrack";
 import { mapCueToTimeline } from "@/core/subtitles";
 import { replaceClipVideo } from "@/core/videoEdit";
 import { placeVoiceover } from "@/core/voiceover";
+import { convertVoiceBatch } from "@/core/voiceChangeApi";
+import { placeConvertedVoice } from "@/core/voiceEdit";
 import { useAsrStore } from "@/stores/asr";
 import { asrTranscribeWords } from "@/core/modelApi";
 import {
@@ -732,6 +734,70 @@ async function replaceVideoWith(
     assetId: generated.id,
     duration: result.duration,
     clipAssetId: affectedClip(clipId)?.assetId ?? null,
+    tracks: createdTracks(before),
+    revision: revision(),
+  };
+}
+
+export interface VoiceChangeParams {
+  clipIds: string[];
+  voiceId: string;
+  modelId: string;
+}
+
+/** 离线变声：整批提交，结果按原位置落到「AI 变声」轨道，原片段静音。 */
+export async function convertVoice(params: VoiceChangeParams, ctx: JobContext) {
+  if (params.clipIds.length === 0) throw new Error("没有要变声的片段");
+  const clips = params.clipIds.map((id) => {
+    const { clip, asset } = requireMediaClip(id);
+    if (asset.kind !== "audio" && asset.kind !== "video") {
+      throw new Error(`片段 ${clip.id} 没有音频`);
+    }
+    return { clip, asset };
+  });
+
+  const results = await convertVoiceBatch(
+    clips.map(({ clip, asset }) => ({
+      clipId: clip.id,
+      path: asset.src,
+      start: clip.in ?? 0,
+      duration: clip.duration,
+    })),
+    params.voiceId,
+    params.modelId,
+  );
+  if (ctx.cancelled()) throw new Error("已取消");
+  if (results.length === 0) throw new Error("变声没有产出音频");
+
+  const imported: { result: (typeof results)[number]; asset: MediaAsset }[] = [];
+  for (const result of results) {
+    imported.push({
+      result,
+      asset: await importAsset(result.path, `${t("ai.voiceChangeTrack")} · ${result.clipId}`),
+    });
+  }
+
+  const before = project().doc;
+  project().dispatch(
+    (doc) => {
+      let next = doc;
+      for (const item of imported) next = addAsset(next, item.asset);
+      return placeConvertedVoice(
+        next,
+        imported.map(({ result, asset }) => ({
+          clipId: result.clipId,
+          assetId: asset.id,
+          duration: result.duration,
+        })),
+        t("ai.voiceChangeTrack"),
+      );
+    },
+    jobMeta(ctx, "AI 变声"),
+  );
+
+  return {
+    count: imported.length,
+    assets: imported.map((item) => ({ assetId: item.asset.id, duration: item.result.duration })),
     tracks: createdTracks(before),
     revision: revision(),
   };

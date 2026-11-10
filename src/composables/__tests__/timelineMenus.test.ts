@@ -117,6 +117,18 @@ describe("片段右键菜单", () => {
     expect(findSubmenu(items, "clip-visual")).toBeUndefined();
   });
 
+  it("音频块提供 AI 变声入口", () => {
+    const { clip } = setupProject("audio");
+    const items = useTimelineMenus().build({ kind: "clip", clipId: clip.id });
+    expect(findActionDeep(items, "ai-voice-change")).toBeDefined();
+  });
+
+  it("图片块没有 AI 变声入口", () => {
+    const { clip } = setupProject("image");
+    const items = useTimelineMenus().build({ kind: "clip", clipId: clip.id });
+    expect(findActionDeep(items, "ai-voice-change")).toBeUndefined();
+  });
+
   it("图片块只出现图片相关项，不出现字幕", () => {
     const { clip } = setupProject("image");
     const items = useTimelineMenus().build({ kind: "clip", clipId: clip.id });

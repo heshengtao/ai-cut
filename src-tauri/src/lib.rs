@@ -32,6 +32,7 @@ mod video_ai;
 mod video_dsp;
 mod video_gen;
 mod zipvoice;
+mod voice_change;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -228,6 +229,11 @@ pub fn run() {
             audio_ai::audio_ai_separate,
             audio_ai::audio_extract_reference,
             audio_ai::audio_ai_cancel,
+            voice_change::voice_change_convert,
+            voice_change::voice_change_cancel,
+            voice_change::voice_change_voice_list,
+            voice_change::voice_change_voice_import,
+            voice_change::voice_change_voice_delete,
             audio_ai::translate_text,
         ])
         .setup(|app| {

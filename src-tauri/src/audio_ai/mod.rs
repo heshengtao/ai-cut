@@ -39,8 +39,8 @@ pub const HTDEMUCS_FILE: &str = "htdemucs.ort";
 pub const HTDEMUCS_6S_FILE: &str = "htdemucs_6s.onnx";
 
 /// 处理后统一输出的采样率与声道数（与导出链路一致）。
-const OUT_SAMPLE_RATE: u32 = 48_000;
-const OUT_CHANNELS: u16 = 2;
+pub(crate) const OUT_SAMPLE_RATE: u32 = 48_000;
+pub(crate) const OUT_CHANNELS: u16 = 2;
 
 /// 进度回调：参数为 0.0..=1.0；返回 `false` 表示取消。
 pub type Progress<'a> = &'a dyn Fn(f32) -> bool;
@@ -252,7 +252,7 @@ fn cache_path(app: &AppHandle, tag: &str, ext: &str) -> Result<PathBuf, String> 
 // ---------------------------------------------------------------------------
 
 /// 把源文件的某个区间解成 48 kHz 立体声交错 `f32`。
-async fn decode_segment(
+pub(crate) async fn decode_segment(
     app: &AppHandle,
     path: &str,
     start: f64,
@@ -302,7 +302,7 @@ async fn decode_segment(
 }
 
 /// 写 16-bit PCM WAV（WebAudio / ffmpeg 都能直接读）。
-fn write_wav(path: &Path, samples: &[f32], channels: u16, sample_rate: u32) -> Result<(), String> {
+pub(crate) fn write_wav(path: &Path, samples: &[f32], channels: u16, sample_rate: u32) -> Result<(), String> {
     let data_len = samples.len() * 2;
     if data_len > u32::MAX as usize {
         return Err("音频太长，无法写入 WAV".into());
@@ -335,7 +335,7 @@ fn write_wav(path: &Path, samples: &[f32], channels: u16, sample_rate: u32) -> R
     Ok(())
 }
 
-async fn probe_duration(app: &AppHandle, path: &Path) -> Result<f64, String> {
+pub(crate) async fn probe_duration(app: &AppHandle, path: &Path) -> Result<f64, String> {
     let args: Vec<String> = vec![
         "-v".into(),
         "quiet".into(),

@@ -46,7 +46,8 @@ export type ModelFeature =
   | "reframe"
   | "align"
   | "video-gen"
-  | "image-gen";
+  | "image-gen"
+  | "voice-change";
 export type ModelTag = "text" | "audio" | "visual";
 export type ModelRegion = "intl" | "cn";
 /** 模型下载源区域偏好。 */

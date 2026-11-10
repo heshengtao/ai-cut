@@ -25,6 +25,7 @@ import AiSetupDialog from "@/components/ai/AiSetupDialog.vue";
 import DownloadStrip from "@/components/ai/DownloadStrip.vue";
 import AiVideoPage from "@/components/workspace/panes/ai/AiVideoPage.vue";
 import AiImagePage from "@/components/workspace/panes/ai/AiImagePage.vue";
+import AiVoicePage from "@/components/workspace/panes/ai/AiVoicePage.vue";
 import type { BackendInfo, BackendPreference, McpStatus } from "@/types/agent";
 import type { AudioStem, ModelStatus, TtsAudio, TtsVoice } from "@/types/models";
 import type { Clip, MediaAsset } from "@/types/project";
@@ -95,8 +96,8 @@ const videoAi = useVideoAiStore();
 const sdcpp = useSdcppStore();
 const device = useDeviceStore();
 
-/** 侧栏整页：AI 视频生成 / AI 画图 / 图像编辑（三个独立页面）。 */
-const aiPage = ref<null | "video" | "image" | "image-edit">(null);
+/** 侧栏整页：AI 视频生成 / AI 画图 / 图像编辑 / 变声（四个独立页面）。 */
+const aiPage = ref<null | "video" | "image" | "image-edit" | "voice">(null);
 
 /** 时间线右键菜单带过来的「打开某个生成页并预填」请求。 */
 const aiLaunch = useAiLaunchStore();
@@ -109,6 +110,9 @@ const imageLaunch = computed(() =>
 );
 const imageEditLaunch = computed(() =>
   launchRequest.value?.page === "image-edit" ? launchRequest.value : null,
+);
+const voiceLaunch = computed(() =>
+  launchRequest.value?.page === "voice" ? launchRequest.value : null,
 );
 
 function closeGenPage(): void {
@@ -1921,6 +1925,21 @@ function openImageEdit(): void {
   });
 }
 
+// ---- AI 变声：模型就绪情况 + 直接打开变声页（片段由右键菜单带过来） ----
+const voiceModel = computed(() => models.byId("meanvc2-int8"));
+const voiceReady = computed(() => voiceModel.value?.installed === true);
+const voiceNote = computed(() =>
+  voiceReady.value
+    ? i18n.t("aiVideo.modelReady", { size: humanSize(voiceModel.value?.approx_bytes ?? 0) })
+    : i18n.t("aiVideo.modelNeedsDownload", {
+        size: humanSize(voiceModel.value ? missingBytes(voiceModel.value) : 0),
+      }),
+);
+
+function openVoice(): void {
+  aiPage.value = "voice";
+}
+
 /**
  * 右键菜单的生成请求：先记下预填参数，再走「准备引擎 → 进子页」的同一条路径。
  * 请求在进入时消费掉，避免 AI 面板重新挂载时重复打开。
@@ -1931,6 +1950,7 @@ function handleLaunch(request: AiLaunchRequest): void {
   layout.openTab("ai");
   if (request.page === "video") openVideoGen();
   else if (request.page === "image-edit") openImageEdit();
+  else if (request.page === "voice") aiPage.value = "voice";
   else openImageGen();
 }
 
@@ -1987,6 +2007,12 @@ onMounted(() => {
       :key="`image-${launchRequest?.id ?? 0}`"
       mode="draw"
       :initial-prompt="imageLaunch?.prompt ?? ''"
+      @back="closeGenPage"
+    />
+    <AiVoicePage
+      v-else-if="aiPage === 'voice'"
+      :key="`voice-${launchRequest?.id ?? 0}`"
+      :clip-ids="voiceLaunch?.clipIds ?? []"
       @back="closeGenPage"
     />
     <AiImagePage
@@ -2373,6 +2399,20 @@ onMounted(() => {
             :empty="i18n.t('aiVideo.noModel')"
             @action="onCloudGenAction"
           />
+        </div>
+      </li>
+      <li class="item">
+        <div class="item-row">
+          <div class="item-main">
+            <span class="item-name">
+              {{ i18n.t("ai.voiceChange") }}
+              <EngineTag kind="onnx" />
+            </span>
+            <span class="item-note">{{ voiceNote }}</span>
+          </div>
+          <button class="run-btn" @click="openVoice">
+            {{ i18n.t(voiceReady ? "ai.voiceChangeRun" : "ai.prepare") }}
+          </button>
         </div>
       </li>
       <li class="item">

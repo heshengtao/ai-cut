@@ -115,6 +115,9 @@ pub enum ModelFamily {
     /// Qwen-Image-Edit 2509（参考图指令改图，需要 Qwen2.5-VL 视觉投影层）。
     #[serde(rename = "qwen_image_edit")]
     QwenImageEdit,
+    /// MeanVC2：18M 零样本变声（16 kHz，六张 ONNX 图）。
+    #[serde(rename = "meanvc2")]
+    MeanVc2,
 }
 
 /// 一个下载源。
@@ -2240,6 +2243,114 @@ pub static CATALOG: &[ModelEntry] = &[
             },
         ],
     },
+    // MeanVC2：18M 零样本变声（16 kHz）。转换链 int8 约 74 MB，按需下载。
+    ModelEntry {
+        id: "meanvc2-int8",
+        name: "MeanVC2（18M · 零样本变声 · int8）",
+        feature: "voice-change",
+        tag: "audio",
+        license: "Apache-2.0",
+        family: ModelFamily::MeanVc2,
+        recommended: false,
+        bundled: false,
+        files: &[
+        ModelFile {
+            filename: "fbank.onnx",
+            approx_bytes: 908_339,
+            sha256: "ecbe193170abe98a8c0ba9299e8fe21b418145aca924e351c667b9257c3e28c8",
+            sources: &[
+                verified(
+                    "hf",
+                    "intl",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/fbank.onnx",
+                    "ecbe193170abe98a8c0ba9299e8fe21b418145aca924e351c667b9257c3e28c8",
+                    908_339,
+                ),
+            ],
+        },
+        ModelFile {
+            filename: "asr.int8.onnx",
+            approx_bytes: 28_655_587,
+            sha256: "553869e3159af4497582072e66f09c16032a3b98ac2bad5c195b7443627616be",
+            sources: &[
+                verified(
+                    "hf",
+                    "intl",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/asr.int8.onnx",
+                    "553869e3159af4497582072e66f09c16032a3b98ac2bad5c195b7443627616be",
+                    28_655_587,
+                ),
+            ],
+        },
+        ModelFile {
+            filename: "gtm.onnx",
+            approx_bytes: 17_441_893,
+            sha256: "f03ff1e9da3c373445f7518fa36fc99980fe4326447235fa89ea1923f57ee224",
+            sources: &[
+                verified(
+                    "hf",
+                    "intl",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/gtm.onnx",
+                    "f03ff1e9da3c373445f7518fa36fc99980fe4326447235fa89ea1923f57ee224",
+                    17_441_893,
+                ),
+            ],
+        },
+        ModelFile {
+            filename: "dit.int8.onnx",
+            approx_bytes: 13_849_138,
+            sha256: "52ac682ed1790b196333d1dbf99fa2806b6c52076c85e438c9dede968572675a",
+            sources: &[
+                verified(
+                    "hf",
+                    "intl",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/dit.int8.onnx",
+                    "52ac682ed1790b196333d1dbf99fa2806b6c52076c85e438c9dede968572675a",
+                    13_849_138,
+                ),
+            ],
+        },
+        ModelFile {
+            filename: "vocos.int8.onnx",
+            approx_bytes: 12_998_461,
+            sha256: "a0dbd4c83708f6e787ceebf1c1b0833398dbdea6af770887d27b19119bba2e16",
+            sources: &[
+                verified(
+                    "hf",
+                    "intl",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/vocos.int8.onnx",
+                    "a0dbd4c83708f6e787ceebf1c1b0833398dbdea6af770887d27b19119bba2e16",
+                    12_998_461,
+                ),
+            ],
+        },
+        ],
+    },
+    // 音色编码器单独成条：已有 256 维向量的用户不必下这 387 MB。
+    ModelEntry {
+        id: "meanvc2-speaker",
+        name: "MeanVC2 音色编码器（WavLM + ECAPA · int8）",
+        feature: "voice-change",
+        tag: "audio",
+        license: "CC-BY-SA-3.0",
+        family: ModelFamily::MeanVc2,
+        recommended: false,
+        bundled: false,
+        files: &[ModelFile {
+            filename: "speaker.int8.onnx",
+            approx_bytes: 387_106_790,
+            sha256: "ccd31b45eb2162937b94921d6e64fdd2cf5bf77193ad6f738e85f06a914a95ca",
+            sources: &[
+                verified(
+                    "hf",
+                    "intl",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/speaker/speaker.int8.onnx",
+                    "ccd31b45eb2162937b94921d6e64fdd2cf5bf77193ad6f738e85f06a914a95ca",
+                    387_106_790,
+                ),
+            ],
+        }],
+    },
 ];
 
 /// 全部条目。
@@ -3723,7 +3834,12 @@ mod tests {
     #[test]
     fn every_downloadable_model_has_a_modelscope_source() {
         // 随包小模型（如 LocalVQE）已经躺在磁盘上，下载源只作兜底，不强制双源。
-        for entry in all().iter().filter(|entry| !entry.bundled) {
+        // `voice-change` 的 ONNX 由上游社区导出、魔搭尚无人镜像，等自建镜像上传后
+        // 在 `models.rs` 里补 `modelscope` 源，并把这条豁免删掉。
+        for entry in all()
+            .iter()
+            .filter(|entry| !entry.bundled && entry.feature != "voice-change")
+        {
             for file in entry.files {
                 assert!(
                     file.sources
@@ -3852,5 +3968,18 @@ mod tests {
             assert!(file.sources.iter().all(|source| source.sha256.is_none()));
             assert_eq!(file.sources.len(), 2);
         }
+    }
+
+    #[test]
+    fn meanvc2_entries_are_download_only() {
+        let convert = by_id("meanvc2-int8").expect("转换图条目");
+        assert_eq!(convert.feature, "voice-change");
+        assert!(!convert.bundled);
+        assert!(!convert.bundle_eligible(), "74 MB 必须走按需下载");
+        assert_eq!(convert.files.len(), 5);
+        assert!(convert.files.iter().all(|file| !file.sha256.is_empty()));
+        let speaker = by_id("meanvc2-speaker").expect("音色编码器条目");
+        assert!(speaker.family == ModelFamily::MeanVc2);
+        assert!(speaker.total_bytes() > 10 * 1024 * 1024);
     }
 }

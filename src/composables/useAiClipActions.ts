@@ -5,6 +5,7 @@
  * 缺模型时不静默失败，而是给一条带「打开模型下载」按钮的提示。
  */
 import {
+  convertVoice,
   cutFillerWords,
   denoise,
   interpolate,
@@ -30,6 +31,7 @@ import { usePlaybackStore } from "@/stores/playback";
 import { useTtsStore } from "@/stores/tts";
 import { useVideoAiStore } from "@/stores/videoAi";
 import { useVideoDspStore } from "@/stores/videoDsp";
+import { useVoiceChangeStore } from "@/stores/voiceChange";
 import type { AudioDspPreset, ModelFeature } from "@/types/models";
 import type { VideoAiSubject, VideoDspOptions } from "@/types/video";
 import { toast } from "@/composables/useToast";
@@ -53,6 +55,7 @@ export function useAiClipActions() {
   const audioAi = useAudioAiStore();
   const videoAi = useVideoAiStore();
   const videoDsp = useVideoDspStore();
+  const voiceChange = useVoiceChangeStore();
   const tasks = useAiTasksStore();
   const launch = useAiLaunchStore();
 
@@ -238,6 +241,32 @@ export function useAiClipActions() {
     );
   }
 
+  async function changeVoice(clipIds: string[]): Promise<void> {
+    if (clipIds.length === 0) return;
+    const ok = await ensureFeatures([{ feature: "voice-change", label: t("ai.voiceChange") }]);
+    if (!ok) return;
+    if (!voiceChange.voiceId) {
+      openVoiceChange(clipIds);
+      toast(t("ai.voiceNoVoice"));
+      return;
+    }
+    run(
+      t("ai.voiceChange"),
+      () =>
+        convertVoice(
+          { clipIds, voiceId: voiceChange.voiceId!, modelId: voiceChange.modelId },
+          MENU_JOB,
+        ),
+      () => void voiceChange.cancel(),
+    );
+  }
+
+  /** 右键入口：打开变声页并带上选中的片段。 */
+  function openVoiceChange(clipIds: string[]): void {
+    launch.open("voice", { clipIds });
+    layout.openTab("ai");
+  }
+
   // -------------------------------------------------------------------------
   // 画面
   // -------------------------------------------------------------------------
@@ -344,6 +373,8 @@ export function useAiClipActions() {
     interpolateClip,
     reframeClip,
     processVideoClip,
+    changeVoice,
+    openVoiceChange,
     openVideoGeneration,
     openImageGeneration,
   };
