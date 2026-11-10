@@ -10,7 +10,7 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
 
-export type AiLaunchPage = "video" | "image" | "image-edit";
+export type AiLaunchPage = "video" | "image" | "image-edit" | "voice";
 
 export interface AiLaunchRequest {
   /** 每次请求的新 id：AI 面板用它给生成页做 `key`，重复请求也会重新预填。 */
@@ -21,6 +21,8 @@ export interface AiLaunchRequest {
   sourceAssetId?: string;
   /** 仅视频页：以哪张图片作为首帧参考。 */
   imageAssetId?: string;
+  /** 仅变声页：从时间线带过来的待处理片段。 */
+  clipIds?: string[];
 }
 
 export const useAiLaunchStore = defineStore("aiLaunch", () => {

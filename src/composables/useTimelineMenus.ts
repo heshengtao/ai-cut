@@ -304,6 +304,22 @@ export function useTimelineMenus(host: TimelineMenuHost = {}) {
           ai: true,
         }),
       );
+
+      // 变声：只带同选区内真正有音轨的片段（图片 / 文字跳过）。
+      const voiceIds = ids.filter((id) => {
+        const target = findClipInDoc(project.doc, id);
+        if (!target || target.assetId === "") return false;
+        const asset = project.doc.assets.find((candidate) => candidate.id === target.assetId);
+        return Boolean(asset && (asset.kind === "audio" || asset.kind === "video"));
+      });
+      items.push(
+        action(
+          "ai-voice-change",
+          t("ai.voiceChange"),
+          () => ai.openVoiceChange(voiceIds.length > 0 ? voiceIds : [clip.id]),
+          { icon: MicrophoneIcon, ai: true },
+        ),
+      );
       items.push(
         submenu(
           "ai-beautify",
