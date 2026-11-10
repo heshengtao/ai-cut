@@ -123,6 +123,12 @@ describe("片段右键菜单", () => {
     expect(findActionDeep(items, "ai-voice-change")).toBeDefined();
   });
 
+  it("音频块可以把片段存为音色", () => {
+    const { clip } = setupProject("audio");
+    const items = useTimelineMenus().build({ kind: "clip", clipId: clip.id });
+    expect(findActionDeep(items, "ai-save-voice")).toBeDefined();
+  });
+
   it("图片块没有 AI 变声入口", () => {
     const { clip } = setupProject("image");
     const items = useTimelineMenus().build({ kind: "clip", clipId: clip.id });

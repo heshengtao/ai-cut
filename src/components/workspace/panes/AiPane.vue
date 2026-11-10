@@ -60,6 +60,7 @@ import { useI18n } from "@/i18n";
 import { useModelChoice } from "@/composables/useModelChoice";
 import { useImageModelSource } from "@/composables/useImageModelSource";
 import { useEngineSetup, useRuntimeSetup } from "@/composables/useAiSetup";
+import { useAiClipActions } from "@/composables/useAiClipActions";
 import { useModelChoiceStore } from "@/stores/modelChoice";
 import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
 import type { CloudGenPreset, CloudGenProvider } from "@/types/cloudGen";
@@ -95,6 +96,7 @@ const audioAi = useAudioAiStore();
 const videoAi = useVideoAiStore();
 const sdcpp = useSdcppStore();
 const device = useDeviceStore();
+const clipActions = useAiClipActions();
 
 /** 侧栏整页：AI 视频生成 / AI 画图 / 图像编辑 / 变声（四个独立页面）。 */
 const aiPage = ref<null | "video" | "image" | "image-edit" | "voice">(null);
@@ -1936,8 +1938,9 @@ const voiceNote = computed(() =>
       }),
 );
 
+/** 卡片入口：与右键菜单走同一条「先确认模型，再进页面」的路径。 */
 function openVoice(): void {
-  aiPage.value = "voice";
+  void clipActions.openVoiceChange([]);
 }
 
 /**
@@ -2013,6 +2016,7 @@ onMounted(() => {
       v-else-if="aiPage === 'voice'"
       :key="`voice-${launchRequest?.id ?? 0}`"
       :clip-ids="voiceLaunch?.clipIds ?? []"
+      :import-clip-id="voiceLaunch?.voiceImportClipId ?? ''"
       @back="closeGenPage"
     />
     <AiImagePage
@@ -2405,20 +2409,6 @@ onMounted(() => {
         <div class="item-row">
           <div class="item-main">
             <span class="item-name">
-              {{ i18n.t("ai.voiceChange") }}
-              <EngineTag kind="onnx" />
-            </span>
-            <span class="item-note">{{ voiceNote }}</span>
-          </div>
-          <button class="run-btn" @click="openVoice">
-            {{ i18n.t(voiceReady ? "ai.voiceChangeRun" : "ai.prepare") }}
-          </button>
-        </div>
-      </li>
-      <li class="item">
-        <div class="item-row">
-          <div class="item-main">
-            <span class="item-name">
               {{ i18n.t("videoAi.upscale") }}
               <EngineTag kind="onnx" />
             </span>
@@ -2691,6 +2681,21 @@ onMounted(() => {
     </div>
     <ul v-if="activeTag === 'all' || activeTag === 'audio'" class="list">
       <li class="item">
+      <li class="item">
+        <div class="item-row">
+          <div class="item-main">
+            <span class="item-name">
+              {{ i18n.t("ai.voiceChange") }}
+              <EngineTag kind="onnx" />
+            </span>
+            <span class="item-note">{{ voiceNote }}</span>
+          </div>
+          <button class="run-btn" @click="openVoice">
+            {{ i18n.t(voiceReady ? "ai.voiceChangeRun" : "ai.prepare") }}
+          </button>
+        </div>
+      </li>
+
         <div class="item-row">
           <div class="item-main">
             <span class="item-name">

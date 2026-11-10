@@ -23,6 +23,8 @@ export interface AiLaunchRequest {
   imageAssetId?: string;
   /** 仅变声页：从时间线带过来的待处理片段。 */
   clipIds?: string[];
+  /** 仅变声页：打开后直接把该片段放进「导入音色」表单。 */
+  voiceImportClipId?: string;
 }
 
 export const useAiLaunchStore = defineStore("aiLaunch", () => {

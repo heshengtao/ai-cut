@@ -241,12 +241,19 @@ export function useAiClipActions() {
     );
   }
 
+  /** 变声必须先有转换图；缺失时走统一的模型下载提示，不进入页面。 */
+  async function ensureVoiceModel(): Promise<boolean> {
+    await loadCatalog();
+    if (models.byId("meanvc2-int8")?.installed) return true;
+    modelToast(t("ai.voiceChange"), undefined, "meanvc2-int8");
+    return false;
+  }
+
   async function changeVoice(clipIds: string[]): Promise<void> {
     if (clipIds.length === 0) return;
-    const ok = await ensureFeatures([{ feature: "voice-change", label: t("ai.voiceChange") }]);
-    if (!ok) return;
+    if (!(await ensureVoiceModel())) return;
     if (!voiceChange.voiceId) {
-      openVoiceChange(clipIds);
+      await openVoiceChange(clipIds);
       toast(t("ai.voiceNoVoice"));
       return;
     }
@@ -261,9 +268,13 @@ export function useAiClipActions() {
     );
   }
 
-  /** 右键入口：打开变声页并带上选中的片段。 */
-  function openVoiceChange(clipIds: string[]): void {
-    launch.open("voice", { clipIds });
+  /** 右键入口：模型就绪后打开变声页，并带上选中的片段。 */
+  async function openVoiceChange(clipIds: string[], importClipId?: string): Promise<void> {
+    if (!(await ensureVoiceModel())) return;
+    launch.open("voice", {
+      ...(clipIds.length > 0 ? { clipIds } : {}),
+      ...(importClipId ? { voiceImportClipId: importClipId } : {}),
+    });
     layout.openTab("ai");
   }
 

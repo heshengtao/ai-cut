@@ -316,7 +316,15 @@ export function useTimelineMenus(host: TimelineMenuHost = {}) {
         action(
           "ai-voice-change",
           t("ai.voiceChange"),
-          () => ai.openVoiceChange(voiceIds.length > 0 ? voiceIds : [clip.id]),
+          () => void ai.openVoiceChange(voiceIds.length > 0 ? voiceIds : [clip.id]),
+          { icon: MicrophoneIcon, ai: true },
+        ),
+      );
+      items.push(
+        action(
+          "ai-save-voice",
+          t("ai.voiceSave"),
+          () => void ai.openVoiceChange([clip.id], clip.id),
           { icon: MicrophoneIcon, ai: true },
         ),
       );

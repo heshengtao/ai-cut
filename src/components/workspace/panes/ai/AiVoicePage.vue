@@ -7,31 +7,162 @@
  * 参考音频由后端自动截取有声的 10 秒并算好 256 维向量。
  */
 import { computed, onMounted, ref, watch } from "vue";
-import { ArrowLeftIcon, TrashIcon } from "@heroicons/vue/24/outline";
+import { ArrowLeftIcon, PlusIcon, TrashIcon } from "@heroicons/vue/24/outline";
 import DownloadStrip from "@/components/ai/DownloadStrip.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
+import ModalShell from "@/components/common/ModalShell.vue";
+import { confirm } from "@/composables/useConfirm";
 import { useI18n } from "@/i18n";
 import { useModelsStore } from "@/stores/models";
 import { useProjectStore } from "@/stores/project";
+import { useSelectionStore } from "@/stores/selection";
 import { useVoiceChangeStore } from "@/stores/voiceChange";
 import { deleteVoice, importVoice, listVoices } from "@/core/voiceChangeApi";
 import { convertVoice } from "@/core/aiActions";
 import { toast } from "@/composables/useToast";
 import { humanSize, missingBytes } from "@/utils/size";
+import type { Clip, MediaAsset } from "@/types/project";
 import type { VoiceEntry } from "@/types/voiceChange";
 
-const props = defineProps<{ clipIds?: string[] }>();
+const props = defineProps<{ clipIds?: string[]; importClipId?: string }>();
 const emit = defineEmits<{ (e: "back"): void }>();
 
 const i18n = useI18n();
+
 const models = useModelsStore();
 const project = useProjectStore();
+const selection = useSelectionStore();
 const store = useVoiceChangeStore();
 
 const voices = ref<VoiceEntry[]>([]);
 const pending = ref<string[]>(props.clipIds ?? []);
-/** 「从媒体库选…」下拉的临时值，导入后清空。 */
+
+// ---- 导入音色 -------------------------------------------------------------
+
+const importOpen = ref(false);
+const importBusy = ref(false);
 const importAssetId = ref<string | null>(null);
+const importName = ref("");
+const importStart = ref<number | null>(null);
+const importDuration = ref<number | null>(null);
+/** 从片段导入时显示「素材 · 起点」，从媒体库整段导入时为 null。 */
+const importClipLabel = ref<string | null>(null);
+
+const audioAssets = computed(() =>
+  project.doc.assets.filter((asset) => asset.kind === "audio" || asset.kind === "video"),
+);
+const audioOptions = computed<SelectOption[]>(() =>
+  audioAssets.value.map((asset) => ({ id: asset.id, label: asset.name })),
+);
+
+const speakerModel = computed(() => models.byId("meanvc2-speaker"));
+const speakerReady = computed(() => speakerModel.value?.installed === true);
+const speakerMissing = computed(() =>
+  speakerModel.value ? missingBytes(speakerModel.value) : 0,
+);
+const speakerDownloading = computed(() => models.busyId === "meanvc2-speaker");
+
+const canConfirmImport = computed(
+  () =>
+    !importBusy.value &&
+    speakerReady.value &&
+    importAssetId.value !== null &&
+    importName.value.trim() !== "",
+);
+
+function clipAudioAsset(clipId: string): { clip: Clip; asset: MediaAsset } | null {
+  for (const track of project.doc.tracks) {
+    const clip = track.clips.find((candidate) => candidate.id === clipId);
+    if (!clip || clip.assetId === "") continue;
+    const asset = project.doc.assets.find((candidate) => candidate.id === clip.assetId);
+    if (!asset || (asset.kind !== "audio" && asset.kind !== "video")) return null;
+    return { clip, asset };
+  }
+  return null;
+}
+
+function useClip(clipId: string): void {
+  const found = clipAudioAsset(clipId);
+  if (!found) return;
+  importAssetId.value = found.asset.id;
+  importName.value = found.asset.name.replace(/\.[^.]+$/, "");
+  importStart.value = found.clip.in ?? 0;
+  importDuration.value = found.clip.duration;
+  importClipLabel.value = `${found.asset.name} · ${found.clip.start.toFixed(2)}s`;
+}
+
+function openImport(clipId?: string): void {
+  importAssetId.value = null;
+  importName.value = "";
+  importStart.value = null;
+  importDuration.value = null;
+  importClipLabel.value = null;
+  importOpen.value = true;
+  if (clipId) useClip(clipId);
+}
+
+/** 媒体库选整段：清掉片段入点/时长，让后端自己找有声窗口。 */
+function pickAsset(assetId: string | null): void {
+  if (!assetId) return;
+  const asset = project.doc.assets.find((candidate) => candidate.id === assetId);
+  if (!asset) return;
+  importAssetId.value = asset.id;
+  importName.value = asset.name.replace(/\.[^.]+$/, "");
+  importStart.value = null;
+  importDuration.value = null;
+  importClipLabel.value = null;
+}
+
+function useSelection(): void {
+  const clipId = selection.selectedClipIds.find((id) => clipAudioAsset(id) !== null);
+  if (!clipId) {
+    toast(i18n.t("ai.voicePickClips"));
+    return;
+  }
+  openImport(clipId);
+}
+
+async function confirmImport(): Promise<void> {
+  if (!canConfirmImport.value || !importAssetId.value) return;
+  const asset = project.doc.assets.find((candidate) => candidate.id === importAssetId.value);
+  if (!asset) return;
+  importBusy.value = true;
+  try {
+    const entry = await importVoice(
+      asset.src,
+      importName.value.trim(),
+      importStart.value,
+      importDuration.value,
+      "meanvc2-speaker",
+    );
+    importOpen.value = false;
+    await refresh();
+    store.voiceId = entry.id;
+    toast(i18n.t("ai.voiceImported", { name: entry.name }));
+  } catch (error) {
+    toast(String(error), "error", { timeout: 9000 });
+  } finally {
+    importBusy.value = false;
+  }
+}
+
+async function removeVoice(entry: VoiceEntry): Promise<void> {
+  const ok = await confirm({
+    title: i18n.t("ai.voiceConfirmDelete", { name: entry.name }),
+    confirmText: i18n.t("ai.voiceDelete"),
+    destructive: true,
+  });
+  if (!ok) return;
+  try {
+    await deleteVoice(entry.id);
+    if (store.voiceId === entry.id) store.voiceId = null;
+    await refresh();
+  } catch (error) {
+    toast(String(error), "error");
+  }
+}
+
+// ---- 待处理片段 / 模型 ----------------------------------------------------
 
 interface Row {
   id: string;
@@ -58,14 +189,6 @@ const rows = computed<Row[]>(() => {
   }
   return out.sort((a, b) => a.start - b.start);
 });
-
-const audioAssets = computed(() =>
-  project.doc.assets.filter((asset) => asset.kind === "audio" || asset.kind === "video"),
-);
-
-const audioOptions = computed<SelectOption[]>(() =>
-  audioAssets.value.map((asset) => ({ id: asset.id, label: asset.name })),
-);
 
 const modelOptions = computed<SelectOption[]>(() =>
   models.ofFeature("voice-change").map((model) => ({
@@ -101,32 +224,6 @@ async function refresh(): Promise<void> {
   }
 }
 
-async function importFrom(assetId: string | null): Promise<void> {
-  if (!assetId) return;
-  const asset = project.doc.assets.find((candidate) => candidate.id === assetId);
-  if (!asset) return;
-  try {
-    const entry = await importVoice(asset.src, asset.name.replace(/\.[^.]+$/, ""));
-    await refresh();
-    store.voiceId = entry.id;
-    toast(i18n.t("ai.voiceImported", { name: entry.name }));
-  } catch (error) {
-    toast(String(error), "error", { timeout: 8000 });
-  } finally {
-    importAssetId.value = null;
-  }
-}
-
-async function removeVoice(entry: VoiceEntry): Promise<void> {
-  try {
-    await deleteVoice(entry.id);
-    if (store.voiceId === entry.id) store.voiceId = null;
-    await refresh();
-  } catch (error) {
-    toast(String(error), "error");
-  }
-}
-
 function removeRow(id: string): void {
   pending.value = pending.value.filter((candidate) => candidate !== id);
 }
@@ -147,15 +244,23 @@ async function run(): Promise<void> {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   void models.load();
-  void refresh();
+  await refresh();
+  if (props.importClipId) openImport(props.importClipId);
 });
 
 watch(
   () => props.clipIds,
   (ids) => {
     if (ids) pending.value = ids;
+  },
+);
+
+watch(
+  () => props.importClipId,
+  (id) => {
+    if (id) openImport(id);
   },
 );
 </script>
@@ -183,8 +288,18 @@ watch(
     <section class="card">
       <div class="card-head">
         <span class="card-title">{{ i18n.t("ai.voiceLibrary") }}</span>
+        <div class="card-actions">
+          <button class="text-btn" type="button" :disabled="store.running" @click="useSelection">
+            {{ i18n.t("ai.voiceUseSelection") }}
+          </button>
+          <button class="primary-btn" type="button" :disabled="store.running" @click="openImport()">
+            <PlusIcon class="w-[13px] h-[13px]" />
+            {{ i18n.t("ai.voiceImportTitle") }}
+          </button>
+        </div>
       </div>
-      <ul class="voices">
+
+      <ul v-if="voices.length > 0" class="voices">
         <li v-for="voice in voices" :key="voice.id" class="voice-row">
           <button
             class="voice"
@@ -195,18 +310,12 @@ watch(
             <span class="name">{{ voice.name }}</span>
             <span class="meta">{{ voice.duration.toFixed(1) }}s</span>
           </button>
-          <button class="icon-btn" type="button" @click="removeVoice(voice)">
-            <TrashIcon class="w-[14px] h-[14px]" />
+          <button class="text-btn danger" type="button" @click="removeVoice(voice)">
+            {{ i18n.t("ai.voiceDelete") }}
           </button>
         </li>
       </ul>
-      <Md3Select
-        v-model="importAssetId"
-        :options="audioOptions"
-        :label="i18n.t('ai.voiceFromMedia')"
-        :empty="i18n.t('ai.voiceNoAudio')"
-        @update:model-value="importFrom"
-      />
+      <p v-else class="hint">{{ i18n.t("ai.voiceLibraryEmpty") }}</p>
     </section>
 
     <section class="card">
@@ -222,7 +331,7 @@ watch(
       <p v-if="!modelReady" class="warn">
         {{ i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(modelMissing) }) }}
         <button
-          class="link"
+          class="text-btn"
           type="button"
           :disabled="downloading"
           @click="void models.download(store.modelId)"
@@ -254,6 +363,51 @@ watch(
         {{ i18n.t("ai.voiceChangeRun") }}
       </button>
     </footer>
+
+    <ModalShell
+      :open="importOpen"
+      :title="i18n.t('ai.voiceImportTitle')"
+      width="460px"
+      @update:open="importOpen = $event"
+    >
+      <div class="form">
+        <label class="field">
+          <span class="field-name">{{ i18n.t("ai.voiceSource") }}</span>
+          <Md3Select
+            :model-value="importAssetId"
+            :options="audioOptions"
+            :label="i18n.t('ai.voiceFromMedia')"
+            :empty="i18n.t('ai.voiceNoAudio')"
+            @update:model-value="pickAsset"
+          />
+        </label>
+        <p v-if="importClipLabel" class="hint">{{ importClipLabel }}</p>
+        <label class="field">
+          <span class="field-name">{{ i18n.t("ai.voiceName") }}</span>
+          <input v-model="importName" class="text-input" type="text" maxlength="40" />
+        </label>
+        <p class="hint">{{ i18n.t("ai.voiceImportHint") }}</p>
+        <p v-if="!speakerReady" class="warn">
+          {{ i18n.t("ai.voiceNeedEncoder") }}
+          <button
+            class="text-btn"
+            type="button"
+            :disabled="speakerDownloading"
+            @click="void models.download('meanvc2-speaker')"
+          >
+            {{ i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(speakerMissing) }) }}
+          </button>
+        </p>
+      </div>
+      <template #foot>
+        <button class="text-btn" type="button" @click="importOpen = false">
+          {{ i18n.t("common.cancel") }}
+        </button>
+        <button class="primary-btn" type="button" :disabled="!canConfirmImport" @click="confirmImport">
+          {{ i18n.t("ai.voiceImportTitle") }}
+        </button>
+      </template>
+    </ModalShell>
   </div>
 </template>
 
@@ -328,6 +482,13 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .card-title {
@@ -391,9 +552,40 @@ watch(
   color: rgb(var(--md-error, 220 80 80));
 }
 
-.link {
+.hint {
+  font-size: 12px;
+  color: rgb(var(--md-on-surface-variant));
+}
+
+.text-btn {
+  font-size: 12px;
   color: rgb(var(--md-primary));
-  text-decoration: underline;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+
+.text-btn:hover {
+  background-color: rgb(var(--md-primary) / var(--md-state-hover-alpha));
+}
+
+.text-btn.danger {
+  color: rgb(var(--md-error, 220 80 80));
+}
+
+.primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background-color: rgb(var(--md-primary));
+  color: rgb(var(--md-on-primary));
+}
+
+.primary-btn:disabled {
+  opacity: 0.5;
 }
 
 .dock {
@@ -420,5 +612,30 @@ watch(
 
 .run:disabled {
   opacity: 0.5;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-name {
+  font-size: 12px;
+  color: rgb(var(--md-on-surface-variant));
+}
+
+.text-input {
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  background-color: rgb(var(--md-surface-container-high));
+  border: 1px solid rgb(var(--md-outline, 128 128 128) / 0.3);
 }
 </style>
