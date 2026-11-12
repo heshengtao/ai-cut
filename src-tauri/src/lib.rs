@@ -132,6 +132,8 @@ pub fn run() {
             network::network_probe,
             network::model_source_config,
             network::model_set_source_config,
+            network::model_save_hf_token,
+            network::model_hf_token_status,
             network::plugin_registry_config,
             network::plugin_set_registry_config,
             backend::ai_backend_info,

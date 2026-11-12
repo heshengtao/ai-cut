@@ -17,7 +17,7 @@ use crate::audio_ai::{
 };
 use crate::models;
 use crate::paths;
-use crate::voice_change::meanvc2::Model;
+use crate::voice_change::meanvc2::{Model, Speaker};
 use crate::voice_change::refs::{normalize, pick_window, REF_SR};
 use crate::voice_change::voices::{VoiceEntry, VoiceLibrary, VoiceSource};
 
@@ -227,13 +227,10 @@ pub async fn voice_change_voice_import(
     name: String,
     start: Option<f64>,
     duration: Option<f64>,
-    speaker_model_id: String,
 ) -> Result<VoiceEntry, String> {
-    let entry = models::by_id(&speaker_model_id)
-        .ok_or_else(|| format!("未知模型：{speaker_model_id}"))?;
-    if entry.id != "meanvc2-speaker" {
-        return Err("需要 MeanVC2 音色编码器".into());
-    }
+    // 音色编码器是变声包的一部分；导入和转换读同一个目录。
+    let entry = models::by_id("meanvc2-int8")
+        .ok_or_else(|| "找不到 MeanVC2 变声模型".to_string())?;
     let dir = models::require_dir(&app, entry)?;
 
     let start = start.unwrap_or(0.0).max(0.0);
@@ -253,8 +250,9 @@ pub async fn voice_change_voice_import(
     normalize(&mut reference, -3.0);
 
     let (embedding, reference) = tauri::async_runtime::spawn_blocking(move || {
-        let mut model = Model::load(&dir, 2)?;
-        let embedding = model.embed(&reference)?;
+        // 导入只加载 387 MB 的音色编码器，不碰五张转换图。
+        let mut speaker = Speaker::load(&dir.join("speaker.int8.onnx"))?;
+        let embedding = speaker.embed(&reference)?;
         Ok::<_, String>((embedding, reference))
     })
     .await

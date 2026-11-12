@@ -8,11 +8,14 @@
  */
 import { computed, onMounted, ref, watch } from "vue";
 import { ArrowLeftIcon, PlusIcon, TrashIcon } from "@heroicons/vue/24/outline";
+import AiSetupDialog from "@/components/ai/AiSetupDialog.vue";
 import DownloadStrip from "@/components/ai/DownloadStrip.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
 import ModalShell from "@/components/common/ModalShell.vue";
 import { confirm } from "@/composables/useConfirm";
+import { useVoiceSetup } from "@/composables/useAiSetup";
 import { useI18n } from "@/i18n";
+import { useDeviceStore } from "@/stores/device";
 import { useModelsStore } from "@/stores/models";
 import { useProjectStore } from "@/stores/project";
 import { useSelectionStore } from "@/stores/selection";
@@ -33,6 +36,11 @@ const models = useModelsStore();
 const project = useProjectStore();
 const selection = useSelectionStore();
 const store = useVoiceChangeStore();
+const device = useDeviceStore();
+const setup = useVoiceSetup(() => store.modelId);
+const setupOpen = setup.open;
+const setupPlan = setup.plan;
+const setupForced = setup.forced;
 
 const voices = ref<VoiceEntry[]>([]);
 const pending = ref<string[]>(props.clipIds ?? []);
@@ -55,17 +63,9 @@ const audioOptions = computed<SelectOption[]>(() =>
   audioAssets.value.map((asset) => ({ id: asset.id, label: asset.name })),
 );
 
-const speakerModel = computed(() => models.byId("meanvc2-speaker"));
-const speakerReady = computed(() => speakerModel.value?.installed === true);
-const speakerMissing = computed(() =>
-  speakerModel.value ? missingBytes(speakerModel.value) : 0,
-);
-const speakerDownloading = computed(() => models.busyId === "meanvc2-speaker");
-
 const canConfirmImport = computed(
   () =>
     !importBusy.value &&
-    speakerReady.value &&
     importAssetId.value !== null &&
     importName.value.trim() !== "",
 );
@@ -133,7 +133,6 @@ async function confirmImport(): Promise<void> {
       importName.value.trim(),
       importStart.value,
       importDuration.value,
-      "meanvc2-speaker",
     );
     importOpen.value = false;
     await refresh();
@@ -204,16 +203,31 @@ const model = computed(() => models.byId(store.modelId));
 const modelReady = computed(() => model.value?.installed === true);
 const modelMissing = computed(() => (model.value ? missingBytes(model.value) : 0));
 const downloading = computed(() => models.busyId === store.modelId);
+/** 当前生效的 ONNX 后端是否齐了；CPU 是随包内置的，所以拿不到信息时按就绪处理。 */
+const engineReady = computed(() => {
+  const info = device.info;
+  if (!info) return true;
+  const option = info.options.find((item) => item.kind === info.preference);
+  // 平台不支持的后端会回落到 CPU，不算缺引擎。
+  return !option || !option.available || (option.runtime_installed && option.missing.length === 0);
+});
+const voiceReady = computed(() => engineReady.value && modelReady.value);
 const canRun = computed(
-  () => !store.running && modelReady.value && Boolean(store.voiceId) && rows.value.length > 0,
+  () => !store.running && voiceReady.value && Boolean(store.voiceId) && rows.value.length > 0,
 );
 
 const statusLine = computed(() => {
   if (!rows.value.length) return i18n.t("ai.voiceEmpty");
+  if (!engineReady.value) return i18n.t("ai.voiceNeedRuntime");
   if (!modelReady.value) return i18n.t("ai.voiceEncoding");
   if (!store.voiceId) return i18n.t("ai.voiceNoVoice");
   return `${rows.value.length} · ${model.value?.name ?? ""}`;
 });
+
+/** 缺运行时 / 模型就弹和视频、画图同一套「准备」向导，装完留在本页继续。 */
+function prepare(): void {
+  void setup.ensure();
+}
 
 async function refresh(): Promise<void> {
   try {
@@ -244,8 +258,27 @@ async function run(): Promise<void> {
   }
 }
 
+/** 主按钮：能跑就直接跑；缺运行时 / 模型先补依赖，和视频 / 画图页一致。 */
+function runPrimary(): void {
+  if (store.running) return;
+  if (!voiceReady.value) {
+    prepare();
+    return;
+  }
+  if (!store.voiceId) {
+    toast(i18n.t("ai.voiceNoVoice"));
+    return;
+  }
+  if (rows.value.length === 0) {
+    toast(i18n.t("ai.voiceEmpty"));
+    return;
+  }
+  void run();
+}
+
 onMounted(async () => {
   void models.load();
+  void device.load();
   await refresh();
   if (props.importClipId) openImport(props.importClipId);
 });
@@ -328,15 +361,16 @@ watch(
         :label="i18n.t('ai.voiceModel')"
         :disabled="store.running"
       />
+      <p v-if="!engineReady" class="warn">
+        {{ i18n.t("ai.voiceNeedRuntime") }}
+        <button class="text-btn" type="button" @click="prepare">
+          {{ i18n.t("ai.prepare") }}
+        </button>
+      </p>
       <p v-if="!modelReady" class="warn">
         {{ i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(modelMissing) }) }}
-        <button
-          class="text-btn"
-          type="button"
-          :disabled="downloading"
-          @click="void models.download(store.modelId)"
-        >
-          {{ i18n.t("ai.voiceDownload") }}
+        <button class="text-btn" type="button" :disabled="downloading" @click="prepare">
+          {{ i18n.t("ai.prepare") }}
         </button>
       </p>
     </section>
@@ -358,11 +392,33 @@ watch(
     </section>
 
     <footer class="dock">
-      <progress :value="store.progress" max="1" />
-      <button class="run" type="button" :disabled="!canRun" @click="run">
-        {{ i18n.t("ai.voiceChangeRun") }}
+      <!-- 只有真的在跑才画进度条：空闲时那条灰色轨道在按钮左边很突兀。 -->
+      <div
+        v-if="store.running"
+        class="progress"
+        role="progressbar"
+        :aria-valuenow="store.progressPct"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      >
+        <div class="progress-fill" :style="{ width: `${store.progressPct}%` }" />
+      </div>
+      <button class="run" type="button" :disabled="store.running" @click="runPrimary">
+        {{ i18n.t(voiceReady ? "ai.voiceChangeRun" : "ai.prepare") }}
       </button>
     </footer>
+
+    <AiSetupDialog
+      :open="setupOpen"
+      :plan="setupPlan"
+      :dismissible="!setupForced"
+      @update:open="(value: boolean) => (value ? undefined : setup.cancel())"
+      @cancel="setup.cancel()"
+      @confirm="setup.confirm()"
+      @background="setup.confirmBackground()"
+      @cancel-download="setup.cancelDownload()"
+      @choose="setup.choose"
+    />
 
     <ModalShell
       :open="importOpen"
@@ -387,17 +443,6 @@ watch(
           <input v-model="importName" class="text-input" type="text" maxlength="40" />
         </label>
         <p class="hint">{{ i18n.t("ai.voiceImportHint") }}</p>
-        <p v-if="!speakerReady" class="warn">
-          {{ i18n.t("ai.voiceNeedEncoder") }}
-          <button
-            class="text-btn"
-            type="button"
-            :disabled="speakerDownloading"
-            @click="void models.download('meanvc2-speaker')"
-          >
-            {{ i18n.t("aiVideo.modelNeedsDownload", { size: humanSize(speakerMissing) }) }}
-          </button>
-        </p>
       </div>
       <template #foot>
         <button class="text-btn" type="button" @click="importOpen = false">
@@ -596,12 +641,24 @@ watch(
   padding-top: 10px;
 }
 
-.dock progress {
+/* MD3 线性进度：圆角轨道 + 主色填充；空闲时整个元素不渲染。 */
+.progress {
   flex: 1;
   height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background-color: rgb(var(--md-surface-container-highest));
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background-color: rgb(var(--md-primary));
+  transition: width 0.2s ease;
 }
 
 .run {
+  margin-left: auto;
   padding: 8px 16px;
   border-radius: 999px;
   background-color: rgb(var(--md-primary));
@@ -637,5 +694,13 @@ watch(
   font-size: 13px;
   background-color: rgb(var(--md-surface-container-high));
   border: 1px solid rgb(var(--md-outline, 128 128 128) / 0.3);
+  color: rgb(var(--md-on-surface));
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.text-input:focus {
+  border-color: rgb(var(--md-primary));
+  box-shadow: 0 0 0 2px rgb(var(--md-primary) / 0.22);
 }
 </style>

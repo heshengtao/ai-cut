@@ -49,6 +49,12 @@ pub struct NetworkConfig {
     pub download_prefix: String,
     /// 模型下载源区域偏好。
     pub model_source_preference: ModelSourcePreference,
+    /// Hugging Face 的 **read token**（`hf_…`）。留空 = 匿名下载。
+    ///
+    /// 只用于两件事：访问需要先「同意许可」的 gated 仓库（否则一律 403 `GatedRepo`），
+    /// 以及给自己账号的限流配额。**只发给 `huggingface.co` 官方域**——用户自填的镜像 /
+    /// 代理前缀拿不到它。明文存在本机配置里，不进日志、不进错误消息。
+    pub hf_token: String,
     /// 本地 AI 执行后端偏好（ONNX Runtime）。
     pub backend_preference: BackendPreference,
     /// 视频生成执行后端偏好（stable-diffusion.cpp / ggml）。
@@ -59,6 +65,45 @@ pub struct NetworkConfig {
     pub plugin_registry_mirrors: Vec<String>,
 }
 
+/// 这个地址是不是 `huggingface.co` 官方域（决定要不要附 token）。
+///
+/// 用户自填的镜像 / 代理前缀一律不算：凭据只交给官方。
+pub fn hf_request_host(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let host = rest.split('/').next().unwrap_or("");
+    let host = host.split(':').next().unwrap_or("");
+    host.eq_ignore_ascii_case("huggingface.co") || host.eq_ignore_ascii_case("www.huggingface.co")
+}
+
+/// 从 HF 的下载地址里取出 `namespace/repo`（gated 提示要打开对应仓库页）。
+pub fn hf_repo_of(url: &str) -> Option<String> {
+    let rest = url.split("://").nth(1)?;
+    let (host, path) = rest.split_once('/')?;
+    if !host.eq_ignore_ascii_case("huggingface.co") && !host.eq_ignore_ascii_case("www.huggingface.co")
+    {
+        return None;
+    }
+    let path = path.strip_prefix("models/").unwrap_or(path);
+    let mut parts = path.split('/');
+    let ns = parts.next()?;
+    let repo = parts.next()?;
+    // `https://huggingface.co/<ns>/resolve/...` 这种缺少仓库名的地址要挡掉。
+    if ns.is_empty() || repo.is_empty() || repo == "resolve" {
+        return None;
+    }
+    Some(format!("{ns}/{repo}"))
+}
+
+/// `403` + `X-Error-Code: GatedRepo` 才是「要授权」；普通 403 仍然算永久失败。
+pub fn is_gated(status: u16, error_code: Option<&str>) -> bool {
+    // 直连 HF 回 **401**；镜像、或「带 token 但不在授权名单」回 403。两种都要认。
+    // 实测：`curl https://huggingface.co/Lightricks/LTX-2.5/resolve/...` → 401 + GatedRepo。
+    matches!(status, 401 | 403)
+        && error_code.is_some_and(|code| code.eq_ignore_ascii_case("GatedRepo"))
+}
+
 impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
@@ -67,6 +112,7 @@ impl Default for NetworkConfig {
             model_mirrors: Vec::new(),
             download_prefix: String::new(),
             model_source_preference: ModelSourcePreference::Auto,
+            hf_token: String::new(),
             backend_preference: BackendPreference::Cpu,
             sdcpp_backend: SdcppBackend::Auto,
             plugin_registry_url: String::new(),
@@ -681,7 +727,57 @@ fn macos_proxy_from_scutil(text: &str) -> SystemProxyState {
 
 #[tauri::command]
 pub fn network_config(state: tauri::State<'_, Arc<NetworkRuntime>>) -> NetworkConfig {
-    state.get()
+    // 不把 token 回传给界面：设置页只需要知道「有没有配」，用 `model_hf_token_status`
+    // 看掩码就够了。回传只会给凭据多一条外泄路径（错误提示、日志、崩溃报告都从这条
+    // 数据流上走）。
+    let mut config = state.get();
+    config.hf_token = String::new();
+    config
+}
+
+/// Hugging Face token 的配置状态（设置页 / 下载弹窗用；**不回传 token 本身**）。
+#[derive(Debug, Clone, Serialize)]
+pub struct HfTokenStatus {
+    pub set: bool,
+    /// 掩码提示，例如 `hf_…3f9a`；未配置时为空串。
+    pub hint: String,
+}
+
+#[tauri::command]
+pub fn model_hf_token_status(state: tauri::State<'_, Arc<NetworkRuntime>>) -> HfTokenStatus {
+    let token = state.get().hf_token;
+    if token.is_empty() {
+        return HfTokenStatus {
+            set: false,
+            hint: String::new(),
+        };
+    }
+    let tail: String = token.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+    HfTokenStatus {
+        set: true,
+        hint: format!("hf_…{tail}"),
+    }
+}
+
+/// 保存 / 清除 Hugging Face read token（传空串 = 清除）。
+///
+/// 单独成一个命令而不是塞进 `network_set_config`：授权弹窗要在下载流程中间立刻写入
+/// 并重试，不该逼前端把整份网络配置回传一遍。
+#[tauri::command]
+pub fn model_save_hf_token(
+    state: tauri::State<'_, Arc<NetworkRuntime>>,
+    token: String,
+) -> Result<(), String> {
+    let token = token.trim().to_string();
+    if !token.is_empty() && !token.starts_with("hf_") {
+        return Err("Hugging Face token 应以 hf_ 开头".into());
+    }
+    let current = state.get();
+    state.set(NetworkConfig {
+        hf_token: token,
+        ..current
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -786,6 +882,74 @@ pub async fn network_probe(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// 老配置文件里没有 `hf_token` 字段：必须照常加载，不能整份退回默认值
+    /// （那会悄悄清空用户的代理与镜像设置）。
+    #[test]
+    fn old_network_json_without_hf_token_still_loads() {
+        let old = r#"{
+            "proxy_mode": "manual",
+            "proxy_url": "socks5://127.0.0.1:7892",
+            "model_mirrors": ["https://model-mirror.example/"],
+            "download_prefix": "https://proxy.example/",
+            "model_source_preference": "domestic",
+            "backend_preference": "cpu",
+            "sdcpp_backend": "metal",
+            "plugin_registry_url": "",
+            "plugin_registry_mirrors": []
+        }"#;
+        let config: NetworkConfig = serde_json::from_str(old).expect("旧配置应能反序列化");
+        assert!(config.hf_token.is_empty(), "缺字段时按匿名下载");
+        assert_eq!(config.proxy_url, "socks5://127.0.0.1:7892");
+        assert_eq!(config.model_mirrors, vec!["https://model-mirror.example/".to_string()]);
+        assert_eq!(config.download_prefix, "https://proxy.example/");
+    }
+
+    /// 只有 `huggingface.co` 官方域才算「该带 token」。
+    #[test]
+    fn hf_host_is_official_only() {
+        assert!(hf_request_host(
+            "https://huggingface.co/Lightricks/LTX-2.5/resolve/abc/vae.ckpt"
+        ));
+        for url in [
+            "https://hf-mirror.com/x/y/resolve/abc/z",
+            "https://mirror.example/https://huggingface.co/x/y/resolve/abc/z",
+            "https://modelscope.cn/models/x/y/resolve/abc/z",
+            "https://huggingface.co.evil.tld/x/y/resolve/abc/z",
+            "http://huggingface.co/x/y",
+        ] {
+            assert!(!hf_request_host(url), "{url}");
+        }
+    }
+
+    /// 授权提示要打开的是**仓库页**，不是文件地址。
+    #[test]
+    fn gated_repo_is_read_from_the_download_url() {
+        assert_eq!(
+            hf_repo_of("https://huggingface.co/Lightricks/LTX-2.5/resolve/49b093a3/vae/x.ckpt")
+                .as_deref(),
+            Some("Lightricks/LTX-2.5")
+        );
+        assert_eq!(
+            hf_repo_of("https://huggingface.co/models/org/repo/resolve/abc/file").as_deref(),
+            Some("org/repo")
+        );
+        assert_eq!(hf_repo_of("https://modelscope.cn/models/x/y/resolve/abc/z"), None);
+        assert_eq!(hf_repo_of("https://huggingface.co/onlyone/resolve/abc/z"), None);
+    }
+
+    /// gated 只认 `403 + X-Error-Code: GatedRepo`；别的 403 仍按永久失败处理。
+    #[test]
+    fn only_the_gated_error_code_asks_for_auth() {
+        assert!(is_gated(401, Some("GatedRepo")));
+        assert!(is_gated(403, Some("GatedRepo")));
+        assert!(is_gated(403, Some("gatedrepo")));
+        assert!(!is_gated(403, None));
+        assert!(!is_gated(401, None));
+        assert!(!is_gated(403, Some("RepoNotFound")));
+        assert!(!is_gated(404, Some("GatedRepo")));
+    }
     use super::*;
 
     #[test]

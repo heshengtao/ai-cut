@@ -21,14 +21,13 @@ describe("voice change api", () => {
     });
   });
 
-  it("imports a voice with the speaker model id", async () => {
+  it("imports a voice from the bundled MeanVC2 package", async () => {
     await importVoice("/a.wav", "张三");
     expect(invoke).toHaveBeenCalledWith("voice_change_voice_import", {
       assetPath: "/a.wav",
       name: "张三",
       start: null,
       duration: null,
-      speakerModelId: "meanvc2-speaker",
     });
   });
 });

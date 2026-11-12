@@ -1,9 +1,12 @@
-//! MeanVC2（18M，16 kHz）：六张 ONNX 图 + 上游流式宿主循环。
+//! MeanVC2（18M，16 kHz）：五张转换图 + 上游流式宿主循环。
 //!
 //! 图与宿主分工（对照 `kiarina/meanvc2_onnx/tool/onnx_stream.py`）：
 //! `fbank`（400 采样帧 → 80 维 log-mel）、`asr`（Fast-U2++ 滑窗 → BNF）、
 //! `gtm`（256 维说话人向量 → 音色记忆 k/v）、`dit`（mean-flow 单步去噪）、
-//! `vocos`（80 维 mel → 波形）、`speaker`（WavLM+ECAPA → 256 维向量）。
+//! `vocos`（80 维 mel → 波形）。
+//!
+//! 音色编码器（`speaker`，WavLM+ECAPA → 256 维向量）单独成条、单独加载：
+//! 只有「导入新音色」才需要它，转换已有音色时 387 MB 的编码器不参与推理。
 
 use std::path::Path;
 
@@ -90,8 +93,14 @@ pub struct Model {
     gtm: Session,
     dit: Session,
     vocos: Session,
-    speaker: Session,
     steps: usize,
+}
+
+/// 音色编码器：只负责把参考音频压成 256 维说话人向量。
+///
+/// 和转换图分开加载，是因为它单独占 387 MB，且只在导入新音色时用一次。
+pub struct Speaker {
+    session: Session,
 }
 
 #[derive(Default)]
@@ -123,7 +132,7 @@ fn tensor_f32<const N: usize>(
 }
 
 impl Model {
-    /// `dir` 里需有 fbank / asr.int8 / gtm / dit.int8 / vocos.int8 / speaker.int8。
+    /// `dir` 里需有 fbank / asr.int8 / gtm / dit.int8 / vocos.int8 五张转换图。
     pub fn load(dir: &Path, steps: usize) -> Result<Self, String> {
         let file = |name: &str| dir.join(name);
         Ok(Self {
@@ -132,21 +141,8 @@ impl Model {
             gtm: build_session(&file("gtm.onnx"), "MeanVC2 gtm")?,
             dit: build_session(&file("dit.int8.onnx"), "MeanVC2 dit")?,
             vocos: build_session(&file("vocos.int8.onnx"), "MeanVC2 vocos")?,
-            speaker: build_session(&file("speaker.int8.onnx"), "MeanVC2 speaker")?,
             steps: steps.clamp(1, 3),
         })
-    }
-
-    pub fn embed(&mut self, samples: &[f32]) -> Result<Vec<f32>, String> {
-        let input = tensor_f32([1, samples.len()], samples.to_vec())?;
-        let outputs = self
-            .speaker
-            .run(ort::inputs!["wav" => input])
-            .map_err(|e| format!("音色编码失败：{e}"))?;
-        let (_, values) = outputs["embedding"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| format!("音色向量读取失败：{e}"))?;
-        Ok(values.to_vec())
     }
 
     /// 整段转换：逐 160 ms 块推进，输出同长度 16 kHz 单声道。
@@ -428,6 +424,27 @@ impl Model {
         };
         st.last_wav = Some(out[out.len() - WAV_OVERLAP..].to_vec());
         Ok(out)
+    }
+}
+
+impl Speaker {
+    /// 音色编码器只需要 `speaker.int8.onnx` 一个文件。
+    pub fn load(path: &Path) -> Result<Self, String> {
+        Ok(Self {
+            session: build_session(path, "MeanVC2 speaker")?,
+        })
+    }
+
+    pub fn embed(&mut self, samples: &[f32]) -> Result<Vec<f32>, String> {
+        let input = tensor_f32([1, samples.len()], samples.to_vec())?;
+        let outputs = self
+            .session
+            .run(ort::inputs!["wav" => input])
+            .map_err(|e| format!("音色编码失败：{e}"))?;
+        let (_, values) = outputs["embedding"]
+            .try_extract_tensor::<f32>()
+            .map_err(|e| format!("音色向量读取失败：{e}"))?;
+        Ok(values.to_vec())
     }
 }
 

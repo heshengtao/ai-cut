@@ -6,10 +6,17 @@
  * - `community`    —— LTX-2 / 混元 / MiniMax-H3 这类「社区许可」：可商用但有门槛与
  *                     附加条件（署名、可接受使用、公司规模/营收等），需逐条核对上游；
  * - `rail`         —— CreativeML Open RAIL 系列：可商用，但使用限制必须随再分发传递；
+ * - `sharealike`   —— CC BY-SA 这类相同方式共享：可商用，但演绎作品要按同许可分发并署名；
  * - `noncommercial`—— FLUX.1 [dev] 这类**仅限非商业**的权重；
  * - `upstream`     —— 上游没有明确许可（UVR / MDX），商用需自行与作者确认。
  */
-export type LicenseTier = "permissive" | "community" | "rail" | "noncommercial" | "upstream";
+export type LicenseTier =
+  | "permissive"
+  | "community"
+  | "rail"
+  | "sharealike"
+  | "noncommercial"
+  | "upstream";
 
 /** 许可字符串 → 分级。认不出来的按「上游条款」处理（宁可多提示一句）。 */
 export function licenseTier(license: string): LicenseTier {
@@ -26,6 +33,7 @@ export function licenseTier(license: string): LicenseTier {
     return "noncommercial";
   }
   if (value.includes("rail")) return "rail";
+  if (value.includes("cc-by-sa") || value.includes("by-sa")) return "sharealike";
   if (value.includes("community")) return "community";
   return "upstream";
 }

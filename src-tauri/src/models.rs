@@ -241,9 +241,12 @@ impl ModelEntry {
 // 清单
 // ---------------------------------------------------------------------------
 
-/// 同一文件同时从魔搭与 HuggingFace 下载；小文件没有 LFS sha256，只校验体积。
+/// 同一份字节同时从魔搭与 HuggingFace 下载（两边的 sha256 必须一致）。
+///
+/// `$ms_rev` / `$hf_rev` 是**钉死的 commit**，不是 `master` / `main`：浮动分支会让上游一
+/// push 就换字节，而清单里的 sha256 是硬门禁，用户会卡在「下到 100% 再报校验失败」。
 macro_rules! moss_file {
-    ($file:literal, $size:literal, $sha:literal, $ms:literal, $hf:literal) => {
+    ($file:literal, $size:literal, $sha:literal, $ms:literal, $hf:literal, $ms_rev:literal, $hf_rev:literal $(,)?) => {
         ModelFile {
             filename: $file,
             approx_bytes: $size,
@@ -255,50 +258,20 @@ macro_rules! moss_file {
                     concat!(
                         "https://modelscope.cn/models/",
                         $ms,
-                        "/resolve/master/",
+                        "/resolve/", $ms_rev, "/",
                         $file
                     ),
                 ),
                 official(
                     "hf",
                     "intl",
-                    concat!("https://huggingface.co/", $hf, "/resolve/main/", $file),
+                    concat!("https://huggingface.co/", $hf, "/resolve/", $hf_rev, "/", $file),
                 ),
             ],
         }
     };
 }
 
-/// 魔搭与 HuggingFace 上同一个 JSON 的字节不同（版本/格式化差异），
-/// 因此需要给两个源分别声明体积；小文件没有 LFS sha256，只校验体积。
-macro_rules! moss_file_sized {
-    ($file:literal, $size:literal, $ms_size:literal, $hf_size:literal, $ms:literal, $hf:literal) => {
-        ModelFile {
-            filename: $file,
-            approx_bytes: $size,
-            sha256: "",
-            sources: &[
-                sized(
-                    "modelscope",
-                    "cn",
-                    concat!(
-                        "https://modelscope.cn/models/",
-                        $ms,
-                        "/resolve/master/",
-                        $file
-                    ),
-                    $ms_size,
-                ),
-                sized(
-                    "hf",
-                    "intl",
-                    concat!("https://huggingface.co/", $hf, "/resolve/main/", $file),
-                    $hf_size,
-                ),
-            ],
-        }
-    };
-}
 
 /// MiniMax-H3 FL2VA / Ref2VA 共用的三个文件：文本编码器、视频 VAE、音频 VAE。
 ///
@@ -312,12 +285,12 @@ const H3_TEXT_ENCODER_FILE: ModelFile = ModelFile {
         official(
             "modelscope",
             "cn",
-            "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
+            "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/b02b697421ed54ca17e4eb981ed1dd956a9f0b75/qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
         ),
         official(
             "hf",
             "intl",
-            "https://huggingface.co/leejet/MiniMax-H3-GGUF/resolve/main/qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
+            "https://huggingface.co/leejet/MiniMax-H3-GGUF/resolve/d9c4c6312b4728a68a15a35626d84775a6523783/qwen3vl_32b_minimax_h3-Q2_K_M.gguf",
         ),
     ],
 };
@@ -330,12 +303,12 @@ const H3_VIDEO_VAE_FILE: ModelFile = ModelFile {
         official(
             "modelscope",
             "cn",
-            "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/vae/minimax_h3_video_vae_fp16.safetensors",
+            "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/b02b697421ed54ca17e4eb981ed1dd956a9f0b75/vae/minimax_h3_video_vae_fp16.safetensors",
         ),
         official(
             "hf",
             "intl",
-            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors",
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/54472221d27c695fca9621b0c3ed52f06c4af707/vae/minimax_h3_video_vae_fp16.safetensors",
         ),
     ],
 };
@@ -348,12 +321,12 @@ const H3_AUDIO_VAE_FILE: ModelFile = ModelFile {
         official(
             "modelscope",
             "cn",
-            "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/vae/minimax_h3_audio_vae_fp32.safetensors",
+            "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/b02b697421ed54ca17e4eb981ed1dd956a9f0b75/vae/minimax_h3_audio_vae_fp32.safetensors",
         ),
         official(
             "hf",
             "intl",
-            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors",
+            "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/54472221d27c695fca9621b0c3ed52f06c4af707/vae/minimax_h3_audio_vae_fp32.safetensors",
         ),
     ],
 };
@@ -381,12 +354,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-sense-voice-zh-en-ja-ko-yue/resolve/master/model.int8.onnx",
+                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-sense-voice-zh-en-ja-ko-yue/resolve/73eca47697f980daa3d16112404174b6b950b514/model.int8.onnx",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/model.int8.onnx",
                     ),
                 ],
             },
@@ -398,12 +371,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-sense-voice-zh-en-ja-ko-yue/resolve/master/tokens.txt",
+                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-sense-voice-zh-en-ja-ko-yue/resolve/73eca47697f980daa3d16112404174b6b950b514/tokens.txt",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/tokens.txt",
                     ),
                 ],
             },
@@ -431,12 +404,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/master/qwen3-aligner-0.6b-q4/model_q4.onnx",
+                        "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/96034a02c274dc681f23cff86f8067a5ae55dd4e/qwen3-aligner-0.6b-q4/model_q4.onnx",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/valoomba/Qwen3-ForcedAligner-0.6B-ONNX/resolve/main/onnx/model_q4.onnx",
+                        "https://huggingface.co/valoomba/Qwen3-ForcedAligner-0.6B-ONNX/resolve/261c9ed100c1b18a4a1fbc488e05625dc9a4ae5c/onnx/model_q4.onnx",
                     ),
                 ],
             },
@@ -448,12 +421,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/master/qwen3-aligner-0.6b-q4/tokenizer.json",
+                        "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/96034a02c274dc681f23cff86f8067a5ae55dd4e/qwen3-aligner-0.6b-q4/tokenizer.json",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/valoomba/Qwen3-ForcedAligner-0.6B-ONNX/resolve/main/tokenizer.json",
+                        "https://huggingface.co/valoomba/Qwen3-ForcedAligner-0.6B-ONNX/resolve/261c9ed100c1b18a4a1fbc488e05625dc9a4ae5c/tokenizer.json",
                     ),
                 ],
             },
@@ -481,14 +454,14 @@ pub static CATALOG: &[ModelEntry] = &[
                     verified(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-base/resolve/master/base-encoder.int8.onnx",
+                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-base/resolve/71ac65b58bb313dcffb52d91b30561b9f50f37c3/base-encoder.int8.onnx",
                         "8dd58f75cfe74a7eb01bf0379c560d5c93c374f731f21e397e1a3c60b1e5747f",
                         29_120_534,
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/main/base-encoder.int8.onnx",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-encoder.int8.onnx",
                     ),
                 ],
             },
@@ -500,12 +473,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-base/resolve/master/base-decoder.int8.onnx",
+                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-base/resolve/71ac65b58bb313dcffb52d91b30561b9f50f37c3/base-decoder.int8.onnx",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/main/base-decoder.int8.onnx",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-decoder.int8.onnx",
                     ),
                 ],
             },
@@ -517,12 +490,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-base/resolve/master/base-tokens.txt",
+                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-base/resolve/71ac65b58bb313dcffb52d91b30561b9f50f37c3/base-tokens.txt",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/main/base-tokens.txt",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-base/resolve/bb53ee204431c90d314c1cc08d28d23e5b7927cc/base-tokens.txt",
                     ),
                 ],
             },
@@ -546,12 +519,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-paraformer-zh-small/resolve/master/model.int8.onnx",
+                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-paraformer-zh-small/resolve/766dd802fdd67371e41ccdb25b4fcaa6dc44392f/model.int8.onnx",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09/resolve/main/model.int8.onnx",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09/resolve/63ddc3cd0f2810b68289a7b3876e62ef5d53d6df/model.int8.onnx",
                     ),
                 ],
             },
@@ -563,12 +536,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-paraformer-zh-small/resolve/master/tokens.txt",
+                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-paraformer-zh-small/resolve/766dd802fdd67371e41ccdb25b4fcaa6dc44392f/tokens.txt",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09/resolve/main/tokens.txt",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09/resolve/63ddc3cd0f2810b68289a7b3876e62ef5d53d6df/tokens.txt",
                     ),
                 ],
             },
@@ -592,12 +565,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-small/resolve/master/small-encoder.int8.onnx",
+                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-small/resolve/893b50bd57565edb13eb1dfe84d33bfef77b0102/small-encoder.int8.onnx",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/main/small-encoder.int8.onnx",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-encoder.int8.onnx",
                     ),
                 ],
             },
@@ -609,12 +582,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-small/resolve/master/small-decoder.int8.onnx",
+                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-small/resolve/893b50bd57565edb13eb1dfe84d33bfef77b0102/small-decoder.int8.onnx",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/main/small-decoder.int8.onnx",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-decoder.int8.onnx",
                     ),
                 ],
             },
@@ -626,12 +599,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-small/resolve/master/small-tokens.txt",
+                        "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-small/resolve/893b50bd57565edb13eb1dfe84d33bfef77b0102/small-tokens.txt",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/main/small-tokens.txt",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-tokens.txt",
                     ),
                 ],
             },
@@ -655,12 +628,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/QuadraV/sherpa-onnx-paraformer-trilingual-zh-cantonese-en/resolve/master/model.int8.onnx",
+                        "https://modelscope.cn/models/QuadraV/sherpa-onnx-paraformer-trilingual-zh-cantonese-en/resolve/111c2ab694a84537e6d055675cdd6bb529e8d365/model.int8.onnx",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-trilingual-zh-cantonese-en/resolve/main/model.int8.onnx",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-trilingual-zh-cantonese-en/resolve/8d90151338178bb433354c9fb677bd3acb8023cd/model.int8.onnx",
                     ),
                 ],
             },
@@ -672,12 +645,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/QuadraV/sherpa-onnx-paraformer-trilingual-zh-cantonese-en/resolve/master/tokens.txt",
+                        "https://modelscope.cn/models/QuadraV/sherpa-onnx-paraformer-trilingual-zh-cantonese-en/resolve/111c2ab694a84537e6d055675cdd6bb529e8d365/tokens.txt",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-trilingual-zh-cantonese-en/resolve/main/tokens.txt",
+                        "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-trilingual-zh-cantonese-en/resolve/8d90151338178bb433354c9fb677bd3acb8023cd/tokens.txt",
                     ),
                 ],
             },
@@ -700,14 +673,17 @@ pub static CATALOG: &[ModelEntry] = &[
                 verified(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/pengzhendong/silero-vad/resolve/master/v5/silero_vad.onnx",
+                    "https://modelscope.cn/models/pengzhendong/silero-vad/resolve/e638eca036c3722da77f53a5f032500f1d033a34/v5/silero_vad.onnx",
                     "2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f",
                     2_327_524,
                 ),
-                official(
+                // Release 资产同样钉死字节（tag 本身不可变，但上传时可替换文件）。
+                verified(
                     "github",
                     "intl",
                     "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad_v5.onnx",
+                    "6b99cbfd39246b6706f98ec13c7c50c6b299181f2474fa05cbc8046acc274396",
+                    2_313_101,
                 ),
             ],
         }],
@@ -736,7 +712,7 @@ pub static CATALOG: &[ModelEntry] = &[
                 official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/master/uvr/UVR-MDX-NET-Voc_FT.onnx",
+                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/96034a02c274dc681f23cff86f8067a5ae55dd4e/uvr/UVR-MDX-NET-Voc_FT.onnx",
                 ),
                 official(
                     "github",
@@ -746,7 +722,7 @@ pub static CATALOG: &[ModelEntry] = &[
                 official(
                     "hf",
                     "intl",
-                    "https://huggingface.co/k2-fsa/sherpa-onnx-models/resolve/main/source-separation-models/UVR-MDX-NET-Voc_FT.onnx",
+                    "https://huggingface.co/k2-fsa/sherpa-onnx-models/resolve/bee11a0c31f3054fa7e73752e59f50d1e05340af/source-separation-models/UVR-MDX-NET-Voc_FT.onnx",
                 ),
             ],
         }],
@@ -768,7 +744,7 @@ pub static CATALOG: &[ModelEntry] = &[
                 official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/master/uvr/UVR_MDXNET_9482.onnx",
+                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/96034a02c274dc681f23cff86f8067a5ae55dd4e/uvr/UVR_MDXNET_9482.onnx",
                 ),
                 official(
                     "github",
@@ -778,7 +754,7 @@ pub static CATALOG: &[ModelEntry] = &[
                 official(
                     "hf",
                     "intl",
-                    "https://huggingface.co/k2-fsa/sherpa-onnx-models/resolve/main/source-separation-models/UVR_MDXNET_9482.onnx",
+                    "https://huggingface.co/k2-fsa/sherpa-onnx-models/resolve/bee11a0c31f3054fa7e73752e59f50d1e05340af/source-separation-models/UVR_MDXNET_9482.onnx",
                 ),
             ],
         }],
@@ -800,7 +776,7 @@ pub static CATALOG: &[ModelEntry] = &[
             sources: &[official(
                 "hf",
                 "intl",
-                "https://huggingface.co/ailm32442/localvqe-ns-onnx/resolve/main/localvqe-ns.onnx",
+                "https://huggingface.co/ailm32442/localvqe-ns-onnx/resolve/2f9c5b8223b1cee798ac7ec27604e51b07fbe5e9/localvqe-ns.onnx",
             )],
         }],
     },
@@ -822,12 +798,12 @@ pub static CATALOG: &[ModelEntry] = &[
                 official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/ailm32442/htdemucs-ort/resolve/master/htdemucs.ort",
+                    "https://modelscope.cn/models/ailm32442/htdemucs-ort/resolve/0f8ff7ea292cc8255438935a7bd4ec6499a84e56/htdemucs.ort",
                 ),
                 official(
                     "hf",
                     "intl",
-                    "https://huggingface.co/gentij/htdemucs-ort/resolve/main/htdemucs.ort",
+                    "https://huggingface.co/gentij/htdemucs-ort/resolve/e658666494d741b77fdc0e95d223d541d3dc3a36/htdemucs.ort",
                 ),
             ],
         }],
@@ -850,12 +826,12 @@ pub static CATALOG: &[ModelEntry] = &[
                 official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/ailm32442/htdemucs-ort/resolve/master/htdemucs_6s.onnx",
+                    "https://modelscope.cn/models/ailm32442/htdemucs-ort/resolve/0f8ff7ea292cc8255438935a7bd4ec6499a84e56/htdemucs_6s.onnx",
                 ),
                 official(
                     "hf",
                     "intl",
-                    "https://huggingface.co/StemSplitio/htdemucs-6s-onnx/resolve/main/htdemucs_6s.onnx",
+                    "https://huggingface.co/StemSplitio/htdemucs-6s-onnx/resolve/49df9b6989cf2150840ea65b0bef77a2e471b678/htdemucs_6s.onnx",
                 ),
             ],
         }],
@@ -875,77 +851,121 @@ pub static CATALOG: &[ModelEntry] = &[
         recommended: false,
         bundled: false,
         files: &[
-            moss_file_sized!(
-                "browser_poc_manifest.json",
-                470_720,
-                470_720,
-                503_354,
-                "openmoss/MOSS-TTS-Nano-100M-ONNX",
-                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX"
-            ),
-            moss_file_sized!(
-                "tts_browser_onnx_meta.json",
-                4_302,
-                4_302,
-                4_487,
-                "openmoss/MOSS-TTS-Nano-100M-ONNX",
-                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX"
-            ),
+            ModelFile {
+                filename: "browser_poc_manifest.json",
+                approx_bytes: 470_720,
+                // 两个源的字节不同：各自声明 sha256 / 体积（魔搭那版是重新序列化过的 JSON）。
+                sha256: "",
+                sources: &[
+                    verified(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/openmoss/MOSS-TTS-Nano-100M-ONNX/resolve/6b5d7440003363204903f9b017e3ba8d416e568f/browser_poc_manifest.json",
+                        "803716e58b71fe2a770af1495ca74797d38c181b41cfeeaf9e524adc15910a20",
+                        470_720,
+                    ),
+                    verified(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX/resolve/f52645cb467506d8e18e746ddd59482685b74e58/browser_poc_manifest.json",
+                        "097d80e993dc29f0bae427590b4f77084a161cb578b50d82c29f455d5faa9eee",
+                        503_354,
+                    ),
+                ],
+            },
+            ModelFile {
+                filename: "tts_browser_onnx_meta.json",
+                approx_bytes: 4_302,
+                // 两个源的字节不同：各自声明 sha256 / 体积（魔搭那版是重新序列化过的 JSON）。
+                sha256: "",
+                sources: &[
+                    verified(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/openmoss/MOSS-TTS-Nano-100M-ONNX/resolve/6b5d7440003363204903f9b017e3ba8d416e568f/tts_browser_onnx_meta.json",
+                        "1dacbf4d59732ae1fb1253139b70a4ca07415246fb6473919c9947d489a59e04",
+                        4_302,
+                    ),
+                    verified(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX/resolve/f52645cb467506d8e18e746ddd59482685b74e58/tts_browser_onnx_meta.json",
+                        "3edf25232dcd0af3d061c837e9a968a39e2f8592e06777d740503c4f2244f95c",
+                        4_487,
+                    ),
+                ],
+            },
             moss_file!(
                 "tokenizer.model",
                 470_897,
-                "",
+                "c353ee1479b536bf414c1b247f5542b6607fb8ae91320e5af1781fee200fddff",
                 "openmoss/MOSS-TTS-Nano-100M-ONNX",
-                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX"
+                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX",
+                "6b5d7440003363204903f9b017e3ba8d416e568f",
+                "f52645cb467506d8e18e746ddd59482685b74e58",
             ),
             moss_file!(
                 "moss_tts_prefill.onnx",
                 283_305,
                 "d56126dcd0574c2f15d98fc6b35eda68d0386b5bd9c5e38e28548d6f2ea8f3db",
                 "openmoss/MOSS-TTS-Nano-100M-ONNX",
-                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX"
+                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX",
+                "6b5d7440003363204903f9b017e3ba8d416e568f",
+                "f52645cb467506d8e18e746ddd59482685b74e58",
             ),
             moss_file!(
                 "moss_tts_decode_step.onnx",
                 291_483,
                 "698cbc2fc1c2feca16e5895614ed52bbb32ded10f236c076f477b2e69abf32d8",
                 "openmoss/MOSS-TTS-Nano-100M-ONNX",
-                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX"
+                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX",
+                "6b5d7440003363204903f9b017e3ba8d416e568f",
+                "f52645cb467506d8e18e746ddd59482685b74e58",
             ),
             moss_file!(
                 "moss_tts_local_decoder.onnx",
                 49_231,
                 "51aa754301b38550a5f9adda0ad93bd3dc95819afb511e6dcabf4a90b345a454",
                 "openmoss/MOSS-TTS-Nano-100M-ONNX",
-                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX"
+                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX",
+                "6b5d7440003363204903f9b017e3ba8d416e568f",
+                "f52645cb467506d8e18e746ddd59482685b74e58",
             ),
             moss_file!(
                 "moss_tts_local_cached_step.onnx",
                 53_685,
                 "aa9035fefc1c138a951a8bcfc0374fb03a25f1ece67f7f7f53bce349b84a1dd5",
                 "openmoss/MOSS-TTS-Nano-100M-ONNX",
-                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX"
+                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX",
+                "6b5d7440003363204903f9b017e3ba8d416e568f",
+                "f52645cb467506d8e18e746ddd59482685b74e58",
             ),
             moss_file!(
                 "moss_tts_local_fixed_sampled_frame.onnx",
                 471_262,
                 "40cdb00efc171c450cf91468e01429caa41b0252222cd308e978f58fe354afa8",
                 "openmoss/MOSS-TTS-Nano-100M-ONNX",
-                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX"
+                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX",
+                "6b5d7440003363204903f9b017e3ba8d416e568f",
+                "f52645cb467506d8e18e746ddd59482685b74e58",
             ),
             moss_file!(
                 "moss_tts_global_shared.data",
                 440_813_568,
                 "bce8312c3df6a44545302cae229b61054fe0672e0b252ba59cba47adeed831dc",
                 "openmoss/MOSS-TTS-Nano-100M-ONNX",
-                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX"
+                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX",
+                "6b5d7440003363204903f9b017e3ba8d416e568f",
+                "f52645cb467506d8e18e746ddd59482685b74e58",
             ),
             moss_file!(
                 "moss_tts_local_shared.data",
                 229_678_080,
                 "bae7782032c0fb12490ab42afe009f87ae6c75a0f0596fc7b5c08e4d5ee93916",
                 "openmoss/MOSS-TTS-Nano-100M-ONNX",
-                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX"
+                "OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX",
+                "6b5d7440003363204903f9b017e3ba8d416e568f",
+                "f52645cb467506d8e18e746ddd59482685b74e58",
             ),
         ],
     },
@@ -959,41 +979,63 @@ pub static CATALOG: &[ModelEntry] = &[
         recommended: false,
         bundled: false,
         files: &[
-            moss_file_sized!(
-                "codec_browser_onnx_meta.json",
-                16_461,
-                16_461,
-                17_036,
-                "openmoss/MOSS-Audio-Tokenizer-Nano-ONNX",
-                "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX"
-            ),
+            ModelFile {
+                filename: "codec_browser_onnx_meta.json",
+                approx_bytes: 16_461,
+                // 两个源的字节不同：各自声明 sha256 / 体积（魔搭那版是重新序列化过的 JSON）。
+                sha256: "",
+                sources: &[
+                    verified(
+                        "modelscope",
+                        "cn",
+                        "https://modelscope.cn/models/openmoss/MOSS-Audio-Tokenizer-Nano-ONNX/resolve/cdc5681db01f898ae287476667debff9b589bdcb/codec_browser_onnx_meta.json",
+                        "c40eb144a4f50453ac0437944cbdeee1467845b886e90197ff1eada1353303db",
+                        16_461,
+                    ),
+                    verified(
+                        "hf",
+                        "intl",
+                        "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX/resolve/ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae/codec_browser_onnx_meta.json",
+                        "3e291c883bb7d11ff2fe8e964e3e495519760358859f35c951254c7741592731",
+                        17_036,
+                    ),
+                ],
+            },
             moss_file!(
                 "moss_audio_tokenizer_encode.onnx",
                 815_775,
                 "eadea4a645abdcf98714c7aead122ee2ce7da6e080f9f80b977cd1ca8e19473a",
                 "openmoss/MOSS-Audio-Tokenizer-Nano-ONNX",
-                "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX"
+                "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX",
+                "cdc5681db01f898ae287476667debff9b589bdcb",
+                "ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae",
             ),
             moss_file!(
                 "moss_audio_tokenizer_encode.data",
                 44_507_136,
                 "aa751265b2bab2887eac224484546b194875aa7494b607115439b3dc6b228a2c",
                 "openmoss/MOSS-Audio-Tokenizer-Nano-ONNX",
-                "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX"
+                "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX",
+                "cdc5681db01f898ae287476667debff9b589bdcb",
+                "ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae",
             ),
             moss_file!(
                 "moss_audio_tokenizer_decode_full.onnx",
                 681_902,
                 "0fbbafe3fd4afa2a019af5c5ced204af6e2d1db044fa40f021525d2aee95b4ac",
                 "openmoss/MOSS-Audio-Tokenizer-Nano-ONNX",
-                "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX"
+                "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX",
+                "cdc5681db01f898ae287476667debff9b589bdcb",
+                "ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae",
             ),
             moss_file!(
                 "moss_audio_tokenizer_decode_shared.data",
                 44_198_912,
                 "e69d52e0f4e84ca27850557ee54face46632d3a5a16c89bd246c7c408466dcad",
                 "openmoss/MOSS-Audio-Tokenizer-Nano-ONNX",
-                "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX"
+                "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX",
+                "cdc5681db01f898ae287476667debff9b589bdcb",
+                "ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae",
             ),
         ],
     },
@@ -1015,12 +1057,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/master/zipvoice/encoder.int8.onnx",
+                        "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/482200569c42b36057bece11f293ee847b3bff49/zipvoice/encoder.int8.onnx",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/k2-fsa/ZipVoice/resolve/main/zipvoice_distill/text_encoder_int8.onnx",
+                        "https://huggingface.co/k2-fsa/ZipVoice/resolve/889dd609a42f0de9cf9aac335eae42677becb1b9/zipvoice_distill/text_encoder_int8.onnx",
                     ),
                 ],
             },
@@ -1032,12 +1074,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/master/zipvoice/decoder.int8.onnx",
+                        "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/482200569c42b36057bece11f293ee847b3bff49/zipvoice/decoder.int8.onnx",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/k2-fsa/ZipVoice/resolve/main/zipvoice_distill/fm_decoder_int8.onnx",
+                        "https://huggingface.co/k2-fsa/ZipVoice/resolve/889dd609a42f0de9cf9aac335eae42677becb1b9/zipvoice_distill/fm_decoder_int8.onnx",
                     ),
                 ],
             },
@@ -1049,12 +1091,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/master/zipvoice/tokens.txt",
+                        "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/482200569c42b36057bece11f293ee847b3bff49/zipvoice/tokens.txt",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/k2-fsa/ZipVoice/resolve/main/zipvoice_distill/tokens.txt",
+                        "https://huggingface.co/k2-fsa/ZipVoice/resolve/889dd609a42f0de9cf9aac335eae42677becb1b9/zipvoice_distill/tokens.txt",
                     ),
                 ],
             },
@@ -1065,7 +1107,7 @@ pub static CATALOG: &[ModelEntry] = &[
                 sources: &[official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/master/zipvoice/lexicon.txt",
+                    "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/482200569c42b36057bece11f293ee847b3bff49/zipvoice/lexicon.txt",
                 )],
             },
             ModelFile {
@@ -1076,7 +1118,7 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/master/zipvoice/vocos_24khz.onnx",
+                        "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/482200569c42b36057bece11f293ee847b3bff49/zipvoice/vocos_24khz.onnx",
                     ),
                     official(
                         "github",
@@ -1092,7 +1134,7 @@ pub static CATALOG: &[ModelEntry] = &[
                 sources: &[official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/master/zipvoice/espeak-ng-data.tar.gz",
+                    "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/482200569c42b36057bece11f293ee847b3bff49/zipvoice/espeak-ng-data.tar.gz",
                 )],
             },
             ModelFile {
@@ -1102,7 +1144,7 @@ pub static CATALOG: &[ModelEntry] = &[
                 sources: &[official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/master/zipvoice/test_wavs/leijun-1.wav",
+                    "https://modelscope.cn/models/yuqingteck/mommy-story-on-device-models/resolve/482200569c42b36057bece11f293ee847b3bff49/zipvoice/test_wavs/leijun-1.wav",
                 )],
             },
         ],
@@ -1127,12 +1169,12 @@ pub static CATALOG: &[ModelEntry] = &[
                 official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/master/rife/rife47_ensemble_True_scale_1_sim.onnx",
+                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/96034a02c274dc681f23cff86f8067a5ae55dd4e/rife/rife47_ensemble_True_scale_1_sim.onnx",
                 ),
                 official(
                     "hf",
                     "intl",
-                    "https://huggingface.co/ailm32442/ai-cut-models/resolve/main/rife/rife47_ensemble_True_scale_1_sim.onnx",
+                    "https://huggingface.co/ailm32442/ai-cut-models/resolve/2cc84d68790b421378dac0e3a0b102f1d75b8ad0/rife/rife47_ensemble_True_scale_1_sim.onnx",
                 ),
             ],
         }],
@@ -1154,12 +1196,12 @@ pub static CATALOG: &[ModelEntry] = &[
                 official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/master/real-esrgan-general-x4v3/realesr-general-x4v3.onnx",
+                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/96034a02c274dc681f23cff86f8067a5ae55dd4e/real-esrgan-general-x4v3/realesr-general-x4v3.onnx",
                 ),
                 official(
                     "hf",
                     "intl",
-                    "https://huggingface.co/ailm32442/ai-cut-models/resolve/main/real-esrgan-general-x4v3/realesr-general-x4v3.onnx",
+                    "https://huggingface.co/ailm32442/ai-cut-models/resolve/2cc84d68790b421378dac0e3a0b102f1d75b8ad0/real-esrgan-general-x4v3/realesr-general-x4v3.onnx",
                 ),
             ],
         }],
@@ -1181,12 +1223,12 @@ pub static CATALOG: &[ModelEntry] = &[
                 official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/master/real-esrgan-x4plus/RealESRGAN_x4plus.onnx",
+                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/96034a02c274dc681f23cff86f8067a5ae55dd4e/real-esrgan-x4plus/RealESRGAN_x4plus.onnx",
                 ),
                 official(
                     "hf",
                     "intl",
-                    "https://huggingface.co/ailm32442/ai-cut-models/resolve/main/real-esrgan-x4plus/RealESRGAN_x4plus.onnx",
+                    "https://huggingface.co/ailm32442/ai-cut-models/resolve/2cc84d68790b421378dac0e3a0b102f1d75b8ad0/real-esrgan-x4plus/RealESRGAN_x4plus.onnx",
                 ),
             ],
         }],
@@ -1208,12 +1250,12 @@ pub static CATALOG: &[ModelEntry] = &[
                 official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/master/yolox-nano/yolox_nano.onnx",
+                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/96034a02c274dc681f23cff86f8067a5ae55dd4e/yolox-nano/yolox_nano.onnx",
                 ),
                 official(
                     "hf",
                     "intl",
-                    "https://huggingface.co/ailm32442/ai-cut-models/resolve/main/yolox-nano/yolox_nano.onnx",
+                    "https://huggingface.co/ailm32442/ai-cut-models/resolve/2cc84d68790b421378dac0e3a0b102f1d75b8ad0/yolox-nano/yolox_nano.onnx",
                 ),
             ],
         }],
@@ -1235,12 +1277,12 @@ pub static CATALOG: &[ModelEntry] = &[
                 official(
                     "modelscope",
                     "cn",
-                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/master/yunet/face_detection_yunet_2023mar.onnx",
+                    "https://modelscope.cn/models/ailm32442/ai-cut-models/resolve/96034a02c274dc681f23cff86f8067a5ae55dd4e/yunet/face_detection_yunet_2023mar.onnx",
                 ),
                 official(
                     "hf",
                     "intl",
-                    "https://huggingface.co/ailm32442/ai-cut-models/resolve/main/yunet/face_detection_yunet_2023mar.onnx",
+                    "https://huggingface.co/ailm32442/ai-cut-models/resolve/2cc84d68790b421378dac0e3a0b102f1d75b8ad0/yunet/face_detection_yunet_2023mar.onnx",
                 ),
             ],
         }],
@@ -1269,12 +1311,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/master/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
+                        "https://modelscope.cn/models/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/57b07e9cf48b3ce84636ecec19217d955a074e5a/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
+                        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/123acf1cc74bccbb9bfff8ac1ee72edc08c2341d/split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors",
                     ),
                 ],
             },
@@ -1286,12 +1328,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/master/split_files/vae/wan_2.1_vae.safetensors",
+                        "https://modelscope.cn/models/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/57b07e9cf48b3ce84636ecec19217d955a074e5a/split_files/vae/wan_2.1_vae.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+                        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/123acf1cc74bccbb9bfff8ac1ee72edc08c2341d/split_files/vae/wan_2.1_vae.safetensors",
                     ),
                 ],
             },
@@ -1303,12 +1345,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/city96/umt5-xxl-encoder-gguf/resolve/master/umt5-xxl-encoder-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/city96/umt5-xxl-encoder-gguf/resolve/b78c54a1cf5bd3675451bf2c485c4df78b351fd5/umt5-xxl-encoder-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_M.gguf",
+                        "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/b535255bee98c2b0a59ea7c0ae2dcd0c6657b3b7/umt5-xxl-encoder-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -1334,12 +1376,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/QuantStack/Wan2.2-TI2V-5B-GGUF/resolve/master/Wan2.2-TI2V-5B-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/QuantStack/Wan2.2-TI2V-5B-GGUF/resolve/779cd3f6dde0af214b4e5a34fd9cf947bf61ae60/Wan2.2-TI2V-5B-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/QuantStack/Wan2.2-TI2V-5B-GGUF/resolve/main/Wan2.2-TI2V-5B-Q4_K_M.gguf",
+                        "https://huggingface.co/QuantStack/Wan2.2-TI2V-5B-GGUF/resolve/57437632ddd08bdcbd1508c866aa22e126ed51d2/Wan2.2-TI2V-5B-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -1351,12 +1393,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/master/split_files/vae/wan2.2_vae.safetensors",
+                        "https://modelscope.cn/models/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/23366808df3d4cc08ca3379790e6abcd5b3d7cdb/split_files/vae/wan2.2_vae.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan2.2_vae.safetensors",
+                        "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/ee6f4a40737a995bf5818954cfce6d59443b0f04/split_files/vae/wan2.2_vae.safetensors",
                     ),
                 ],
             },
@@ -1368,12 +1410,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/city96/umt5-xxl-encoder-gguf/resolve/master/umt5-xxl-encoder-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/city96/umt5-xxl-encoder-gguf/resolve/b78c54a1cf5bd3675451bf2c485c4df78b351fd5/umt5-xxl-encoder-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_M.gguf",
+                        "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/b535255bee98c2b0a59ea7c0ae2dcd0c6657b3b7/umt5-xxl-encoder-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -1400,12 +1442,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/master/LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/db0053a022cf943b5c36fba4c435b3aa15d8bc00/LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/main/LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf",
+                        "https://huggingface.co/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/73eafba53a1a8f29254e4c77f92e74ea27d7cd6f/LowNoise/Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -1417,12 +1459,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/master/HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/db0053a022cf943b5c36fba4c435b3aa15d8bc00/HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/main/HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf",
+                        "https://huggingface.co/QuantStack/Wan2.2-T2V-A14B-GGUF/resolve/73eafba53a1a8f29254e4c77f92e74ea27d7cd6f/HighNoise/Wan2.2-T2V-A14B-HighNoise-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -1434,12 +1476,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/master/split_files/vae/wan_2.1_vae.safetensors",
+                        "https://modelscope.cn/models/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/57b07e9cf48b3ce84636ecec19217d955a074e5a/split_files/vae/wan_2.1_vae.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+                        "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/123acf1cc74bccbb9bfff8ac1ee72edc08c2341d/split_files/vae/wan_2.1_vae.safetensors",
                     ),
                 ],
             },
@@ -1451,12 +1493,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/city96/umt5-xxl-encoder-gguf/resolve/master/umt5-xxl-encoder-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/city96/umt5-xxl-encoder-gguf/resolve/b78c54a1cf5bd3675451bf2c485c4df78b351fd5/umt5-xxl-encoder-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q4_K_M.gguf",
+                        "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/b535255bee98c2b0a59ea7c0ae2dcd0c6657b3b7/umt5-xxl-encoder-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -1483,12 +1525,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/master/ltx-2.3-22b-dev-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/0f9b034fa510c2a1ba6b19f0582f76545c3c90f0/ltx-2.3-22b-dev-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/ltx-2.3-22b-dev-Q4_K_M.gguf",
+                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/96e8ed4925ead3db9ff4d0084f165ef6a74f28d0/ltx-2.3-22b-dev-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -1500,12 +1542,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/unsloth/gemma-3-12b-it-qat-GGUF/resolve/master/gemma-3-12b-it-qat-UD-Q4_K_XL.gguf",
+                        "https://modelscope.cn/models/unsloth/gemma-3-12b-it-qat-GGUF/resolve/884b19fba7a8ea4e1060a570ed2b00976b87120d/gemma-3-12b-it-qat-UD-Q4_K_XL.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/unsloth/gemma-3-12b-it-qat-GGUF/resolve/main/gemma-3-12b-it-qat-UD-Q4_K_XL.gguf",
+                        "https://huggingface.co/unsloth/gemma-3-12b-it-qat-GGUF/resolve/858acec7ec0541a46c39985c95d3b52d8f3ab183/gemma-3-12b-it-qat-UD-Q4_K_XL.gguf",
                     ),
                 ],
             },
@@ -1517,12 +1559,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/master/text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors",
+                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/0f9b034fa510c2a1ba6b19f0582f76545c3c90f0/text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors",
+                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/96e8ed4925ead3db9ff4d0084f165ef6a74f28d0/text_encoders/ltx-2.3-22b-dev_embeddings_connectors.safetensors",
                     ),
                 ],
             },
@@ -1534,12 +1576,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/master/vae/ltx-2.3-22b-dev_video_vae.safetensors",
+                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/0f9b034fa510c2a1ba6b19f0582f76545c3c90f0/vae/ltx-2.3-22b-dev_video_vae.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/vae/ltx-2.3-22b-dev_video_vae.safetensors",
+                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/96e8ed4925ead3db9ff4d0084f165ef6a74f28d0/vae/ltx-2.3-22b-dev_video_vae.safetensors",
                     ),
                 ],
             },
@@ -1551,12 +1593,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/master/vae/ltx-2.3-22b-dev_audio_vae.safetensors",
+                        "https://modelscope.cn/models/unsloth/LTX-2.3-GGUF/resolve/0f9b034fa510c2a1ba6b19f0582f76545c3c90f0/vae/ltx-2.3-22b-dev_audio_vae.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/main/vae/ltx-2.3-22b-dev_audio_vae.safetensors",
+                        "https://huggingface.co/unsloth/LTX-2.3-GGUF/resolve/96e8ed4925ead3db9ff4d0084f165ef6a74f28d0/vae/ltx-2.3-22b-dev_audio_vae.safetensors",
                     ),
                 ],
             },
@@ -1583,12 +1625,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/master/split_files/diffusion_models/hunyuanvideo1.5_720p_t2v_fp16.safetensors",
+                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/c75d7bb23627e3368c7125d9c353f27c43bc9120/split_files/diffusion_models/hunyuanvideo1.5_720p_t2v_fp16.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/diffusion_models/hunyuanvideo1.5_720p_t2v_fp16.safetensors",
+                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/1405a2b738c29b890cf6d03fc038d8d3e92eeed7/split_files/diffusion_models/hunyuanvideo1.5_720p_t2v_fp16.safetensors",
                     ),
                 ],
             },
@@ -1600,12 +1642,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/master/split_files/vae/hunyuanvideo15_vae_fp16.safetensors",
+                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/c75d7bb23627e3368c7125d9c353f27c43bc9120/split_files/vae/hunyuanvideo15_vae_fp16.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/vae/hunyuanvideo15_vae_fp16.safetensors",
+                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/1405a2b738c29b890cf6d03fc038d8d3e92eeed7/split_files/vae/hunyuanvideo15_vae_fp16.safetensors",
                     ),
                 ],
             },
@@ -1617,12 +1659,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/master/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/c75d7bb23627e3368c7125d9c353f27c43bc9120/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/1405a2b738c29b890cf6d03fc038d8d3e92eeed7/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
                     ),
                 ],
             },
@@ -1634,12 +1676,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/master/split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors",
+                        "https://modelscope.cn/models/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/c75d7bb23627e3368c7125d9c353f27c43bc9120/split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/main/split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors",
+                        "https://huggingface.co/Comfy-Org/HunyuanVideo_1.5_repackaged/resolve/1405a2b738c29b890cf6d03fc038d8d3e92eeed7/split_files/text_encoders/byt5_small_glyphxl_fp16.safetensors",
                     ),
                 ],
             },
@@ -1668,12 +1710,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/minimax_h3_fl2va_pruned-Q4_K.gguf",
+                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/b02b697421ed54ca17e4eb981ed1dd956a9f0b75/minimax_h3_fl2va_pruned-Q4_K.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/leejet/MiniMax-H3-GGUF/resolve/main/minimax_h3_fl2va_pruned-Q4_K_M.gguf",
+                        "https://huggingface.co/leejet/MiniMax-H3-GGUF/resolve/d9c4c6312b4728a68a15a35626d84775a6523783/minimax_h3_fl2va_pruned-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -1705,14 +1747,14 @@ pub static CATALOG: &[ModelEntry] = &[
                     verified(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/master/minimax_h3_ref2va_pruned-Q4_K.gguf",
+                        "https://modelscope.cn/models/unsloth/MiniMax-H3-GGUF/resolve/b02b697421ed54ca17e4eb981ed1dd956a9f0b75/minimax_h3_ref2va_pruned-Q4_K.gguf",
                         "2fa5840021cf6967843eaeefde9aaa277e540de02986d5ee3d5b0e6a7a8c9dec",
                         11_381_096_544,
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/leejet/MiniMax-H3-GGUF/resolve/main/minimax_h3_ref2va_pruned-Q4_K_M.gguf",
+                        "https://huggingface.co/leejet/MiniMax-H3-GGUF/resolve/d9c4c6312b4728a68a15a35626d84775a6523783/minimax_h3_ref2va_pruned-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -1743,12 +1785,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/vantagewithai/LTX-2.5-GGUF/resolve/master/dev/ltx-2.5-22b-dev-transformer-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/vantagewithai/LTX-2.5-GGUF/resolve/2672990a479186f193b2549aa239ec34470ec0a9/dev/ltx-2.5-22b-dev-transformer-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/vantagewithai/LTX-2.5-GGUF/resolve/main/dev/ltx-2.5-22b-dev-transformer-Q4_K_M.gguf",
+                        "https://huggingface.co/vantagewithai/LTX-2.5-GGUF/resolve/9a5c1bed3ff27b5e5d055fc04e3ae884381c2343/dev/ltx-2.5-22b-dev-transformer-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -1760,12 +1802,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Lightricks/LTX-2.5/resolve/master/text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+                        "https://modelscope.cn/models/Lightricks/LTX-2.5/resolve/a6ae0d2453796652fd2357a4670014a30621fd58/text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+                        "https://huggingface.co/Lightricks/LTX-2.5/resolve/49b093a39c19169a8a81721dcc541e07e945232f/text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
                     ),
                 ],
             },
@@ -1777,12 +1819,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Lightricks/LTX-2.5/resolve/master/vae/ltx-2.5-video-vae-conv-bf16.safetensors",
+                        "https://modelscope.cn/models/Lightricks/LTX-2.5/resolve/a6ae0d2453796652fd2357a4670014a30621fd58/vae/ltx-2.5-video-vae-conv-bf16.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-video-vae-conv-bf16.safetensors",
+                        "https://huggingface.co/Lightricks/LTX-2.5/resolve/49b093a39c19169a8a81721dcc541e07e945232f/vae/ltx-2.5-video-vae-conv-bf16.safetensors",
                     ),
                 ],
             },
@@ -1794,12 +1836,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Lightricks/LTX-2.5/resolve/master/vae/ltx-2.5-audio-vae-bf16.safetensors",
+                        "https://modelscope.cn/models/Lightricks/LTX-2.5/resolve/a6ae0d2453796652fd2357a4670014a30621fd58/vae/ltx-2.5-audio-vae-bf16.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/vae/ltx-2.5-audio-vae-bf16.safetensors",
+                        "https://huggingface.co/Lightricks/LTX-2.5/resolve/49b093a39c19169a8a81721dcc541e07e945232f/vae/ltx-2.5-audio-vae-bf16.safetensors",
                     ),
                 ],
             },
@@ -1825,12 +1867,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/AI-ModelScope/stable-diffusion-inpainting/resolve/master/sd-v1-5-inpainting.ckpt",
+                        "https://modelscope.cn/models/AI-ModelScope/stable-diffusion-inpainting/resolve/25bae4c0a5f7b2277c126eab3b115be265f0b91e/sd-v1-5-inpainting.ckpt",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/runwayml/stable-diffusion-inpainting/resolve/main/sd-v1-5-inpainting.ckpt",
+                        "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-inpainting/resolve/8a4288a76071f7280aedbdb3253bdb9e9d5d84bb/sd-v1-5-inpainting.ckpt",
                     ),
                 ],
             },
@@ -1856,12 +1898,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/leejet/Z-Image-Turbo-GGUF/resolve/master/z_image_turbo-Q4_K.gguf",
+                        "https://modelscope.cn/models/leejet/Z-Image-Turbo-GGUF/resolve/766aadf1da91041382ee31310727d0650f6841ab/z_image_turbo-Q4_K.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q4_K.gguf",
+                        "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/c61c0e422dc8b541b7548cf33a4ef8302b0f8085/z_image_turbo-Q4_K.gguf",
                     ),
                 ],
             },
@@ -1873,12 +1915,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Comfy-Org/z_image_turbo/resolve/master/split_files/vae/ae.safetensors",
+                        "https://modelscope.cn/models/Comfy-Org/z_image_turbo/resolve/96603dbf9671eaf51b323021f8190ee5a1718950/split_files/vae/ae.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+                        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/vae/ae.safetensors",
                     ),
                 ],
             },
@@ -1890,12 +1932,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/master/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/4fe83b58251456d9551801897e48aa47fe6087ef/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+                        "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/a06e946bb6b655725eafa393f4a9745d460374c9/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -1921,12 +1963,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/AI-ModelScope/stable-diffusion-xl-base-1.0/resolve/master/sd_xl_base_1.0.safetensors",
+                        "https://modelscope.cn/models/AI-ModelScope/stable-diffusion-xl-base-1.0/resolve/257e42edb75d808219311d1e15b01f85b99ff36d/sd_xl_base_1.0.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors",
+                        "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/462165984030d82259a11f4367a4eed129e94a7b/sd_xl_base_1.0.safetensors",
                     ),
                 ],
             },
@@ -1952,12 +1994,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/leejet/FLUX.1-schnell-gguf/resolve/master/flux1-schnell-q4_k.gguf",
+                        "https://modelscope.cn/models/leejet/FLUX.1-schnell-gguf/resolve/65eec8cb55e050f3fb9e1e3e08d68568fadd0f8e/flux1-schnell-q4_k.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/leejet/FLUX.1-schnell-gguf/resolve/main/flux1-schnell-q4_k.gguf",
+                        "https://huggingface.co/leejet/FLUX.1-schnell-gguf/resolve/c7f665ddaf9f197ff493f41fc211f5480f5f19ac/flux1-schnell-q4_k.gguf",
                     ),
                 ],
             },
@@ -1969,12 +2011,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Comfy-Org/z_image_turbo/resolve/master/split_files/vae/ae.safetensors",
+                        "https://modelscope.cn/models/Comfy-Org/z_image_turbo/resolve/96603dbf9671eaf51b323021f8190ee5a1718950/split_files/vae/ae.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+                        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/vae/ae.safetensors",
                     ),
                 ],
             },
@@ -1986,12 +2028,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/master/clip_l.safetensors",
+                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/928ff5248624201bb4207ac391a899166cee5cb0/clip_l.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors",
+                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5/clip_l.safetensors",
                     ),
                 ],
             },
@@ -2003,12 +2045,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/master/t5xxl_fp8_e4m3fn.safetensors",
+                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/928ff5248624201bb4207ac391a899166cee5cb0/t5xxl_fp8_e4m3fn.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors",
+                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5/t5xxl_fp8_e4m3fn.safetensors",
                     ),
                 ],
             },
@@ -2034,12 +2076,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/QuantStack/FLUX.1-Kontext-dev-GGUF/resolve/master/flux1-kontext-dev-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/QuantStack/FLUX.1-Kontext-dev-GGUF/resolve/da11b315805011292878315079aed45f7c8c79bd/flux1-kontext-dev-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/QuantStack/FLUX.1-Kontext-dev-GGUF/resolve/main/flux1-kontext-dev-Q4_K_M.gguf",
+                        "https://huggingface.co/QuantStack/FLUX.1-Kontext-dev-GGUF/resolve/2d083027732f81e5548620b57ac47da22d30aa5a/flux1-kontext-dev-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -2051,12 +2093,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/Comfy-Org/z_image_turbo/resolve/master/split_files/vae/ae.safetensors",
+                        "https://modelscope.cn/models/Comfy-Org/z_image_turbo/resolve/96603dbf9671eaf51b323021f8190ee5a1718950/split_files/vae/ae.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+                        "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/vae/ae.safetensors",
                     ),
                 ],
             },
@@ -2068,12 +2110,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/master/clip_l.safetensors",
+                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/928ff5248624201bb4207ac391a899166cee5cb0/clip_l.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors",
+                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5/clip_l.safetensors",
                     ),
                 ],
             },
@@ -2085,12 +2127,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/master/t5xxl_fp8_e4m3fn.safetensors",
+                        "https://modelscope.cn/models/comfyanonymous/flux_text_encoders/resolve/928ff5248624201bb4207ac391a899166cee5cb0/t5xxl_fp8_e4m3fn.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors",
+                        "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5/t5xxl_fp8_e4m3fn.safetensors",
                     ),
                 ],
             },
@@ -2116,12 +2158,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/QuantStack/Qwen-Image-GGUF/resolve/master/Qwen_Image-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/QuantStack/Qwen-Image-GGUF/resolve/37bbfad1edaab99c6ed7b6e20a133e9c1f1df111/Qwen_Image-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/QuantStack/Qwen-Image-GGUF/resolve/main/Qwen_Image-Q4_K_M.gguf",
+                        "https://huggingface.co/QuantStack/Qwen-Image-GGUF/resolve/257f261fa92593bed760aa6fa3f7921a49fea00f/Qwen_Image-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -2133,12 +2175,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/QuantStack/Qwen-Image-GGUF/resolve/master/VAE/Qwen_Image-VAE.safetensors",
+                        "https://modelscope.cn/models/QuantStack/Qwen-Image-GGUF/resolve/37bbfad1edaab99c6ed7b6e20a133e9c1f1df111/VAE/Qwen_Image-VAE.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/QuantStack/Qwen-Image-GGUF/resolve/main/VAE/Qwen_Image-VAE.safetensors",
+                        "https://huggingface.co/QuantStack/Qwen-Image-GGUF/resolve/257f261fa92593bed760aa6fa3f7921a49fea00f/VAE/Qwen_Image-VAE.safetensors",
                     ),
                 ],
             },
@@ -2150,12 +2192,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/master/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/524b9760a7882deab2e61d84356f81d500bfe122/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+                        "https://huggingface.co/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/508edd0afaa66bb9e9f40587acc2184f02daf1f6/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -2181,12 +2223,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/QuantStack/Qwen-Image-Edit-2509-GGUF/resolve/master/Qwen-Image-Edit-2509-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/QuantStack/Qwen-Image-Edit-2509-GGUF/resolve/4da724da9c524360fed01c8996e4edada3f6286f/Qwen-Image-Edit-2509-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/QuantStack/Qwen-Image-Edit-2509-GGUF/resolve/main/Qwen-Image-Edit-2509-Q4_K_M.gguf",
+                        "https://huggingface.co/QuantStack/Qwen-Image-Edit-2509-GGUF/resolve/84a3006979126011422eeeefe0c9485ddf431ef5/Qwen-Image-Edit-2509-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -2198,12 +2240,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/QuantStack/Qwen-Image-GGUF/resolve/master/VAE/Qwen_Image-VAE.safetensors",
+                        "https://modelscope.cn/models/QuantStack/Qwen-Image-GGUF/resolve/37bbfad1edaab99c6ed7b6e20a133e9c1f1df111/VAE/Qwen_Image-VAE.safetensors",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/QuantStack/Qwen-Image-GGUF/resolve/main/VAE/Qwen_Image-VAE.safetensors",
+                        "https://huggingface.co/QuantStack/Qwen-Image-GGUF/resolve/257f261fa92593bed760aa6fa3f7921a49fea00f/VAE/Qwen_Image-VAE.safetensors",
                     ),
                 ],
             },
@@ -2215,12 +2257,12 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/master/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+                        "https://modelscope.cn/models/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/524b9760a7882deab2e61d84356f81d500bfe122/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+                        "https://huggingface.co/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/508edd0afaa66bb9e9f40587acc2184f02daf1f6/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
                     ),
                 ],
             },
@@ -2232,24 +2274,27 @@ pub static CATALOG: &[ModelEntry] = &[
                     official(
                         "modelscope",
                         "cn",
-                        "https://modelscope.cn/models/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/master/mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf",
+                        "https://modelscope.cn/models/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/524b9760a7882deab2e61d84356f81d500bfe122/mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf",
                     ),
                     official(
                         "hf",
                         "intl",
-                        "https://huggingface.co/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/main/mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf",
+                        "https://huggingface.co/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/508edd0afaa66bb9e9f40587acc2184f02daf1f6/mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf",
                     ),
                 ],
             },
         ],
     },
-    // MeanVC2：18M 零样本变声（16 kHz）。转换链 int8 约 74 MB，按需下载。
+    // MeanVC2：18M 零样本变声（16 kHz）。转换五图 + 音色编码器是**一个完整包**：
+    // 没有编码器就没法导入音色，新用户也就无从变声，所以不再拆成独立条目。
+    // 转换时只加载五张图；编码器只在导入新音色时加载。
     ModelEntry {
         id: "meanvc2-int8",
-        name: "MeanVC2（18M · 零样本变声 · int8）",
+        name: "MeanVC2（18M · 零样本变声 · int8 · 含音色编码器）",
         feature: "voice-change",
         tag: "audio",
-        license: "Apache-2.0",
+        // 转换图 Apache-2.0；音色编码器 CC-BY-SA-3.0。按更严格的那份提示。
+        license: "Apache-2.0 + CC-BY-SA-3.0",
         family: ModelFamily::MeanVc2,
         recommended: false,
         bundled: false,
@@ -2260,9 +2305,16 @@ pub static CATALOG: &[ModelEntry] = &[
             sha256: "ecbe193170abe98a8c0ba9299e8fe21b418145aca924e351c667b9257c3e28c8",
             sources: &[
                 verified(
+                    "modelscope",
+                    "cn",
+                    "https://modelscope.cn/models/ailm32442/meanvc2-onnx/resolve/4e04f4610343de1ceefbff3b11a83d1e65299241/fbank.onnx",
+                    "ecbe193170abe98a8c0ba9299e8fe21b418145aca924e351c667b9257c3e28c8",
+                    908_339,
+                ),
+                verified(
                     "hf",
                     "intl",
-                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/fbank.onnx",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/2db97430c6e315a819daa30e255e14615205a3d1/fbank.onnx",
                     "ecbe193170abe98a8c0ba9299e8fe21b418145aca924e351c667b9257c3e28c8",
                     908_339,
                 ),
@@ -2274,9 +2326,16 @@ pub static CATALOG: &[ModelEntry] = &[
             sha256: "553869e3159af4497582072e66f09c16032a3b98ac2bad5c195b7443627616be",
             sources: &[
                 verified(
+                    "modelscope",
+                    "cn",
+                    "https://modelscope.cn/models/ailm32442/meanvc2-onnx/resolve/4e04f4610343de1ceefbff3b11a83d1e65299241/asr.int8.onnx",
+                    "553869e3159af4497582072e66f09c16032a3b98ac2bad5c195b7443627616be",
+                    28_655_587,
+                ),
+                verified(
                     "hf",
                     "intl",
-                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/asr.int8.onnx",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/2db97430c6e315a819daa30e255e14615205a3d1/asr.int8.onnx",
                     "553869e3159af4497582072e66f09c16032a3b98ac2bad5c195b7443627616be",
                     28_655_587,
                 ),
@@ -2288,9 +2347,16 @@ pub static CATALOG: &[ModelEntry] = &[
             sha256: "f03ff1e9da3c373445f7518fa36fc99980fe4326447235fa89ea1923f57ee224",
             sources: &[
                 verified(
+                    "modelscope",
+                    "cn",
+                    "https://modelscope.cn/models/ailm32442/meanvc2-onnx/resolve/4e04f4610343de1ceefbff3b11a83d1e65299241/gtm.onnx",
+                    "f03ff1e9da3c373445f7518fa36fc99980fe4326447235fa89ea1923f57ee224",
+                    17_441_893,
+                ),
+                verified(
                     "hf",
                     "intl",
-                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/gtm.onnx",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/2db97430c6e315a819daa30e255e14615205a3d1/gtm.onnx",
                     "f03ff1e9da3c373445f7518fa36fc99980fe4326447235fa89ea1923f57ee224",
                     17_441_893,
                 ),
@@ -2302,9 +2368,16 @@ pub static CATALOG: &[ModelEntry] = &[
             sha256: "52ac682ed1790b196333d1dbf99fa2806b6c52076c85e438c9dede968572675a",
             sources: &[
                 verified(
+                    "modelscope",
+                    "cn",
+                    "https://modelscope.cn/models/ailm32442/meanvc2-onnx/resolve/4e04f4610343de1ceefbff3b11a83d1e65299241/dit.int8.onnx",
+                    "52ac682ed1790b196333d1dbf99fa2806b6c52076c85e438c9dede968572675a",
+                    13_849_138,
+                ),
+                verified(
                     "hf",
                     "intl",
-                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/dit.int8.onnx",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/2db97430c6e315a819daa30e255e14615205a3d1/dit.int8.onnx",
                     "52ac682ed1790b196333d1dbf99fa2806b6c52076c85e438c9dede968572675a",
                     13_849_138,
                 ),
@@ -2316,40 +2389,44 @@ pub static CATALOG: &[ModelEntry] = &[
             sha256: "a0dbd4c83708f6e787ceebf1c1b0833398dbdea6af770887d27b19119bba2e16",
             sources: &[
                 verified(
+                    "modelscope",
+                    "cn",
+                    "https://modelscope.cn/models/ailm32442/meanvc2-onnx/resolve/4e04f4610343de1ceefbff3b11a83d1e65299241/vocos.int8.onnx",
+                    "a0dbd4c83708f6e787ceebf1c1b0833398dbdea6af770887d27b19119bba2e16",
+                    12_998_461,
+                ),
+                verified(
                     "hf",
                     "intl",
-                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/vocos.int8.onnx",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/2db97430c6e315a819daa30e255e14615205a3d1/vocos.int8.onnx",
                     "a0dbd4c83708f6e787ceebf1c1b0833398dbdea6af770887d27b19119bba2e16",
                     12_998_461,
                 ),
             ],
         },
-        ],
-    },
-    // 音色编码器单独成条：已有 256 维向量的用户不必下这 387 MB。
-    ModelEntry {
-        id: "meanvc2-speaker",
-        name: "MeanVC2 音色编码器（WavLM + ECAPA · int8）",
-        feature: "voice-change",
-        tag: "audio",
-        license: "CC-BY-SA-3.0",
-        family: ModelFamily::MeanVc2,
-        recommended: false,
-        bundled: false,
-        files: &[ModelFile {
+        // 音色编码器（WavLM + ECAPA）：只在「导入新音色」时加载。
+        ModelFile {
             filename: "speaker.int8.onnx",
             approx_bytes: 387_106_790,
             sha256: "ccd31b45eb2162937b94921d6e64fdd2cf5bf77193ad6f738e85f06a914a95ca",
             sources: &[
                 verified(
+                    "modelscope",
+                    "cn",
+                    "https://modelscope.cn/models/ailm32442/meanvc2-onnx/resolve/4e04f4610343de1ceefbff3b11a83d1e65299241/speaker/speaker.int8.onnx",
+                    "ccd31b45eb2162937b94921d6e64fdd2cf5bf77193ad6f738e85f06a914a95ca",
+                    387_106_790,
+                ),
+                verified(
                     "hf",
                     "intl",
-                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/main/speaker/speaker.int8.onnx",
+                    "https://huggingface.co/kiarina/MeanVC2-ONNX/resolve/2db97430c6e315a819daa30e255e14615205a3d1/speaker/speaker.int8.onnx",
                     "ccd31b45eb2162937b94921d6e64fdd2cf5bf77193ad6f738e85f06a914a95ca",
                     387_106_790,
                 ),
             ],
-        }],
+        },
+        ],
     },
 ];
 
@@ -2377,6 +2454,51 @@ fn runtime() -> &'static ModelRuntime {
     })
 }
 
+/// 一次抓取的失败：gated 授权与普通失败要分开处理。
+///
+/// `From<String>` / `From<&str>` 让既有的 `.map_err(|e| e.to_string())?` 与
+/// `return Err("…".into())` 原样可用——只有真正识别出 `GatedRepo` 时才构造 `Gated`。
+#[derive(Debug, Clone)]
+pub enum FetchError {
+    /// 仓库是 gated 的：先去网页同意许可、再带 token 重试。
+    Gated { repo: String, page_url: String },
+    Other(String),
+}
+
+impl From<String> for FetchError {
+    fn from(message: String) -> Self {
+        FetchError::Other(message)
+    }
+}
+
+impl From<&str> for FetchError {
+    fn from(message: &str) -> Self {
+        FetchError::Other(message.to_string())
+    }
+}
+
+impl std::fmt::Display for FetchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FetchError::Gated { repo, page_url } => {
+                write!(f, "{repo} 需要 Hugging Face 授权（先去 {page_url} 同意许可）")
+            }
+            FetchError::Other(message) => f.write_str(message),
+        }
+    }
+}
+
+/// 「这个模型要先去 Hugging Face 同意许可」的详情（`needs-auth` 事件 / 命令返回值）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelAuth {
+    /// 仓库全名，例如 `Lightricks/LTX-2.5`。
+    pub repo: String,
+    /// 仓库页：用户在这里点「同意并访问」。
+    pub page_url: String,
+    /// 创建 read token 的页面。
+    pub token_url: String,
+}
+
 /// 进度事件载荷。
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelProgress {
@@ -2391,6 +2513,9 @@ pub struct ModelProgress {
     pub source_kind: Option<String>,
     /// 当前源的区域：`intl` / `cn`。
     pub region: Option<String>,
+    /// 需要 Hugging Face 授权时的提示（`state == "needs-auth"` 才有）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth: Option<ModelAuth>,
 }
 
 /// 单个文件的本地状态。
@@ -2537,7 +2662,45 @@ fn file_size_ok(path: &Path, file: &ModelFile) -> bool {
 /// 同一份权重；下载时再用硬链接（失败则复制）落到当前模型目录。
 fn reusable_path(app: &AppHandle, entry: &ModelEntry, file: &ModelFile) -> Option<PathBuf> {
     let dirs = search_dirs(app);
-    reusable_path_in(all(), &dirs, entry.id, file)
+    if let Some(path) = reusable_path_in(all(), &dirs, entry.id, file) {
+        return Some(path);
+    }
+    // 升级兼容：旧版本把音色编码器单独装在 `meanvc2-speaker/`。现在它是
+    // `meanvc2-int8` 的第六个文件，直接硬链接（失败则复制）过来，别让用户重下 387 MB。
+    if file.filename == "speaker.int8.onnx" {
+        for base in dirs {
+            let path = base.join("meanvc2-speaker").join(file.filename);
+            if path.is_file() && file_size_ok(&path, file) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+/// 合并旧版独立编码器目录后清掉它。
+///
+/// 只清理数据目录里旧版本写的 `meanvc2-speaker/`；开发资源目录 / 安装包资源目录
+/// 一律不动。硬链接成功后旧目录里只剩一个目录项，不清理会在磁盘上留一份看不见的
+/// 387 MB；复制成功时源文件也已经没用了。
+fn cleanup_legacy_speaker(app: &AppHandle, source: &Path) {
+    if source.file_name().and_then(|name| name.to_str()) != Some("speaker.int8.onnx") {
+        return;
+    }
+    let Some(dir) = source.parent() else {
+        return;
+    };
+    if dir.file_name().and_then(|name| name.to_str()) != Some("meanvc2-speaker") {
+        return;
+    }
+    let Ok(models) = models_dir(app) else {
+        return;
+    };
+    let legacy = models.join("meanvc2-speaker");
+    if dir != legacy.as_path() {
+        return;
+    }
+    let _ = fs::remove_dir_all(dir);
 }
 
 fn reusable_path_in(
@@ -2691,7 +2854,10 @@ pub fn model_catalog(app: AppHandle) -> Vec<ModelStatus> {
 
 /// 开始下载某个模型。命令会一直等到下载完成（或失败 / 取消）。
 #[tauri::command]
-pub async fn model_download(app: AppHandle, id: String) -> Result<(), String> {
+pub async fn model_download(
+    app: AppHandle,
+    id: String,
+) -> Result<Option<ModelAuth>, String> {
     let entry = by_id(&id).ok_or_else(|| format!("未知模型：{id}"))?;
     if runtime().running.swap(true, Ordering::SeqCst) {
         return Err("已有模型正在下载".into());
@@ -2701,25 +2867,48 @@ pub async fn model_download(app: AppHandle, id: String) -> Result<(), String> {
     let result = run_download(&app, entry).await;
 
     runtime().running.store(false, Ordering::SeqCst);
-    match &result {
-        Ok(()) => emit(
-            &app,
-            entry,
-            "done",
-            entry.total_bytes(),
-            entry.total_bytes(),
-            None,
-        ),
-        Err(error) => emit(
-            &app,
-            entry,
-            "error",
-            0,
-            entry.total_bytes(),
-            Some(error.clone()),
-        ),
+    match result {
+        Ok(()) => {
+            emit(
+                &app,
+                entry,
+                "done",
+                entry.total_bytes(),
+                entry.total_bytes(),
+                None,
+            );
+            Ok(None)
+        }
+        // 所有源都失败、其中至少一个是 gated：这不是「下载失败」，而是「要先去授权」。
+        // 界面弹授权窗，拿到 token 后重新调一次下载即可。
+        Err(FetchError::Gated { repo, page_url }) => {
+            let auth = ModelAuth {
+                repo,
+                page_url,
+                token_url: "https://huggingface.co/settings/tokens/new?tokenType=read".to_string(),
+            };
+            emit_auth(
+                &app,
+                entry,
+                entry.total_bytes(),
+                entry.total_bytes(),
+                auth.clone(),
+                None,
+            );
+            Ok(Some(auth))
+        }
+        Err(FetchError::Other(message)) => {
+            emit(
+                &app,
+                entry,
+                "error",
+                0,
+                entry.total_bytes(),
+                Some(message.clone()),
+            );
+            Err(message)
+        }
     }
-    result
 }
 
 /// 单个官方源的连通性探测结果。
@@ -2855,12 +3044,18 @@ fn apply_prefix(prefix: &str, url: &str) -> String {
 
 /// 魔搭的另一种官方下载入口（SDK 使用的 `repo?FilePath=` 接口）。
 ///
-/// `resolve/master/...` 对部分 CDN / 网络更友好；两条都作为候选，失败自动换下一条。
+/// `resolve/<revision>/...` 对部分 CDN / 网络更友好；两条都作为候选，失败自动换下一条。
+/// revision 原样透传（清单里是钉死的 commit），**不能**退回 `master`：那会把「永不变化的
+/// 字节」换回浮动分支，白钉一场。
 fn modelscope_api_url(url: &str) -> Option<String> {
     let rest = url.strip_prefix("https://modelscope.cn/models/")?;
-    let (repo, file) = rest.split_once("/resolve/master/")?;
+    let (repo, tail) = rest.split_once("/resolve/")?;
+    let (revision, file) = tail.split_once('/')?;
+    if repo.is_empty() || revision.is_empty() || file.is_empty() {
+        return None;
+    }
     Some(format!(
-        "https://www.modelscope.cn/api/v1/models/{repo}/repo?Revision=master&FilePath={file}"
+        "https://www.modelscope.cn/api/v1/models/{repo}/repo?Revision={revision}&FilePath={file}"
     ))
 }
 
@@ -2986,13 +3181,13 @@ async fn resolve_region(
     }
 }
 
-async fn run_download(app: &AppHandle, entry: &ModelEntry) -> Result<(), String> {
-    let dir = entry_dir(app, entry)?;
+async fn run_download(app: &AppHandle, entry: &ModelEntry) -> Result<(), FetchError> {
+    let dir = entry_dir(app, entry).map_err(FetchError::Other)?;
     let runtime_state = app.state::<std::sync::Arc<NetworkRuntime>>();
     let network = runtime_state.get();
     let client = runtime_state
         .client()
-        .map_err(|error| format!("创建下载客户端失败：{error}"))?;
+        .map_err(|error| FetchError::Other(format!("创建下载客户端失败：{error}")))?;
     let region = resolve_region(&client, entry, &network).await;
     let total = entry.total_bytes();
     let cancel = &runtime().cancel;
@@ -3020,13 +3215,14 @@ async fn run_download(app: &AppHandle, entry: &ModelEntry) -> Result<(), String>
         if let Some(source) = reusable_path(app, entry, file) {
             // 复制回退可能是几十 GB 的同步 IO，放到 blocking 池里，别卡住下载事件循环。
             let source_for_link = source.clone();
+            let source_for_cleanup = source;
             let target_for_link = final_path.clone();
             let linked = tauri::async_runtime::spawn_blocking(move || {
                 link_or_copy(&source_for_link, &target_for_link)
             })
             .await;
             if cancel.load(Ordering::Relaxed) {
-                return Err("已取消".into());
+                return Err(FetchError::Other("已取消".into()));
             }
             let reused = match linked {
                 Ok(Ok(())) => Ok(()),
@@ -3035,6 +3231,7 @@ async fn run_download(app: &AppHandle, entry: &ModelEntry) -> Result<(), String>
             };
             match reused {
                 Ok(()) => {
+                    cleanup_legacy_speaker(app, &source_for_cleanup);
                     let _ = fs::remove_file(&part_path);
                     base += file.approx_bytes;
                     emit(
@@ -3056,7 +3253,10 @@ async fn run_download(app: &AppHandle, entry: &ModelEntry) -> Result<(), String>
 
         let candidates = candidates_for(file, &network, region);
         if candidates.is_empty() {
-            return Err(format!("{} 没有可用的下载源", file.filename));
+            return Err(FetchError::Other(format!(
+                "{} 没有可用的下载源",
+                file.filename
+            )));
         }
 
         let base_for_progress = base;
@@ -3065,6 +3265,7 @@ async fn run_download(app: &AppHandle, entry: &ModelEntry) -> Result<(), String>
             &dir,
             file,
             &candidates,
+            Some(network.hf_token.as_str()),
             cancel,
             |received, candidate| {
                 emit_source(
@@ -3099,20 +3300,22 @@ async fn download_file<F>(
     dir: &Path,
     file: &ModelFile,
     candidates: &[Candidate],
+    hf_token: Option<&str>,
     cancel: &AtomicBool,
     mut on_progress: F,
-) -> Result<(), String>
+) -> Result<(), FetchError>
 where
     F: FnMut(u64, &Candidate),
 {
     let final_path = dir.join(file.filename);
     let part_path = dir.join(format!("{}.part", file.filename));
     let mut errors: Vec<String> = Vec::new();
+    let mut gated: Option<FetchError> = None;
 
     for candidate in candidates {
         for attempt in 1..=DOWNLOAD_ATTEMPTS {
             if cancel.load(Ordering::Relaxed) {
-                return Err("已取消".into());
+                return Err(FetchError::Other("已取消".into()));
             }
 
             match download_once(
@@ -3120,6 +3323,7 @@ where
                 &final_path,
                 &part_path,
                 candidate,
+                hf_token,
                 cancel,
                 &mut on_progress,
             )
@@ -3127,14 +3331,22 @@ where
             {
                 Ok(()) => return Ok(()),
                 Err(error) => {
-                    let cancelled = error == "已取消";
+                    // gated 不是「这个地址坏了」：换源也可能好（例如魔搭那份），
+                    // 所以记下来、继续试下一个源，全部失败后再把授权信息抛上去。
+                    if matches!(error, FetchError::Gated { .. }) {
+                        errors.push(format!("{} → 需要 Hugging Face 授权", candidate.url));
+                        gated = Some(error);
+                        break;
+                    }
+                    let message = error.to_string();
+                    let cancelled = message == "已取消";
                     // 内容对不上说明这个源/断点不可用，换下一个源；传输错误则重试同一源。
-                    let content_error = error.contains("sha256") || error.contains("大小不符");
+                    let content_error = message.contains("sha256") || message.contains("大小不符");
                     if !errors.iter().any(|line| line.starts_with(&candidate.url)) {
-                        errors.push(format!("{} → {}", candidate.url, error));
+                        errors.push(format!("{} → {message}", candidate.url));
                     }
                     if cancelled {
-                        return Err(error);
+                        return Err(FetchError::Other(message));
                     }
                     if content_error {
                         let _ = fs::remove_file(&part_path);
@@ -3148,11 +3360,14 @@ where
         }
     }
 
-    Err(if errors.is_empty() {
+    if let Some(error) = gated {
+        return Err(error);
+    }
+    Err(FetchError::Other(if errors.is_empty() {
         "没有可用的下载源".into()
     } else {
         format!("所有下载源都失败了：\n{}", errors.join("\n"))
-    })
+    }))
 }
 
 async fn download_once<F>(
@@ -3160,9 +3375,10 @@ async fn download_once<F>(
     final_path: &Path,
     part_path: &Path,
     candidate: &Candidate,
+    hf_token: Option<&str>,
     cancel: &AtomicBool,
     on_progress: &mut F,
-) -> Result<(), String>
+) -> Result<(), FetchError>
 where
     F: FnMut(u64, &Candidate),
 {
@@ -3183,6 +3399,12 @@ where
     let mut request = client
         .get(&candidate.url)
         .timeout(Duration::from_secs(60 * 60));
+    // 凭据只交给 huggingface.co 官方域：镜像 / 前缀是用户自己填的第三方地址。
+    if let Some(token) = hf_token.filter(|t| !t.trim().is_empty()) {
+        if crate::network::hf_request_host(&candidate.url) {
+            request = request.bearer_auth(token.trim());
+        }
+    }
     if existing > 0 {
         request = request.header(reqwest::header::RANGE, format!("bytes={existing}-"));
     }
@@ -3199,7 +3421,22 @@ where
         return Err("断点文件无效".into());
     }
     if !status.is_success() && status != reqwest::StatusCode::PARTIAL_CONTENT {
-        return Err(format!("HTTP {status}"));
+        // 403 + X-Error-Code: GatedRepo = 仓库要先去网页上同意许可。这不是「地址坏了」：
+        // 拿到 token 后同一个地址就能下。
+        let error_code = response
+            .headers()
+            .get("x-error-code")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.to_string());
+        if crate::network::is_gated(status.as_u16(), error_code.as_deref()) {
+            let repo = crate::network::hf_repo_of(&candidate.url)
+                .unwrap_or_else(|| "huggingface 仓库".to_string());
+            return Err(FetchError::Gated {
+                page_url: format!("https://huggingface.co/{repo}"),
+                repo,
+            });
+        }
+        return Err(FetchError::Other(format!("HTTP {status}")));
     }
 
     let mut output = if append {
@@ -3239,19 +3476,16 @@ where
     drop(output);
 
     if let Some(error) = failure {
-        if error == "已取消" {
-            return Err(error);
-        }
-        return Err(error);
+        return Err(FetchError::Other(error));
     }
 
     let size = fs::metadata(part_path).map(|meta| meta.len()).unwrap_or(0);
     if candidate.size > 0 && size != candidate.size {
         let _ = fs::remove_file(part_path);
-        return Err(format!(
+        return Err(FetchError::Other(format!(
             "大小不符（期望 {}，实际 {}）",
             candidate.size, size
-        ));
+        )));
     }
     if !candidate.sha256.is_empty() {
         let part = part_path.to_path_buf();
@@ -3333,6 +3567,32 @@ fn emit_source(
             source,
             source_kind,
             region,
+            auth: None,
+        },
+    );
+}
+
+/// 同 [`emit`]，额外带「需要 HF 授权」的详情。
+fn emit_auth(
+    app: &AppHandle,
+    entry: &ModelEntry,
+    received: u64,
+    total: u64,
+    auth: ModelAuth,
+    source: Option<String>,
+) {
+    let _ = app.emit(
+        EVENT_MODEL,
+        ModelProgress {
+            id: entry.id.to_string(),
+            state: "needs-auth".to_string(),
+            received,
+            total,
+            message: Some(format!("{} 需要先在 Hugging Face 同意许可", auth.repo)),
+            source,
+            source_kind: None,
+            region: None,
+            auth: Some(auth),
         },
     );
 }
@@ -3392,6 +3652,84 @@ mod tests {
                 assert!(!file.sources.is_empty(), "{} 没有下载源", entry.id);
             }
         }
+    }
+
+    /// **下载源的 revision 必须是 commit sha，不能是浮动分支**。
+    ///
+    /// `resolve/master/<file>` 的内容随上游每次 push 变化，而清单里的 sha256 是硬门禁：
+    /// 上游换一版权重，用户的下载就会卡在「100% 处报校验失败」，换源也救不了（两边一起变）。
+    /// 钉到 commit 之后，同一个 URL 永远返回同一份字节。
+    ///
+    /// 改清单后如果这条挂了，跑 `node tools/pin-models.mjs --write` 重新钉。
+    #[test]
+    fn every_source_is_pinned_to_a_commit() {
+        fn revision_of(url: &str) -> Option<&str> {
+            let (_, tail) = url.split_once("/resolve/")?;
+            tail.split('/').next()
+        }
+        let mut offenders = Vec::new();
+        for entry in all() {
+            for file in entry.files {
+                for source in file.sources {
+                    let Some(rev) = revision_of(source.url) else {
+                        continue; // GitHub Release 直链（tag 不可变）不归这条管
+                    };
+                    let pinned = rev.len() == 40
+                        && rev.chars().all(|c| c.is_ascii_hexdigit() && !c.is_uppercase());
+                    if !pinned {
+                        offenders.push(format!("{} / {} → {rev}", entry.id, file.filename));
+                    }
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "这些源还跟着浮动 revision（跑 tools/pin-models.mjs --write）：\n{}",
+            offenders.join("\n")
+        );
+    }
+
+    /// 每个文件都必须能校验到字节：要么文件级 sha256，要么**每个**源各自声明。
+    ///
+    /// 「只校验体积」是个静默漏洞：上游换了字节也照样装进去。这里把它堵死。
+    #[test]
+    fn every_file_can_be_verified_by_sha256() {
+        for entry in all() {
+            for file in entry.files {
+                if !file.sha256.is_empty() {
+                    continue;
+                }
+                for source in file.sources {
+                    assert!(
+                        source.sha256.is_some(),
+                        "{} / {} 的 {} 源既没有文件级 sha256、也没有源级 sha256（只校验体积）",
+                        entry.id,
+                        file.filename,
+                        source.kind
+                    );
+                }
+            }
+        }
+    }
+
+    /// 同一个文件的各源默认要求**逐字节一致**；真不一致的源用 `verified` 单独声明，
+    /// 下载器校验的就是它自己那份 sha256 / 体积。
+    #[test]
+    fn per_source_bytes_override_the_file_level_ones() {
+        const SOURCES: &[ModelSource] = &[official("hf", "intl", "https://hf/x")];
+        let file = ModelFile {
+            filename: "weights.onnx",
+            approx_bytes: 100,
+            sha256: "aa",
+            sources: SOURCES,
+        };
+        let generic = official("hf", "intl", "https://hf/x");
+        assert_eq!(generic.sha256.unwrap_or(file.sha256), "aa");
+        assert_eq!(generic.size.unwrap_or(file.approx_bytes), 100);
+
+        let own = verified("modelscope", "cn", "https://ms/x", "bb", 200);
+        assert_eq!(own.sha256.unwrap_or(file.sha256), "bb");
+        assert_eq!(own.size.unwrap_or(file.approx_bytes), 200);
     }
 
     #[test]
@@ -3834,12 +4172,8 @@ mod tests {
     #[test]
     fn every_downloadable_model_has_a_modelscope_source() {
         // 随包小模型（如 LocalVQE）已经躺在磁盘上，下载源只作兜底，不强制双源。
-        // `voice-change` 的 ONNX 由上游社区导出、魔搭尚无人镜像，等自建镜像上传后
-        // 在 `models.rs` 里补 `modelscope` 源，并把这条豁免删掉。
-        for entry in all()
-            .iter()
-            .filter(|entry| !entry.bundled && entry.feature != "voice-change")
-        {
+        // 变声包已镜像到 ailm32442/meanvc2-onnx，不再享受豁免。
+        for entry in all().iter().filter(|entry| !entry.bundled) {
             for file in entry.files {
                 assert!(
                     file.sources
@@ -3858,6 +4192,29 @@ mod tests {
         for id in ["paraformer-zh-small-int8", "paraformer-trilingual-int8"] {
             let entry = by_id(id).unwrap();
             assert_eq!(entry.regions(), vec!["cn".to_string(), "intl".to_string()]);
+        }
+    }
+
+    #[test]
+    fn voice_package_has_both_regions() {
+        let entry = by_id("meanvc2-int8").unwrap();
+        assert_eq!(entry.regions(), vec!["cn".to_string(), "intl".to_string()]);
+        for file in entry.files {
+            // 每个文件（五张转换图 + 音色编码器）都要有国内 / 国外两个源。
+            assert!(
+                file.sources
+                    .iter()
+                    .any(|source| source.kind == "modelscope" && source.region == "cn"),
+                "{} 缺少魔搭源",
+                file.filename
+            );
+            assert!(
+                file.sources
+                    .iter()
+                    .any(|source| source.kind == "hf" && source.region == "intl"),
+                "{} 缺少 HF 源",
+                file.filename
+            );
         }
     }
 
@@ -3882,8 +4239,9 @@ mod tests {
             .all(|candidate| !candidate.url.starts_with("https://mirror.example/")));
     }
 
+    /// API 入口必须**原样透传**清单里钉死的 revision；退回 `master` 就等于没钉。
     #[test]
-    fn modelscope_candidates_include_the_api_endpoint() {
+    fn modelscope_api_endpoint_keeps_the_pinned_revision() {
         let entry = by_id("whisper-base-int8").unwrap();
         let candidates = candidates_for(
             file_of(entry),
@@ -3900,10 +4258,10 @@ mod tests {
     fn modelscope_api_url_is_built_only_for_modelscope_resolve_urls() {
         assert_eq!(
             modelscope_api_url(
-                "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-base/resolve/master/base-encoder.int8.onnx"
+                "https://modelscope.cn/models/pengzhendong/sherpa-onnx-whisper-base/resolve/71ac65b58bb313dcffb52d91b30561b9f50f37c3/base-encoder.int8.onnx"
             )
             .unwrap(),
-            "https://www.modelscope.cn/api/v1/models/pengzhendong/sherpa-onnx-whisper-base/repo?Revision=master&FilePath=base-encoder.int8.onnx"
+            "https://www.modelscope.cn/api/v1/models/pengzhendong/sherpa-onnx-whisper-base/repo?Revision=71ac65b58bb313dcffb52d91b30561b9f50f37c3&FilePath=base-encoder.int8.onnx"
         );
         assert!(modelscope_api_url("https://huggingface.co/x/y.onnx").is_none());
     }
@@ -3972,14 +4330,19 @@ mod tests {
 
     #[test]
     fn meanvc2_entries_are_download_only() {
-        let convert = by_id("meanvc2-int8").expect("转换图条目");
-        assert_eq!(convert.feature, "voice-change");
-        assert!(!convert.bundled);
-        assert!(!convert.bundle_eligible(), "74 MB 必须走按需下载");
-        assert_eq!(convert.files.len(), 5);
-        assert!(convert.files.iter().all(|file| !file.sha256.is_empty()));
-        let speaker = by_id("meanvc2-speaker").expect("音色编码器条目");
-        assert!(speaker.family == ModelFamily::MeanVc2);
-        assert!(speaker.total_bytes() > 10 * 1024 * 1024);
+        let voice = by_id("meanvc2-int8").expect("变声条目");
+        assert_eq!(voice.feature, "voice-change");
+        assert!(!voice.bundled);
+        assert!(!voice.bundle_eligible(), "461 MB 必须走按需下载");
+        assert_eq!(voice.files.len(), 6);
+        // 音色编码器是同一个包的一部分：新用户没有它就导入不了音色。
+        assert!(voice
+            .files
+            .iter()
+            .any(|file| file.filename == "speaker.int8.onnx"));
+        assert!(voice.files.iter().all(|file| !file.sha256.is_empty()));
+        assert!(voice.total_bytes() > 387 * 1024 * 1024);
+        // 旧版本把它单独成条；现在合并回基础模型，模型列表里不再有第二个选项。
+        assert!(by_id("meanvc2-speaker").is_none());
     }
 }

@@ -4,6 +4,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AsrProgress,
   AsrTranscription,
+  HfTokenStatus,
+  ModelAuth,
   ModelProgress,
   ModelSourceConfig,
   ModelSourcePreference,
@@ -23,9 +25,27 @@ export function modelCatalog(): Promise<ModelStatus[]> {
   return invoke<ModelStatus[]>("model_catalog");
 }
 
-export function modelDownload(id: string): Promise<void> {
+/**
+ * 开始下载某个模型；命令一直等到下完 / 失败。
+ *
+ * 返回值非空 = 目标模型是 gated 仓库，需要用户先去 HF 同意许可并给一个 read token；
+ * 拿到 token 后重新调一次即可。
+ */
+export function modelDownload(id: string): Promise<ModelAuth | null> {
   if (!isTauri()) return Promise.reject(new Error("模型下载需要在桌面应用中使用"));
-  return invoke<void>("model_download", { id });
+  return invoke<ModelAuth | null>("model_download", { id });
+}
+
+/** 保存 / 清除 Hugging Face read token（传空串 = 清除）。 */
+export function modelSaveHfToken(token: string): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
+  return invoke<void>("model_save_hf_token", { token });
+}
+
+/** 当前是否配了 HF token（只回状态与掩码，不回 token 本身）。 */
+export function modelHfTokenStatus(): Promise<HfTokenStatus> {
+  if (!isTauri()) return Promise.resolve({ set: false, hint: "" });
+  return invoke<HfTokenStatus>("model_hf_token_status");
 }
 
 export function modelProbe(id: string): Promise<SourceProbe[]> {

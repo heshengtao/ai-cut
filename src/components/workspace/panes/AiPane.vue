@@ -51,6 +51,7 @@ import { useAiLaunchStore, type AiLaunchRequest } from "@/stores/aiLaunch";
 import { useCutReviewStore } from "@/stores/cutReview";
 import { useModelsStore } from "@/stores/models";
 import { useVideoAiStore } from "@/stores/videoAi";
+import { useVoiceChangeStore } from "@/stores/voiceChange";
 import { useSdcppStore } from "@/stores/sdcpp";
 import { useTtsStore } from "@/stores/tts";
 import { useLayoutStore } from "@/stores/layout";
@@ -59,8 +60,7 @@ import { useSelectionStore } from "@/stores/selection";
 import { useI18n } from "@/i18n";
 import { useModelChoice } from "@/composables/useModelChoice";
 import { useImageModelSource } from "@/composables/useImageModelSource";
-import { useEngineSetup, useRuntimeSetup } from "@/composables/useAiSetup";
-import { useAiClipActions } from "@/composables/useAiClipActions";
+import { useEngineSetup, useRuntimeSetup, useVoiceSetup } from "@/composables/useAiSetup";
 import { useModelChoiceStore } from "@/stores/modelChoice";
 import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
 import type { CloudGenPreset, CloudGenProvider } from "@/types/cloudGen";
@@ -94,9 +94,9 @@ const asr = useAsrStore();
 const tts = useTtsStore();
 const audioAi = useAudioAiStore();
 const videoAi = useVideoAiStore();
+const voiceChange = useVoiceChangeStore();
 const sdcpp = useSdcppStore();
 const device = useDeviceStore();
-const clipActions = useAiClipActions();
 
 /** 侧栏整页：AI 视频生成 / AI 画图 / 图像编辑 / 变声（四个独立页面）。 */
 const aiPage = ref<null | "video" | "image" | "image-edit" | "voice">(null);
@@ -966,7 +966,7 @@ async function generateVoiceover(): Promise<void> {
   }
 }
 
-// ---- 音频 AI：降噪 / 分离 / 翻译 ----
+// ---- 音频 AI：变声 / 降噪 / 分离 / 翻译 ----
 
 /** 音频处理只作用于明确选中的片段，避免误改时间线上的第一段。 */
 const selectedAudio = computed<{ clip: Clip; asset: MediaAsset } | null>(() => {
@@ -1927,20 +1927,42 @@ function openImageEdit(): void {
   });
 }
 
-// ---- AI 变声：模型就绪情况 + 直接打开变声页（片段由右键菜单带过来） ----
+// ---- AI 变声：缺运行时 / 缺模型先弹「准备」向导，装完自动进变声页 ----
+const voiceSetup = useVoiceSetup(() => voiceChange.modelId);
+const voiceSetupOpen = voiceSetup.open;
+const voiceSetupPlan = voiceSetup.plan;
+const voiceSetupForced = voiceSetup.forced;
+
+/** 当前生效的 ONNX 后端是否齐了（CPU 随包内置，CUDA 要看本体 + 组件）。 */
+const voiceRuntimeReady = computed(() => {
+  const info = device.info;
+  if (!info) return true;
+  const option = info.options.find((item) => item.kind === info.preference);
+  // 平台不支持的后端会回落到 CPU，不算缺引擎。
+  return !option || !option.available || (option.runtime_installed && option.missing.length === 0);
+});
 const voiceModel = computed(() => models.byId("meanvc2-int8"));
-const voiceReady = computed(() => voiceModel.value?.installed === true);
-const voiceNote = computed(() =>
-  voiceReady.value
+const voiceReady = computed(
+  () => voiceRuntimeReady.value && voiceModel.value?.installed === true,
+);
+const voiceNote = computed(() => {
+  if (!voiceRuntimeReady.value) return i18n.t("ai.voiceNeedRuntime");
+  return voiceReady.value
     ? i18n.t("aiVideo.modelReady", { size: humanSize(voiceModel.value?.approx_bytes ?? 0) })
     : i18n.t("aiVideo.modelNeedsDownload", {
         size: humanSize(voiceModel.value ? missingBytes(voiceModel.value) : 0),
-      }),
-);
+      });
+});
 
-/** 卡片入口：与右键菜单走同一条「先确认模型，再进页面」的路径。 */
-function openVoice(): void {
-  void clipActions.openVoiceChange([]);
+/** 卡片入口：与视频 / 画图一样，缺什么先弹向导，装完再进子页。 */
+async function openVoice(): Promise<void> {
+  if (await voiceSetup.ensure()) {
+    aiPage.value = "voice";
+    return;
+  }
+  voiceSetup.setDone(() => {
+    aiPage.value = "voice";
+  });
 }
 
 /**
@@ -1953,7 +1975,7 @@ function handleLaunch(request: AiLaunchRequest): void {
   layout.openTab("ai");
   if (request.page === "video") openVideoGen();
   else if (request.page === "image-edit") openImageEdit();
-  else if (request.page === "voice") aiPage.value = "voice";
+  else if (request.page === "voice") void openVoice();
   else openImageGen();
 }
 
@@ -2675,12 +2697,11 @@ onMounted(() => {
       </li>
     </ul>
 
-    <!-- 音频 AI：降噪 / 提取 / 翻译 -->
+    <!-- 音频 AI：变声 / 降噪 / 提取 / 翻译 -->
     <div v-if="activeTag === 'all'" class="section-label">
       {{ i18n.t("ai.audioFeatures") }}
     </div>
     <ul v-if="activeTag === 'all' || activeTag === 'audio'" class="list">
-      <li class="item">
       <li class="item">
         <div class="item-row">
           <div class="item-main">
@@ -2696,6 +2717,7 @@ onMounted(() => {
         </div>
       </li>
 
+      <li class="item">
         <div class="item-row">
           <div class="item-main">
             <span class="item-name">
@@ -2958,6 +2980,17 @@ onMounted(() => {
       @background="runtimeSetup.confirmBackground()"
       @cancel-download="runtimeSetup.cancelDownload()"
       @choose="runtimeSetup.choose"
+    />
+    <AiSetupDialog
+      :open="voiceSetupOpen"
+      :plan="voiceSetupPlan"
+      :dismissible="!voiceSetupForced"
+      @update:open="(value: boolean) => (value ? undefined : voiceSetup.cancel())"
+      @cancel="voiceSetup.cancel()"
+      @confirm="voiceSetup.confirm()"
+      @background="voiceSetup.confirmBackground()"
+      @cancel-download="voiceSetup.cancelDownload()"
+      @choose="voiceSetup.choose"
     />
   </div>
 </template>

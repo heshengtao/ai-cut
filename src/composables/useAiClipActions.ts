@@ -5,7 +5,6 @@
  * 缺模型时不静默失败，而是给一条带「打开模型下载」按钮的提示。
  */
 import {
-  convertVoice,
   cutFillerWords,
   denoise,
   interpolate,
@@ -31,7 +30,6 @@ import { usePlaybackStore } from "@/stores/playback";
 import { useTtsStore } from "@/stores/tts";
 import { useVideoAiStore } from "@/stores/videoAi";
 import { useVideoDspStore } from "@/stores/videoDsp";
-import { useVoiceChangeStore } from "@/stores/voiceChange";
 import type { AudioDspPreset, ModelFeature } from "@/types/models";
 import type { VideoAiSubject, VideoDspOptions } from "@/types/video";
 import { toast } from "@/composables/useToast";
@@ -55,7 +53,6 @@ export function useAiClipActions() {
   const audioAi = useAudioAiStore();
   const videoAi = useVideoAiStore();
   const videoDsp = useVideoDspStore();
-  const voiceChange = useVoiceChangeStore();
   const tasks = useAiTasksStore();
   const launch = useAiLaunchStore();
 
@@ -241,36 +238,13 @@ export function useAiClipActions() {
     );
   }
 
-  /** 变声必须先有转换图；缺失时走统一的模型下载提示，不进入页面。 */
-  async function ensureVoiceModel(): Promise<boolean> {
-    await loadCatalog();
-    if (models.byId("meanvc2-int8")?.installed) return true;
-    modelToast(t("ai.voiceChange"), undefined, "meanvc2-int8");
-    return false;
-  }
-
-  async function changeVoice(clipIds: string[]): Promise<void> {
-    if (clipIds.length === 0) return;
-    if (!(await ensureVoiceModel())) return;
-    if (!voiceChange.voiceId) {
-      await openVoiceChange(clipIds);
-      toast(t("ai.voiceNoVoice"));
-      return;
-    }
-    run(
-      t("ai.voiceChange"),
-      () =>
-        convertVoice(
-          { clipIds, voiceId: voiceChange.voiceId!, modelId: voiceChange.modelId },
-          MENU_JOB,
-        ),
-      () => void voiceChange.cancel(),
-    );
-  }
-
-  /** 右键入口：模型就绪后打开变声页，并带上选中的片段。 */
-  async function openVoiceChange(clipIds: string[], importClipId?: string): Promise<void> {
-    if (!(await ensureVoiceModel())) return;
+  /**
+   * 右键入口：把片段交给 AI 面板，由面板统一弹「准备」向导（运行时 + 模型）。
+   *
+   * 以前这里自己查一遍模型、缺了就弹 toast——和卡片 / 生成页的弹窗流程不一致，
+   * 用户点「AI 变声」只会看到一条飘过去的提示。
+   */
+  function openVoiceChange(clipIds: string[], importClipId?: string): void {
     launch.open("voice", {
       ...(clipIds.length > 0 ? { clipIds } : {}),
       ...(importClipId ? { voiceImportClipId: importClipId } : {}),
@@ -384,7 +358,6 @@ export function useAiClipActions() {
     interpolateClip,
     reframeClip,
     processVideoClip,
-    changeVoice,
     openVoiceChange,
     openVideoGeneration,
     openImageGeneration,

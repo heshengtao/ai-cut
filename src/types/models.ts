@@ -101,9 +101,26 @@ export interface ModelStatus {
   files: ModelFileStatus[];
 }
 
+/** 「这个模型要先去 Hugging Face 同意许可」的详情（与后端 `models::ModelAuth` 对应）。 */
+export interface ModelAuth {
+  /** 仓库全名，例如 `Lightricks/LTX-2.5`。 */
+  repo: string;
+  /** 仓库页：用户在这里点「同意并访问」。 */
+  page_url: string;
+  /** 创建 read token 的页面。 */
+  token_url: string;
+}
+
+/** Hugging Face token 的配置状态（后端不回传 token 本身）。 */
+export interface HfTokenStatus {
+  set: boolean;
+  /** 掩码提示，例如 `hf_…3f9a`。 */
+  hint: string;
+}
+
 export interface ModelProgress {
   id: string;
-  state: "downloading" | "done" | "error";
+  state: "downloading" | "done" | "error" | "needs-auth";
   received: number;
   total: number;
   message: string | null;
@@ -112,6 +129,8 @@ export interface ModelProgress {
   /** `hf` / `modelscope` / `github` / `mirror`。 */
   source_kind: string | null;
   region: ModelRegion | null;
+  /** `needs-auth` 时的授权详情。 */
+  auth?: ModelAuth | null;
 }
 
 export interface SourceProbe {

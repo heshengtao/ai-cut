@@ -8,11 +8,13 @@ import {
   modelProbe,
   modelRemove,
   modelReveal,
+  modelSaveHfToken,
   modelSetSourceConfig,
   modelSourceConfig,
   onModelProgress,
 } from "@/core/modelApi";
 import type {
+  ModelAuth,
   ModelProgress,
   ModelSourcePreference,
   ModelStatus,
@@ -32,6 +34,8 @@ export const useModelsStore = defineStore("models", () => {
   const mirrors = ref<string[]>([]);
   /** GitHub 下载代理前缀（留空 = 直连）。 */
   const downloadPrefix = ref("");
+  /** 等待用户授权的请求（非空时界面弹授权窗）。 */
+  const pendingAuth = ref<{ id: string; auth: ModelAuth } | null>(null);
   /** 「测试源」结果（按模型 id）。 */
   const probes = ref<Record<string, SourceProbe[]>>({});
   const probingId = ref<string | null>(null);
@@ -140,7 +144,12 @@ export const useModelsStore = defineStore("models", () => {
       region: null,
     };
     try {
-      await modelDownload(id);
+      const auth = await modelDownload(id);
+      if (auth) {
+        // gated 仓库：不是失败，是「要先去网页同意 + 给个 token」。
+        pendingAuth.value = { id, auth };
+        return;
+      }
       await load();
     } catch (err) {
       if (!cancelled(err)) error.value = String(err);
@@ -149,6 +158,24 @@ export const useModelsStore = defineStore("models", () => {
       if (busyId.value === id) busyId.value = null;
       progress.value = null;
     }
+  }
+
+  /** 关掉授权弹窗（用户不理它）。 */
+  function dismissAuth(): void {
+    pendingAuth.value = null;
+  }
+
+  /**
+   * 保存 HF token 并**重试**刚才被挡下的那次下载。
+   *
+   * 授权弹窗拿到 token 后走这条路：写设置 → 清掉待办 → 重新调 `download()`。
+   */
+  async function authorizeAndRetry(token: string): Promise<void> {
+    await modelSaveHfToken(token);
+    const target = pendingAuth.value;
+    pendingAuth.value = null;
+    if (!target) return;
+    await download(target.id);
   }
 
   async function cancel(): Promise<void> {
@@ -219,6 +246,9 @@ export const useModelsStore = defineStore("models", () => {
   }
 
   return {
+    pendingAuth,
+    dismissAuth,
+    authorizeAndRetry,
     catalog,
     loading,
     error,

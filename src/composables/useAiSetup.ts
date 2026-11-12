@@ -17,6 +17,7 @@ import { useI18n } from "@/i18n";
 import { useDeviceStore } from "@/stores/device";
 import { useDownloadsStore, type DownloadTask } from "@/stores/downloads";
 import { useLayoutStore, type PaneId } from "@/stores/layout";
+import { useModelsStore } from "@/stores/models";
 import { useRuntimesStore } from "@/stores/runtimes";
 import { useSdcppStore } from "@/stores/sdcpp";
 import { aiSetBackend } from "@/core/agentApi";
@@ -529,5 +530,143 @@ export function useRuntimeSetup() {
     retry: session.retry,
     choose,
     defaultKind,
+  };
+}
+
+/**
+ * **AI 变声**：当前 ONNX Runtime 后端 + MeanVC2 完整模型包。
+ *
+ * 模型包包含五张转换图和音色编码器：没有编码器就导入不了音色，新用户也就无法变声，
+ * 所以它们是一个下载项，不再拆成「基础模型 / 可选编码器」两条。
+ *
+ * 与视频 / 画图不同，这里没有独立的引擎进程：ONNX Runtime 是进程内加载的，
+ * 缺本体 / CUDA 组件时要和 `useRuntimeSetup` 一样在装完后提示重启。
+ *
+ * 只检查**当前生效的后端**，不硬推推荐档：CPU 是随包内置的，机器再强也不该为了
+ * 一次变声先下几 GB CUDA。用户可以在弹窗里主动换成别的后端。
+ */
+export function useVoiceSetup(modelId: () => string = () => "meanvc2-int8") {
+  const i18n = useI18n();
+  const device = useDeviceStore();
+  const runtimes = useRuntimesStore();
+  const models = useModelsStore();
+  const pending = ref<string | null>(null);
+  /** 这次计划里有没有运行时 / 组件（决定装完要不要重启、要不要切后端）。 */
+  let runtimePending = false;
+
+  function optionOf(kind: string) {
+    return device.info?.options.find((option) => option.kind === kind) ?? null;
+  }
+
+  function defaultKind(): string {
+    const info = device.info;
+    if (!info) return "cpu";
+    const preferred = info.options.find((option) => option.kind === info.preference);
+    return preferred?.available ? preferred.kind : info.recommended;
+  }
+
+  function build(override?: string): SetupPlan | null {
+    const kind = override ?? pending.value ?? defaultKind();
+    const option = optionOf(kind);
+    const model = models.byId(modelId());
+    const deps: SetupDep[] = [];
+    if (option?.available) {
+      deps.push(...runtimeDeps(option, runtimes.items, (key) => i18n.t(key)));
+    }
+    if (model && !model.installed) deps.push(modelDep(model));
+    if (deps.length === 0) {
+      runtimePending = false;
+      return null;
+    }
+
+    runtimePending = deps.some((dep) => dep.kind !== "model");
+    const reason = reasonFor(i18n, device.device, kind);
+    return {
+      title: i18n.t("setup.title.voice"),
+      // 只有模型缺失时不要写「这台机器适合用 CUDA」——用户会以为还要下引擎。
+      lead:
+        option && runtimePending
+          ? i18n.t("setup.lead", { backend: option.label, reason })
+          : i18n.t("setup.leadModel"),
+      deps,
+      totalBytes: totalBytes(deps),
+      // 纯模型计划不展示后端：用户点的是「补权重」，不该顺带被推荐换运行时。
+      backend:
+        runtimePending && option?.available
+          ? {
+              kind,
+              label: option.label,
+              reason,
+              recommended: device.info?.recommended === kind,
+              choices: (device.info?.options ?? [])
+                .filter((item) => item.available)
+                .map((item) => ({ kind: item.kind, label: item.label })),
+            }
+          : null,
+      restartAfter: runtimePending,
+    };
+  }
+
+  const session = useSetupSession({
+    feature: "voice",
+    build: () => build(),
+    applyBackend: async () => {
+      // 纯模型下载不用碰后端；只有补运行时 / 组件时才需要重新读一次状态。
+      if (!runtimePending) return false;
+      const kind = pending.value ?? defaultKind();
+      const info = await aiSetBackend(kind as BackendPreference);
+      device.info = info;
+      return info.restart_required;
+    },
+  });
+
+  /**
+   * 缺什么补什么；返回 `true` = 已经能跑。
+   *
+   * 与其它 setup 不同，这里是**异步**的：变声的「引擎」是 ONNX Runtime，
+   * 它的就绪信息要和模型清单一起读回来，否则第一次打开会把缺引擎误判成就绪。
+   */
+  async function ensure(): Promise<boolean> {
+    if (models.catalog.length === 0) await models.load();
+    // `device.load()` 会合并并发请求；正在别处加载时直接等同一个 Promise。
+    if (device.info === null) await device.load();
+    // 只有当前后端真的缺运行时 / 组件时才去读清单算体积，纯模型路径不多打一次 IPC。
+    const info = device.info;
+    const current = info?.options.find((option) => option.kind === info.preference);
+    if (
+      current?.available &&
+      (!current.runtime_installed || current.missing.length > 0) &&
+      runtimes.items.length === 0
+    ) {
+      await runtimes.load();
+    }
+    // 变声模型是一个完整包（五张转换图 + 音色编码器），缺任何文件都按同一项补。
+    const ready = session.ensure();
+    if (!ready) pending.value = session.plan.value?.backend?.kind ?? defaultKind();
+    return ready;
+  }
+
+  function choose(kind: string): void {
+    pending.value = kind;
+    const next = build(kind);
+    session.plan.value = next;
+    session.open.value = next !== null;
+  }
+
+  return {
+    open: session.open,
+    plan: session.plan,
+    running: session.running,
+    forced: session.forced,
+    failed: session.failed,
+    progress: session.progress,
+    ensure,
+    cancel: session.cancel,
+    confirm: () => session.confirmRun(true),
+    confirmBackground: () => session.confirmRun(false),
+    cancelDownload: session.cancelDownload,
+    retry: session.retry,
+    choose,
+    setDone: session.setDone,
   };
 }

@@ -160,7 +160,7 @@ macro_rules! ms_source {
         Source {
             region: "cn",
             url: concat!(
-                "https://modelscope.cn/models/ailm32442/sd-cpp-binaries/resolve/master/",
+                "https://modelscope.cn/models/ailm32442/sd-cpp-binaries/resolve/b400c3dab85ae009996b344320763ab172537dda/",
                 $path
             ),
         }
@@ -1122,6 +1122,38 @@ fn extract_zip(archive: &Path, dir: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// 运行时下载源同样要钉 revision：`resolve/master/` 会随镜像仓库更新换字节，
+    /// 而 `Part::sha256` 是硬门禁（装到一半报校验失败，用户只能重下几百 MB）。
+    #[test]
+    fn every_runtime_source_is_pinned_and_hashed() {
+        for packs in [WINDOWS_PACKS, LINUX_PACKS, MACOS_PACKS] {
+            for pack in packs {
+                for part in pack.parts {
+                    assert!(
+                        part.sha256.len() == 64,
+                        "{} / {} 缺 sha256",
+                        pack.id,
+                        part.archive
+                    );
+                    for source in part.sources {
+                        let Some(rest) = source.url.split_once("/resolve/") else {
+                            continue; // GitHub Release（tag 不可变）
+                        };
+                        let revision = rest.1.split('/').next().unwrap_or("");
+                        assert!(
+                            revision.len() == 40
+                                && revision.chars().all(|c| c.is_ascii_hexdigit()),
+                            "{} / {} 的下载源没钉 revision：{}",
+                            pack.id,
+                            part.archive,
+                            source.url
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn catalogue_ids_match_devices() {
         for pack in packs() {
@@ -1202,11 +1234,17 @@ mod tests {
                 // ROCm 是官方后补的构建，魔搭镜像里没有：只要求「有镜像时必须是官方镜像」，
                 // 不能要求每个包都有。
                 for source in part.sources.iter().filter(|source| source.region == "cn") {
+                    // 只认「官方镜像仓库 + 钉住的 revision」：前面那段固定，revision 必须
+                    // 是 40 位 commit（浮动分支会让用户下到别的字节）。
+                    let prefix = "https://modelscope.cn/models/ailm32442/sd-cpp-binaries/resolve/";
+                    let revision = source
+                        .url
+                        .strip_prefix(prefix)
+                        .and_then(|rest| rest.split('/').next())
+                        .unwrap_or("");
                     assert!(
-                        source.url.starts_with(
-                            "https://modelscope.cn/models/ailm32442/sd-cpp-binaries/resolve/master/"
-                        ),
-                        "{} 的镜像源不是官方镜像：{}",
+                        revision.len() == 40 && revision.chars().all(|c| c.is_ascii_hexdigit()),
+                        "{} 的镜像源不是官方镜像或 revision 没钉住：{}",
                         part.archive,
                         source.url
                     );

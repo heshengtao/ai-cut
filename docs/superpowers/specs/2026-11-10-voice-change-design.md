@@ -31,8 +31,8 @@
 - **采样率**：模型进出都是 16 kHz；本工程音频 AI 统一输出 48 kHz 立体声
   （`audio_ai::OUT_SAMPLE_RATE`），所以变声后上采样到 48 kHz 再落盘，不改变其它环节。
 - **模型体积**：两个模型都远大于 10 MB，全部走按需下载，不随包。
-- **下载源**：HF 只有社区导出的 ONNX，魔搭没有；cn 区域需要自建 ONNX 镜像
-  （沿用 ZipVoice 的 `yuqingteck/mommy-story-on-device-models` 做法）。
+- **下载源**：HF 取社区导出的 ONNX（intl）；国内走自建魔搭镜像
+  `ailm32442/meanvc2-onnx`（cn），两份文件逐字节一致。
 
 ## 用户流程
 
@@ -168,10 +168,12 @@ voice_change_voice_delete(id: String) -> ()
 
 | entry | 文件 | 体积 | 区域源 |
 | --- | --- | --- | --- |
-| `meanvc2-int8` | `fbank.onnx`, `asr.int8.onnx`, `gtm.onnx`, `dit.int8.onnx`, `vocos.int8.onnx` | ≈74 MB | intl: `kiarina/MeanVC2-ONNX`；cn: 自建魔搭镜像 |
-| `meanvc2-speaker` | `speaker.int8.onnx` | ≈387 MB | 同上（CC BY-SA 3.0，镜像要带 NOTICE） |
+| `meanvc2-int8` | `fbank.onnx`, `asr.int8.onnx`, `gtm.onnx`, `dit.int8.onnx`, `vocos.int8.onnx`, `speaker.int8.onnx` | ≈461 MB | intl: `kiarina/MeanVC2-ONNX`；cn: `ailm32442/meanvc2-onnx`（CC BY-SA 3.0 部分带 NOTICE） |
 
-说话人编码器单独成条：已经有音色（或从别处拿到 256 维向量）的用户只下 74 MB 就能变声。
+音色编码器并入**同一个模型包**：没有它就无法导入音色，新用户也就无法变声，
+所以不拆成独立条目。加载路径仍然分开：`Model` 只读五张转换图，导入音色才加载
+`speaker.int8.onnx`；两者都在 `meanvc2-int8/` 目录里。旧版本单独安装的
+`meanvc2-speaker/` 会在首次下载时用硬链接复用并清理旧目录，不重复下载 387 MB。
 
 `sha256` 一律取自 HF 仓库的 `manifest.json`，不要手填。
 
@@ -233,7 +235,7 @@ Rust：
 ## 分期
 
 - **P0**：MeanVC2 单模型 + 音色库 + 批量 + 放置 + HUD；
-- **P1**：自建魔搭 ONNX 镜像、int8 变体与线程调优、长音频压测；
+- **P1**：魔搭镜像已完成（`ailm32442/meanvc2-onnx`）、int8 变体与线程调优、长音频压测；
 - **P2**：X-VC（先写导出脚本并对拍 PyTorch，再决定用哪版权重）。
 
 ## 风险 / 待验证

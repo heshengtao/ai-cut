@@ -9,6 +9,7 @@ import AiTaskHud from "@/components/common/AiTaskHud.vue";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
 import ExportModal from "@/components/common/ExportModal.vue";
 import CutSettingsDialog from "@/components/common/CutSettingsDialog.vue";
+import HfAuthDialog from "@/components/common/HfAuthDialog.vue";
 import ProjectHistoryDialog from "@/components/common/ProjectHistoryDialog.vue";
 import ShortcutsDialog from "@/components/common/ShortcutsDialog.vue";
 import WelcomeDialog from "@/components/onboarding/WelcomeDialog.vue";
@@ -140,6 +141,8 @@ onUnmounted(() => {
   <ConfirmDialog />
   <ExportModal />
   <CutSettingsDialog />
+  <!-- gated 模型：任何入口触发的下载都走这一个授权框 -->
+  <HfAuthDialog />
   <ProjectHistoryDialog v-model:open="layout.historyOpen" />
   <ShortcutsDialog v-model:open="layout.shortcutsOpen" />
   <!-- 启动时的欢迎页与聚光灯引导：挂在根部，任何视图上都能浮起来 -->

@@ -47,7 +47,10 @@ into the installer.
 
 None of these are redistributed by this project. Sources are the publishers' official
 repositories on Hugging Face / ModelScope (plus GitHub Releases for a few k2-fsa models),
-with a ModelScope mirror preferred on networks where Hugging Face is slow.
+with a ModelScope mirror preferred on networks where Hugging Face is slow. The MeanVC2
+package has a project-operated, byte-identical ModelScope mirror
+(`ailm32442/meanvc2-onnx`) so mainland downloads do not depend on Hugging Face; the mirror
+keeps the upstream Apache-2.0 / CC BY-SA 3.0 terms and the CC BY-SA `NOTICE`.
 
 ### Speech and captions
 
@@ -66,6 +69,7 @@ with a ModelScope mirror preferred on networks where Hugging Face is slow.
 | `uvr-mdx-voc-ft`, `uvr-mdx-9482` | **upstream terms — see below** | UVR / MDX-Net weights (`TRvlvr/model_repo`), redistributed by `k2-fsa/sherpa-onnx` |
 | `moss-tts-nano`, `moss-audio-tokenizer-nano` | Apache-2.0 | MOSS TTS Nano (OpenMOSS) |
 | `zipvoice-distill-int8-zh-en` | Apache-2.0 | ZipVoice (k2-fsa) |
+| `meanvc2-int8` (转换图 + 音色编码器) | **Apache-2.0 + CC BY-SA 3.0** | MeanVC2 (ASLP-lab); ONNX export by `kiarina/MeanVC2-ONNX`; cn mirror `ailm32442/meanvc2-onnx` |
 
 ### Video post-production
 
@@ -113,6 +117,11 @@ but the license carries **use-based restrictions** (no illegal, harmful, decepti
 discriminatory uses, among others) that must be passed on to anyone you distribute the
 model or a derivative to. Keep those restrictions intact if you re-host or fine-tune.
 
+**CC BY-SA 3.0 — MeanVC2 speaker encoder.** Commercial use is allowed, but adaptations
+must be shared under the same license with attribution. The weights are redistributed
+unmodified; `NOTICE` ships next to them in the mirror and records the upstream authors
+(`kiarina/MeanVC2-ONNX`, `ASLP-lab/MeanVC2`).
+
 **FLUX.1 [dev] Non-Commercial License — FLUX.1 Kontext.** The weights are licensed for
 **non-commercial use only**. Whether and how outputs may be used commercially is defined
 by the upstream license, not by this project — check it before any commercial release.
@@ -148,10 +157,27 @@ keep their embedded metadata to remain usable.
 
 - **Bundle = permissive only.** `bundled_weights_keep_a_permissive_license` fails if a
   model with a community / RAIL / non-commercial license is added to `bundle.resources`.
-- **Restricted weights are download-only.** They are fetched from the publishers'
-  repositories, never mirrored into this repo or the installers.
+- **Restricted weights are download-only.** They are never bundled into this repo or the
+  installers; where a project mirror exists (MeanVC2), it is a byte-identical copy that
+  keeps the upstream license and attribution.
 - **Every download is verified** against the catalog's `sha256` (per-source hash where a
-  mirror differs; size-only check for small files whose upstream publishes no LFS hash).
+  mirror differs).
+- **Every download URL is pinned to a commit**, never to `master` / `main`. A mutable
+  branch lets an upstream re-upload turn our own hash check into a download failure
+  ("100% then sha256 mismatch"), and the fallback source moves with it. Guarded by
+  `every_source_is_pinned_to_a_commit` and two tools:
+
+  | Command | What it does |
+  |---|---|
+  | `node tools/pin-models.mjs` | reports URLs still on a floating branch (exits 1) |
+  | `node tools/pin-models.mjs --write` | pins them to the branch head commit |
+  | `node tools/pin-models.mjs --bump` | moves pinned URLs to head — a deliberate model upgrade |
+  | `node tools/check-models.mjs --deep` | fetches every pinned URL and compares the live `sha256` |
+  | `node tools/check-models.mjs --proxy socks5h://127.0.0.1:7892` | same, through a proxy — Node's `fetch` ignores the OS proxy, so this is how you verify against the real HF (`MODEL_PROXY=` works too) |
+
+  `pin-models.mjs` fixes the *revision*; `check-models.mjs` proves the bytes behind that
+  revision are the ones we validated. Run both after touching the catalog.
+  `HF_MIRROR=https://…` overrides the mirror used to reach Hugging Face.
 - **The app shows the license** of each model in the Models pane, next to its size and
   source, before you download it.
 - **Bundled license texts** are verbatim copies in `LICENSES/`.

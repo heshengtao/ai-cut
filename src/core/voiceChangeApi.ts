@@ -39,7 +39,6 @@ export function importVoice(
   name: string,
   start: number | null = null,
   duration: number | null = null,
-  speakerModelId = "meanvc2-speaker",
 ): Promise<VoiceEntry> {
   return guard("导入音色", () =>
     invoke<VoiceEntry>("voice_change_voice_import", {
@@ -47,7 +46,6 @@ export function importVoice(
       name,
       start,
       duration,
-      speakerModelId,
     }),
   );
 }
