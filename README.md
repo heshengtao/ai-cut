@@ -226,10 +226,12 @@ or a second machine on the same network.
 
 ```bash
 docker build -t ai-cut .
-docker run -d --name ai-cut -p 28440:28440 -v aicut-data:/data ai-cut
+docker run -d --name ai-cut -p 28440:28440 -p 50563:50563 -v aicut-data:/data ai-cut
 ```
 
-The image is Debian slim based (multi-stage, ~430 MB) and ships the same static ffmpeg/ffprobe as the desktop app, plus the 5 bundled models and ONNX Runtime (arch is checked against the ELF header at build time); open <http://localhost:28440>.
+The image is Debian slim based (multi-stage, ~434 MB) and ships the same static ffmpeg/ffprobe as the desktop app, plus the 5 bundled models and ONNX Runtime (arch is checked against the ELF header at build time, and a `libonnxruntime.so` alias is created); open <http://localhost:28440>.
+
+MCP binds `0.0.0.0` inside the container (the `--lan` semantics), so after publishing `50563` an MCP client on the host (Claude Desktop / IDE) can connect to `http://<host>:50563/mcp` and gets the same 62 tools as the desktop app.
 
 **The container matches the desktop app** except where physics says otherwise:
 

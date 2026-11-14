@@ -223,10 +223,12 @@ ffmpeg 与 ffprobe 以静态二进制随包分发，用户不需要自己安装�
 
 ```bash
 docker build -t ai-cut .
-docker run -d --name ai-cut -p 28440:28440 -v aicut-data:/data ai-cut
+docker run -d --name ai-cut -p 28440:28440 -p 50563:50563 -v aicut-data:/data ai-cut
 ```
 
-镜像基于 Debian slim（多阶段，约 430 MB），自带与桌面同款的静态 ffmpeg/ffprobe、随包 5 个模型与 ONNX Runtime（按目标架构下载，构建期会做 ELF 架构自检）；浏览器打开 <http://localhost:28440> 即可。
+镜像基于 Debian slim（多阶段，约 434 MB），自带与桌面同款的静态 ffmpeg/ffprobe、随包 5 个模型与 ONNX Runtime（按目标架构下载，构建期会做 ELF 架构自检与 `libonnxruntime.so` 别名）；浏览器打开 <http://localhost:28440> 即可。
+
+MCP 在容器里绑 `0.0.0.0`（`--lan` 的语义），所以把 `50563` 一起发布后，宿主上的 Claude Desktop / IDE 可以直接接 `http://<宿主>:50563/mcp`，工具面与桌面同一份 62 个。
 
 **容器里的能力与桌面基本一致**（差异只来自物理条件）：
 
