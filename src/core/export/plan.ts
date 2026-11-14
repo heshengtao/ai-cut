@@ -14,7 +14,7 @@ import { keyframeExpression } from "@/core/keyframes";
 import { evenDimension, normalizeFps } from "@/core/projectOutput";
 import { GIF_DITHERS } from "@/types/export";
 import type { ExportAnchor, ExportOptions, ExportPlan } from "@/types/export";
-import { t } from "@/i18n";
+import { t } from "@/i18n/translate";
 import { formatSeconds } from "./escape";
 
 function clipSpeed(clip: Clip): number {

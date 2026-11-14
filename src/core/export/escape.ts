@@ -1,5 +1,5 @@
 /** 导出滤镜里的数字与文件名工具。 */
-import { t } from "@/i18n";
+import { t } from "@/i18n/translate";
 
 /** 秒 → 滤镜里的数字字符串（最多 6 位小数，去掉尾零）。 */
 export function formatSeconds(seconds: number): string {

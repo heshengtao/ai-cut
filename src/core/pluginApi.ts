@@ -10,52 +10,39 @@ import type {
 import { EVENT_PLUGIN } from "@/types/plugins";
 import { isTauri } from "@/utils/platform";
 
-function offline(): RegistryResponse {
-  return { source: "bundled", fetched_at: null, plugins: [] };
-}
-
 export function pluginRegistry(force = false): Promise<RegistryResponse> {
-  if (!isTauri()) return Promise.resolve(offline());
   return invoke<RegistryResponse>("plugin_registry", { force });
 }
 
 export function pluginInstalled(): Promise<PluginStatus[]> {
-  if (!isTauri()) return Promise.resolve([]);
   return invoke<PluginStatus[]>("plugin_installed");
 }
 
 export function pluginInstall(slug: string): Promise<void> {
-  if (!isTauri()) return Promise.reject(new Error("插件安装需要在桌面应用中使用"));
   return invoke<void>("plugin_install", { slug });
 }
 
 export function pluginCancel(): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("plugin_cancel");
 }
 
 export function pluginRemove(slug: string): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("plugin_remove", { slug });
 }
 
 export function pluginImport(path: string): Promise<void> {
-  if (!isTauri()) return Promise.reject(new Error("插件导入需要在桌面应用中使用"));
   return invoke<void>("plugin_import", { path });
 }
 
 export function pluginReveal(slug: string): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("plugin_reveal", { slug });
 }
 
 export function pluginOpen(slug: string): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("plugin_open", { slug });
 }
 
 export function pluginRegistryConfig(): Promise<PluginRegistryConfig> {
-  if (!isTauri()) return Promise.resolve({ url: "", mirrors: [] });
   return invoke<PluginRegistryConfig>("plugin_registry_config");
 }
 
@@ -63,14 +50,12 @@ export function pluginSetRegistryConfig(
   url: string,
   mirrors: string[],
 ): Promise<PluginRegistryConfig> {
-  if (!isTauri()) return Promise.resolve({ url, mirrors });
   return invoke<PluginRegistryConfig>("plugin_set_registry_config", { url, mirrors });
 }
 
 export function onPluginProgress(
   handler: (progress: PluginProgress) => void,
 ): Promise<UnlistenFn> {
-  if (!isTauri()) return Promise.resolve(() => undefined);
   return listen<PluginProgress>(EVENT_PLUGIN, (event) => handler(event.payload));
 }
 

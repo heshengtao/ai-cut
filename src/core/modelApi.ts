@@ -18,10 +18,8 @@ import type {
   TtsVoice,
 } from "@/types/models";
 import { EVENT_ASR, EVENT_MODEL, EVENT_TTS } from "@/types/models";
-import { isTauri } from "@/utils/platform";
 
 export function modelCatalog(): Promise<ModelStatus[]> {
-  if (!isTauri()) return Promise.resolve([]);
   return invoke<ModelStatus[]>("model_catalog");
 }
 
@@ -32,53 +30,42 @@ export function modelCatalog(): Promise<ModelStatus[]> {
  * 拿到 token 后重新调一次即可。
  */
 export function modelDownload(id: string): Promise<ModelAuth | null> {
-  if (!isTauri()) return Promise.reject(new Error("模型下载需要在桌面应用中使用"));
   return invoke<ModelAuth | null>("model_download", { id });
 }
 
 /** 保存 / 清除 Hugging Face read token（传空串 = 清除）。 */
 export function modelSaveHfToken(token: string): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("model_save_hf_token", { token });
 }
 
 /** 当前是否配了 HF token（只回状态与掩码，不回 token 本身）。 */
 export function modelHfTokenStatus(): Promise<HfTokenStatus> {
-  if (!isTauri()) return Promise.resolve({ set: false, hint: "" });
   return invoke<HfTokenStatus>("model_hf_token_status");
 }
 
 export function modelProbe(id: string): Promise<SourceProbe[]> {
-  if (!isTauri()) return Promise.resolve([]);
   return invoke<SourceProbe[]>("model_probe", { id });
 }
 
 export function modelCancel(): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("model_cancel");
 }
 
 export function modelRemove(id: string): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("model_remove", { id });
 }
 
 export function modelReveal(id: string): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("model_reveal", { id });
 }
 
 export function onModelProgress(
   handler: (progress: ModelProgress) => void,
 ): Promise<UnlistenFn> {
-  if (!isTauri()) return Promise.resolve(() => undefined);
   return listen<ModelProgress>(EVENT_MODEL, (event) => handler(event.payload));
 }
 
 export function modelSourceConfig(): Promise<ModelSourceConfig> {
-  if (!isTauri()) {
-    return Promise.resolve({ preference: "auto", mirrors: [], download_prefix: "" });
-  }
   return invoke<ModelSourceConfig>("model_source_config");
 }
 
@@ -87,7 +74,6 @@ export function modelSetSourceConfig(
   mirrors: string[],
   downloadPrefix: string,
 ): Promise<ModelSourceConfig> {
-  if (!isTauri()) return Promise.resolve({ preference, mirrors, download_prefix: downloadPrefix });
   return invoke<ModelSourceConfig>("model_set_source_config", {
     preference,
     mirrors,
@@ -100,7 +86,6 @@ export function asrTranscribe(
   modelId: string,
   language?: string,
 ): Promise<SubtitleCue[]> {
-  if (!isTauri()) return Promise.reject(new Error("字幕生成需要在桌面应用中使用"));
   return invoke<SubtitleCue[]>("asr_transcribe", {
     path,
     modelId,
@@ -118,7 +103,6 @@ export function asrTranscribeWords(
   modelId: string,
   language?: string,
 ): Promise<AsrTranscription> {
-  if (!isTauri()) return Promise.reject(new Error("剪口播需要在桌面应用中使用"));
   return invoke<AsrTranscription>("asr_transcribe_words", {
     path,
     modelId,
@@ -127,17 +111,14 @@ export function asrTranscribeWords(
 }
 
 export function asrCancel(): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("asr_cancel");
 }
 
 export function onAsrProgress(handler: (progress: AsrProgress) => void): Promise<UnlistenFn> {
-  if (!isTauri()) return Promise.resolve(() => undefined);
   return listen<AsrProgress>(EVENT_ASR, (event) => handler(event.payload));
 }
 
 export function ttsVoices(modelId: string): Promise<TtsVoice[]> {
-  if (!isTauri()) return Promise.resolve([]);
   return invoke<TtsVoice[]>("tts_voices", { modelId });
 }
 
@@ -148,7 +129,6 @@ export function ttsSynthesize(
   referencePath: string | null,
   referenceText: string | null,
 ): Promise<TtsAudio[]> {
-  if (!isTauri()) return Promise.reject(new Error("AI 朗读需要在桌面应用中使用"));
   return invoke<TtsAudio[]>("tts_synthesize", {
     modelId,
     items,
@@ -159,11 +139,9 @@ export function ttsSynthesize(
 }
 
 export function ttsCancel(): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("tts_cancel");
 }
 
 export function onTtsProgress(handler: (progress: TtsProgress) => void): Promise<UnlistenFn> {
-  if (!isTauri()) return Promise.resolve(() => undefined);
   return listen<TtsProgress>(EVENT_TTS, (event) => handler(event.payload));
 }

@@ -3,10 +3,11 @@ import { invoke } from "@/platform/tauri";
 import { listen, type UnlistenFn } from "@/platform/tauri";
 import type { RuntimeProgress, RuntimeStatus } from "@/types/runtime";
 import { EVENT_RUNTIME } from "@/types/runtime";
-import { isTauri } from "@/utils/platform";
+import { requireCapability } from "@/platform/capabilities";
+import { t } from "@/i18n";
 
-export function runtimeCatalog(): Promise<RuntimeStatus[]> {
-  if (!isTauri()) return Promise.resolve([]);
+export async function runtimeCatalog(): Promise<RuntimeStatus[]> {
+  await requireCapability("runtime", t("caps.feature.runtime"));
   return invoke<RuntimeStatus[]>("runtime_catalog");
 }
 
@@ -20,7 +21,6 @@ export function runtimeCancel(): Promise<void> {
 
 /** 是否有运行库正在下载（挂载时用来纠正「卡在下载中」的状态）。 */
 export function runtimeBusy(): Promise<boolean> {
-  if (!isTauri()) return Promise.resolve(false);
   return invoke<boolean>("runtime_busy");
 }
 
@@ -28,6 +28,7 @@ export function runtimeRemove(id: string): Promise<void> {
   return invoke<void>("runtime_remove", { id });
 }
 
+/** 在文件管理器里显示运行库（桌面专属，无头端会明确拒绝）。 */
 export function runtimeReveal(id: string): Promise<void> {
   return invoke<void>("runtime_reveal", { id });
 }
@@ -40,6 +41,5 @@ export function appRestart(): Promise<void> {
 export function onRuntimeProgress(
   handler: (progress: RuntimeProgress) => void,
 ): Promise<UnlistenFn> {
-  if (!isTauri()) return Promise.resolve(() => undefined);
   return listen<RuntimeProgress>(EVENT_RUNTIME, (event) => handler(event.payload));
 }

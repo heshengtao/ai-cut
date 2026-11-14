@@ -1,6 +1,13 @@
-/** 云端图像 / 视频生成的 Tauri 封装。 */
+/**
+ * 云端图像 / 视频生成的调用封装。
+ *
+ * 实现已下沉到 `crates/daemon`（纯 HTTP + ffmpeg 探测 + 缓存目录），浏览器 / 容器
+ * 版本同样可用。这里不再用 `isTauri()` 猜，只有能力表守卫（桌面壳恒可用）。
+ */
 import { invoke } from "@/platform/tauri";
 import { listen, type UnlistenFn } from "@/platform/tauri";
+import { requireCapability } from "@/platform/capabilities";
+import { t } from "@/i18n";
 import type {
   CloudGenConfig,
   CloudGenPreset,
@@ -13,43 +20,39 @@ import type {
   CloudVideoResult,
 } from "@/types/cloudGen";
 import { EVENT_CLOUD_GEN } from "@/types/cloudGen";
-import { isTauri } from "@/utils/platform";
-
-const DESKTOP_ONLY = "云端生成需要在桌面应用中使用";
 
 export function cloudGenConfig(): Promise<CloudGenConfig> {
-  if (!isTauri()) return Promise.resolve({ providers: [] });
   return invoke<CloudGenConfig>("cloud_gen_config");
 }
 
 export function cloudGenSetConfig(
   providers: CloudGenProvider[],
 ): Promise<CloudGenConfig> {
-  if (!isTauri()) return Promise.resolve({ providers });
   return invoke<CloudGenConfig>("cloud_gen_set_config", { providers });
 }
 
 export function cloudGenPresets(): Promise<CloudGenPreset[]> {
-  if (!isTauri()) return Promise.resolve([]);
   return invoke<CloudGenPreset[]>("cloud_gen_presets");
 }
 
-export function cloudGenImage(
+export async function cloudGenImage(
   request: CloudImageRequest,
 ): Promise<CloudImageResult> {
-  if (!isTauri()) return Promise.reject(new Error(DESKTOP_ONLY));
+  await requireCapability("cloud_gen", t("caps.feature.cloudGen"));
   return invoke<CloudImageResult>("cloud_gen_image", { request });
 }
 
-export function cloudGenVideo(
+export async function cloudGenVideo(
   request: CloudVideoRequest,
 ): Promise<CloudVideoResult> {
-  if (!isTauri()) return Promise.reject(new Error(DESKTOP_ONLY));
+  await requireCapability("cloud_gen", t("caps.feature.cloudGen"));
   return invoke<CloudVideoResult>("cloud_gen_video", { request });
 }
 
-export function cloudGenTest(provider: CloudGenProvider): Promise<CloudGenTest> {
-  if (!isTauri()) return Promise.reject(new Error(DESKTOP_ONLY));
+export async function cloudGenTest(
+  provider: CloudGenProvider,
+): Promise<CloudGenTest> {
+  await requireCapability("cloud_gen", t("caps.feature.cloudGen"));
   return invoke<CloudGenTest>("cloud_gen_test", { provider });
 }
 
@@ -58,13 +61,12 @@ export function cloudGenCancel(): Promise<void> {
 }
 
 export function cloudGenBusy(): Promise<boolean> {
-  if (!isTauri()) return Promise.resolve(false);
   return invoke<boolean>("cloud_gen_busy");
 }
 
+/** 进度事件：桌面走 Tauri event，浏览器走 SSE，同一套事件名。 */
 export function onCloudGenProgress(
   handler: (progress: CloudGenProgress) => void,
 ): Promise<UnlistenFn> {
-  if (!isTauri()) return Promise.resolve(() => undefined);
   return listen<CloudGenProgress>(EVENT_CLOUD_GEN, (event) => handler(event.payload));
 }

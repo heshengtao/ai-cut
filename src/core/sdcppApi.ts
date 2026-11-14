@@ -4,13 +4,16 @@ import { listen, type UnlistenFn } from "@/platform/tauri";
 import type { SdcppInfo, SdcppProgress, SdcppStatus } from "@/types/sdcpp";
 import { EVENT_SDCPP } from "@/types/sdcpp";
 import { isTauri } from "@/utils/platform";
+import { requireCapability } from "@/platform/capabilities";
+import { t } from "@/i18n";
 
 export function sdcppCatalog(): Promise<SdcppStatus[]> {
   if (!isTauri()) return Promise.resolve([]);
   return invoke<SdcppStatus[]>("sdcpp_catalog");
 }
 
-export function sdcppInstall(id: string, force = false): Promise<void> {
+export async function sdcppInstall(id: string, force = false): Promise<void> {
+  await requireCapability("sdcpp", t("caps.feature.sdcpp"));
   return invoke<void>("sdcpp_install", { id, force });
 }
 

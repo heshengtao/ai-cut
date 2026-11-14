@@ -7,16 +7,17 @@ import {
   type VideoDspProgress,
   type VideoProcessed,
 } from "@/types/video";
-import { isTauri } from "@/utils/platform";
+import { requireCapability } from "@/platform/capabilities";
+import { t } from "@/i18n";
 
-export function videoDspProcess(
+export async function videoDspProcess(
   path: string,
   start: number,
   duration: number,
   fps: number,
   options: VideoDspOptions,
 ): Promise<VideoProcessed> {
-  if (!isTauri()) return Promise.reject(new Error("视频处理需要在桌面应用中使用"));
+  await requireCapability("video_dsp", t("caps.feature.videoDsp"));
   return invoke<VideoProcessed>("video_dsp_process", {
     path,
     start,
@@ -27,13 +28,11 @@ export function videoDspProcess(
 }
 
 export function videoDspCancel(): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("video_dsp_cancel");
 }
 
 export function onVideoDspProgress(
   handler: (progress: VideoDspProgress) => void,
 ): Promise<UnlistenFn> {
-  if (!isTauri()) return Promise.resolve(() => undefined);
   return listen<VideoDspProgress>(EVENT_VIDEO_DSP, (event) => handler(event.payload));
 }

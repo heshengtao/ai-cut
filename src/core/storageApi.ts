@@ -4,6 +4,8 @@ import { listen, type UnlistenFn } from "@/platform/tauri";
 import type { DataDirInfo, DataDirProgress } from "@/types/storage";
 import { EVENT_DATA_DIR } from "@/types/storage";
 import { isTauri } from "@/utils/platform";
+import { requireCapability } from "@/platform/capabilities";
+import { t } from "@/i18n";
 
 /** 当前数据目录概况；浏览器预览下返回 `null`。 */
 export function dataDirInfo(): Promise<DataDirInfo | null> {
@@ -12,12 +14,14 @@ export function dataDirInfo(): Promise<DataDirInfo | null> {
 }
 
 /** 一键迁移：复制当前数据到 `target`，写指针，返回需要重启的新状态。 */
-export function dataDirMigrate(target: string): Promise<DataDirInfo> {
+export async function dataDirMigrate(target: string): Promise<DataDirInfo> {
+  await requireCapability("data_dir", t("caps.feature.dataDir"));
   return invoke<DataDirInfo>("data_dir_migrate", { target });
 }
 
 /** 清理上一次迁移留下的旧目录，返回真正删掉的目录。 */
-export function dataDirCleanupPrevious(): Promise<string[]> {
+export async function dataDirCleanupPrevious(): Promise<string[]> {
+  await requireCapability("data_dir", t("caps.feature.dataDir"));
   return invoke<string[]>("data_dir_cleanup_previous");
 }
 

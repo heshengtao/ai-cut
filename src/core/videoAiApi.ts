@@ -8,7 +8,6 @@ import {
   type VideoAiSubject,
   type VideoProcessed,
 } from "@/types/video";
-import { isTauri } from "@/utils/platform";
 
 export function videoAiUpscale(
   path: string,
@@ -18,7 +17,6 @@ export function videoAiUpscale(
   modelId: string,
   scale: number,
 ): Promise<VideoProcessed> {
-  if (!isTauri()) return Promise.reject(new Error("视频超分需要在桌面应用中使用"));
   return invoke<VideoProcessed>("video_ai_upscale", {
     path,
     start,
@@ -34,7 +32,6 @@ export function videoAiUpscaleImage(
   modelId: string,
   scale: number,
 ): Promise<VideoProcessed> {
-  if (!isTauri()) return Promise.reject(new Error("图片超分需要在桌面应用中使用"));
   return invoke<VideoProcessed>("video_ai_upscale_image", {
     path,
     modelId,
@@ -50,7 +47,6 @@ export function videoAiInterpolate(
   modelId: string,
   factor: number,
 ): Promise<VideoProcessed> {
-  if (!isTauri()) return Promise.reject(new Error("视频补帧需要在桌面应用中使用"));
   return invoke<VideoProcessed>("video_ai_interpolate", {
     path,
     start,
@@ -73,7 +69,6 @@ export function videoAiReframe(
   height: number,
   smooth: number,
 ): Promise<VideoProcessed> {
-  if (!isTauri()) return Promise.reject(new Error("智能裁剪需要在桌面应用中使用"));
   return invoke<VideoProcessed>("video_ai_reframe", {
     path,
     start,
@@ -89,13 +84,11 @@ export function videoAiReframe(
 }
 
 export function videoAiCancel(): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("video_ai_cancel");
 }
 
 export function onVideoAiProgress(
   handler: (progress: VideoAiProgress) => void,
 ): Promise<UnlistenFn> {
-  if (!isTauri()) return Promise.resolve(() => undefined);
   return listen<VideoAiProgress>(EVENT_VIDEO_AI, (event) => handler(event.payload));
 }
