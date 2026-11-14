@@ -15,7 +15,8 @@ COPY . .
 RUN pnpm build
 
 FROM rust:1-alpine AS build
-RUN apk add --no-cache musl-dev gcc make
+# `perl`：ring 的构建脚本在部分目标上会用到；只在构建阶段装，不进最终镜像。
+RUN apk add --no-cache musl-dev gcc make perl
 WORKDIR /src
 COPY crates/daemon ./crates/daemon
 RUN cargo build --manifest-path crates/daemon/Cargo.toml --release --bin aicutd \
