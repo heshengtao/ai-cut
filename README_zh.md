@@ -3,14 +3,20 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.3-1A6CFF?style=flat-square" alt="版本 0.2.3">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-1A6CFF?style=flat-square" alt="许可：Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/platforms-Windows%20/%20macOS%20/%20Linux-1A6CFF?style=flat-square" alt="平台：Windows、macOS、Linux">
+  <a href="https://github.com/heshengtao/ai-cut/releases"><img src="https://img.shields.io/github/v/release/heshengtao/ai-cut?style=flat-square&color=1A6CFF" alt="GitHub release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-1A6CFF?style=flat-square" alt="License: Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/platforms-Windows%20/%20macOS%20/%20Linux%20/%20Web-1A6CFF?style=flat-square" alt="Platforms: Windows, macOS, Linux, Web">
+  <a href="https://hub.docker.com/r/ailm32442/ai-cut"><img src="https://img.shields.io/docker/pulls/ailm32442/ai-cut?style=flat-square&color=1A6CFF" alt="Docker pulls"></a>
 </p>
 
 <p align="center">
   <a href="README_zh.md"><b>简体中文</b></a> ·
   <a href="README.md"><b>English</b></a>
+</p>
+
+<p align="center">
+  <a href="https://hub.docker.com/r/ailm32442/ai-cut"><b>Docker Hub</b></a> ·
+  <a href="https://github.com/heshengtao/ai-cut/releases">Download</a>
 </p>
 
 ## AI Cut 是什么？
@@ -279,28 +285,41 @@ src/                Vue 3 前端 —— 桌面与浏览器是同一份
 
 小模型随包分发，装好即可使用。较大的模型——语音识别、TTS、音源分离、超分与补帧——由应用内的模型管理器按需下载，存放在源码树之外。各模型的许可（包括社区许可的视频模型与**仅限非商业**的 FLUX.1 [dev]）见 [MODELS.md](MODELS.md)。
 
-### 支持哪些特效插件格式？
+### 支持我们
 
-**OpenFX（OFX）1.5.1** —— 六种 image-effect context（filter / general / generator / paint / retimer / transition）全部支持；插件既可以来自内置注册表，也可以来自你本机的插件包。音频类插件格式（VST3 / AU / CLAP）不做宿主：音频处理由 AI Cut 自带的增益、淡入淡出、变调与混音工具完成。
+### 请给我们点个 Star！
+⭐ 你的支持是我们前进的动力！
 
-### 让代理驱动剪辑器，需要软件一直开着吗？
+### 欢迎打赏！
+<div align="center" style="display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">
 
-需要。Skill 与 `aicut` 命令行是通过 MCP 与**正在运行**的 AI Cut 通信的，所以先启动软件（用 `aicut status` 可以确认是否已启动）。
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/agentparty)
+[![爱发电](https://img.shields.io/badge/爱发电-支持我们-946ce6?style=for-the-badge&logo=affine&logoColor=white)](https://afdian.com/a/agentparty)
 
-### 智能体能直接导出成片吗？
+</div>
 
-能。`export_video` 可以通过 MCP 直接导出 MP4、ProRes 或 GIF。`outputPath` 可以省略：省略时写到工程文件旁边（未保存的工程写到下载目录），并返回最终路径。字幕、朗读、音频 / 视频 AI 与导出都是工具，智能体可以准备时间线、渲染成片，再交回给人审片。
+### 关注我们
+<div align="center">
+  <a href="https://space.bilibili.com/26978344">
+    <img src="screenshots/B.png" width="100" height="100" style="border-radius: 80%; overflow: hidden;" alt="bilibili"/>
+  </a>
+  <a href="https://www.youtube.com/@agentParty">
+    <img src="screenshots/YT.png" width="100" height="100" style="border-radius: 80%; overflow: hidden;" alt="youtube"/>
+  </a>
+</div>
 
-## 支持
+### 加入社区
+如果你在使用过程中遇到任何问题，欢迎加入我们的社区交流。
 
-### 点个 Star
+1. QQ 群：`931057213`（1群已满） `902882342`（2群）
 
-如果 AI Cut 对你有用，点一颗 Star 能让更多人看到它 —— 这也是这件事值得继续做下去最直接的信号。
+2. Discord: [Discord 链接](https://discord.gg/f2dsAKKr2V)
 
-### 关注
+## 贡献者
 
-- GitHub：<https://github.com/heshengtao>
-- 问题与想法：<https://github.com/heshengtao/ai-cut/issues>
+<a href="https://github.com/heshengtao/ai-cut/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=heshengtao/ai-cut" alt="heshengtao/ai-cut 的贡献者" />
+</a>
 
 ## 许可
 

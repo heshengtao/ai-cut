@@ -73,6 +73,203 @@
       ]
     },
     {
+      "slug": "fabiocolor/advanced-dirt-removal",
+      "name": "Advanced Dirt Removal",
+      "vendor": "fabioColor",
+      "version": "2.0.0",
+      "description": "Dust and dirt removal for scanned film using model-based repair, for Resolve and Nuke.",
+      "homepage": "https://github.com/fabiocolor/Advanced-Dirt-Removal",
+      "source": "https://github.com/fabiocolor/Advanced-Dirt-Removal",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/fabiocolor/Advanced-Dirt-Removal/releases/download/v2.0.0/AdvancedDirtRemoval-2.0.0-linux-x86_64.tar.gz",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        },
+        {
+          "url": "https://github.com/fabiocolor/Advanced-Dirt-Removal/releases/download/v2.0.0/AdvancedDirtRemoval-2.0.0-macos.zip",
+          "systems": [
+            "mac"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        },
+        {
+          "url": "https://github.com/fabiocolor/Advanced-Dirt-Removal/releases/download/v2.0.0/AdvancedDirtRemoval-Setup-2.0.0.exe",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/afterglow",
+      "name": "Afterglow",
+      "vendor": "Stoatworks Labs",
+      "version": "0.1.5",
+      "description": "Frame-trail effect where each echo dims, coarsens and decays over time.",
+      "homepage": "https://stoatworks-labs.com/software/afterglow/",
+      "source": "https://github.com/stoatworks-labs/afterglow",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "davinci-resolve",
+        "decay",
+        "echo",
+        "frame-trails",
+        "glsl",
+        "live-visuals",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/afterglow/releases/download/v0.1.5/afterglow-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "004c351490cfa0f9c8305a3f00ac22591cb79479939022cc45c86e4952212ec7",
+          "size": 724872
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/afterglow/releases/download/v0.1.5/afterglow-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "8de9d214f99812fff62ee1c254b55475d7cbbf18bbecbc7c7b230c9a618db889",
+          "size": 264307
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/afterglow/releases/download/v0.1.5/afterglow-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "608a091376dfd06ce29e0be91f90255034affd84e720623950f501e9a312642d",
+          "size": 75435
+        }
+      ]
+    },
+    {
+      "slug": "ch200c/andris-tiler",
+      "name": "Andris Tiler",
+      "vendor": "ch200c",
+      "version": "1.1.1",
+      "description": "Tile effect with adjustable offset and scaling.",
+      "homepage": "https://github.com/ch200c/andris.tiler.ofx",
+      "source": "https://github.com/ch200c/andris.tiler.ofx",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "cpp14",
+        "opencv",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/ch200c/andris.tiler.ofx/releases",
+          "systems": [
+            "win"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "andythefilmmaker/andykit",
+      "name": "AndyKit",
+      "vendor": "Andy the Filmmaker",
+      "version": "0.0.0",
+      "description": "Edge-driven point, shape and line effects with temporal pixel memory, dither and glitch looks.",
+      "homepage": "https://github.com/andythefilmmaker/AndyKit-OFX",
+      "source": "https://github.com/andythefilmmaker/AndyKit-OFX",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/andythefilmmaker/AndyKit-OFX",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
       "slug": "cr-market/anime-smoother",
       "name": "Anime Smoother",
       "vendor": "cr-market",
@@ -202,6 +399,74 @@
       ]
     },
     {
+      "slug": "baldavenger/baldavenger-ofx",
+      "name": "Baldavenger OFX",
+      "vendor": "Baldavenger",
+      "version": "0.0.0",
+      "description": "Suite of OpenFX plugins for DaVinci Resolve covering glow, blur, colour, keying and film-look effects.",
+      "homepage": "https://github.com/baldavenger/BaldavengerPlugins",
+      "source": "https://github.com/baldavenger/BaldavengerPlugins",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/baldavenger/BaldavengerPlugins",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "smunaut/bbbchatofx",
+      "name": "BBB Chat OFX",
+      "vendor": "Sylvain Munaut",
+      "version": "0.0.0",
+      "description": "Renders BigBlueButton chat logs over a video as an OpenFX plugin.",
+      "homepage": "https://github.com/smunaut/bbbchatofx",
+      "source": "https://github.com/smunaut/bbbchatofx",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "bbb",
+        "openfx",
+        "video"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/smunaut/bbbchatofx",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
       "slug": "natron/openfx-braw",
       "name": "Blackmagic RAW",
       "vendor": "Natron",
@@ -310,6 +575,291 @@
             "ofx"
           ],
           "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "ludwigkienle/buckswood-post-plugins",
+      "name": "Buckswood Post Plugins",
+      "vendor": "Ludwig Kienle",
+      "version": "2.8.1-optics-lab-v1.3.1",
+      "description": "Collection of cinematic post-production OFX plugins, including Deband, DeJitter and Optics Lab.",
+      "homepage": "https://github.com/LudwigKienle/buckswood-post-plugins",
+      "source": "https://github.com/LudwigKienle/buckswood-post-plugins",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/LudwigKienle/buckswood-post-plugins/releases",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/burin",
+      "name": "Burin",
+      "vendor": "Stoatworks Labs",
+      "version": "0.1.10",
+      "description": "SVG artwork renderer that draws vector strokes at output resolution.",
+      "homepage": "https://stoatworks-labs.com/software/burin/",
+      "source": "https://github.com/stoatworks-labs/burin",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "contexts": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "tags": [
+        "davinci-resolve",
+        "glsl",
+        "live-visuals",
+        "open-source",
+        "openfx",
+        "resolume"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/burin/releases/download/v0.1.10/burin-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "afdd8786398aa85a41cff233c1d930adff274ed2807ed2b35aaa0523f548cc9d",
+          "size": 803112
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/burin/releases/download/v0.1.10/burin-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "6218b4fd6fab39f15d6b6cbeaa9aae3b2ec9ad9482aa720facc8138c3a707de1",
+          "size": 354025
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/burin/releases/download/v0.1.10/burin-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "880cbff7a40e7070bc948d1487b5c04aa5c3d56b6070ca0112ef094ce0c3f07d",
+          "size": 122412
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/ccu",
+      "name": "CCU",
+      "vendor": "Stoatworks Labs",
+      "version": "0.2.0",
+      "description": "Broadcast camera processing chain with detail, coring, knee, gamma and drifting white balance.",
+      "homepage": "https://stoatworks-labs.com/software/ccu/",
+      "source": "https://github.com/stoatworks-labs/ccu",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "broadcast",
+        "camera",
+        "ccu",
+        "colour",
+        "davinci-resolve",
+        "glsl",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/ccu/releases/download/v0.2.0/ccu-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "633e1bb6b7a5f930d56be11aa2837d36a7a1ec32b50d88cada34a644e44d0c2e",
+          "size": 709250
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/ccu/releases/download/v0.2.0/ccu-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "c9464c3f8d6c9db64a9c1a963a42008c7e4611b861cd1451942572d49f592b84",
+          "size": 244249
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/ccu/releases/download/v0.2.0/ccu-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "c046febd4d546f33b2578953ec15a8616048d6422c6c9514f24af5c6165fc65d",
+          "size": 70895
+        }
+      ]
+    },
+    {
+      "slug": "isamorphic/chosen-few-fx",
+      "name": "Chosen Few FX",
+      "vendor": "IsaMorphic",
+      "version": "1.0.5",
+      "description": "OpenFX port of the Chosen Few effects collection.",
+      "homepage": "https://github.com/IsaMorphic/ChosenFewFX",
+      "source": "https://github.com/IsaMorphic/ChosenFewFX",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "contexts": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "tags": [
+        "c-plus-plus",
+        "csharp",
+        "dotnet",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/IsaMorphic/ChosenFewFX/releases",
+          "systems": [
+            "win"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "moazelgabry/chromaspace",
+      "name": "Chromaspace",
+      "vendor": "Moaz Elgabry",
+      "version": "2.0.0-Beta",
+      "description": "3D colour plotting and visualisation tool for DaVinci Resolve.",
+      "homepage": "https://github.com/MoazElgabry/Chromaspace",
+      "source": "https://github.com/MoazElgabry/Chromaspace",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/MoazElgabry/Chromaspace/releases/download/v2.0.0-Beta/Chromaspace_v2.0.beta_linux_x86_64_cuda_opencl_cpu_portable.tar.gz",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        },
+        {
+          "url": "https://github.com/MoazElgabry/Chromaspace/releases/download/v2.0.0-Beta/Chromaspace_v2.0.beta_macOS_universal_portable.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "135c10411d19c33fdecd53900c74c6faf1282ed665105c61eab3000329dfd054",
+          "size": 4612787
+        },
+        {
+          "url": "https://github.com/MoazElgabry/Chromaspace/releases/download/v2.0.0-Beta/Chromaspace_v2.0.beta_windows_x86_64_portable.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "2851e5ce8f7f8648acfd3183f66cd463c619a8d8b8bcdff0ffb97b6fc583b8cf",
+          "size": 7501821
         }
       ]
     },
@@ -532,6 +1082,265 @@
       ]
     },
     {
+      "slug": "creativevideotips/cvt-ltx-alpha-gen",
+      "name": "CVT LTX Alpha Gen",
+      "vendor": "Creative Video Tips",
+      "version": "1.45.0",
+      "description": "Local LTX-2.5 Alpha-Gen rotoscoping as an OFX plugin for DaVinci Resolve.",
+      "homepage": "https://creativevideotips.com",
+      "source": "https://github.com/creativevideotips/cvt-ltx-alpha-gen",
+      "license": "MPL-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/creativevideotips/cvt-ltx-alpha-gen/releases",
+          "systems": [
+            "mac"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "chris-weingart/cwtools",
+      "name": "cwTools",
+      "vendor": "Chris Weingart",
+      "version": "0.3.2",
+      "description": "ML matting, fill and refinement tools for Autodesk Flame, exposed as native OpenFX nodes.",
+      "homepage": "https://github.com/chris-weingart/cwTools",
+      "source": "https://github.com/chris-weingart/cwTools",
+      "license": "Apache-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "alpha-matting",
+        "autodesk-flame",
+        "compositing",
+        "matting",
+        "ofx-plugin",
+        "onnx",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/chris-weingart/cwTools/releases",
+          "systems": [
+            "mac",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "woysful/ofx-datamosh",
+      "name": "Datamosh",
+      "vendor": "Woysful",
+      "version": "1.6.0",
+      "description": "Datamosh filter that displaces motion vectors for glitch effects.",
+      "homepage": "https://github.com/Woysful/ofx-datamosh",
+      "source": "https://github.com/Woysful/ofx-datamosh",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/Woysful/ofx-datamosh/releases/download/v1.6.0/ofx-datamosh-v1.6.0-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "abc6be4becdb1a712601cc264b37a82488070c0b0affbd54593509ab1be57888",
+          "size": 352903
+        },
+        {
+          "url": "https://github.com/Woysful/ofx-datamosh/releases/download/v1.6.0/ofx-datamosh-v1.6.0-windows-x64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "27a7ff59483eea0f068f338dd6b21a8c2d8bd157440f42fbe60e52fe22f3321e",
+          "size": 543056
+        }
+      ]
+    },
+    {
+      "slug": "masterkoala/depth-map-ofx",
+      "name": "Depth Map OFX",
+      "vendor": "masterkoala",
+      "version": "0.0.0",
+      "description": "Depth-map generation plugin for DaVinci Resolve Studio.",
+      "homepage": "https://github.com/masterkoala/depthmapoxfbundle",
+      "source": "https://github.com/masterkoala/depthmapoxfbundle",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/masterkoala/depthmapoxfbundle",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "joevenzon/discountofx",
+      "name": "discountofx",
+      "vendor": "Joevenzon",
+      "version": "1.1.0",
+      "description": "Simple OFX video filter plugins.",
+      "homepage": "https://github.com/joevenzon/discountofx",
+      "source": "https://github.com/joevenzon/discountofx",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/joevenzon/discountofx/releases",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "promptlyaistudio/dnz-relight",
+      "name": "DNZ Relight",
+      "vendor": "Promptly AI Studio",
+      "version": "0.0.0",
+      "description": "AI relighting as a native OFX node for Autodesk Flame, running locally.",
+      "homepage": "https://github.com/promptlyaistudio/dnz-relight-ofx",
+      "source": "https://github.com/promptlyaistudio/dnz-relight-ofx",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "ai",
+        "apple-silicon",
+        "autodesk-flame",
+        "compositing",
+        "ic-light",
+        "nuke",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/promptlyaistudio/dnz-relight-ofx",
+          "systems": [
+            "mac"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "promptlyaistudio/dnz-sdr-to-hdr",
+      "name": "DNZ SDR to HDR",
+      "vendor": "Promptly AI Studio",
+      "version": "0.0.0",
+      "description": "SDR-to-HDR plate conversion as a native OFX node for Autodesk Flame.",
+      "homepage": "https://github.com/promptlyaistudio/dnz_sdr_to_hdr",
+      "source": "https://github.com/promptlyaistudio/dnz_sdr_to_hdr",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "acescg",
+        "apple-silicon",
+        "autodesk-flame",
+        "color-grading",
+        "exr",
+        "hdr",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/promptlyaistudio/dnz_sdr_to_hdr",
+          "systems": [
+            "mac"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
       "slug": "kaelalden/domewarp",
       "name": "DomeWarp",
       "vendor": "Kael Alden",
@@ -664,6 +1473,109 @@
       ]
     },
     {
+      "slug": "dughogan/alphagensam",
+      "name": "DUGco AlphaGenSAM",
+      "vendor": "DUGco",
+      "version": "0.1.0",
+      "description": "Nuke OFX plugin bringing LTX-2.5 Alpha-Gen and SAM 3.1 alpha generation into the node graph.",
+      "homepage": "https://github.com/dughogan/nuke-alphagen-ofx",
+      "source": "https://github.com/dughogan/nuke-alphagen-ofx",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/dughogan/nuke-alphagen-ofx/releases/download/v0.1.0/DUGco_AlphaGenSAM_0.1.0_win64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "bb5a0031f6a41133d8165f88b3d24a0ccec71f24af992b0c99c144cd4c90d42b",
+          "size": 12236996
+        }
+      ]
+    },
+    {
+      "slug": "xnqs/dyeline",
+      "name": "Dyeline",
+      "vendor": "xnqs",
+      "version": "0.6.0",
+      "description": "Colour-correction and grading plugin with a compact OpenFX UI.",
+      "homepage": "https://github.com/xnqs/Dyeline",
+      "source": "https://github.com/xnqs/Dyeline",
+      "license": "Apache-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/xnqs/Dyeline/releases/download/v0.6.0/Dyeline-0.6.0-linux-x86_64.tar.gz",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        },
+        {
+          "url": "https://github.com/xnqs/Dyeline/releases/download/v0.6.0/Dyeline-0.6.0-macos.zip",
+          "systems": [
+            "mac"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "285c87604e5ecc75b69706aff220b0cf58fec1c1ce21a903ca4371ebf10a87f9",
+          "size": 4768822
+        },
+        {
+          "url": "https://github.com/xnqs/Dyeline/releases/download/v0.6.0/Dyeline-0.6.0-windows-x64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "0a24abdc775fbaf4d3fa341337daf37f4c590423353f06b9dbf7618d76ba0b05",
+          "size": 2905616
+        }
+      ]
+    },
+    {
       "slug": "cr-market/fs-plugins",
       "name": "F's Plugins",
       "vendor": "cr-market",
@@ -719,6 +1631,81 @@
       ]
     },
     {
+      "slug": "stoatworks/ferric",
+      "name": "Ferric",
+      "vendor": "Stoatworks Labs",
+      "version": "0.2.0",
+      "description": "Tape emulation with wow, flutter, hiss, dropouts and cassette-style noise reduction.",
+      "homepage": "https://stoatworks-labs.com/software/ferric/",
+      "source": "https://github.com/stoatworks-labs/ferric",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "audio-reactive",
+        "bpm-sync",
+        "davinci-resolve",
+        "glsl",
+        "live-visuals",
+        "noise-reduction",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/ferric/releases/download/v0.2.0/ferric-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "7456cfb0af808a43df69647599056fafd34bd9ed588b4a8a1deee4212960dc10",
+          "size": 717247
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/ferric/releases/download/v0.2.0/ferric-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "ab7e6fb62fd9e92b79df1eba4716fa9b613af18f4c8db680547b23e9c62a7212",
+          "size": 261674
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/ferric/releases/download/v0.2.0/ferric-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "0cf2459a6efc68189ddadbe9b3926fce22dffe6bb159c52f3e2ab026e24fb979",
+          "size": 77960
+        }
+      ]
+    },
+    {
       "slug": "oldandangry/film-juicer",
       "name": "Film Juicer",
       "vendor": "Old and Angry",
@@ -751,6 +1738,320 @@
           ],
           "arch": [
             "x64"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "flamelogik/ltx-alpha-gen",
+      "name": "Flame LTX AlphaGen",
+      "vendor": "flamelogik",
+      "version": "1.0.0",
+      "description": "LTX AlphaGen matte generation as a native OFX node for Autodesk Flame.",
+      "homepage": "https://github.com/flamelogik/Flame_LTXAlphaGen_OFX",
+      "source": "https://github.com/flamelogik/Flame_LTXAlphaGen_OFX",
+      "license": "MPL-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "flame",
+        "flame-batch",
+        "logik",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/flamelogik/Flame_LTXAlphaGen_OFX/releases/download/v1.0.0/LTXAlphaGen-1.0.0-macos-arm64.tar.gz",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "arm64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "e4215c67c215ea5ac008dab02175dd9a7fec2627763cb0ee351655536cd97886",
+          "size": 630719
+        },
+        {
+          "url": "https://github.com/flamelogik/Flame_LTXAlphaGen_OFX/releases/download/v1.0.0/LTXAlphaGen-1.0.0-rocky9.tar.gz",
+          "systems": [
+            "linux"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "42ec8f3678e40b93d9e493687ba0c74a761f3016d7394118cc590841ee25c851",
+          "size": 705723
+        }
+      ]
+    },
+    {
+      "slug": "ken-eizo/flaresim",
+      "name": "Flaresim",
+      "vendor": "ken-eizo",
+      "version": "1.0.0",
+      "description": "Lens-flare simulation OpenFX plugin.",
+      "homepage": "https://github.com/ken-eizo/flaresim_ofx",
+      "source": "https://github.com/ken-eizo/flaresim_ofx",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/ken-eizo/flaresim_ofx/releases/download/v1.0.0/flaresim_ofx_win_v1.0.0.zip",
+          "systems": [
+            "win"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "ec70c58d381e23ddc01b10904d4ce1b6cf4fa4393bac43e610bff706e1642c2a",
+          "size": 1840824
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/flenser",
+      "name": "Flenser",
+      "vendor": "Stoatworks Labs",
+      "version": "0.1.6",
+      "description": "Liquid light show effect built from oil, water and dye textures on an overhead projector.",
+      "homepage": "https://stoatworks-labs.com/software/flenser/",
+      "source": "https://github.com/stoatworks-labs/flenser",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "contexts": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "tags": [
+        "davinci-resolve",
+        "glsl",
+        "liquid-light-show",
+        "live-visuals",
+        "open-source",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/flenser/releases/download/v0.1.6/flenser-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "b4f4d845bac8862e2b4dc45bd474935c9a38230cad84f3abcc91cb9f0edadc53",
+          "size": 722247
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/flenser/releases/download/v0.1.6/flenser-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "85aa4557e4f1fe6942251d1331e95e16584d71333af952b8085d76ec52b140da",
+          "size": 254831
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/flenser/releases/download/v0.1.6/flenser-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "d10eb856ec7174c215d0a5208edd912fcc1b62fac82d0b152d35854db99f45ae",
+          "size": 77324
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/flipbook",
+      "name": "Flipbook",
+      "vendor": "Stoatworks Labs",
+      "version": "1.0.10",
+      "description": "Sprite-sheet player that animates grid cells as a drift-free loop.",
+      "homepage": "https://stoatworks-labs.com/software/flipbook/",
+      "source": "https://github.com/stoatworks-labs/flipbook",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "contexts": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "tags": [
+        "davinci-resolve",
+        "glsl",
+        "live-visuals",
+        "open-source",
+        "openfx",
+        "resolume"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/flipbook/releases/download/v1.0.10/flipbook-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "f9ae2f41d7dc0e9c5cec6e67f37bb979f05297bf9e4529fa773f2ea1225ee062",
+          "size": 790538
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/flipbook/releases/download/v1.0.10/flipbook-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "e9f09c9bfb4d20a58c198bc40a6cadf575fb6e2859b990af7c5c0c626065b8d1",
+          "size": 376272
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/flipbook/releases/download/v1.0.10/flipbook-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "2369cc14c4938da9a9696e4a2b7decaab07e82848faed0d3cdea40acbb165ce1",
+          "size": 116901
+        }
+      ]
+    },
+    {
+      "slug": "dhaliwalx/fotufilm",
+      "name": "Fotufilm",
+      "vendor": "DhaliwalX",
+      "version": "1.15.0",
+      "description": "Film-simulation engine with a Resolve OpenFX plugin modelling exposure, development and print.",
+      "homepage": "https://fotufilm.com/",
+      "source": "https://github.com/DhaliwalX/fotufilm-engine",
+      "license": "Apache-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/DhaliwalX/fotufilm-engine/releases/download/v1.15/Fotufilm-OFX-macOS-1.15.zip",
+          "systems": [
+            "mac"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "7f34c8616944cfbe7151f8e889410c2f7794f957e19fd60eabc9db06c62b74b3",
+          "size": 24865767
+        }
+      ]
+    },
+    {
+      "slug": "kruumy/functional-fx-suite",
+      "name": "Functional FX Suite",
+      "vendor": "kruumy",
+      "version": "0.0.0",
+      "description": "Suite of OFX and After Effects effects covering blur, glow, distortion, stylise and time operations.",
+      "homepage": "https://github.com/kruumy/functional-fx-suite",
+      "source": "https://github.com/kruumy/functional-fx-suite",
+      "license": "BSD-3-Clause",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "after-effects",
+        "ofx",
+        "openfx",
+        "vfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/kruumy/functional-fx-suite",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
           ],
           "install": "external"
         }
@@ -825,6 +2126,81 @@
             "ofx"
           ],
           "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/gate",
+      "name": "Gate",
+      "vendor": "Stoatworks Labs",
+      "version": "0.2.1",
+      "description": "Film-projector gate, shutter and print emulation with weave, scratches and dye fade.",
+      "homepage": "https://stoatworks-labs.com/software/gate/",
+      "source": "https://github.com/stoatworks-labs/gate",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "davinci-resolve",
+        "faded-print",
+        "film",
+        "film-scratches",
+        "flicker",
+        "gate-weave",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/gate/releases/download/v0.2.1/gate-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "d8f0712e4a3f211be8815c46e785b49b3365293946792584bab028da7d20d9cc",
+          "size": 718818
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/gate/releases/download/v0.2.1/gate-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "2f6774d4814f02d19ef203e27d4139c17a2d199f7d5df3e933c6d01fc84f99b7",
+          "size": 261721
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/gate/releases/download/v0.2.1/gate-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "ab696a0e3243f3ddc80867af82a887e6eaef2934aa5d4a3ae8f0c84dbec1a58f",
+          "size": 79763
         }
       ]
     },
@@ -932,6 +2308,45 @@
           ],
           "contains": [
             "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "zhangxiao6776/houdini-ofx-plugins",
+      "name": "Houdini OFX Plugins",
+      "vendor": "zhangxiao6776",
+      "version": "0.0.0",
+      "description": "Eight OpenFX creative plugins for Houdini Copernicus, including pixel art, ASCII, dither and depth tools.",
+      "homepage": "https://github.com/zhangxiao6776/houdini-ofx-plugins",
+      "source": "https://github.com/zhangxiao6776/houdini-ofx-plugins",
+      "license": "BSD-3-Clause",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "copernicus",
+        "coreml",
+        "cpp17",
+        "depth-estimation",
+        "houdini",
+        "image-processing",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/zhangxiao6776/houdini-ofx-plugins",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
           ],
           "install": "external"
         }
@@ -1049,6 +2464,82 @@
             "ofx"
           ],
           "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/idler",
+      "name": "Idler",
+      "vendor": "Stoatworks Labs",
+      "version": "1.0.11",
+      "description": "Windows 95/98 screensaver generators, including Mystify, 3D Pipes and 3D Maze.",
+      "homepage": "https://stoatworks-labs.com/software/idler/",
+      "source": "https://github.com/stoatworks-labs/idler",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "contexts": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "tags": [
+        "davinci-resolve",
+        "generator",
+        "glsl",
+        "live-visuals",
+        "open-source",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/idler/releases/download/v1.0.11/idler-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "eb7fb69927f737eb479f242be4638857b4cced99e4d5964e7e5f88c6470b9b5e",
+          "size": 810546
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/idler/releases/download/v1.0.11/idler-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "3421404f37fbbd1485fa8403a7d9f43d528fe133b9a23404a965674369bf81fc",
+          "size": 353484
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/idler/releases/download/v1.0.11/idler-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "009d8b3ce3d40d296957aa19c9ec3992cc63fa6248f9bd657e7866b24bdc5212",
+          "size": 127885
         }
       ]
     },
@@ -1253,6 +2744,193 @@
       ]
     },
     {
+      "slug": "haklein/linux-ofx",
+      "name": "Linux OFX",
+      "vendor": "haklein",
+      "version": "0.0.0",
+      "description": "Collection of OpenFX plugins for DaVinci Resolve on Linux.",
+      "homepage": "https://github.com/haklein/Linux-OFX",
+      "source": "https://github.com/haklein/Linux-OFX",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/haklein/Linux-OFX",
+          "systems": [
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "ciqueira/look-film-lab",
+      "name": "Look Film Lab",
+      "vendor": "ciqueira",
+      "version": "0.2.3",
+      "description": "Film-look toolkit with CINE, PHOTO, SCAN and GRAIN plugins for grading and scanned-film emulation.",
+      "homepage": "https://github.com/ciqueira/LookFilmLab",
+      "source": "https://github.com/ciqueira/LookFilmLab",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/ciqueira/LookFilmLab/releases",
+          "systems": [
+            "mac",
+            "win"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "light-sail-vr/lsvr-vrndi",
+      "name": "LSVR VRNDI",
+      "vendor": "Light Sail VR",
+      "version": "1.18.0",
+      "description": "NDI output plugin for DaVinci Resolve that sends the program feed over the network.",
+      "homepage": "https://github.com/light-sail-vr/lsvr-vrndi-resolve-plugin",
+      "source": "https://github.com/light-sail-vr/lsvr-vrndi-resolve-plugin",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "general",
+        "generator"
+      ],
+      "contexts": [
+        "general",
+        "generator"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/light-sail-vr/lsvr-vrndi-resolve-plugin/releases/download/v1.18.0/NDIOutput-1.18.0-macOS.zip",
+          "systems": [
+            "mac"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "2f537717a89a5f1c1b17c00a57a2c741abad77eeb72612c13725b0e2a77c2136",
+          "size": 4452477
+        },
+        {
+          "url": "https://github.com/light-sail-vr/lsvr-vrndi-resolve-plugin/releases/download/v1.18.0/NDIOutput-1.18.0-Windows-x64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "3d51cba2780d7daca737143d0e44d937c7e9a4d0ea0a52f3798685643af8e4a1",
+          "size": 3976393
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/luma-key",
+      "name": "Luma Key",
+      "vendor": "Stoatworks Labs",
+      "version": "1.3.6",
+      "description": "Luminance keyer for Resolve, with OpenFX, FFGL and After Effects builds.",
+      "homepage": "https://stoatworks-labs.com/software/resolume-luma-keyer/",
+      "source": "https://github.com/stoatworks-labs/resolume-luma-keyer",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "glsl",
+        "luma-key",
+        "opengl",
+        "plugin",
+        "resolume",
+        "video-effects",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/resolume-luma-keyer/releases/download/v1.3.6/luma-key-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "700fc1b939a0e7e12e13729044199d5eb134136498e7af7c096d7d1f98755334",
+          "size": 693119
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/resolume-luma-keyer/releases/download/v1.3.6/luma-key-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "acca30dd807ae0eeb049277cdaeda9c5670d88ce43ea088d70a8795fd2ccec66",
+          "size": 218750
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/resolume-luma-keyer/releases/download/v1.3.6/luma-key-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "a19dbdf979e7116f515b3c6f9436b97186ee30e40154349eb440235aa38bc380",
+          "size": 57913
+        }
+      ]
+    },
+    {
       "slug": "stoatworks/macroblock",
       "name": "Macroblock",
       "vendor": "Stoatworks Labs",
@@ -1326,6 +3004,37 @@
       ]
     },
     {
+      "slug": "sanskarbabar/magicmask-ai",
+      "name": "MagicMask AI",
+      "vendor": "sanskarbabar",
+      "version": "0.0.0",
+      "description": "AI rotoscoping for DaVinci Resolve with a local matte-tracking helper app.",
+      "homepage": "https://github.com/sanskarbabar/MagicMaskAI",
+      "source": "https://github.com/sanskarbabar/MagicMaskAI",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/sanskarbabar/MagicMaskAI",
+          "systems": [
+            "win"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
       "slug": "sosoyan/make-hdr",
       "name": "MakeHDR",
       "vendor": "sosoyan",
@@ -1367,6 +3076,112 @@
             "ofx"
           ],
           "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "tardis7732/marigold-v2",
+      "name": "Marigold V2",
+      "vendor": "tardis7732",
+      "version": "0.2.0",
+      "description": "Marigold V2 monocular depth and normal estimation for Nuke with native OFX inference.",
+      "homepage": "https://github.com/tardis7732/MarigoldV2-Nuke",
+      "source": "https://github.com/tardis7732/MarigoldV2-Nuke",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "generator"
+      ],
+      "contexts": [
+        "filter",
+        "generator"
+      ],
+      "tags": [
+        "computer-vision",
+        "cuda",
+        "marigold",
+        "nuke",
+        "openfx",
+        "surface-normals"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/tardis7732/MarigoldV2-Nuke/releases/download/v0.2.0/MarigoldV2-Nuke-Windows-x64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "fdc72367414647341fcaa2edefb278aa88c4b2183144aa38491f0aa646a789dc",
+          "size": 44848
+        }
+      ]
+    },
+    {
+      "slug": "hayaksirehberi/maske",
+      "name": "Maske",
+      "vendor": "hayaksirehberi",
+      "version": "1.2.0",
+      "description": "History-brush matte painting inside DaVinci Resolve's Color page.",
+      "homepage": "https://github.com/hayaksirehberi/maske-ofx",
+      "source": "https://github.com/hayaksirehberi/maske-ofx",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/hayaksirehberi/maske-ofx/releases",
+          "systems": [
+            "mac"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "eltorio/max-to-equirect",
+      "name": "Max To Equirect",
+      "vendor": "eltorio",
+      "version": "0.0.0",
+      "description": "Converts GoPro Max footage to equirectangular output as an OpenFX plugin.",
+      "homepage": "https://github.com/eltorio/MaxToEquirectPlugin",
+      "source": "https://github.com/eltorio/MaxToEquirectPlugin",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/eltorio/MaxToEquirectPlugin",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
         }
       ]
     },
@@ -1437,6 +3252,112 @@
             "ofx"
           ],
           "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "zzzzzz9125/miscz",
+      "name": "Miscz",
+      "vendor": "zzzzzz9125",
+      "version": "1.3.2",
+      "description": "Collection of utility OpenFX plugins for VEGAS Pro.",
+      "homepage": "https://github.com/zzzzzz9125/Miscz",
+      "source": "https://github.com/zzzzzz9125/Miscz",
+      "license": "GPL-2.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/zzzzzz9125/Miscz/releases",
+          "systems": [
+            "win"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/nesolume",
+      "name": "Nesolume",
+      "vendor": "Stoatworks Labs",
+      "version": "1.1.1",
+      "description": "Retro console video hardware emulation, from NES attribute clash to Amiga HAM fringing.",
+      "homepage": "https://stoatworks-labs.com/software/nesolume/",
+      "source": "https://github.com/stoatworks-labs/nesolume",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "amiga",
+        "davinci-resolve",
+        "glitch",
+        "glsl",
+        "live-visuals",
+        "open-source",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/nesolume/releases/download/v1.1.1/nesolume-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "227c4d91cb4333a54b62b35b9d9826f1ca892000f8e3f320e5afcfaa5fdd9b35",
+          "size": 720709
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/nesolume/releases/download/v1.1.1/nesolume-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "a5a4f72b1424846e2e8c4a08b666e507b8a33f6038b28995d1540e6bcb3a8551",
+          "size": 243838
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/nesolume/releases/download/v1.1.1/nesolume-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "7884ac4c334943475876ecbd5ef9eb07c13bd738072b33db6dc7d88a74823393",
+          "size": 71182
         }
       ]
     },
@@ -1550,6 +3471,36 @@
       ]
     },
     {
+      "slug": "fabiof17/nuke-ofx",
+      "name": "Nuke OFX",
+      "vendor": "fabiof17",
+      "version": "1.3.0",
+      "description": "Collection of OFX plugins for Foundry Nuke, including glow, despill, corner-pin and chroma tools.",
+      "homepage": "https://github.com/fabiof17/Nuke_OFX",
+      "source": "https://github.com/fabiof17/Nuke_OFX",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "general"
+      ],
+      "contexts": [
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/fabiof17/Nuke_OFX/releases",
+          "systems": [
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
       "slug": "ciqueira/open-display-transform",
       "name": "ODT N6 Color",
       "vendor": "ciqueira",
@@ -1601,6 +3552,119 @@
             "ofx"
           ],
           "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "alicevision/ofxmvg",
+      "name": "ofxMVG",
+      "vendor": "AliceVision",
+      "version": "0.0.0",
+      "description": "OpenFX plugins for multiple-view geometry: feature matching, depth and camera solving.",
+      "homepage": "https://github.com/alicevision/ofxMVG",
+      "source": "https://github.com/alicevision/ofxMVG",
+      "license": "MPL-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general",
+        "paint"
+      ],
+      "contexts": [
+        "filter",
+        "general",
+        "paint"
+      ],
+      "tags": [
+        "camera",
+        "camera-calibration",
+        "camera-tracking",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/alicevision/ofxMVG",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/old-cathode",
+      "name": "Old Cathode",
+      "vendor": "Stoatworks Labs",
+      "version": "1.0.8",
+      "description": "Analogue TV signal path and CRT emulation with raster and colour artefacts.",
+      "homepage": "https://stoatworks-labs.com/software/old-cathode/",
+      "source": "https://github.com/stoatworks-labs/old-cathode",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "analog-video",
+        "crt",
+        "glsl",
+        "opengl",
+        "plugin",
+        "resolume",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/old-cathode/releases/download/v1.0.8/old-cathode-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "4cf14d869ac2c29309b8af29a7e9013b40bee75a087f6df9a5ebcf160c6a22d8",
+          "size": 731342
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/old-cathode/releases/download/v1.0.8/old-cathode-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "23bb87fb33e02cb22e71c84f5958cdbc780268845d9dee9a9ec2e75318e7a8a0",
+          "size": 291503
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/old-cathode/releases/download/v1.0.8/old-cathode-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "18c9bacb7390c0469e22cf358249affd2b2491594c57baab2c1fb4c28aa0c45a",
+          "size": 82058
         }
       ]
     },
@@ -1661,6 +3725,33 @@
       ]
     },
     {
+      "slug": "mercenariesengineering/openexrid",
+      "name": "OpenEXRId",
+      "vendor": "Mercenaries Engineering",
+      "version": "1.0.0-beta.31",
+      "description": "Generates EXR/Id images that let compositors isolate objects without extra renders.",
+      "homepage": "https://github.com/MercenariesEngineering/openexrid",
+      "source": "https://github.com/MercenariesEngineering/openexrid",
+      "license": "MIT",
+      "redistributable": true,
+      "tags": [
+        "exr",
+        "mask",
+        "openfx-plug",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/MercenariesEngineering/openexrid/releases",
+          "systems": [
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
       "slug": "natron/openfx-arena",
       "name": "OpenFX Arena",
       "vendor": "Natron",
@@ -1698,6 +3789,37 @@
           ],
           "contains": [
             "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "rodlie/openfx-audio",
+      "name": "OpenFX Audio",
+      "vendor": "rodlie",
+      "version": "0.0.0",
+      "description": "Audio-curve generator plugin for Natron and other OpenFX hosts.",
+      "homepage": "https://github.com/rodlie/openfx-audio",
+      "source": "https://github.com/rodlie/openfx-audio",
+      "license": "LGPL-2.1-only",
+      "redistributable": true,
+      "plugin_types": [
+        "general"
+      ],
+      "contexts": [
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/rodlie/openfx-audio",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
           ],
           "install": "external"
         }
@@ -1926,6 +4048,369 @@
       ]
     },
     {
+      "slug": "mikansei/openfx-ndi",
+      "name": "OpenFX NDI",
+      "vendor": "Mikansei Laboratory",
+      "version": "0.0.0-alpha.1",
+      "description": "NDI output support for OpenFX hosts such as DaVinci Resolve.",
+      "homepage": "https://github.com/MikanseiLaboratory/openfx-network-video-plugin",
+      "source": "https://github.com/MikanseiLaboratory/openfx-network-video-plugin",
+      "license": "MIT",
+      "redistributable": true,
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/MikanseiLaboratory/openfx-network-video-plugin/releases/download/v0.0.0-alpha.1/openfx-network-video-plugin-v0.0.0-alpha.1.zip",
+          "sha256": "232da419556048f9a17121f86c623eb50f57234fef496b8c39e991afdf93f9b2",
+          "size": 4734118,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "mikansei/openfx-omt",
+      "name": "OpenFX OMT",
+      "vendor": "Mikansei Laboratory",
+      "version": "0.0.0-alpha.1",
+      "description": "OMT output support for OpenFX hosts such as DaVinci Resolve.",
+      "homepage": "https://github.com/MikanseiLaboratory/openfx-omt-plugin",
+      "source": "https://github.com/MikanseiLaboratory/openfx-omt-plugin",
+      "license": "MIT",
+      "redistributable": true,
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/MikanseiLaboratory/openfx-omt-plugin/releases/download/v0.0.0-alpha.1/openfx-omt-plugin-v0.0.0-alpha.1.zip",
+          "sha256": "005d2227ca787f79ba37bacca4c232e9b8ec183cbab07c9bdee5aed86d18662c",
+          "size": 555182,
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "kemerd/openosv",
+      "name": "OpenOSV",
+      "vendor": "Kemerd",
+      "version": "0.6.4",
+      "description": "Native DJI Osmo 360 (.OSV) importer and stitcher for Resolve, Premiere and VEGAS.",
+      "homepage": "https://github.com/Kemerd/OpenOSV",
+      "source": "https://github.com/Kemerd/OpenOSV",
+      "license": "Apache-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "360-video",
+        "adobe-premiere",
+        "color-science",
+        "cpp20",
+        "cuda",
+        "d-log-m",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/Kemerd/OpenOSV/releases",
+          "systems": [
+            "win"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/orrery",
+      "name": "Orrery",
+      "vendor": "Stoatworks Labs",
+      "version": "1.0.9",
+      "description": "Deterministic shape generator for sources and masks on fixed paths.",
+      "homepage": "https://stoatworks-labs.com/software/orrery/",
+      "source": "https://github.com/stoatworks-labs/orrery",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "contexts": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "tags": [
+        "glsl",
+        "opengl",
+        "pixel-mapping",
+        "resolume",
+        "sdf",
+        "video",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/orrery/releases/download/v1.0.9/orrery-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "b30caf7deb66fe14156c067ecfe8e8c44e3cfa4fcf7ee0a658633bdc62123e72",
+          "size": 720977
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/orrery/releases/download/v1.0.9/orrery-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "845f9f5766a69a8f9beef3c471589e4319016750c1bf44321893ac422dd8f560",
+          "size": 260108
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/orrery/releases/download/v1.0.9/orrery-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "e5b7e14e4f2dd4a645e83ab067987e3decead20faf142b27198d1947bcbc78c6",
+          "size": 79123
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/pilot",
+      "name": "Pilot",
+      "vendor": "Stoatworks Labs",
+      "version": "0.2.0",
+      "description": "ZX Spectrum tape-loading effect, complete with border stripes and loading errors.",
+      "homepage": "https://stoatworks-labs.com/software/pilot/",
+      "source": "https://github.com/stoatworks-labs/pilot",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general",
+        "transition"
+      ],
+      "contexts": [
+        "filter",
+        "general",
+        "transition"
+      ],
+      "tags": [
+        "davinci-resolve",
+        "glsl",
+        "live-visuals",
+        "open-source",
+        "openfx",
+        "resolume"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/pilot/releases/download/v0.2.0/pilot-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "4204d42db8113925c9d779a7761484c0054646eaaef1974a839b68a2951d834a",
+          "size": 718202
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/pilot/releases/download/v0.2.0/pilot-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "8a0f4021b6d8dd7f69a42787e57fe056418d0b940160db496c9ae7467e6595bf",
+          "size": 265036
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/pilot/releases/download/v0.2.0/pilot-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "df00c6f2e1c0f3ba6d9c3aa300cebcf62a497574376455b7be280d09467f27ad",
+          "size": 74965
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/porthole",
+      "name": "Porthole",
+      "vendor": "Stoatworks Labs",
+      "version": "1.0.6",
+      "description": "Fisheye and defish warp for 360 and wide-angle footage.",
+      "homepage": "https://stoatworks-labs.com/software/porthole/",
+      "source": "https://github.com/stoatworks-labs/porthole",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "defish",
+        "fisheye",
+        "glsl",
+        "lens-distortion",
+        "opengl",
+        "plugin",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/porthole/releases/download/v1.0.6/porthole-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "e05ff848970912503854ebe3e25aeedf4883f720c45bb0d8d72e1dbcd8ec66a5",
+          "size": 711543
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/porthole/releases/download/v1.0.6/porthole-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "ed0e353bdaa4eb529f9b56d0ce42479113475ed35aae1dff2dcec435b31cf8f0",
+          "size": 235834
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/porthole/releases/download/v1.0.6/porthole-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "3534916609bc79f4cb54a9681585289048ea4b13e4a94dcf9eb2d557af890714",
+          "size": 66523
+        }
+      ]
+    },
+    {
+      "slug": "lavanderhairo-ops/puppetpin",
+      "name": "PuppetPin",
+      "vendor": "lavanderhairo-ops",
+      "version": "1.8.0",
+      "description": "Puppet-pin warping for DaVinci Resolve's Edit and Fusion pages.",
+      "homepage": "https://github.com/lavanderhairo-ops/PuppetPin",
+      "source": "https://github.com/lavanderhairo-ops/PuppetPin",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/lavanderhairo-ops/PuppetPin/releases/download/v1.8/PuppetPin-1.8-Windows.zip",
+          "systems": [
+            "win"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "c65947aec99ff72133383fbdd7c3e038eb50e736c83b14911a0c7a44c27380a3",
+          "size": 847717
+        }
+      ]
+    },
+    {
       "slug": "purzbeats/purzos-ofx",
       "name": "purzOS OFX",
       "vendor": "purzbeats",
@@ -2040,6 +4525,385 @@
       ]
     },
     {
+      "slug": "stoatworks/readout",
+      "name": "Readout",
+      "vendor": "Stoatworks Labs",
+      "version": "0.2.0",
+      "description": "CMOS rolling-shutter simulation with skew, jello, half-caught strobes and flicker bands.",
+      "homepage": "https://stoatworks-labs.com/software/readout/",
+      "source": "https://github.com/stoatworks-labs/readout",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "audio-reactive",
+        "bpm-sync",
+        "camera",
+        "davinci-resolve",
+        "glsl",
+        "live-visuals",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/readout/releases/download/v0.2.0/readout-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "9cff46dc763e653c48192786689a1cec5e514f62a1646816f33d5b8f270c3de9",
+          "size": 731995
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/readout/releases/download/v0.2.0/readout-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "d521cdcf0eed029acadb540027beeee8a5a0712ab740597573cfd8fe2483f3d7",
+          "size": 265124
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/readout/releases/download/v0.2.0/readout-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "a22ab706a02301595886c5c340129166597f77daf4088290f24a7c61bc9a99bf",
+          "size": 76150
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/rebate",
+      "name": "Rebate",
+      "vendor": "Stoatworks Labs",
+      "version": "0.3.1",
+      "description": "Film-negative and scan emulation with exposure, orange mask, grain and lab-scan controls.",
+      "homepage": "https://stoatworks-labs.com/software/rebate/",
+      "source": "https://github.com/stoatworks-labs/rebate",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "analogue",
+        "colour-negative",
+        "davinci-resolve",
+        "film",
+        "film-grain",
+        "glsl",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/rebate/releases/download/v0.3.1/rebate-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "ba38ee72b206824a2b54afcfbb9182b017515368f6c6b67755e80b9297b6e4d7",
+          "size": 734043
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/rebate/releases/download/v0.3.1/rebate-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "31d9d4f3be173ef1f7c82f3683bfefc81901489e59e93ff6eda463279ad8c9d2",
+          "size": 274947
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/rebate/releases/download/v0.3.1/rebate-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "d22cacf7218ed48c7fc372603e0c5ca692d7efc3f0263ab856907e2ec0b00fd8",
+          "size": 81428
+        }
+      ]
+    },
+    {
+      "slug": "sgravel-dev/reframe360-xl",
+      "name": "Reframe360 XL",
+      "vendor": "sgravel-dev",
+      "version": "1.0.0-beta",
+      "description": "Reframing plugin for Insta360 and other 360-degree footage in DaVinci Resolve.",
+      "homepage": "https://github.com/sgravel-dev/reframe360XL",
+      "source": "https://github.com/sgravel-dev/reframe360XL",
+      "license": "Apache-2.0",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/sgravel-dev/reframe360XL/releases/download/1.0.Mac.beta/Reframe360.ofx.bundle.zip",
+          "systems": [
+            "mac"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        },
+        {
+          "url": "https://github.com/sgravel-dev/reframe360XL/releases/download/1.0.beta.Win/Reframe360Plugin.ofx.bundle.Win.zip",
+          "systems": [
+            "win"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/regauss",
+      "name": "Regauss",
+      "vendor": "Stoatworks Labs",
+      "version": "0.1.7",
+      "description": "CRT degauss effect with magnetic distortion and speaker interference.",
+      "homepage": "https://stoatworks-labs.com/software/regauss/",
+      "source": "https://github.com/stoatworks-labs/regauss",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "audio-reactive",
+        "crt",
+        "davinci-resolve",
+        "glitch",
+        "glsl",
+        "live-visuals",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/regauss/releases/download/v0.1.7/regauss-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "122523aaa3d56de5e8ccdcc7f234921e0591076a9022428d95ef57e3e74d69e4",
+          "size": 723884
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/regauss/releases/download/v0.1.7/regauss-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "a52af59a617a67d6b2664fb5938867c5a63066b8b377eed13eccaa0db1d03579",
+          "size": 274632
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/regauss/releases/download/v0.1.7/regauss-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "c875f2655621c23692c4407bc9cd02b248a19d150a1f2bd23d14ba330e0e21f7",
+          "size": 76048
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/relay",
+      "name": "Relay",
+      "vendor": "Stoatworks Labs",
+      "version": "0.2.0",
+      "description": "Relay-based A/B transition with bounce, banding and monitor re-lock.",
+      "homepage": "https://stoatworks-labs.com/software/relay/",
+      "source": "https://github.com/stoatworks-labs/relay",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "transition"
+      ],
+      "contexts": [
+        "transition"
+      ],
+      "tags": [
+        "broadcast",
+        "davinci-resolve",
+        "glsl",
+        "live-visuals",
+        "mixer",
+        "open-source",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/relay/releases/download/v0.2.0/relay-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "8aaa216534436411b47ced778cb14743a7244ff09a756dd529832d40cc5ed4a3",
+          "size": 713168
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/relay/releases/download/v0.2.0/relay-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "6bca54625ab56a4f0c45eedfc76e792b620631da8bd4d818504b56dfe2b849b5",
+          "size": 261020
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/relay/releases/download/v0.2.0/relay-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "8018bcdbbc970905136be3ea7e58531ff25508ae6783aa192ec0f5bb8dd0523d",
+          "size": 75595
+        }
+      ]
+    },
+    {
+      "slug": "netcharm/renderass",
+      "name": "RenderASS",
+      "vendor": "netcharm",
+      "version": "0.0.0",
+      "description": "Renders ASS/SSA subtitles as an OpenFX plugin.",
+      "homepage": "https://github.com/netcharm/RenderASS_Ofx",
+      "source": "https://github.com/netcharm/RenderASS_Ofx",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general",
+        "generator",
+        "paint"
+      ],
+      "contexts": [
+        "filter",
+        "general",
+        "generator",
+        "paint"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/netcharm/RenderASS_Ofx",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
       "slug": "saog0721/resolve-dlss5",
       "name": "Resolve DLSS5",
       "vendor": "SAOG0721",
@@ -2078,6 +4942,245 @@
             "ofx"
           ],
           "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "gyom03/rife",
+      "name": "RIFE",
+      "vendor": "Gyom03",
+      "version": "0.2.0",
+      "description": "RIFE frame interpolation as a native OpenFX retimer for DaVinci Resolve on Windows.",
+      "homepage": "https://github.com/Gyom03/rife-ofx",
+      "source": "https://github.com/Gyom03/rife-ofx",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "retimer"
+      ],
+      "contexts": [
+        "filter",
+        "retimer"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/Gyom03/rife-ofx/releases/download/v0.2.0/RifeOFX-v0.2.0-win64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "5689c6c126ee7e52e3140308d77dc32ee28b9ae5a64f96fba1f1cc53b1dab26b",
+          "size": 63953833
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/rosette",
+      "name": "Rosette",
+      "vendor": "Stoatworks Labs",
+      "version": "0.2.0",
+      "description": "Offset-litho halftone effect with four plates, dot gain and deliberate misregistration.",
+      "homepage": "https://stoatworks-labs.com/software/rosette/",
+      "source": "https://github.com/stoatworks-labs/rosette",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "audio-reactive",
+        "cmyk",
+        "davinci-resolve",
+        "glsl",
+        "halftone",
+        "live-visuals",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/rosette/releases/download/v0.2.0/rosette-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "f15eaa638875acc816138597c7ba13614c8f06ff17ef697ce68d61d05833f947",
+          "size": 716334
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/rosette/releases/download/v0.2.0/rosette-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "991c181a2dc18f9b4cd3619201c721aa6058eb6dc93ce9003e4d2560fffeb746",
+          "size": 261423
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/rosette/releases/download/v0.2.0/rosette-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "72c703f95939e6800271b00b84dc11b49a324d72aaba839f422c9fc350ac4147",
+          "size": 79078
+        }
+      ]
+    },
+    {
+      "slug": "smunaut/rvmofx",
+      "name": "rvmofx",
+      "vendor": "Sylvain Munaut",
+      "version": "0.0.0",
+      "description": "Automatic background removal using Robust Video Matting, packaged as an OpenFX plugin.",
+      "homepage": "https://github.com/smunaut/rvmofx",
+      "source": "https://github.com/smunaut/rvmofx",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "general"
+      ],
+      "contexts": [
+        "general"
+      ],
+      "tags": [
+        "matting",
+        "openfx",
+        "pytorch",
+        "video"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/smunaut/rvmofx",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "tsfbce24/saturation-ofx",
+      "name": "Saturation OFX",
+      "vendor": "TSFBCE24",
+      "version": "0.0.0",
+      "description": "Saturation effect that emulates the look of aged film.",
+      "homepage": "https://github.com/TSFBCE24RhythmHeaveners/SaturationOFX",
+      "source": "https://github.com/TSFBCE24RhythmHeaveners/SaturationOFX",
+      "license": "BSD-3-Clause",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/TSFBCE24RhythmHeaveners/SaturationOFX",
+          "systems": [
+            "win"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "mecena-srl/slog-meta-raw",
+      "name": "SLog Meta Raw",
+      "vendor": "Mecena",
+      "version": "3.0.0",
+      "description": "Sony XAVC metadata reader and Camera Raw-style controls as an OpenFX node for DaVinci Resolve.",
+      "homepage": "https://github.com/Mecena-SRL/SLogMetaRaw",
+      "source": "https://github.com/Mecena-SRL/SLogMetaRaw",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "a6300",
+        "camera-raw",
+        "color-grading",
+        "davinci-resolve-scripting",
+        "fx3",
+        "fx30",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/Mecena-SRL/SLogMetaRaw/releases/download/v3.0.0/SLogMetaRaw-3.0.0-linux-x86_64.tar.gz",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "ad45c86af42916bb7c93fda7b725b16f6bbaecadf5db39383e33fb090e743eb7",
+          "size": 1020617
+        },
+        {
+          "url": "https://github.com/Mecena-SRL/SLogMetaRaw/releases/download/v3.0.0/SLogMetaRaw-3.0.0-windows-x64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "9680ceb5baee4af9575e0a4fe3ef123395a3fbe1ee05ebf654b7eacb9d09964d",
+          "size": 474486
         }
       ]
     },
@@ -2180,6 +5283,66 @@
       ]
     },
     {
+      "slug": "look-supply/spectra",
+      "name": "Spectra",
+      "vendor": "LoFi FX",
+      "version": "0.9.0-beta",
+      "description": "Film-stock emulation plugin for DaVinci Resolve with negative, print and scan models.",
+      "homepage": "https://github.com/look-supply/Spectra",
+      "source": "https://github.com/look-supply/Spectra",
+      "license": "AGPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/look-supply/Spectra/releases",
+          "systems": [
+            "mac"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "chaert-s/spektrafilm",
+      "name": "Spektrafilm",
+      "vendor": "Spektrafilm",
+      "version": "0.0.0",
+      "description": "Native OpenFX port of the Spektrafilm film-stock engine, with negative, print and scan stages.",
+      "homepage": "https://spektrafilm.114c.de",
+      "source": "https://github.com/chaert-s/spektrafilm-ofx",
+      "license": "GPL-3.0-only",
+      "redistributable": false,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/chaert-s/spektrafilm-ofx",
+          "systems": [
+            "mac",
+            "win",
+            "linux"
+          ],
+          "install": "external"
+        }
+      ]
+    },
+    {
       "slug": "stoatworks/tilter",
       "name": "Tilter",
       "vendor": "Stoatworks Labs",
@@ -2252,6 +5415,81 @@
       ]
     },
     {
+      "slug": "stoatworks/tinsel",
+      "name": "Tinsel",
+      "vendor": "Stoatworks Labs",
+      "version": "1.0.7",
+      "description": "Edge-detection outline effect rendered as animated LED strings with 20 patterns.",
+      "homepage": "https://stoatworks-labs.com/software/tinsel/",
+      "source": "https://github.com/stoatworks-labs/tinsel",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general"
+      ],
+      "contexts": [
+        "filter",
+        "general"
+      ],
+      "tags": [
+        "davinci-resolve",
+        "edge-detection",
+        "glsl",
+        "led",
+        "live-visuals",
+        "open-source",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/tinsel/releases/download/v1.0.7/tinsel-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "cc4fa4421661c6f00b463c7f57e96c823701d2b3f6f7ed99957b886fbcaee781",
+          "size": 731944
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/tinsel/releases/download/v1.0.7/tinsel-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "2817fa3e1431ebcae5b1015a147c68cef98385ffe0071ce4563901fb8c0a51a6",
+          "size": 285446
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/tinsel/releases/download/v1.0.7/tinsel-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "678dfbfbc9c2c993bd7e9e6fc2203384c4f66e39d5708d5216d747189ee405dd",
+          "size": 84965
+        }
+      ]
+    },
+    {
       "slug": "tuttleofx/tuttleofx",
       "name": "TuttleOFX",
       "vendor": "TuttleOFX",
@@ -2292,6 +5530,83 @@
             "x64"
           ],
           "install": "external"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/vectrix",
+      "name": "Vectrix",
+      "vendor": "Stoatworks Labs",
+      "version": "0.1.12",
+      "description": "Vector-CRT synthesiser with an oscillator, pedalboard and X/Y oscilloscope.",
+      "homepage": "https://stoatworks-labs.com/software/vectrix/",
+      "source": "https://github.com/stoatworks-labs/vectrix",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "contexts": [
+        "filter",
+        "general",
+        "generator"
+      ],
+      "tags": [
+        "davinci-resolve",
+        "dsp",
+        "glsl",
+        "lissajous",
+        "live-visuals",
+        "open-source",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/vectrix/releases/download/v0.1.12/vectrix-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "be8843bb3cdbd931b554874e323c96665e4d6a32e70518b7895ec50c29f24a2c",
+          "size": 1605129
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/vectrix/releases/download/v0.1.12/vectrix-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "1fcc28b6c723e26bb63f2756e43dd4e21952ad28ec31af530cf0029ad4c81351",
+          "size": 1214911
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/vectrix/releases/download/v0.1.12/vectrix-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "a76b10574d20240340ba811a51c602b58195db0a03a847ed7800a9f73b303779",
+          "size": 426174
         }
       ]
     },
@@ -2364,6 +5679,113 @@
             "ofx"
           ],
           "install": "archive"
+        }
+      ]
+    },
+    {
+      "slug": "stoatworks/wipe",
+      "name": "Wipe",
+      "vendor": "Stoatworks Labs",
+      "version": "0.2.0",
+      "description": "1970s vision-mixer wipe generator with soft edges, borders and analogue wobble.",
+      "homepage": "https://stoatworks-labs.com/software/wipe/",
+      "source": "https://github.com/stoatworks-labs/wipe",
+      "license": "MIT",
+      "redistributable": true,
+      "plugin_types": [
+        "general",
+        "transition"
+      ],
+      "contexts": [
+        "general",
+        "transition"
+      ],
+      "tags": [
+        "broadcast",
+        "davinci-resolve",
+        "glsl",
+        "live-visuals",
+        "mixer",
+        "open-source",
+        "openfx"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/stoatworks-labs/wipe/releases/download/v0.2.0/wipe-ofx-linux-x86_64.zip",
+          "systems": [
+            "linux"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "def2e83fc6a9abbc0a6d14411b34acf1dde35a6966072192f61f5bf08d56d141",
+          "size": 717858
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/wipe/releases/download/v0.2.0/wipe-ofx-macos-universal.zip",
+          "systems": [
+            "mac"
+          ],
+          "arch": [
+            "universal"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "8ed433217a988964bd77cb278cf54b05df0ae58172bc26e86381810a2447164f",
+          "size": 258409
+        },
+        {
+          "url": "https://github.com/stoatworks-labs/wipe/releases/download/v0.2.0/wipe-ofx-windows-x86_64.zip",
+          "systems": [
+            "win"
+          ],
+          "arch": [
+            "x64"
+          ],
+          "contains": [
+            "ofx"
+          ],
+          "install": "archive",
+          "sha256": "8d5bb4edfd14e160f79325f68207650796a45de9acf1e1ddbd1ee59b690dae57",
+          "size": 77347
+        }
+      ]
+    },
+    {
+      "slug": "tsfbce24/zokzir",
+      "name": "Zokzir",
+      "vendor": "TSFBCE24",
+      "version": "0.0.0",
+      "description": "Small OpenFX bundle with Saturation and Droste effects.",
+      "homepage": "https://github.com/TSFBCE24RhythmHeaveners/openfx-zokzir",
+      "source": "https://github.com/TSFBCE24RhythmHeaveners/openfx-zokzir",
+      "license": "BSD-3-Clause",
+      "redistributable": true,
+      "plugin_types": [
+        "filter"
+      ],
+      "contexts": [
+        "filter"
+      ],
+      "tags": [
+        "ofx",
+        "ofxplugin",
+        "openfx",
+        "openfx-plugin"
+      ],
+      "files": [
+        {
+          "url": "https://github.com/TSFBCE24RhythmHeaveners/openfx-zokzir",
+          "systems": [
+            "win"
+          ],
+          "install": "external"
         }
       ]
     },

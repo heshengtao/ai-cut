@@ -3,14 +3,20 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.3-1A6CFF?style=flat-square" alt="Version 0.2.3">
+  <a href="https://github.com/heshengtao/ai-cut/releases"><img src="https://img.shields.io/github/v/release/heshengtao/ai-cut?style=flat-square&color=1A6CFF" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-1A6CFF?style=flat-square" alt="License: Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/platforms-Windows%20/%20macOS%20/%20Linux-1A6CFF?style=flat-square" alt="Platforms: Windows, macOS, Linux">
+  <img src="https://img.shields.io/badge/platforms-Windows%20/%20macOS%20/%20Linux%20/%20Web-1A6CFF?style=flat-square" alt="Platforms: Windows, macOS, Linux, Web">
+  <a href="https://hub.docker.com/r/ailm32442/ai-cut"><img src="https://img.shields.io/docker/pulls/ailm32442/ai-cut?style=flat-square&color=1A6CFF" alt="Docker pulls"></a>
 </p>
 
 <p align="center">
   <a href="README_zh.md"><b>简体中文</b></a> ·
   <a href="README.md"><b>English</b></a>
+</p>
+
+<p align="center">
+  <a href="https://hub.docker.com/r/ailm32442/ai-cut"><b>Docker Hub</b></a> ·
+  <a href="https://github.com/heshengtao/ai-cut/releases">Download</a>
 </p>
 
 ## What is AI Cut?
@@ -299,14 +305,38 @@ Yes. `export_video` renders the timeline over MCP — MP4, ProRes, or GIF. `outp
 ## Support
 
 ### Please star us!
+⭐ Your support is the driving force for us to move forward!
 
-If AI Cut is useful to you, a star helps other people find it — and it is the clearest
-signal that this work is worth continuing.
+### Tips Welcome!
+<div align="center" style="display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;">
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/agentparty)
+[![爱发电](https://img.shields.io/badge/爱发电-支持我们-946ce6?style=for-the-badge&logo=affine&logoColor=white)](https://afdian.com/a/agentparty)
+
+</div>
 
 ### Follow us
+<div align="center">
+  <a href="https://space.bilibili.com/26978344">
+    <img src="screenshots/B.png" width="100" height="100" style="border-radius: 80%; overflow: hidden;" alt="bilibili"/>
+  </a>
+  <a href="https://www.youtube.com/@agentParty">
+    <img src="screenshots/YT.png" width="100" height="100" style="border-radius: 80%; overflow: hidden;" alt="youtube"/>
+  </a>
+</div>
 
-- GitHub: <https://github.com/heshengtao>
-- Issues and ideas: <https://github.com/heshengtao/ai-cut/issues>
+### Join the Community
+If you have any questions or issues with the project, you are welcome to join our community.
+
+1. QQ Group: `931057213` (Full) / `902882342` (Group 2)
+
+2. Discord: [Discord link](https://discord.gg/f2dsAKKr2V)
+
+## Contributors
+
+<a href="https://github.com/heshengtao/ai-cut/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=heshengtao/ai-cut" alt="Contributors to heshengtao/ai-cut" />
+</a>
 
 ## License
 
