@@ -16,6 +16,7 @@ import {
   fontRegistry,
   fontsourceId,
   importFont,
+  pickFontFile,
   installFont,
   onFontProgress,
   probeFont,
@@ -419,13 +420,8 @@ function fileStem(path: string): string {
 async function pickLocalFont(): Promise<void> {
   if (importBusy.value) return;
   try {
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const picked = await open({
-      multiple: false,
-      directory: false,
-      filters: [{ name: "Fonts", extensions: ["ttf", "otf", "woff", "woff2"] }],
-    });
-    const path = Array.isArray(picked) ? picked[0] : picked;
+    // 桌面端弹系统文件框；浏览器端先上传到 daemon 再拿服务端路径。
+    const path = await pickFontFile();
     if (!path) return;
     importBusy.value = true;
     const probe = await probeFont(path);

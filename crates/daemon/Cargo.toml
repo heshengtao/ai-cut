@@ -17,6 +17,16 @@ axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
 rquickjs = "0.14"
 serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+# 字体库：注册表 / 字库文件下载，以及本地字体的 family/字重解析。
+# 用 rustls 而不是 native-tls：无头镜像跑在 Alpine（musl）上，不想为字体下载
+# 拉进 openssl-dev / libssl3 一套系统库。桌面端自己那份 reqwest 仍是 native-tls
+# （要读系统代理与企业证书），两边各自构建、各自生效。
+# `rustls-no-provider`：由下面显式指定 ring 作为加密 provider。
+# 不用默认的 aws-lc-rs——它要 cmake，Alpine 构建镜像里没有。
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 serde_json = "1"
 tokio = { version = "1", features = [
     "rt-multi-thread",

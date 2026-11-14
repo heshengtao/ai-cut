@@ -111,6 +111,56 @@ struct PathArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct HistoryRecordArgs {
+    /// 工程 JSON 文本（与桌面端 `project_history_record` 同参）。
+    project: String,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    dirty: bool,
+    #[serde(default)]
+    thumbnail: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct IdArgs {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct OptionalIdArgs {
+    #[serde(default)]
+    id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OptionalForceArgs {
+    #[serde(default)]
+    force: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FontInstallArgs {
+    id: String,
+    #[serde(default)]
+    weights: Vec<u16>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FontImportArgs {
+    path: String,
+    #[serde(default)]
+    family: Option<String>,
+    #[serde(default)]
+    weight: Option<u16>,
+    #[serde(default)]
+    style: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AssetPathArgs {
     path: String,
     asset_id: String,
@@ -216,10 +266,76 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
     let host = ctx.host.as_ref();
     match command {
         "ping" => Ok(json!("pong")),
+        // ---- 历史工程（桌面与浏览器共用 `aicut_daemon::history`） ----
+        "project_history_list" => Ok(json!(crate::history::list(host.data_dir()))),
+        "project_history_record" => {
+            let args: HistoryRecordArgs = from_value(args)?;
+            Ok(json!(crate::history::record(
+                host.data_dir(),
+                args.project,
+                args.path,
+                args.dirty,
+                args.thumbnail,
+            )?))
+        }
+        "project_history_get" => {
+            let args: IdArgs = from_value(args)?;
+            Ok(json!(crate::history::get(host.data_dir(), args.id)?))
+        }
+        "project_history_delete" => {
+            let args: IdArgs = from_value(args)?;
+            crate::history::delete(host.data_dir(), args.id)?;
+            Ok(Value::Null)
+        }
         "media_cache_dir" => Ok(json!(media::media_cache_dir(host)?)),
-        // 无头 / 浏览器端没有本机字体库：给空清单，文字按内置回退栈渲染。
-        "font_registry" | "font_list" => Ok(json!([])),
-        "font_probe" => Ok(json!(null)),
+        // ---- 字体库（与桌面端共用 `aicut_daemon::fonts`） ----
+        "font_registry" => {
+            let args: OptionalForceArgs = from_value(args)?;
+            Ok(json!(crate::fonts::registry(
+                host.data_dir(),
+                crate::fonts::client(),
+                args.force,
+            )
+            .await?))
+        }
+        "font_list" => Ok(json!(crate::fonts::list(host.data_dir())?)),
+        "font_probe" => {
+            let args: PathArgs = from_value(args)?;
+            Ok(json!(crate::fonts::probe(args.path)?))
+        }
+        "font_install" => {
+            let args: FontInstallArgs = from_value(args)?;
+            let emit = |name: &str, payload: Value| crate::events::publish(name, &payload);
+            Ok(json!(crate::fonts::install(
+                host.data_dir(),
+                crate::fonts::client(),
+                &emit,
+                args.id,
+                args.weights,
+            )
+            .await?))
+        }
+        "font_cancel" => {
+            let args: OptionalIdArgs = from_value(args)?;
+            crate::fonts::cancel(args.id);
+            Ok(Value::Null)
+        }
+        "font_remove" => {
+            let args: IdArgs = from_value(args)?;
+            crate::fonts::remove(host.data_dir(), args.id)?;
+            Ok(Value::Null)
+        }
+        "font_import" => {
+            let args: FontImportArgs = from_value(args)?;
+            Ok(json!(crate::fonts::import(
+                host.data_dir(),
+                args.path,
+                args.family,
+                args.weight,
+                args.style,
+            )?))
+        }
+        "font_reveal" => Err("在文件管理器中显示字体需要桌面应用".into()),
         "probe_media" => {
             let args: PathArgs = from_value(args)?;
             Ok(json!(media::probe_media(host, args.path).await?))

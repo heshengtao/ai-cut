@@ -7,7 +7,6 @@
 import { invoke } from "@/platform/tauri";
 import type { Project, ProjectHistoryEntry } from "@/types/project";
 import { serializeProject } from "@/core/serialize";
-import { isTauri } from "@/utils/platform";
 
 export interface HistorySnapshot {
   project: string;
@@ -34,7 +33,6 @@ export function recordProjectHistory(
   path: string | null,
   dirty: boolean,
 ): void {
-  if (!isTauri()) return;
   if (project.assets.length === 0 && project.tracks.every((track) => track.clips.length === 0)) {
     return;
   }
@@ -53,20 +51,16 @@ export function recordProjectHistory(
 }
 
 export function listProjectHistory(): Promise<ProjectHistoryEntry[]> {
-  if (!isTauri()) return Promise.resolve([]);
+  // 浏览器端也走 daemon 的历史目录：同一份实现，只是数据目录不同。
   return invoke<ProjectHistoryEntry[]>("project_history_list");
 }
 
 export function getProjectHistory(id: string): Promise<HistorySnapshot> {
-  if (!isTauri()) {
-    return Promise.reject(new Error("历史工程需要在桌面应用中使用"));
-  }
   return invoke<HistorySnapshot>("project_history_get", { id });
 }
 
 /** 从历史列表里删除一份快照（不影响磁盘上的工程文件）。 */
 export function deleteProjectHistory(id: string): Promise<void> {
-  if (!isTauri()) return Promise.resolve();
   return invoke<void>("project_history_delete", { id });
 }
 

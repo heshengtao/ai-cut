@@ -8,7 +8,6 @@ import { computed, ref } from "vue";
 import { convertFileSrc } from "@/platform/tauri";
 import { listFonts, type InstalledFont } from "./fontsApi";
 import { setInstalledFontResolver } from "./fontStack";
-import { isTauri } from "@/utils/platform";
 import type { Project } from "@/types/project";
 
 /** 与内置苹方字体栈保持一致，避免自定义字体缺字时回退成通用 sans-serif。 */
@@ -97,11 +96,6 @@ function applyStyles(fonts: InstalledFont[]): void {
 
 /** 重新拉取清单并重注入样式（安装 / 删除后调用）。 */
 export async function reloadInstalledFonts(): Promise<void> {
-  // 浏览器 / 单元测试里没有 Tauri 后端：直接标记为已加载，保持空列表。
-  if (!isTauri()) {
-    loaded.value = true;
-    return;
-  }
   try {
     const fonts = await listFonts();
     installed.value = fonts;

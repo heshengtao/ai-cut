@@ -13,7 +13,7 @@
 import { computed, ref, watch } from "vue";
 import ModalShell from "@/components/common/ModalShell.vue";
 import { useModelsStore } from "@/stores/models";
-import { invoke } from "@/platform/tauri";
+import { openExternal } from "@/platform/tauri";
 
 const models = useModelsStore();
 const token = ref("");
@@ -36,12 +36,10 @@ function close(): void {
   models.dismissAuth();
 }
 
-/** 用系统浏览器打开外链（后端只放行 http(s)）。 */
+/** 用系统浏览器打开外链；浏览器模式下直接开新标签。 */
 function openUrl(url: string | undefined): void {
   if (!url) return;
-  void invoke("open_external_url", { url }).catch(() => {
-    window.open(url, "_blank", "noopener");
-  });
+  openExternal(url);
 }
 
 function openPage(): void {

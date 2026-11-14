@@ -9,6 +9,8 @@
 pub mod doc_actor;
 pub mod events;
 pub mod export;
+pub mod fonts;
+pub mod history;
 pub mod host;
 pub mod http;
 pub mod media;
