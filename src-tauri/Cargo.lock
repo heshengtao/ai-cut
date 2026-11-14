@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "ai-cut"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "aicut-daemon",
  "axum",
@@ -86,7 +86,7 @@ dependencies = [
 
 [[package]]
 name = "aicut-daemon"
-version = "0.1.0"
+version = "1.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
