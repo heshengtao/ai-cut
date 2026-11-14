@@ -959,7 +959,7 @@ const en: Record<string, string> = {
   "caps.reason.notPorted": "not available in the browser build yet",
   "caps.reason.pluginRevealDesktopOnly": "plugins can be installed / removed / imported; revealing them in the file manager needs the desktop app",
   "caps.reason.needsPath": "needs system-level permissions; the browser build cannot provide them",
-  "caps.reason.needsGpu": "needs a GPU and multi-GB weights; the browser build does not provide them",
+  "caps.reason.localGenDesktopOnly": "local image / video generation runs through sd.cpp and is desktop-only today (cloud generation works everywhere). Containers *can* be given a GPU on Linux hosts with the NVIDIA container runtime, but the generator itself has not been ported",
   "caps.feature.agent": "Agent",
   "caps.feature.mcp": "MCP server",
   "caps.feature.cli": "CLI mount",

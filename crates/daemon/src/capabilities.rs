@@ -126,10 +126,15 @@ pub const HEADLESS: &[Capability] = &[
     // ---- 系统级 ----
     desktop("cli", "caps.reason.needsPath", ""),
     desktop("data_dir", "caps.reason.needsPath", ""),
-    // ---- 明确不支持 ----
-    unsupported("image_gen", "caps.reason.needsGpu"),
-    unsupported("video_gen", "caps.reason.needsGpu"),
-    unsupported("sdcpp", "caps.reason.needsGpu"),
+    // ---- 未下沉（不是"容器没有 GPU"）----
+    // 本地出图 / 出视频由 sd.cpp 生成器完成，这份生成器只有桌面实现；云端出图三形态都可用。
+    // 容器**可以**拿到 GPU：Linux 宿主 + NVIDIA 容器运行时（`--gpus all` / CDI）即可，
+    // ORT 的 CUDA EP 在本 daemon 里就有对应的 Linux 运行库包（见 `runtime_catalog`）。
+    // macOS 上的 Docker Desktop 例外——它的 Linux 虚拟机不透传 Apple GPU。
+    // 所以这里标的是"生成器没搬过来"，不是"物理上不可能"。
+    unsupported("image_gen", "caps.reason.localGenDesktopOnly"),
+    unsupported("video_gen", "caps.reason.localGenDesktopOnly"),
+    unsupported("sdcpp", "caps.reason.localGenDesktopOnly"),
 ];
 
 /// 查一条能力；未知 key 返回 `None`（前端据此保留旧行为，而不是误判为不可用）。

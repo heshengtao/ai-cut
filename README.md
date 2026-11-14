@@ -241,7 +241,8 @@ The image is Debian slim based (multi-stage, ~430 MB) and ships the same static 
 | Agent / MCP | ✅ 62 tools | ✅ the same 62 tools (editing macros, clip-level AI, export & render, project lifecycle, undo/redo, review notes, film manifests, background jobs) |
 | OFX effects | ✅ including whole-clip bakes | ✅ frame / image / transition previews **and** whole-clip + transition baking (single-process sequential bake) |
 | Plugin install / import / remove | ✅ | ✅ (`reveal in file manager` needs the desktop) |
-| Native plugin GUIs, system dialogs / browser launch, GPU generation | ✅ | ⛔ no window / desktop session / GPU |
+| Native plugin GUIs, system dialogs / browser launch | ✅ | ⛔ no window system / desktop session |
+| Local image / video generation (sd.cpp) | ✅ | ◐ generator is desktop-only (cloud generation works); a container **can** have a GPU on Linux hosts with the NVIDIA runtime (not Docker Desktop on macOS), but the generator would need porting |
 
 Models are downloaded on first use (Settings → Models) through the configured proxy; the 5 bundled models work out of the box.
 

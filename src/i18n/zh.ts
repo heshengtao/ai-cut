@@ -959,7 +959,7 @@ const zh: Record<string, string> = {
   "caps.reason.notPorted": "尚未在浏览器版本提供",
   "caps.reason.pluginRevealDesktopOnly": "插件可装 / 可删 / 可导入；「在文件管理器里显示」需要桌面应用",
   "caps.reason.needsPath": "需要系统级权限，浏览器版本无法提供",
-  "caps.reason.needsGpu": "需要 GPU 与数 GB 权重，浏览器版本不提供",
+  "caps.reason.localGenDesktopOnly": "本地出图 / 出视频由 sd.cpp 完成，目前只有桌面实现（云端出图三形态都可用）。容器本身可以拿到 GPU（Linux 宿主 + NVIDIA 容器运行时），但那需要先把生成器下沉",
   "caps.feature.agent": "智能体",
   "caps.feature.mcp": "MCP 服务",
   "caps.feature.cli": "命令行挂载",
