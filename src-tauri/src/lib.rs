@@ -13,6 +13,7 @@ mod cloud_tts;
 mod export;
 mod fonts;
 mod history;
+mod host;
 mod image_gen;
 mod mcp;
 mod media;
@@ -25,12 +26,14 @@ mod plugins;
 mod project_io;
 mod runtime;
 mod sdcpp;
+mod session;
 mod sidecar;
 mod tools;
 mod tts;
 mod video_ai;
 mod video_dsp;
 mod video_gen;
+mod web;
 mod zipvoice;
 mod voice_change;
 
@@ -69,6 +72,93 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWind
     builder.build()
 }
 
+
+/// 启动本机 HTTP 服务（浏览器 / 第二屏客户端打进来）。
+///
+/// 默认只绑 `127.0.0.1:28440`；局域网访问由设置页的开关改成 `0.0.0.0`（M2）。
+/// 服务起不来不影响桌面主流程：只记日志，窗口照常打开。
+fn start_local_daemon(app: &tauri::AppHandle) {
+    let data_dir = match paths::data_dir(app) {
+        Ok(dir) => dir,
+        Err(error) => {
+            eprintln!("[daemon] 取数据目录失败：{error}");
+            return;
+        }
+    };
+    let token = match aicut_daemon::http::load_or_create_token(&data_dir) {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("[daemon] 读取 web-token 失败：{error}");
+            return;
+        }
+    };
+    let host = Arc::new(host::TauriHost::new(app.clone()));
+    let export = app
+        .state::<Arc<aicut_daemon::export::ExportState>>()
+        .inner()
+        .clone();
+    let session = app
+        .state::<Arc<aicut_daemon::session::Session>>()
+        .inner()
+        .clone();
+    session::spawn_bridge(app.clone(), Arc::clone(&session));
+    let ctx = Arc::new(aicut_daemon::rpc::RpcCtx {
+        sessions: Default::default(),
+        host,
+        token,
+        version: env!("CARGO_PKG_VERSION"),
+        export,
+        session,
+        doc: aicut_daemon::DocHandle::spawn(),
+    });
+    let web_config = web::load_config(app);
+    let bind = if web_config.lan {
+        std::net::IpAddr::from([0, 0, 0, 0])
+    } else {
+        std::net::IpAddr::from([127, 0, 0, 1])
+    };
+    let cfg = aicut_daemon::http::ServerConfig {
+        bind,
+        port: web_config.port,
+        dist: resolve_dist(app),
+    };
+    let mut info = web::info_for(&web_config, &ctx.token);
+    info.running = true;
+    web::mark_running(app, info);
+    tauri::async_runtime::spawn(async move {
+        match aicut_daemon::http::serve(ctx, cfg, tokio_util::sync::CancellationToken::new()).await
+        {
+            Ok(server) => eprintln!("[daemon] listening on http://{}/", server.addr),
+            Err(error) => eprintln!("[daemon] HTTP 服务未启动：{error}"),
+        }
+    });
+}
+
+/// 浏览器端要加载的前端产物目录。
+///
+/// 生产：Tauri 资源目录里的 `dist/`（见 `tauri.conf.json` 的 resources）；
+/// 开发：仓库根目录的 `dist/`（`pnpm build` 之后）；
+/// 兜底：`AICUT_DIST` 环境变量。
+fn resolve_dist(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    if let Ok(dir) = app.path().resource_dir() {
+        let candidate = dir.join("dist");
+        if candidate.join("index.html").is_file() {
+            return Some(candidate);
+        }
+    }
+    if let Some(dir) = std::env::var_os("AICUT_DIST") {
+        let candidate = std::path::PathBuf::from(dir);
+        if candidate.join("index.html").is_file() {
+            return Some(candidate);
+        }
+    }
+    let dev = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../dist");
+    if dev.join("index.html").is_file() {
+        return Some(dev.canonicalize().unwrap_or(dev));
+    }
+    None
+}
+
 /// 前端首帧已经画好：把窗口显示出来。
 ///
 /// 正常路径下窗口在 webview 加载完成时已经显示过；这里再兜一次（幂等），
@@ -90,7 +180,9 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(export::ExportState::default())
+        .manage(Arc::new(aicut_daemon::export::ExportState::default()))
+        .manage(web::WebState::default())
+        .manage(Arc::new(aicut_daemon::session::Session::new()))
         .manage(video_dsp::VideoDspState::default())
         .invoke_handler(tauri::generate_handler![
             app_ready,
@@ -98,6 +190,11 @@ pub fn run() {
             paths::data_dir_migrate,
             paths::data_dir_cleanup_previous,
             paths::disk_free_bytes,
+            web::web_access_info,
+            web::web_access_set_lan,
+            web::web_access_open,
+            session::session_publish,
+            session::session_playhead,
             media::probe_media,
             media::file_stamp,
             media::media_cache_dir,
@@ -301,6 +398,9 @@ pub fn run() {
             app.manage(agent_state);
 
             cli::publish_path(app.handle());
+
+            // 本机 HTTP 服务：浏览器访问与 aicutd 共用同一套 RPC。
+            start_local_daemon(app.handle());
 
             build_main_window(app.handle())?;
             // 页面万一没起来（dev server 没起、前端脚本报错），也不能永远不出窗口：

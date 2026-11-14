@@ -71,7 +71,7 @@ Every edit an agent makes goes through the same command pipeline as the UI: it l
 
 ## Features
 
-### 🎬 Timeline editing — Compose on a real timeline
+### Timeline editing — Compose on a real timeline
 
 Lay out a video the way you hear it. Drag clips across tracks, split them where the story changes, trim the edges, and let snapping and the frame grid keep everything aligned. Video, audio, image, and text clips share the same timeline, and every edit is one command in one undo history.
 
@@ -85,7 +85,7 @@ Lay out a video the way you hear it. Drag clips across tracks, split them where 
   <img src="./assets/screenshots/01-timeline.png" width="100%" alt="The timeline with video clips, a subtitle track, voiceover and music, and the inspector showing text styling">
 </p>
 
-### 🎞️ Media & inspector — Read the material, shape the shot
+### Media & inspector — Read the material, shape the shot
 
 Import a file and AI Cut probes it immediately: duration, resolution, frame rate, and audio. The media library shows thumbnails and waveforms; the inspector gives you the parameters behind the selected clip, so framing, layering, and sound are edited in place rather than in a separate dialog.
 
@@ -96,7 +96,7 @@ Import a file and AI Cut probes it immediately: duration, resolution, frame rate
 - **Project output** — resolution and frame rate changes re-fit clips proportionally
 - **Delivery helpers** — collect media into `<project>-media/` next to the project
 
-### 🎛️ OFX plugins — Bring your own effects
+### OFX plugins — Bring your own effects
 
 AI Cut hosts **OpenFX (OFX) 1.5.1** plugins, so the finishing tools you already own come with you: colour correction, blurs, glows, keyers, warps, transitions. A plugin manager browses the [AI Cut OFX Registry](https://github.com/heshengtao/ai-cut-ofx-registry) with SHA-256 verification, and also picks up plugins installed elsewhere on disk.
 
@@ -106,7 +106,7 @@ AI Cut hosts **OpenFX (OFX) 1.5.1** plugins, so the finishing tools you already 
 - **Baked on export** — the render applies every effect at final size (paint is parameter-driven, retimer asks the plugin for `SourceTime`)
 - **Registry + local import** — search, one-click install / update / remove, or point it at a local bundle
 
-### 🤖 AI & automation — Turn footage into material you can keep editing
+### AI & automation — Turn footage into material you can keep editing
 
 The AI features are built for real sessions, not demos. Point them at a clip and they hand back something you can keep editing: a caption track you can correct, a voiceover aligned to its original timing, a cleaner vocal take, separated stems you can rebalance. Local tools run on your own hardware.
 
@@ -119,7 +119,7 @@ The AI features are built for real sessions, not demos. Point them at a clip and
 - **Review loop** — `film.json` import, structured review notes (`severity`, `sceneId`, `resolved`), dirty-segment detection, range re-rendering with a content-hash cache, take comparison (SSIM + side-by-side frames), and contact sheets
 - **Offline by design** — the editor and its local models need no account and no upload
 
-### 🔌 MCP server & clip agent — Let an AI agent work in your session
+### MCP server & clip agent — Let an AI agent work in your session
 
 Flip one switch and your project becomes something an AI assistant can operate. The built-in **MCP (Model Context Protocol)** server exposes the session over HTTP bound to `127.0.0.1` — connect your agent, hand it a task, and watch it add tracks, place clips, or rewrite text while the UI updates in real time. The same tool definitions also power the built-in **clip agent**, an OpenAI-compatible chat panel with streaming, tool calls, and a branching session tree.
 
@@ -131,7 +131,7 @@ Flip one switch and your project becomes something an AI assistant can operate. 
 - **Clip agent** — OpenAI-compatible endpoint, streaming answers, tool cards, session branches
 - **Skills** — editing and production docs loaded on demand by the agent
 
-### 📦 Export & updates — Finish and ship
+### Export & updates — Finish and ship
 
 When the cut is right, render it. Pick a delivery format and AI Cut writes a release-ready file in the background while you keep working. Installed apps check GitHub Releases for signed updates, so a new version is one click away.
 
@@ -192,9 +192,9 @@ A few files deliberately stay put: `cli-path` / `app-path` / `mcp-url` are disco
 
 | Platform | Status |
 | --- | --- |
-| Windows (x86_64) | ✅ Supported |
-| macOS (Apple Silicon) | ✅ Supported (see the “app is damaged” note below) |
-| Linux (x86_64 / arm64) | ✅ Supported |
+| Windows (x86_64) |  Supported |
+| macOS (Apple Silicon) |  Supported (see the “app is damaged” note below) |
+| Linux (x86_64 / arm64) |  Supported |
 
 > **macOS says “App is damaged”?** The app is ad-hoc signed (not notarized), so macOS
 > quarantines downloads. Run this in Terminal, then open the app normally:
@@ -205,6 +205,68 @@ A few files deliberately stay put: `cli-path` / `app-path` / `mcp-url` are disco
 
 > **Intel Macs are not supported by the current release pipeline.** Release builds are
 > produced for Apple Silicon (`aarch64-apple-darwin`) only.
+
+## Browser access & headless
+
+The desktop app embeds an HTTP server bound to loopback: **Settings → General → Web access**,
+then open the address in a browser — it is the same editor. **No token in the URL**: the
+server issues a session cookie on first load. Scripts can still authenticate with the token
+from the data folder (`<data>/web-token`) as `Authorization: Bearer <token>`.
+
+It follows the desktop session **read-only** and updates live; choose "Edit a copy" in the
+top banner to make it independent. Enable "LAN access" and restart to open it from a tablet
+or a second machine on the same network.
+
+### Docker
+
+```bash
+docker build -t ai-cut .
+docker run -d --name ai-cut -p 28440:28440 -v aicut-data:/data ai-cut
+```
+
+The image is Alpine-based (multi-stage) and ships ffmpeg; open <http://localhost:28440>.
+
+### Headless binary
+
+```bash
+cargo run --manifest-path crates/daemon/Cargo.toml --bin aicutd -- \
+  --data-dir ./data --port 28440 --lan --dist dist
+```
+
+### Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `AICUT_DATA_DIR` | `./data` | projects, imported media, exports, access token |
+| `AICUT_TOKEN` | generated once | fixed token for scripts/CI |
+| `AICUT_NO_AUDIO` | unset | skip opening an audio device |
+
+### HTTP API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/rpc/{command}` | editing commands, same names as the app's IPC |
+| `GET` | `/events` | Server-Sent Events: document + job progress |
+| `GET` | `/session` | WebSocket: live session sync |
+| `GET` | `/file` · `POST /upload` | media read / import |
+| `GET` | `/health` | liveness |
+
+## Architecture
+
+```
+src-tauri/          Tauri shell: windows, native dialogs, auto-updater
+crates/daemon/      backend: document model, media, render engine, HTTP
+crates/aicut/       the CLI
+src/                Vue 3 frontend — identical for desktop and browser
+```
+
+`src/platform/` swaps the transport (`Tauri IPC` ↔ `HTTP + WebSocket`) behind one API, so
+every screen works in both shells; the browser build is the same app talking to the same
+backend over the network.
+
+In headless mode projects, imported media and exports live in the data directory; ffmpeg
+comes from the image. Local AI (CUDA / ONNX Runtime, plugins) stays desktop-only and the
+browser hides those entries.
 
 ## FAQ
 
@@ -235,6 +297,18 @@ Yes. The Skill and the `aicut` CLI talk to a running AI Cut over MCP, so start t
 ### Can an agent export the final video?
 
 Yes. `export_video` renders the timeline over MCP — MP4, ProRes, or GIF. `outputPath` is optional: when omitted, AI Cut writes next to the project file (or to your Downloads folder for an unsaved project) and returns the final path. Captions, voiceover, audio / video AI, and export are all available as tools, so the agent can prepare the timeline, render it, and hand the file back for review.
+
+## Support
+
+### Please star us!
+
+If AI Cut is useful to you, a star helps other people find it — and it is the clearest
+signal that this work is worth continuing.
+
+### Follow us
+
+- GitHub: <https://github.com/heshengtao>
+- Issues and ideas: <https://github.com/heshengtao/ai-cut/issues>
 
 ## License
 
