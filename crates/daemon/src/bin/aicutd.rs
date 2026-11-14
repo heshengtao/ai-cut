@@ -110,6 +110,9 @@ async fn run() -> Result<(), String> {
         Arc::clone(&video_dsp),
         Some(host.config_dir().join("mcp.json")),
         Some(host.config_dir().join("mcp-url")),
+        // `--lan` 时 MCP 也绑 0.0.0.0：容器里发布端口后，外部客户端（Claude Desktop /
+        // IDE）才连得进来。默认仍是 loopback。
+        lan,
     ));
     mcp.autostart();
     // 导出状态是进程级单例：注册一份，智能体 / MCP 的工具直接用同一份。
