@@ -4,9 +4,6 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::extract::{Request, State};
-use axum::middleware::Next;
-use axum::response::Response;
 use axum::routing::{get, post};
 use axum::Router;
 use tokio::net::TcpListener;
@@ -45,14 +42,7 @@ pub async fn serve(
     if let Some(dist) = cfg.dist {
         app = app.fallback_service(ServeDir::new(dist).append_index_html_on_directories(true));
     }
-    // 打开界面就种一个会话 cookie：地址栏不必带 token（脚本仍可用 Bearer）。
-    let session_ctx = Arc::clone(&ctx);
-    let app = app
-        .layer(axum::middleware::from_fn_with_state(
-            session_ctx,
-            issue_session_cookie,
-        ))
-        .with_state(ctx);
+    let app = app.with_state(ctx);
 
     let listener = TcpListener::bind(SocketAddr::new(cfg.bind, cfg.port))
         .await
@@ -91,34 +81,4 @@ pub fn load_or_create_token(data_dir: &std::path::Path) -> Result<String, String
     );
     std::fs::write(&path, &token).map_err(|e| format!("写入 web-token 失败：{e}"))?;
     Ok(token)
-}
-
-/// 页面加载时发一个会话 cookie。
-///
-/// **只对非 API 路径发**：否则任何能连上的机器随便 POST 一次 `/rpc` 就能自签一个会话，
-/// 鉴权等于没有。
-async fn issue_session_cookie(
-    State(ctx): State<Arc<RpcCtx>>,
-    req: Request,
-    next: Next,
-) -> Response {
-    const API_PREFIXES: [&str; 6] = ["/rpc", "/events", "/session", "/file", "/upload", "/health"];
-    let path = req.uri().path().to_string();
-    let headers = req.headers().clone();
-    let is_api = API_PREFIXES.iter().any(|prefix| path.starts_with(prefix));
-
-    let mut response = next.run(req).await;
-
-    if !is_api {
-        if let Some(session) = crate::rpc::issue_session(&ctx, &headers) {
-            let cookie = format!(
-                "{}={session}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000",
-                crate::rpc::SESSION_COOKIE
-            );
-            if let Ok(value) = cookie.parse() {
-                response.headers_mut().insert(axum::http::header::SET_COOKIE, value);
-            }
-        }
-    }
-    response
 }

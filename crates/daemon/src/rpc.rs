@@ -29,68 +29,18 @@ pub struct RpcCtx {
     pub export: Arc<crate::export::ExportState>,
     pub session: Arc<crate::session::Session>,
     pub doc: crate::DocHandle,
-    /// 浏览器会话：打开过界面就发一个，之后 `/rpc`、`/events`、`/session` 认它。
-    /// 地址栏因此**不需要**带 token（与 ExamBot 的体验一致）；脚本仍可用 Bearer。
-    pub sessions: std::sync::Mutex<std::collections::HashSet<String>>,
 }
-
-/// 浏览器会话 cookie 名。
-pub const SESSION_COOKIE: &str = "ai-cut-session";
 
 #[derive(Deserialize)]
 pub struct AuthQuery {
     pub token: Option<String>,
 }
 
-/// 校验 token：query（`<video>` / WS / SSE 带不了 header）或 Bearer。
-pub fn authorized(ctx: &RpcCtx, query: &AuthQuery, headers: &HeaderMap) -> bool {
-    if let Some(token) = query.token.as_deref() {
-        if constant_time_eq(token, &ctx.token) {
-            return true;
-        }
-    }
-    if let Some(value) = headers.get(axum::http::header::AUTHORIZATION) {
-        if let Ok(text) = value.to_str() {
-            if let Some(token) = text.strip_prefix("Bearer ") {
-                if constant_time_eq(token.trim(), &ctx.token) {
-                    return true;
-                }
-            }
-        }
-    }
-    // 浏览器会话（打开过界面就有 cookie，地址栏不必带 token）。
-    match session_cookie(headers) {
-        Some(session) => ctx
-            .sessions
-            .lock()
-            .map(|set| set.contains(&session))
-            .unwrap_or(false),
-        None => false,
-    }
-}
-
-/// 从 `Cookie` 头里取出会话标识。
-pub fn session_cookie(headers: &HeaderMap) -> Option<String> {
-    let raw = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
-    raw.split(';').find_map(|part| {
-        part.trim()
-            .strip_prefix(&format!("{SESSION_COOKIE}="))
-            .map(|value| value.to_string())
-    })
-}
-
-/// 给浏览器发一个会话（已有有效会话时返回 `None`）。
-pub fn issue_session(ctx: &RpcCtx, headers: &HeaderMap) -> Option<String> {
-    if let Some(existing) = session_cookie(headers) {
-        if ctx.sessions.lock().map(|set| set.contains(&existing)).unwrap_or(false) {
-            return None;
-        }
-    }
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).ok()?;
-    let session: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    ctx.sessions.lock().ok()?.insert(session.clone());
-    Some(session)
+/// **不鉴权**：无头版本给没有显示器的机器用，打开端口就是界面。
+///
+/// 访问控制交给部署侧（局域网 / 容器网络 / 反向代理）。要对外暴露就自己加一层网关。
+pub fn authorized(_ctx: &RpcCtx, _query: &AuthQuery, _headers: &HeaderMap) -> bool {
+    true
 }
 
 /// 逐字节比较，长度不同也走满循环，避免用时间差猜 token。

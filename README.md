@@ -209,9 +209,8 @@ A few files deliberately stay put: `cli-path` / `app-path` / `mcp-url` are disco
 ## Browser access & headless
 
 The desktop app embeds an HTTP server bound to loopback: **Settings → General → Web access**,
-then open the address in a browser — it is the same editor. **No token in the URL**: the
-server issues a session cookie on first load. Scripts can still authenticate with the token
-from the data folder (`<data>/web-token`) as `Authorization: Bearer <token>`.
+then open the address in a browser — it is the same editor. **No login, no token**: open the address and work. Access control is the deployment's job
+(LAN, container network, or a reverse proxy).
 
 It follows the desktop session **read-only** and updates live; choose "Edit a copy" in the
 top banner to make it independent. Enable "LAN access" and restart to open it from a tablet
@@ -237,8 +236,7 @@ cargo run --manifest-path crates/daemon/Cargo.toml --bin aicutd -- \
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `AICUT_DATA_DIR` | `./data` | projects, imported media, exports, access token |
-| `AICUT_TOKEN` | generated once | fixed token for scripts/CI |
+| `AICUT_DATA_DIR` | `./data` | projects, imported media, exports |
 | `AICUT_NO_AUDIO` | unset | skip opening an audio device |
 
 ### HTTP API

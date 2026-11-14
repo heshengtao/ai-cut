@@ -1,4 +1,4 @@
-//! Web 访问设置：token、端口、是否允许局域网。
+//! Web 访问设置：端口、是否允许局域网。
 //!
 //! 服务本身由 `start_local_daemon` 启动；这里只负责配置、状态与「在浏览器打开」。
 //! 改绑定地址需要重启（和 CUDA 运行时切换同一个约定）。
@@ -38,7 +38,6 @@ impl Default for WebConfig {
 pub struct WebInfo {
     pub lan: bool,
     pub port: u16,
-    pub token: String,
     pub loopback_url: String,
     pub lan_url: Option<String>,
     pub running: bool,
@@ -75,11 +74,6 @@ fn save_config(app: &AppHandle, config: &WebConfig) -> Result<(), String> {
     std::fs::write(&path, text).map_err(|e| format!("写入配置失败：{e}"))
 }
 
-pub fn token(app: &AppHandle) -> Result<String, String> {
-    let dir = paths::data_dir(app)?;
-    aicut_daemon::http::load_or_create_token(&dir)
-}
-
 fn url(host: &str, port: u16) -> String {
     format!("http://{host}:{port}/")
 }
@@ -98,11 +92,10 @@ pub fn lan_ip() -> Option<IpAddr> {
 }
 
 /// 按配置算出访问信息（不关心服务是否在跑）。
-pub fn info_for(config: &WebConfig, token: &str) -> WebInfo {
+pub fn info_for(config: &WebConfig) -> WebInfo {
     WebInfo {
         lan: config.lan,
         port: config.port,
-        token: token.to_string(),
         loopback_url: url("127.0.0.1", config.port),
         lan_url: lan_ip().map(|ip| url(&ip.to_string(), config.port)),
         running: false,
@@ -113,8 +106,7 @@ pub fn info_for(config: &WebConfig, token: &str) -> WebInfo {
 /// 配置（期望值）+ 运行状态（实际值）合并出设置页要显示的信息。
 fn merged_info(app: &AppHandle, state: &WebState) -> Result<WebInfo, String> {
     let config = load_config(app);
-    let token = token(app)?;
-    let mut info = info_for(&config, &token);
+    let mut info = info_for(&config);
     if let Some(running) = state.running.lock().ok().and_then(|guard| guard.clone()) {
         info.running = running.running;
         // 绑定地址 / 端口变了才算「需要重启」。

@@ -103,7 +103,6 @@ fn start_local_daemon(app: &tauri::AppHandle) {
         .clone();
     session::spawn_bridge(app.clone(), Arc::clone(&session));
     let ctx = Arc::new(aicut_daemon::rpc::RpcCtx {
-        sessions: Default::default(),
         host,
         token,
         version: env!("CARGO_PKG_VERSION"),
@@ -122,7 +121,7 @@ fn start_local_daemon(app: &tauri::AppHandle) {
         port: web_config.port,
         dist: resolve_dist(app),
     };
-    let mut info = web::info_for(&web_config, &ctx.token);
+    let mut info = web::info_for(&web_config);
     info.running = true;
     web::mark_running(app, info);
     tauri::async_runtime::spawn(async move {

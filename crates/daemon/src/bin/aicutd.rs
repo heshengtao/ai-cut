@@ -54,13 +54,12 @@ async fn run() -> Result<(), String> {
         .ensure()
         .map_err(|e| format!("准备数据目录失败：{e}"))?;
 
-    let token = http::load_or_create_token(paths.data())?;
+    let token = String::new();
     let host = Arc::new(HeadlessHost::new(
         paths.data().to_path_buf(),
         paths.config().to_path_buf(),
     ));
     let ctx = Arc::new(RpcCtx {
-        sessions: Default::default(),
         host,
         token: token.clone(),
         version: env!("CARGO_PKG_VERSION"),
@@ -83,9 +82,7 @@ async fn run() -> Result<(), String> {
 
     println!("[aicutd] listening on http://{}/", server.addr);
     println!("[aicutd] data dir: {}", paths.data().display());
-    println!("[aicutd] token: {token}");
     println!("[aicutd] open: http://{}/", server.addr);
-    println!("[aicutd] token（脚本用）: {token}");
 
     tokio::signal::ctrl_c()
         .await
