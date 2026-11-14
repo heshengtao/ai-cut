@@ -17,6 +17,13 @@ axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
 rquickjs = "0.14"
 serde = { version = "1", features = ["derive"] }
+# 响度分析（EBU R128）：纯 Rust，与桌面同名同版本。
+ebur128 = "0.1"
+# 运行时归档解包（ORT 的 zip / tar.gz / NVIDIA 组件的 tar.xz）——与桌面同版本。
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tar = "0.4"
+flate2 = "1"
+xz2 = "0.1"
 sha2 = "0.10"
 # 字体库：注册表 / 字库文件下载，以及本地字体的 family/字重解析。
 # 用 rustls 而不是 native-tls：无头镜像跑在 Alpine（musl）上，不想为字体下载
@@ -24,7 +31,8 @@ sha2 = "0.10"
 # （要读系统代理与企业证书），两边各自构建、各自生效。
 # `rustls-no-provider`：由下面显式指定 ring 作为加密 provider。
 # 不用默认的 aws-lc-rs——它要 cmake，Alpine 构建镜像里没有。
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
+# `multipart`：云端出图的图生图 / 蒙版走 multipart 表单（OpenAI edits、Stability 等）。
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "stream", "rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 serde_json = "1"
@@ -37,10 +45,63 @@ tokio = { version = "1", features = [
     "time",
 ] }
 tokio-util = { version = "0.7", features = ["io"] }
-tower-http = { version = "0.6", features = ["fs"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
 tower = "0.5"
 futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
+
+# ---- 本地推理（M4）----
+# sherpa-onnx：ASR（Silero VAD + Paraformer/SenseVoice）、ZipVoice 朗读、UVR 音源分离。
+# 它**只带自己的静态库**，ONNX Runtime 仍由 `ort` 提供（见 crates/sherpa-onnx-sys/build.rs）。
+sherpa-onnx = "1.13.8"
+sherpa-separation = { path = "../sherpa-separation" }
+# 音源分离 / 强制对齐的 STFT / iSTFT。
+rustfft = "6"
+# 强制对齐（Whisper 词级时间戳）要读 tokenizer.json。
+tokenizers = { version = "0.21", default-features = false, features = ["fancy-regex"] }
+# 视频 AI 的 PNG 帧读写（超分 / 补帧 / 目标检测）。
+png = "0.17"
+# OFX 插件扫描（用户插件目录可能很深）与 macOS bundle 的 Info.plist 解析。
+walkdir = "2"
+plist = "1"
+# OFX 效果渲染：与桌面同一个 host crate（C++ 静态链接，纯计算，不需要窗口）。
+ofx-host = { path = "../ofx-host" }
+
+
+# ONNX Runtime 的执行后端（会话创建 / EP 注册）在 daemon 里，所以这里必须按平台
+# **与 `src-tauri` 完全一致**地启用 ort 的特性：Cargo 会对同一个 crate 做特性合并
+# （并集），桌面壳与 daemon 是同一个进程，只要有一边多写了 `load-dynamic`，
+# macOS 那份静态链接就会被改成运行时加载——表现为「桌面版启动后 AI 全挂，
+# 报找不到 libonnxruntime.dylib」。所以这里三平台分开写，且不加 `src-tauri`
+# 待用之外的特性。
+[target.'cfg(target_os = "macos")'.dependencies]
+ort = { version = "=2.0.0-rc.13", features = ["coreml"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+    "std",
+    "ndarray",
+    "tracing",
+    "load-dynamic",
+    "api-24",
+    "cuda",
+    "directml",
+] }
+
+[target.'cfg(all(not(target_os = "macos"), not(target_os = "windows")))'.dependencies]
+ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+    "std",
+    "ndarray",
+    "tracing",
+    "load-dynamic",
+    "api-24",
+    "cuda",
+] }
+
+# 与 `src-tauri` 同一份补丁：sherpa 的预编译包自带的 ONNX Runtime 不再链接，
+# 全部走 `ort`，避免两份静态库同时定义 `OrtGetApiBase`。
+[patch.crates-io]
+sherpa-onnx-sys = { path = "../sherpa-onnx-sys" }
 
 [dev-dependencies]
 tempfile = "3"

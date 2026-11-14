@@ -1840,7 +1840,7 @@ async fn probe_media_tool(app: &AppHandle, args: &Value) -> Result<Value, String
             .and_then(Value::as_str)
             .map(str::to_string),
     };
-    analysis::probe(app, path, options).await
+    analysis::probe(app.clone(), path, options).await
 }
 
 async fn import_asset(

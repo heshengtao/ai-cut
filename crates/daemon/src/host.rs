@@ -49,6 +49,14 @@ pub trait Host: Send + Sync + 'static {
         self.data_dir().join("cache")
     }
 
+    /// 随包资源目录（安装包里的 `models/`、`ort/`、`assets/`）。
+    ///
+    /// 桌面壳返回 Tauri 的 resource_dir；无头进程返回镜像里的 `AICUT_RESOURCES`
+    /// （缺省 `None`），容器因此能和安装包用同一套"随包资源"语义。
+    fn resource_dir(&self) -> Option<PathBuf> {
+        std::env::var_os("AICUT_RESOURCES").map(PathBuf::from)
+    }
+
     /// 向前端推事件（进度、AI 流）。
     ///
     /// 默认只进 SSE 总线；桌面壳还会额外 `app.emit` 给 webview。
@@ -102,6 +110,35 @@ impl HeadlessHost {
     pub fn new(data: PathBuf, config: PathBuf) -> Self {
         Self { data, config }
     }
+}
+
+/// 外部程序的落点：`AICUT_FFMPEG` / `AICUT_FFPROBE` → 可执行文件旁边 → `PATH`。
+///
+/// 桌面版把 sidecar 放在 exe 同一目录，容器版把它们放进 `PATH`；两边用同一个
+/// 解析顺序，免得多一份"容器里为什么找不到 ffmpeg"的分叉。
+pub fn resolve_tool(bin: &str) -> PathBuf {
+    let key = match bin {
+        "ffmpeg" => "AICUT_FFMPEG",
+        "ffprobe" => "AICUT_FFPROBE",
+        _ => return PathBuf::from(bin),
+    };
+    if let Some(path) = std::env::var_os(key) {
+        return PathBuf::from(path);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let name = if cfg!(windows) {
+                format!("{bin}.exe")
+            } else {
+                bin.to_string()
+            };
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    PathBuf::from(bin)
 }
 
 fn resolve_bin(bin: &str) -> String {

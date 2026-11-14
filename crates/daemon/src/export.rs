@@ -45,6 +45,66 @@ enum FilterMode {
 pub struct ExportState {
     cancel: Mutex<Option<CancellationToken>>,
     filter_mode: Mutex<Option<FilterMode>>,
+    /// 最近一次进度（智能体的 `render_status` 用；界面订阅的是事件流）。
+    last: Mutex<Option<ExportProgress>>,
+}
+
+/// 导出运行态快照。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportStatus {
+    pub busy: bool,
+    pub seconds: f64,
+    pub fraction: f64,
+}
+
+impl ExportState {
+    /// 更新最近一次进度。
+    pub fn record(&self, progress: ExportProgress) {
+        if let Ok(mut last) = self.last.lock() {
+            *last = Some(progress);
+        }
+    }
+
+    /// 当前状态（没有任务时返回 `busy: false`）。
+    pub fn status(&self) -> ExportStatus {
+        let fraction = self
+            .last
+            .lock()
+            .ok()
+            .and_then(|last| *last)
+            .unwrap_or(ExportProgress {
+                seconds: 0.0,
+                fraction: 0.0,
+            });
+        ExportStatus {
+            busy: self.busy(),
+            seconds: fraction.seconds,
+            fraction: fraction.fraction,
+        }
+    }
+}
+
+/// 进程内的导出状态（导出天生是单例：同一时刻只允许一个任务）。
+///
+/// 桌面壳与无头进程都在启动时把自己的那份注册进来，智能体 / MCP 的工具因此
+/// 不需要把 `RpcCtx` 透传进来，也不会出现"两个导出各自为政"。
+fn shared_slot() -> &'static Mutex<Option<std::sync::Arc<ExportState>>> {
+    static SLOT: std::sync::OnceLock<Mutex<Option<std::sync::Arc<ExportState>>>> =
+        std::sync::OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// 注册当前进程的导出状态。
+pub fn install_shared(state: std::sync::Arc<ExportState>) {
+    if let Ok(mut slot) = shared_slot().lock() {
+        *slot = Some(state);
+    }
+}
+
+/// 取当前进程的导出状态（没注册时返回 None）。
+pub fn shared() -> Option<std::sync::Arc<ExportState>> {
+    shared_slot().lock().ok().and_then(|slot| slot.clone())
 }
 
 impl ExportState {
@@ -311,6 +371,7 @@ async fn run_export(
                         }
                     };
                     if let Some(progress) = progress {
+                        state.record(progress);
                         host.emit("export-progress", serde_json::json!(progress));
                     }
                 }

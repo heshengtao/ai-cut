@@ -22,10 +22,15 @@ var AICUT = (() => {
   var host_exports = {};
   __export(host_exports, {
     apply: () => apply,
+    blank: () => blank,
     currentRevision: () => currentRevision,
+    historyDepth: () => historyDepth,
     load: () => load,
+    op: () => op,
+    redo: () => redo,
     setLocale: () => setLocale,
     snapshot: () => snapshot,
+    undo: () => undo,
     view: () => view
   });
 
@@ -141,6 +146,7 @@ var AICUT = (() => {
     "topbar.export": "Export video",
     "topbar.exportLabel": "Export video",
     "topbar.settings": "Settings",
+    "topbar.backToWorkspace": "Back to workspace",
     "topbar.github": "GitHub repository",
     "topbar.githubLabel": "Open GitHub repository",
     "topbar.rename": "Rename project",
@@ -963,15 +969,26 @@ var AICUT = (() => {
     "settings.back": "Settings",
     "settings.navAria": "Settings sections",
     "settings.section.general": "General",
-    "settings.section.general.caption": "Language and project info",
+    "settings.section.general.caption": "Project, startup & language",
     "settings.section.appearance": "Appearance",
-    "settings.section.appearance.caption": "Theme",
+    "settings.section.appearance.caption": "Theme & accent",
     "settings.section.layout": "Layout",
-    "settings.section.layout.caption": "Panels and timeline",
+    "settings.section.layout.caption": "Panels & widths",
     "settings.section.about": "About",
     "settings.section.about.caption": "Version and licence",
     "settings.section.storage": "Storage",
-    "settings.section.storage.caption": "Data folder and migration",
+    "settings.section.storage.caption": "Models, runtimes & data folder",
+    "settings.web.title": "Web access",
+    "settings.web.local": "Local address",
+    "settings.web.localHint": "Open it in a browser on this machine. The URL carries the access token, so it has the same power as the desktop app.",
+    "settings.web.copy": "Copy",
+    "settings.web.lan": "LAN access",
+    "settings.web.lanHint": "Devices on the same network can open the session.",
+    "settings.web.lanUnavailable": "Not connected to a LAN",
+    "settings.web.restart": "Changed \u2014 restart to apply.",
+    "settings.web.open": "Open in browser",
+    "settings.web.openHint": "Open the current session in your default browser.",
+    "settings.web.openButton": "Open",
     "settings.storage.location": "Data folder",
     "settings.storage.current": "Current location",
     "settings.storage.currentHint": "Models, ONNX Runtime, OFX plugins and project history live here",
@@ -1009,6 +1026,28 @@ var AICUT = (() => {
     "settings.storage.confirmBody": "Everything will be copied to {path}. The target folder must be empty, and it takes effect once the copy finishes and the app restarts. Avoid changing settings or downloading models while it runs; old data is not deleted automatically and can be cleaned up here after the restart.",
     "settings.storage.confirmGo": "Start migration",
     "settings.storage.desktopOnly": "The data folder can only be changed in the desktop app.",
+    // ---- capability table: the server declares whether a feature works in this shell ----
+    "caps.fallback.separator": "; use instead: ",
+    "caps.fallback.desktop": "use the desktop app",
+    "caps.reason.mcpDesktopOnly": "the MCP server still runs inside the desktop app (not ported to the headless backend yet)",
+    "caps.reason.notPorted": "not available in the browser build yet",
+    "caps.reason.localAiNotPortable": "local AI is not wired into the browser build yet (needs models and ONNX Runtime)",
+    "caps.reason.agentNeedsWebview": "agent tool calls have to run in the desktop app",
+    "caps.reason.pluginRevealDesktopOnly": "plugins can be installed / removed / imported; revealing them in the file manager needs the desktop app",
+    "caps.reason.needsPath": "needs system-level permissions; the browser build cannot provide them",
+    "caps.reason.needsGpu": "needs a GPU and multi-GB weights; the browser build does not provide them",
+    "caps.feature.agent": "Agent",
+    "caps.feature.mcp": "MCP server",
+    "caps.feature.cli": "CLI mount",
+    "caps.feature.network": "Network",
+    "caps.feature.cloudTts": "Cloud TTS",
+    "caps.feature.cloudGen": "Cloud image / video",
+    "caps.feature.loudness": "Loudness",
+    "caps.feature.videoDsp": "Video DSP",
+    "caps.feature.runtime": "AI runtime",
+    "caps.feature.sdcpp": "local generation engine",
+    "caps.feature.dataDir": "data folder",
+    "caps.feature.backend": "AI backend",
     "settings.storage.cleanupTitle": "Delete the old data folder?",
     "settings.storage.cleanupBody": "This will delete {path}, keeping only the bootstrap pointer and discovery files. It cannot be undone.",
     "settings.storage.cleanupGo": "Delete",
@@ -1018,7 +1057,7 @@ var AICUT = (() => {
     "settings.startup": "Startup",
     "settings.welcome.label": "Show the welcome screen on launch",
     "settings.welcome.hint": "Gives you a starting point every time; turn it off and replay it from the Help menu.",
-    "settings.welcome.replay": "Guided tour",
+    "settings.welcome.replay": "Quick start",
     "settings.welcome.replayHint": "Walk through the main areas with a spotlight",
     "settings.welcome.replayAction": "Replay",
     "settings.project": "Project",
@@ -1401,8 +1440,8 @@ var AICUT = (() => {
     "sdcpp.downloadSize": "Needs {size}",
     "sdcpp.current": "Current",
     "sdcpp.group": "sd.cpp generation engine",
-    "sdcpp.groupHint": "The ggml runtime shared by video generation (Wan / Hunyuan / LTX / MiniMax-H3) and image generation (SD / FLUX / Qwen-Image / Z-Image); downloaded and removed separately from ONNX Runtime.",
-    "sdcpp.officialOnly": "Downloaded from the official GitHub Release or the ModelScope community mirror; every archive is SHA-256 verified. No third-party proxies.",
+    "sdcpp.groupHint": "Shared image / video runtime; separate from ONNX Runtime.",
+    "sdcpp.officialOnly": "Official Release / ModelScope mirror; SHA-256 verified.",
     "videoAi.section": "Visual",
     "videoAi.upscale": "AI super resolution",
     "videoAi.interpolate": "AI frame interpolation",
@@ -1545,7 +1584,7 @@ var AICUT = (() => {
     "models.kind.runtime": "Runtimes",
     // ---- Local AI runtimes ----
     "runtime.title": "Runtimes",
-    "runtime.hint": "CPU / DirectML / CoreML ship with the app; CUDA 12 / CUDA 13 are downloaded on demand (on Windows / Linux as a fully matched ORT + CUDA component set), applies after restart.",
+    "runtime.hint": "CPU / DirectML / CoreML built in; CUDA 12 / 13 on demand, restart to apply.",
     "runtime.partsTitle": "CUDA components",
     "runtime.empty": "No runtimes to download.",
     "runtime.autoDownloading": "CUDA runtime components are missing; downloading {count} item(s)\u2026",
@@ -1554,28 +1593,28 @@ var AICUT = (() => {
     "runtime.notInstalled": "Not installed",
     "runtime.partsNote": "Missing components install automatically when switching to CUDA",
     "runtime.cuda12Parts": "CUDA 12 components",
-    "runtime.cuda12PartsHint": "cudart 12 / cuBLAS 12 / cuFFT 11 / cuDNN 9 (CUDA 12): missing pieces are installed automatically when switching to CUDA 12, or download them here.",
+    "runtime.cuda12PartsHint": "Missing components are filled in when switching to CUDA 12.",
     "runtime.cuda13Parts": "CUDA 13 components",
-    "runtime.cuda13PartsHint": "cudart 13 / cuBLAS 13 / cuFFT 12 / cuDNN 9 (CUDA 13): missing pieces are installed automatically when switching to CUDA 13, or download them here.",
+    "runtime.cuda13PartsHint": "Missing components are filled in when switching to CUDA 13.",
     "runtime.restartBody": "Newly installed runtimes / CUDA components load on the next start.",
     "runtime.restartNow": "Restart now",
     "runtime.restartLater": "Later",
     "runtime.cudart": "CUDA Runtime 12 (cudart)",
-    "runtime.cudart.note": "CUDA 12 runtime; the ORT CUDA 12 build depends on it, and the version is pinned to match.",
+    "runtime.cudart.note": "CUDA 12 runtime component.",
     "runtime.cublas": "cuBLAS 12",
-    "runtime.cublas.note": "CUDA 12 matrix library (incl. cublasLt); the ORT CUDA 12 build depends on it.",
+    "runtime.cublas.note": "CUDA 12 matrix library.",
     "runtime.cufft": "cuFFT 11 (CUDA 12)",
-    "runtime.cufft.note": "CUDA 12 FFT library; the ORT CUDA 12 provider imports it directly.",
+    "runtime.cufft.note": "CUDA 12 FFT library.",
     "runtime.cudnn": "cuDNN 9 (CUDA 12)",
-    "runtime.cudnn.note": "NVIDIA deep neural network library (9.27, CUDA 12); every sub-library in this folder is loaded by the ORT CUDA 12 build.",
+    "runtime.cudnn.note": "CUDA 12 neural network library.",
     "runtime.cudart13": "CUDA Runtime 13 (cudart)",
-    "runtime.cudart13.note": "CUDA 13 runtime; the ORT CUDA 13 build depends on it, and the version is pinned to match.",
+    "runtime.cudart13.note": "CUDA 13 runtime component.",
     "runtime.cublas13": "cuBLAS 13",
-    "runtime.cublas13.note": "CUDA 13 matrix library (incl. cublasLt); the ORT CUDA 13 build depends on it.",
+    "runtime.cublas13.note": "CUDA 13 matrix library.",
     "runtime.cufft13": "cuFFT 12 (CUDA 13)",
-    "runtime.cufft13.note": "CUDA 13 FFT library (`cufft64_12.dll`); the ORT CUDA 13 provider imports it directly.",
+    "runtime.cufft13.note": "CUDA 13 FFT library.",
     "runtime.cudnn13": "cuDNN 9 (CUDA 13)",
-    "runtime.cudnn13.note": "NVIDIA deep neural network library (9.27, CUDA 13); every sub-library in this folder is loaded by the ORT CUDA 13 build.",
+    "runtime.cudnn13.note": "CUDA 13 neural network library.",
     "runtime.cpu": "CPU",
     "runtime.cpu.note": "Plain CPU build (bundled, works everywhere).",
     "runtime.directml": "DirectML",
@@ -1583,9 +1622,9 @@ var AICUT = (() => {
     "runtime.coreml": "Apple CoreML",
     "runtime.coreml.note": "Apple Neural Engine / GPU (bundled).",
     "runtime.cuda": "ONNX Runtime (CUDA 12)",
-    "runtime.cuda.note": "NVIDIA GPU acceleration; on Windows / Linux the fully matched CUDA 12 / cuFFT 11 / cuDNN 9 set is downloaded with it (missing components install automatically), so no system CUDA install is needed. Best compatibility for older cards / drivers < 580.",
+    "runtime.cuda.note": "Older NVIDIA cards / drivers < 580; components included.",
     "runtime.cuda13": "ONNX Runtime (CUDA 13)",
-    "runtime.cuda13.note": "NVIDIA GPU acceleration for newer cards; on Windows / Linux the fully matched CUDA 13 / cuFFT 12 / cuDNN 9 set (ORT 1.31 build) is downloaded with it (missing components install automatically). Faster on Turing+ with driver 580+.",
+    "runtime.cuda13.note": "Newer NVIDIA cards / driver 580+; components included.",
     "models.pluginsSub": "{count} plugin downloads available",
     "models.subPlugins": "Install, import and update OpenFX plugins",
     "models.sub": "{installed} / {total} models installed",
@@ -1742,14 +1781,14 @@ var AICUT = (() => {
     "plugins.phase.done": "Done",
     "plugins.phase.error": "Failed",
     // ---- Settings: AI / MCP / network / CLI ----
-    "settings.section.ai": "AI/MCP",
-    "settings.section.ai.caption": "Clip agent, MCP server and skills",
+    "settings.section.ai": "AI / MCP",
+    "settings.section.ai.caption": "Clip agent, MCP & execution backend",
     "settings.section.tts": "Speech synthesis",
     "settings.section.tts.caption": "Cloud TTS services and custom endpoints",
     "settings.section.gen": "Image & video",
     "settings.section.gen.caption": "Cloud text-to-image, image-to-image and video APIs",
     "settings.section.network": "Network",
-    "settings.section.network.caption": "Proxy, mirrors and model sources",
+    "settings.section.network.caption": "Proxy, mirrors & model sources",
     "settings.section.cli": "Command line",
     "settings.section.cli.caption": "Use aicut from a terminal",
     "settings.ai.title": "Clip agent",
@@ -1774,14 +1813,14 @@ var AICUT = (() => {
     "settings.ai.backendGroup": "Local AI execution backend",
     "settings.ai.ortGroup": "ONNX Runtime backend (ASR / audio / visual)",
     "settings.ai.sdcppGroup": "sd.cpp backend (video / image generation)",
-    "settings.ai.sdcppHint": "Wan / Hunyuan / LTX / MiniMax-H3 and SD / FLUX / Qwen-Image / Z-Image all run on sd.cpp (ggml), completely separate from ONNX Runtime above. Switching takes effect on the next run; no restart needed.",
+    "settings.ai.sdcppHint": "Separate from ONNX Runtime; applies on the next run.",
     "settings.ai.sdcppMissing": "The sd.cpp engine is not installed",
     "settings.ai.sdcppOpen": "Open download manager",
     "settings.ai.sdcppApplied": "Video backend switched to {backend} (next run)",
     "settings.ai.sdcppNeedDownload": '"{backend}" needs the sd.cpp engine ({size}). Open the download manager now?',
     "settings.ai.sdcppDownloadGo": "Download",
     "settings.ai.backend": "Execution backend",
-    "settings.ai.backendHint": "Which ONNX Runtime backend runs the local models. CPU is the default; CUDA 12 / CUDA 13 are two independent runtimes, and options are limited to what this device supports.",
+    "settings.ai.backendHint": "Which ONNX Runtime runs the local models; only usable options are listed.",
     "settings.ai.platform": "This device: {platform}",
     "settings.ai.backendUnsupported": "Not included in this ONNX Runtime build",
     "settings.ai.backendUnavailableHint": "Unavailable backends need their runtime installed first (download manager \u2192 Runtimes).",
@@ -2178,6 +2217,10 @@ var AICUT = (() => {
     "error.serialize.badClip": "Invalid project file: clip is not an object",
     "error.serialize.badClipTime": "Invalid project file: invalid clip time",
     "error.serialize.badJson": "Project file is not valid JSON",
+    "error.command.readOnly": "Following the desktop session is read-only. Choose \u201CEdit a copy\u201D to make changes.",
+    "session.following": "Following the desktop session",
+    "session.followingHint": "Changes on the desktop appear here live (read-only).",
+    "session.copy": "Edit a copy",
     "error.command.stale": "Command is based on an old revision (current {expected}, got {actual}). Re-read the project.",
     "error.command.unknownKind": "Unknown or non-executable command: {kind}",
     "error.command.invalidPayload": "Invalid command payload",
@@ -2332,6 +2375,7 @@ var AICUT = (() => {
     "topbar.export": "\u5BFC\u51FA\u89C6\u9891",
     "topbar.exportLabel": "\u5BFC\u51FA\u89C6\u9891",
     "topbar.settings": "\u8BBE\u7F6E",
+    "topbar.backToWorkspace": "\u8FD4\u56DE\u5DE5\u4F5C\u533A",
     "topbar.github": "GitHub \u4ED3\u5E93",
     "topbar.githubLabel": "\u6253\u5F00 GitHub \u4ED3\u5E93",
     "topbar.rename": "\u91CD\u547D\u540D\u5DE5\u7A0B",
@@ -3153,16 +3197,27 @@ var AICUT = (() => {
     "settings.title": "\u8BBE\u7F6E",
     "settings.back": "\u8BBE\u7F6E",
     "settings.navAria": "\u8BBE\u7F6E\u5206\u7C7B",
-    "settings.section.general": "\u901A\u7528",
-    "settings.section.general.caption": "\u8BED\u8A00\u4E0E\u5DE5\u7A0B\u4FE1\u606F",
+    "settings.section.general": "\u5E38\u89C4",
+    "settings.section.general.caption": "\u5DE5\u7A0B\u3001\u542F\u52A8\u4E0E\u8BED\u8A00",
     "settings.section.appearance": "\u5916\u89C2",
-    "settings.section.appearance.caption": "\u4E3B\u9898",
+    "settings.section.appearance.caption": "\u4E3B\u9898\u4E0E\u914D\u8272",
     "settings.section.layout": "\u5E03\u5C40",
-    "settings.section.layout.caption": "\u9762\u677F\u4E0E\u65F6\u95F4\u7EBF",
+    "settings.section.layout.caption": "\u9762\u677F\u4E0E\u5BBD\u5EA6",
     "settings.section.about": "\u5173\u4E8E",
     "settings.section.about.caption": "\u7248\u672C\u4E0E\u8BB8\u53EF",
     "settings.section.storage": "\u5B58\u50A8",
-    "settings.section.storage.caption": "\u6570\u636E\u76EE\u5F55\u4E0E\u8FC1\u79FB",
+    "settings.section.storage.caption": "\u6A21\u578B\u3001\u8FD0\u884C\u65F6\u4E0E\u6570\u636E\u76EE\u5F55",
+    "settings.web.title": "Web \u8BBF\u95EE",
+    "settings.web.local": "\u672C\u673A\u5730\u5740",
+    "settings.web.localHint": "\u5728\u672C\u673A\u6D4F\u89C8\u5668\u6253\u5F00\uFF1B\u5730\u5740\u91CC\u5E26\u8BBF\u95EE\u4EE4\u724C\uFF0C\u6743\u9650\u7B49\u540C\u684C\u9762\u7AEF\u3002",
+    "settings.web.copy": "\u590D\u5236",
+    "settings.web.lan": "\u5C40\u57DF\u7F51\u8BBF\u95EE",
+    "settings.web.lanHint": "\u5F00\u542F\u540E\u540C\u4E00\u7F51\u6BB5\u7684\u8BBE\u5907\u53EF\u4EE5\u6253\u5F00\u3002",
+    "settings.web.lanUnavailable": "\u672A\u8FDE\u63A5\u5230\u5C40\u57DF\u7F51",
+    "settings.web.restart": "\u5DF2\u4FEE\u6539\uFF0C\u91CD\u542F\u540E\u751F\u6548\u3002",
+    "settings.web.open": "\u5728\u6D4F\u89C8\u5668\u6253\u5F00",
+    "settings.web.openHint": "\u7528\u7CFB\u7EDF\u9ED8\u8BA4\u6D4F\u89C8\u5668\u6253\u5F00\u5F53\u524D\u4F1A\u8BDD\u3002",
+    "settings.web.openButton": "\u6253\u5F00",
     "settings.storage.location": "\u6570\u636E\u76EE\u5F55",
     "settings.storage.current": "\u5F53\u524D\u4F4D\u7F6E",
     "settings.storage.currentHint": "\u6A21\u578B\u3001ONNX Runtime\u3001OFX \u63D2\u4EF6\u4E0E\u5DE5\u7A0B\u5386\u53F2\u90FD\u653E\u5728\u8FD9\u91CC",
@@ -3200,6 +3255,28 @@ var AICUT = (() => {
     "settings.storage.confirmBody": "\u5C06\u628A\u5F53\u524D\u6570\u636E\u76EE\u5F55\u6574\u4F53\u590D\u5236\u5230 {path}\u3002\u76EE\u6807\u6587\u4EF6\u5939\u5FC5\u987B\u662F\u7A7A\u7684\uFF1B\u590D\u5236\u5B8C\u6210\u5E76\u91CD\u542F\u5E94\u7528\u540E\u751F\u6548\u3002\u8FC1\u79FB\u8FC7\u7A0B\u4E2D\u8BF7\u4E0D\u8981\u6539\u8BBE\u7F6E\u6216\u4E0B\u8F7D\u6A21\u578B\uFF0C\u65E7\u6570\u636E\u4E0D\u4F1A\u81EA\u52A8\u5220\u9664\uFF0C\u91CD\u542F\u540E\u53EF\u5728\u8FD9\u91CC\u6E05\u7406\u3002",
     "settings.storage.confirmGo": "\u5F00\u59CB\u8FC1\u79FB",
     "settings.storage.desktopOnly": "\u6570\u636E\u76EE\u5F55\u53EA\u5728\u684C\u9762\u5E94\u7528\u91CC\u53EF\u6539\u3002",
+    // ---- 能力表：服务端声明"这个功能在当前形态能不能用" ----
+    "caps.fallback.separator": "\uFF1B\u53EF\u6539\u7528\uFF1A",
+    "caps.fallback.desktop": "\u5728\u684C\u9762\u5E94\u7528\u4E2D\u4F7F\u7528",
+    "caps.reason.mcpDesktopOnly": "MCP \u670D\u52A1\u4ECD\u7531\u684C\u9762\u5E94\u7528\u63D0\u4F9B\uFF08\u5C1A\u672A\u63A5\u5165\u65E0\u5934\u540E\u7AEF\uFF09",
+    "caps.reason.notPorted": "\u5C1A\u672A\u5728\u6D4F\u89C8\u5668\u7248\u672C\u63D0\u4F9B",
+    "caps.reason.localAiNotPortable": "\u672C\u5730 AI \u5C1A\u672A\u63A5\u5165\u6D4F\u89C8\u5668\u7248\u672C\uFF08\u9700\u8981\u6A21\u578B\u4E0E ONNX Runtime\uFF09",
+    "caps.reason.agentNeedsWebview": "\u667A\u80FD\u4F53\u7684\u5DE5\u5177\u8C03\u7528\u9700\u8981\u5728\u684C\u9762\u5E94\u7528\u4E2D\u6267\u884C",
+    "caps.reason.pluginRevealDesktopOnly": "\u63D2\u4EF6\u53EF\u88C5 / \u53EF\u5220 / \u53EF\u5BFC\u5165\uFF1B\u300C\u5728\u6587\u4EF6\u7BA1\u7406\u5668\u91CC\u663E\u793A\u300D\u9700\u8981\u684C\u9762\u5E94\u7528",
+    "caps.reason.needsPath": "\u9700\u8981\u7CFB\u7EDF\u7EA7\u6743\u9650\uFF0C\u6D4F\u89C8\u5668\u7248\u672C\u65E0\u6CD5\u63D0\u4F9B",
+    "caps.reason.needsGpu": "\u9700\u8981 GPU \u4E0E\u6570 GB \u6743\u91CD\uFF0C\u6D4F\u89C8\u5668\u7248\u672C\u4E0D\u63D0\u4F9B",
+    "caps.feature.agent": "\u667A\u80FD\u4F53",
+    "caps.feature.mcp": "MCP \u670D\u52A1",
+    "caps.feature.cli": "\u547D\u4EE4\u884C\u6302\u8F7D",
+    "caps.feature.network": "\u7F51\u7EDC\u8BBE\u7F6E",
+    "caps.feature.cloudTts": "\u4E91\u7AEF\u6717\u8BFB",
+    "caps.feature.cloudGen": "\u4E91\u7AEF\u51FA\u56FE / \u51FA\u89C6\u9891",
+    "caps.feature.loudness": "\u54CD\u5EA6\u6D4B\u91CF",
+    "caps.feature.videoDsp": "\u89C6\u9891\u5904\u7406",
+    "caps.feature.runtime": "AI \u8FD0\u884C\u5E93",
+    "caps.feature.sdcpp": "\u672C\u5730\u751F\u6210\u5F15\u64CE",
+    "caps.feature.dataDir": "\u6570\u636E\u76EE\u5F55",
+    "caps.feature.backend": "AI \u6267\u884C\u540E\u7AEF",
     "settings.storage.cleanupTitle": "\u5220\u9664\u65E7\u6570\u636E\u76EE\u5F55\uFF1F",
     "settings.storage.cleanupBody": "\u5C06\u5220\u9664 {path}\uFF0C\u53EA\u4FDD\u7559\u542F\u52A8\u7528\u7684\u6307\u9488\u4E0E\u53D1\u73B0\u6587\u4EF6\u3002\u6B64\u64CD\u4F5C\u4E0D\u53EF\u64A4\u9500\u3002",
     "settings.storage.cleanupGo": "\u5220\u9664",
@@ -3209,7 +3286,7 @@ var AICUT = (() => {
     "settings.startup": "\u542F\u52A8",
     "settings.welcome.label": "\u542F\u52A8\u65F6\u663E\u793A\u6B22\u8FCE\u9875",
     "settings.welcome.hint": "\u6BCF\u6B21\u6253\u5F00\u90FD\u7ED9\u51FA\u8D77\u6B65\u5165\u53E3\uFF1B\u5173\u6389\u540E\u4ECD\u53EF\u4ECE\u5E2E\u52A9\u83DC\u5355\u91CD\u770B\u3002",
-    "settings.welcome.replay": "\u65B0\u624B\u5F15\u5BFC",
+    "settings.welcome.replay": "\u5FEB\u901F\u4E0A\u624B",
     "settings.welcome.replayHint": "\u7528\u805A\u5149\u706F\u628A\u4E3B\u8981\u533A\u57DF\u518D\u8BB2\u4E00\u904D",
     "settings.welcome.replayAction": "\u518D\u770B\u4E00\u6B21",
     "settings.project": "\u5DE5\u7A0B",
@@ -3579,21 +3656,21 @@ var AICUT = (() => {
     "aiImage.vramHint": "\u663E\u5B58\u4E0D\u591F\u65F6\u5F00\u300C\u6743\u91CD\u653E\u5185\u5B58\u300D\uFF1B20B \u7EA7\u6A21\u578B\u5728 16 GB \u663E\u5B58\u4E0A\u5EFA\u8BAE 1024p \u4EE5\u5185\u3002",
     "sdcpp.cpu": "CPU",
     "sdcpp.cpu.note": "\u7EAF CPU\uFF0C\u6700\u6162\u4F46\u4EFB\u4F55\u673A\u5668\u90FD\u80FD\u8DD1\u3002",
-    "sdcpp.cpuMac.note": "\u5F3A\u5236 CPU \u8FD0\u884C\uFF08\u590D\u7528\u5DF2\u4E0B\u8F7D\u7684 Metal \u5F15\u64CE\uFF0C\u4E0D\u989D\u5916\u4E0B\u8F7D\uFF1BMetal \u51FA\u95EE\u9898\u6216\u663E\u5B58\u4E0D\u591F\u65F6\u7528\uFF09\u3002",
+    "sdcpp.cpuMac.note": "\u5F3A\u5236 CPU\uFF08\u590D\u7528 Metal \u5F15\u64CE\uFF0C\u4E0D\u989D\u5916\u4E0B\u8F7D\uFF09\u3002",
     "sdcpp.vulkan": "Vulkan",
     "sdcpp.vulkan.note": "Vulkan \u663E\u5361\u52A0\u901F\uFF0CAMD / Intel / NVIDIA \u901A\u7528\u3002",
     "sdcpp.cuda12": "CUDA 12",
-    "sdcpp.cuda12.note": "NVIDIA \u663E\u5361\u52A0\u901F\uFF0C\u5F15\u64CE\u5305\u81EA\u5E26 CUDA 12 \u8FD0\u884C\u5E93\u3002",
+    "sdcpp.cuda12.note": "NVIDIA \u52A0\u901F\uFF1B\u5305\u5185\u81EA\u5E26 CUDA 12\u3002",
     "sdcpp.rocm": "ROCm",
-    "sdcpp.rocm.note": "AMD \u663E\u5361\u52A0\u901F\uFF08Windows \u5305\u81EA\u5E26 HIP \u8FD0\u884C\u5E93\uFF0CLinux \u9700\u8981\u7CFB\u7EDF\u5DF2\u88C5 ROCm\uFF09\uFF1BNVIDIA / Intel \u663E\u5361\u8BF7\u9009 Vulkan\u3002",
+    "sdcpp.rocm.note": "AMD \u52A0\u901F\uFF1BLinux \u9700\u81EA\u88C5 ROCm\u3002",
     "sdcpp.metal": "Metal",
     "sdcpp.metal.note": "Apple Silicon GPU \u52A0\u901F\u3002",
     "sdcpp.installed": "\u5DF2\u5B89\u88C5",
     "sdcpp.downloadSize": "\u9700\u4E0B\u8F7D {size}",
     "sdcpp.current": "\u5F53\u524D",
     "sdcpp.group": "sd.cpp \u751F\u6210\u5F15\u64CE",
-    "sdcpp.groupHint": "\u89C6\u9891\u751F\u6210\uFF08Wan / Hunyuan / LTX / MiniMax-H3\uFF09\u4E0E\u56FE\u50CF\u751F\u6210\uFF08SD / FLUX / Qwen-Image / Z-Image\uFF09\u5171\u7528\u7684 ggml \u8FD0\u884C\u65F6\uFF0C\u4E0E ONNX Runtime \u5206\u5F00\u4E0B\u8F7D / \u5220\u9664\u3002",
-    "sdcpp.officialOnly": "\u4ECE GitHub \u5B98\u65B9 Release \u6216\u9B54\u642D\u793E\u533A\u955C\u50CF\u4E0B\u8F7D\uFF0C\u6BCF\u4EFD\u6587\u4EF6\u90FD\u4F1A\u6821\u9A8C sha256\uFF1B\u4E0D\u4F7F\u7528\u7B2C\u4E09\u65B9\u4EE3\u7406\u3002",
+    "sdcpp.groupHint": "\u56FE\u50CF / \u89C6\u9891\u751F\u6210\u5171\u7528\uFF1B\u4E0E ONNX Runtime \u5206\u5F00\u4E0B\u8F7D\u3002",
+    "sdcpp.officialOnly": "\u5B98\u65B9 Release / \u9B54\u642D\u955C\u50CF\uFF1B\u6587\u4EF6\u6821\u9A8C sha256\u3002",
     "videoAi.section": "\u753B\u9762",
     "videoAi.upscale": "AI \u8D85\u5206",
     "videoAi.interpolate": "AI \u89C6\u9891\u8865\u5E27",
@@ -3736,7 +3813,7 @@ var AICUT = (() => {
     "models.kind.runtime": "\u8FD0\u884C\u65F6",
     // ---- 本地 AI 运行时 ----
     "runtime.title": "\u8FD0\u884C\u65F6",
-    "runtime.hint": "CPU / DirectML / CoreML \u968F\u5305\u5185\u7F6E\uFF1BCUDA 12 / CUDA 13 \u6309\u9700\u4E0B\u8F7D\uFF08Windows / Linux \u4E0A\u90FD\u662F\u6574\u5957\u5339\u914D\u7684 ORT + CUDA \u7EC4\u4EF6\uFF09\uFF0C\u88C5\u5B8C\u91CD\u542F\u751F\u6548\u3002",
+    "runtime.hint": "CPU / DirectML / CoreML \u968F\u5305\uFF1BCUDA 12 / 13 \u6309\u9700\u4E0B\u8F7D\uFF0C\u91CD\u542F\u751F\u6548\u3002",
     "runtime.partsTitle": "CUDA \u7EC4\u4EF6",
     "runtime.empty": "\u6CA1\u6709\u9700\u8981\u4E0B\u8F7D\u7684\u8FD0\u884C\u65F6\u3002",
     "runtime.autoDownloading": "\u7F3A\u5C11 CUDA \u8FD0\u884C\u7EC4\u4EF6\uFF0C\u6B63\u5728\u81EA\u52A8\u4E0B\u8F7D\uFF08{count} \u9879\uFF09\u2026",
@@ -3745,28 +3822,28 @@ var AICUT = (() => {
     "runtime.notInstalled": "\u672A\u5B89\u88C5",
     "runtime.partsNote": "\u5207\u6362 CUDA \u65F6\u81EA\u52A8\u5B89\u88C5\u7F3A\u5931\u7EC4\u4EF6",
     "runtime.cuda12Parts": "CUDA 12 \u7EC4\u4EF6",
-    "runtime.cuda12PartsHint": "cudart 12 / cuBLAS 12 / cuFFT 11 / cuDNN 9\uFF08CUDA 12\uFF09\uFF1A\u5207\u6362 CUDA 12 \u65F6\u81EA\u52A8\u5B89\u88C5\u7F3A\u5931\u9879\uFF0C\u4E5F\u53EF\u4EE5\u5728\u8FD9\u91CC\u5355\u72EC\u4E0B\u8F7D\u3002",
+    "runtime.cuda12PartsHint": "\u5207\u6362 CUDA 12 \u65F6\u81EA\u52A8\u8865\u9F50\u7F3A\u5931\u7EC4\u4EF6\u3002",
     "runtime.cuda13Parts": "CUDA 13 \u7EC4\u4EF6",
-    "runtime.cuda13PartsHint": "cudart 13 / cuBLAS 13 / cuFFT 12 / cuDNN 9\uFF08CUDA 13\uFF09\uFF1A\u5207\u6362 CUDA 13 \u65F6\u81EA\u52A8\u5B89\u88C5\u7F3A\u5931\u9879\uFF0C\u4E5F\u53EF\u4EE5\u5728\u8FD9\u91CC\u5355\u72EC\u4E0B\u8F7D\u3002",
+    "runtime.cuda13PartsHint": "\u5207\u6362 CUDA 13 \u65F6\u81EA\u52A8\u8865\u9F50\u7F3A\u5931\u7EC4\u4EF6\u3002",
     "runtime.restartBody": "\u65B0\u88C5\u7684\u8FD0\u884C\u5E93 / CUDA \u7EC4\u4EF6\u4F1A\u5728\u4E0B\u6B21\u542F\u52A8\u65F6\u52A0\u8F7D\u3002",
     "runtime.restartNow": "\u7ACB\u5373\u91CD\u542F",
     "runtime.restartLater": "\u7A0D\u540E",
     "runtime.cudart": "CUDA Runtime 12 (cudart)",
-    "runtime.cudart.note": "CUDA 12 \u8FD0\u884C\u65F6\uFF1BORT \u7684 CUDA 12 \u7248\u4F9D\u8D56\u5B83\uFF0C\u7248\u672C\u4E0E\u672C\u4F53\u9489\u6B7B\u5339\u914D\u3002",
+    "runtime.cudart.note": "CUDA 12 \u8FD0\u884C\u65F6\u7EC4\u4EF6\u3002",
     "runtime.cublas": "cuBLAS 12",
-    "runtime.cublas.note": "CUDA 12 \u7684\u77E9\u9635\u8FD0\u7B97\u5E93\uFF08\u542B cublasLt\uFF09\uFF1BORT \u7684 CUDA 12 \u7248\u4F9D\u8D56\u5B83\u3002",
+    "runtime.cublas.note": "CUDA 12 \u77E9\u9635\u8FD0\u7B97\u5E93\u3002",
     "runtime.cufft": "cuFFT 11\uFF08CUDA 12\uFF09",
-    "runtime.cufft.note": "CUDA 12 \u7684 FFT \u5E93\uFF1BORT \u7684 CUDA 12 provider \u76F4\u63A5\u4F9D\u8D56\u5B83\u3002",
+    "runtime.cufft.note": "CUDA 12 FFT \u5E93\u3002",
     "runtime.cudnn": "cuDNN 9\uFF08CUDA 12\uFF09",
-    "runtime.cudnn.note": "NVIDIA \u6DF1\u5EA6\u795E\u7ECF\u7F51\u7EDC\u5E93\uFF089.27\uFF0CCUDA 12 \u7248\uFF09\uFF1BORT \u7684 CUDA 12 \u7248\u4F9D\u8D56\u5B83\uFF0C\u6574\u76EE\u5F55\u90FD\u662F\u8FD0\u884C\u65F6\u9700\u8981\u7684\u5B50\u5E93\u3002",
+    "runtime.cudnn.note": "CUDA 12 \u6DF1\u5EA6\u795E\u7ECF\u7F51\u7EDC\u5E93\u3002",
     "runtime.cudart13": "CUDA Runtime 13 (cudart)",
-    "runtime.cudart13.note": "CUDA 13 \u8FD0\u884C\u65F6\uFF1BORT \u7684 CUDA 13 \u7248\u4F9D\u8D56\u5B83\uFF0C\u7248\u672C\u4E0E\u672C\u4F53\u9489\u6B7B\u5339\u914D\u3002",
+    "runtime.cudart13.note": "CUDA 13 \u8FD0\u884C\u65F6\u7EC4\u4EF6\u3002",
     "runtime.cublas13": "cuBLAS 13",
-    "runtime.cublas13.note": "CUDA 13 \u7684\u77E9\u9635\u8FD0\u7B97\u5E93\uFF08\u542B cublasLt\uFF09\uFF1BORT \u7684 CUDA 13 \u7248\u4F9D\u8D56\u5B83\u3002",
+    "runtime.cublas13.note": "CUDA 13 \u77E9\u9635\u8FD0\u7B97\u5E93\u3002",
     "runtime.cufft13": "cuFFT 12\uFF08CUDA 13\uFF09",
-    "runtime.cufft13.note": "CUDA 13 \u7684 FFT \u5E93\uFF08`cufft64_12.dll`\uFF09\uFF1BORT \u7684 CUDA 13 provider \u76F4\u63A5\u4F9D\u8D56\u5B83\u3002",
+    "runtime.cufft13.note": "CUDA 13 FFT \u5E93\u3002",
     "runtime.cudnn13": "cuDNN 9\uFF08CUDA 13\uFF09",
-    "runtime.cudnn13.note": "NVIDIA \u6DF1\u5EA6\u795E\u7ECF\u7F51\u7EDC\u5E93\uFF089.27\uFF0CCUDA 13 \u7248\uFF09\uFF1BORT \u7684 CUDA 13 \u7248\u4F9D\u8D56\u5B83\uFF0C\u6574\u76EE\u5F55\u90FD\u662F\u8FD0\u884C\u65F6\u9700\u8981\u7684\u5B50\u5E93\u3002",
+    "runtime.cudnn13.note": "CUDA 13 \u6DF1\u5EA6\u795E\u7ECF\u7F51\u7EDC\u5E93\u3002",
     "runtime.cpu": "CPU",
     "runtime.cpu.note": "\u7EAF CPU \u6784\u5EFA\uFF08\u968F\u5305\uFF0C\u5168\u5E73\u53F0\u53EF\u7528\uFF09\u3002",
     "runtime.directml": "DirectML",
@@ -3774,9 +3851,9 @@ var AICUT = (() => {
     "runtime.coreml": "Apple CoreML",
     "runtime.coreml.note": "Apple \u795E\u7ECF\u5F15\u64CE / GPU\uFF08\u968F\u5305\uFF09\u3002",
     "runtime.cuda": "ONNX Runtime\uFF08CUDA 12\uFF09",
-    "runtime.cuda.note": "NVIDIA \u663E\u5361\u52A0\u901F\uFF1BWindows / Linux \u4E0A\u6574\u5957\u5339\u914D\u7684 CUDA 12 / cuFFT 11 / cuDNN 9 \u968F\u4E0B\u8F7D\u81EA\u5E26\uFF0C\u7F3A\u7684\u7EC4\u4EF6\u4F1A\u81EA\u52A8\u8865\u9F50\uFF0C\u4E0D\u9700\u8981\u7CFB\u7EDF\u91CC\u88C5 CUDA\u3002\u8001\u5361 / \u9A71\u52A8 < 580 \u517C\u5BB9\u6027\u6700\u597D\u3002",
+    "runtime.cuda.note": "NVIDIA \u8001\u5361 / \u9A71\u52A8 < 580\uFF1B\u7EC4\u4EF6\u968F\u4E0B\u8F7D\uFF0C\u65E0\u9700\u7CFB\u7EDF CUDA\u3002",
     "runtime.cuda13": "ONNX Runtime\uFF08CUDA 13\uFF09",
-    "runtime.cuda13.note": "NVIDIA \u65B0\u5361\u52A0\u901F\uFF1BWindows / Linux \u4E0A\u6574\u5957\u5339\u914D\u7684 CUDA 13 / cuFFT 12 / cuDNN 9\uFF08ORT 1.31 \u6784\u5EFA\uFF09\u968F\u4E0B\u8F7D\u81EA\u5E26\uFF0C\u7F3A\u7684\u7EC4\u4EF6\u4F1A\u81EA\u52A8\u8865\u9F50\u3002Turing \u8D77\u4E14\u9A71\u52A8 580+ \u66F4\u5FEB\u3002",
+    "runtime.cuda13.note": "NVIDIA \u65B0\u5361 / \u9A71\u52A8 580+\uFF1B\u7EC4\u4EF6\u968F\u4E0B\u8F7D\u3002",
     "models.pluginsSub": "{count} \u4E2A\u63D2\u4EF6\u53EF\u4E0B\u8F7D\u6216\u66F4\u65B0",
     "models.subPlugins": "\u5B89\u88C5\u3001\u5BFC\u5165\u4E0E\u66F4\u65B0 OpenFX \u63D2\u4EF6",
     "models.sub": "{installed} / {total} \u4E2A\u6A21\u578B\u5DF2\u5B89\u88C5",
@@ -3933,8 +4010,8 @@ var AICUT = (() => {
     "plugins.phase.done": "\u5B8C\u6210",
     "plugins.phase.error": "\u5931\u8D25",
     // ---- 设置：AI / MCP / 网络 / 命令行 ----
-    "settings.section.ai": "AI/MCP",
-    "settings.section.ai.caption": "\u526A\u8F91\u667A\u80FD\u4F53\u3001MCP \u670D\u52A1\u5668\u4E0E\u6280\u80FD",
+    "settings.section.ai": "AI / MCP",
+    "settings.section.ai.caption": "\u526A\u8F91\u667A\u80FD\u4F53\u3001MCP \u4E0E\u6267\u884C\u540E\u7AEF",
     "settings.section.tts": "\u8BED\u97F3\u5408\u6210",
     "settings.section.tts.caption": "\u4E91\u7AEF TTS \u670D\u52A1\u4E0E\u81EA\u5B9A\u4E49\u63A5\u53E3",
     "settings.section.gen": "\u56FE\u50CF\u4E0E\u89C6\u9891",
@@ -3965,14 +4042,14 @@ var AICUT = (() => {
     "settings.ai.backendGroup": "\u672C\u5730 AI \u6267\u884C\u540E\u7AEF",
     "settings.ai.ortGroup": "ONNX Runtime \u540E\u7AEF\uFF08\u8BC6\u522B / \u97F3\u9891 / \u753B\u9762\u5904\u7406\uFF09",
     "settings.ai.sdcppGroup": "sd.cpp \u540E\u7AEF\uFF08\u89C6\u9891 / \u56FE\u50CF\u751F\u6210\uFF09",
-    "settings.ai.sdcppHint": "Wan / Hunyuan / LTX / MiniMax-H3 \u4E0E SD / FLUX / Qwen-Image / Z-Image \u90FD\u8D70 sd.cpp\uFF08ggml\uFF09\uFF0C\u4E0E\u4E0A\u9762\u7684 ONNX Runtime \u5B8C\u5168\u5206\u5F00\uFF1B\u5207\u6362\u540E\u4E0B\u6B21\u751F\u6210\u751F\u6548\uFF0C\u4E0D\u9700\u8981\u91CD\u542F\u3002",
+    "settings.ai.sdcppHint": "\u4E0E ONNX Runtime \u5206\u5F00\uFF1B\u5207\u6362\u540E\u4E0B\u6B21\u751F\u6210\u751F\u6548\u3002",
     "settings.ai.sdcppMissing": "sd.cpp \u5F15\u64CE\u8FD8\u6CA1\u4E0B\u8F7D",
     "settings.ai.sdcppOpen": "\u6253\u5F00\u4E0B\u8F7D\u7BA1\u7406\u5668",
     "settings.ai.sdcppApplied": "\u89C6\u9891\u540E\u7AEF\u5DF2\u5207\u6362\u5230 {backend}\uFF08\u4E0B\u6B21\u751F\u6210\u751F\u6548\uFF09",
     "settings.ai.sdcppNeedDownload": "\u300C{backend}\u300D\u9700\u8981\u5148\u4E0B\u8F7D sd.cpp \u5F15\u64CE\uFF08{size}\uFF09\u3002\u73B0\u5728\u6253\u5F00\u4E0B\u8F7D\u7BA1\u7406\u5668\u5417\uFF1F",
     "settings.ai.sdcppDownloadGo": "\u53BB\u4E0B\u8F7D",
     "settings.ai.backend": "\u6267\u884C\u540E\u7AEF",
-    "settings.ai.backendHint": "\u672C\u5730\u6A21\u578B\u7528\u54EA\u4E2A ONNX Runtime \u540E\u7AEF\u3002\u9ED8\u8BA4 CPU\uFF1BCUDA 12 / CUDA 13 \u662F\u4E24\u5957\u72EC\u7ACB\u8FD0\u884C\u65F6\uFF0C\u9009\u9879\u53EA\u5217\u51FA\u672C\u673A\u652F\u6301\u7684\u90A3\u4E9B\u3002",
+    "settings.ai.backendHint": "\u672C\u5730\u6A21\u578B\u7528\u54EA\u4E2A ONNX Runtime\uFF1B\u53EA\u5217\u672C\u673A\u53EF\u7528\u7684\u3002",
     "settings.ai.platform": "\u672C\u673A\u8BBE\u5907\uFF1A{platform}",
     "settings.ai.backendUnsupported": "\u5F53\u524D\u6784\u5EFA\u7684 ONNX Runtime \u672A\u5305\u542B\u8BE5\u540E\u7AEF",
     "settings.ai.backendUnavailableHint": "\u4E0D\u53EF\u7528\u7684\u540E\u7AEF\u9700\u8981\u5148\u5B89\u88C5\u5BF9\u5E94\u7684\u8FD0\u884C\u65F6\uFF08\u4E0B\u8F7D\u7BA1\u7406\u5668 \u2192 \u8FD0\u884C\u65F6\uFF09\u3002",
@@ -4369,6 +4446,10 @@ var AICUT = (() => {
     "error.serialize.badClip": "\u5DE5\u7A0B\u6587\u4EF6\u683C\u5F0F\u9519\u8BEF\uFF1A\u7247\u6BB5\u4E0D\u662F\u5BF9\u8C61",
     "error.serialize.badClipTime": "\u5DE5\u7A0B\u6587\u4EF6\u683C\u5F0F\u9519\u8BEF\uFF1A\u7247\u6BB5\u7684\u65F6\u95F4\u5B57\u6BB5\u975E\u6CD5",
     "error.serialize.badJson": "\u5DE5\u7A0B\u6587\u4EF6\u4E0D\u662F\u5408\u6CD5 JSON",
+    "error.command.readOnly": "\u6B63\u5728\u8DDF\u968F\u684C\u9762\u4F1A\u8BDD\uFF0C\u6682\u4E0D\u80FD\u7F16\u8F91\uFF1B\u70B9\u300C\u4EE5\u526F\u672C\u7F16\u8F91\u300D\u540E\u53EF\u4FEE\u6539\u3002",
+    "session.following": "\u6B63\u5728\u8DDF\u968F\u684C\u9762\u4F1A\u8BDD",
+    "session.followingHint": "\u684C\u9762\u7AEF\u7684\u6539\u52A8\u4F1A\u5B9E\u65F6\u540C\u6B65\u5230\u8FD9\u91CC\uFF08\u53EA\u8BFB\uFF09\u3002",
+    "session.copy": "\u4EE5\u526F\u672C\u7F16\u8F91",
     "error.command.stale": "\u547D\u4EE4\u57FA\u4E8E\u65E7\u7248\u672C\uFF08\u5F53\u524D {expected}\uFF0C\u6536\u5230 {actual}\uFF09\uFF0C\u8BF7\u91CD\u65B0\u8BFB\u53D6\u5DE5\u7A0B",
     "error.command.unknownKind": "\u672A\u77E5\u6216\u4E0D\u53EF\u6267\u884C\u7684\u547D\u4EE4\uFF1A{kind}",
     "error.command.invalidPayload": "\u547D\u4EE4\u53C2\u6570\u4E0D\u5408\u6CD5",
@@ -4527,6 +4608,21 @@ var AICUT = (() => {
       ...input.textStyle !== void 0 ? { textStyle: input.textStyle } : {}
     };
   }
+  function newProject(name = "untitled") {
+    const now = Date.now();
+    return {
+      version: PROJECT_VERSION,
+      name,
+      createdAt: now,
+      updatedAt: now,
+      fps: 30,
+      width: 1920,
+      height: 1080,
+      assets: [],
+      tracks: [],
+      markers: []
+    };
+  }
 
   // src/core/ops/tracks.ts
   function addTrackAt(doc2, index, name) {
@@ -4535,6 +4631,9 @@ var AICUT = (() => {
     const tracks = doc2.tracks.slice();
     tracks.splice(at, 0, track);
     return withTouch(doc2, { tracks });
+  }
+  function addTrack(doc2, name) {
+    return addTrackAt(doc2, doc2.tracks.length, name);
   }
   function moveTrack(doc2, trackId, toIndex) {
     const from = doc2.tracks.findIndex((t2) => t2.id === trackId);
@@ -4593,6 +4692,21 @@ var AICUT = (() => {
   }
   function isDefaultClipColor(color) {
     return Math.abs(color.brightness) < 1e-6 && Math.abs(color.contrast - 1) < 1e-6 && Math.abs(color.saturation - 1) < 1e-6 && Math.abs(color.temperature) < 1e-6 && Math.abs(color.tint) < 1e-6;
+  }
+  function clipColorFilters(clip) {
+    const color = resolveClipColor(clip);
+    if (isDefaultClipColor(color)) return [];
+    const filters = [
+      `eq=brightness=${color.brightness.toFixed(4)}:contrast=${color.contrast.toFixed(4)}:saturation=${color.saturation.toFixed(4)}`
+    ];
+    if (Math.abs(color.temperature) > 1e-6 || Math.abs(color.tint) > 1e-6) {
+      const warm = color.temperature * 0.18;
+      const green = color.tint * 0.18;
+      filters.push(
+        `colorbalance=rs=${warm.toFixed(4)}:gs=${green.toFixed(4)}:bs=${(-warm).toFixed(4)}:rm=${(warm * 0.7).toFixed(4)}:gm=${(green * 0.7).toFixed(4)}:bm=${(-warm * 0.7).toFixed(4)}:rh=${(warm * 0.4).toFixed(4)}:gh=${(green * 0.4).toFixed(4)}:bh=${(-warm * 0.4).toFixed(4)}`
+      );
+    }
+    return filters;
   }
 
   // src/core/effects.ts
@@ -4680,6 +4794,12 @@ var AICUT = (() => {
     if (clip.transform) return clip.transform;
     return clip.text !== void 0 ? DEFAULT_TEXT_TRANSFORM : DEFAULT_TRANSFORM;
   }
+  function sameTransform(a, b) {
+    return a.x === b.x && a.y === b.y && a.scale === b.scale && a.rotation === b.rotation;
+  }
+  function isDefaultTransform(value) {
+    return sameTransform(value, DEFAULT_TRANSFORM);
+  }
 
   // src/core/keyframes.ts
   var KEYFRAME_PROPERTIES = [
@@ -4698,6 +4818,9 @@ var AICUT = (() => {
   };
   function clamp3(value, min, max) {
     return Math.min(max, Math.max(min, value));
+  }
+  function number(value) {
+    return String(Number(value.toFixed(6)));
   }
   function baseKeyframeValues(clip) {
     const transform = resolveTransform(clip);
@@ -4733,6 +4856,25 @@ var AICUT = (() => {
       }
     }
     return deduped;
+  }
+  function keyframeExpression(keyframes, property, variable, offset = 0) {
+    if (!keyframes || keyframes.length === 0) return null;
+    const points = keyframes.map((frame) => ({
+      time: frame.time + offset,
+      value: frame[property]
+    }));
+    if (points.length === 1) return number(points[0].value);
+    let expression = number(points[points.length - 1].value);
+    for (let index = points.length - 1; index > 0; index -= 1) {
+      const prev = points[index - 1];
+      const next = points[index];
+      const span = next.time - prev.time;
+      if (span <= 0) continue;
+      const segment = `(${number(prev.value)}+(${number(next.value)}-${number(prev.value)})*(${variable}-${number(prev.time)})/${number(span)})`;
+      expression = `if(lt(${variable},${number(next.time)}),${segment},${expression})`;
+    }
+    expression = `if(lt(${variable},${number(points[0].time)}),${number(points[0].value)},${expression})`;
+    return expression;
   }
 
   // src/core/ops/clips.ts
@@ -4774,8 +4916,8 @@ var AICUT = (() => {
     const duration = moving.duration;
     for (const other of stationary) {
       const otherEnd = other.start + other.duration;
-      const overlaps = start < otherEnd && other.start < start + duration;
-      if (!overlaps) continue;
+      const overlaps2 = start < otherEnd && other.start < start + duration;
+      if (!overlaps2) continue;
       const rightEdge = otherEnd;
       const leftEdge = other.start - duration;
       if (leftEdge < 0) {
@@ -4965,6 +5107,13 @@ var AICUT = (() => {
     });
     return changed ? withTouch(doc2, { tracks }) : doc2;
   }
+  function setClipGain(doc2, clipId, db) {
+    const found = findClip(doc2, clipId);
+    if (!found) return doc2;
+    const value = clamp(db, -60, 12);
+    if (found.clip.gain === value) return doc2;
+    return updateClip(doc2, clipId, { gain: value });
+  }
   function setClipSpeed(doc2, clipId, value) {
     const found = findClip(doc2, clipId);
     if (!found) return doc2;
@@ -5042,12 +5191,17 @@ var AICUT = (() => {
     }
     return updateClip(doc2, clipId, { keyframes: normalized });
   }
+  function setClipMuted(doc2, clipId, muted) {
+    const found = findClip(doc2, clipId);
+    if (!found || Boolean(found.clip.muted) === muted) return doc2;
+    return updateClip(doc2, clipId, { muted });
+  }
 
   // src/core/ops/markers.ts
   var MARKER_KINDS = ["scene", "hit", "review", "chapter"];
   var SEVERITIES = ["blocker", "high", "medium", "low"];
-  function sortMarkers(markers) {
-    return markers.slice().sort((a, b) => a.time - b.time || a.name.localeCompare(b.name));
+  function sortMarkers(markers2) {
+    return markers2.slice().sort((a, b) => a.time - b.time || a.name.localeCompare(b.name));
   }
   function normalizeBBox(input) {
     if (!input) return void 0;
@@ -5103,14 +5257,14 @@ var AICUT = (() => {
     const current2 = doc2.markers[index];
     const next = normalizeMarker({ ...current2, updatedAt: Date.now(), ...patch });
     if (sameMarker(current2, next)) return doc2;
-    const markers = doc2.markers.slice();
-    markers[index] = next;
-    return withTouch(doc2, { markers: sortMarkers(markers) });
+    const markers2 = doc2.markers.slice();
+    markers2[index] = next;
+    return withTouch(doc2, { markers: sortMarkers(markers2) });
   }
   function removeMarker(doc2, markerId) {
-    const markers = doc2.markers.filter((marker) => marker.id !== markerId);
-    if (markers.length === doc2.markers.length) return doc2;
-    return withTouch(doc2, { markers });
+    const markers2 = doc2.markers.filter((marker) => marker.id !== markerId);
+    if (markers2.length === doc2.markers.length) return doc2;
+    return withTouch(doc2, { markers: markers2 });
   }
 
   // src/core/projectOutput.ts
@@ -5157,6 +5311,26 @@ var AICUT = (() => {
     while (taken.has(`${baseName} ${index}`)) index += 1;
     return `${baseName} ${index}`;
   }
+  function insertCueTrack(doc2, cues, baseName) {
+    const usable = cues.filter((cue) => cue.text.trim().length > 0);
+    if (usable.length === 0) return doc2;
+    let next = addTrackAt(doc2, 0, uniqueCueTrackName(doc2, baseName));
+    const trackId = next.tracks[0].id;
+    for (const cue of usable) {
+      next = addClip(
+        next,
+        trackId,
+        createClip({
+          assetId: "",
+          trackId,
+          start: cue.start,
+          duration: cue.duration,
+          text: cue.text
+        })
+      );
+    }
+    return next;
+  }
   function raiseCueTracks(doc2, pattern) {
     const ids = doc2.tracks.filter((track) => pattern.test(track.name)).map((track) => track.id);
     return raiseTracks(doc2, ids);
@@ -5176,8 +5350,8 @@ var AICUT = (() => {
       });
     }
     let next = doc2;
-    const ordered = entries.filter((entry) => entry.text.trim().length > 0).slice().sort((a, b) => a.start - b.start || a.end - b.end);
-    for (const entry of ordered) {
+    const ordered2 = entries.filter((entry) => entry.text.trim().length > 0).slice().sort((a, b) => a.start - b.start || a.end - b.end);
+    for (const entry of ordered2) {
       const start = Math.max(0, entry.start + offset);
       const duration = Math.max(1 / doc2.fps, entry.end - entry.start);
       const end = start + duration;
@@ -5925,7 +6099,7 @@ var AICUT = (() => {
       });
       return { ...record, visible, clips };
     });
-    const markers = Array.isArray(project.markers) ? project.markers.filter((marker) => isObject(marker) && isNumber(marker.time)).map((marker) => {
+    const markers2 = Array.isArray(project.markers) ? project.markers.filter((marker) => isObject(marker) && isNumber(marker.time)).map((marker) => {
       const severity = marker.severity === "blocker" || marker.severity === "high" || marker.severity === "medium" || marker.severity === "low" ? marker.severity : void 0;
       const kind = marker.kind === "scene" || marker.kind === "hit" || marker.kind === "review" || marker.kind === "chapter" ? marker.kind : void 0;
       const bbox = isObject(marker.bbox) && isNumber(marker.bbox.x) && isNumber(marker.bbox.y) && isNumber(marker.bbox.width) && isNumber(marker.bbox.height) ? {
@@ -5952,12 +6126,12 @@ var AICUT = (() => {
         ...isNumber(marker.updatedAt) ? { updatedAt: marker.updatedAt } : {}
       };
     }) : [];
-    const cutScopes = normalizeCutScopes(project);
+    const cutScopes2 = normalizeCutScopes(project);
     return {
       ...project,
       tracks,
-      markers,
-      ...cutScopes ? { cutScopes } : { cutScopes: void 0 }
+      markers: markers2,
+      ...cutScopes2 ? { cutScopes: cutScopes2 } : { cutScopes: void 0 }
     };
   }
   function parseProject(json) {
@@ -5972,7 +6146,19 @@ var AICUT = (() => {
   }
 
   // src/core/projectView.ts
+  var DEFAULT_PAGE = 40;
+  var MAX_PAGE = 100;
+  var MAX_ASSET_PAGE = 200;
   var SUMMARY_TEXT = 200;
+  var PAGE_TEXT = 1e3;
+  function clampPage(value, fallback = DEFAULT_PAGE, max = MAX_PAGE) {
+    if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+    return Math.min(max, Math.max(1, Math.floor(value)));
+  }
+  function clampOffset(value) {
+    if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+    return Math.max(0, Math.floor(value));
+  }
   function truncate(text, max) {
     if (text === void 0) return void 0;
     return text.length > max ? `${text.slice(0, max)}\u2026` : text;
@@ -5985,6 +6171,22 @@ var AICUT = (() => {
       }
     }
     return end;
+  }
+  function resolveTrack2(doc2, ref) {
+    if (ref === void 0 || ref === null) return null;
+    if (typeof ref === "string" && ref.length > 0) {
+      const byId = doc2.tracks.find((track) => track.id === ref);
+      if (byId) return byId;
+      if (/^\d+$/.test(ref)) {
+        const index = Number(ref);
+        if (index >= 1 && index <= doc2.tracks.length) return doc2.tracks[index - 1];
+      }
+      return null;
+    }
+    if (typeof ref === "number" && Number.isInteger(ref) && ref >= 1 && ref <= doc2.tracks.length) {
+      return doc2.tracks[ref - 1];
+    }
+    return null;
   }
   function trackSummary(track, index) {
     let start = Number.POSITIVE_INFINITY;
@@ -6031,6 +6233,11 @@ var AICUT = (() => {
       ...clip.audioOnly === void 0 ? {} : { audioOnly: clip.audioOnly }
     };
   }
+  function clipForPage(clip) {
+    if (clip.text === void 0) return clip;
+    const text = truncate(clip.text, PAGE_TEXT);
+    return text === clip.text ? clip : { ...clip, text };
+  }
   function findClip2(doc2, clipId) {
     for (let index = 0; index < doc2.tracks.length; index += 1) {
       const track = doc2.tracks[index];
@@ -6060,6 +6267,23 @@ var AICUT = (() => {
       hint: "\u8FD9\u662F\u5DE5\u7A0B\u6982\u89C8\uFF0C\u4E0D\u542B\u7247\u6BB5\u4E0E\u7D20\u6750\u660E\u7EC6\u3002\u6309\u5173\u6CE8\u70B9\u7EE7\u7EED\u8BFB\uFF1Aget_context\uFF08\u64AD\u653E\u5934/\u9009\u4E2D\uFF09\u3001get_track\uFF08\u67D0\u8F68\u5206\u9875\uFF09\u3001find_clips\uFF08\u6309\u65F6\u95F4/\u7D20\u6750/\u6587\u5B57\u68C0\u7D22\uFF09\u3001get_clip\uFF08\u5355\u7247\u6BB5\uFF09\u3001get_assets\uFF08\u7D20\u6750\uFF09\u3001get_markers\uFF08\u6807\u8BB0\uFF09\u3002\u6279\u91CF\u5199\u64CD\u4F5C\u7528 apply_commands\u3002"
     };
   }
+  function trackPage(doc2, revision2, ref, offsetInput, limitInput) {
+    const track = resolveTrack2(doc2, ref);
+    if (!track) return null;
+    const index = doc2.tracks.indexOf(track) + 1;
+    const offset = Math.min(clampOffset(offsetInput), track.clips.length);
+    const limit = clampPage(limitInput);
+    const page = track.clips.slice(offset, offset + limit).map(clipForPage);
+    return {
+      revision: revision2,
+      track: trackSummary(track, index),
+      offset,
+      total: track.clips.length,
+      hasMore: offset + page.length < track.clips.length,
+      nextOffset: offset + page.length,
+      clips: page
+    };
+  }
   function clipDetail(doc2, revision2, clipId) {
     const found = findClip2(doc2, clipId);
     if (!found) return null;
@@ -6079,6 +6303,2266 @@ var AICUT = (() => {
       }
     };
   }
+  function findClips(doc2, revision2, query) {
+    let scoped = null;
+    if (query.trackId !== void 0) {
+      const track = resolveTrack2(doc2, query.trackId);
+      if (!track) return null;
+      scoped = [{ track, index: doc2.tracks.indexOf(track) + 1 }];
+    }
+    const from = typeof query.from === "number" ? query.from : Number.NEGATIVE_INFINITY;
+    const to = typeof query.to === "number" ? query.to : Number.POSITIVE_INFINITY;
+    const needle = query.text?.toLowerCase();
+    const kind = query.kind?.toLowerCase();
+    const matches = [];
+    const tracks = scoped ?? doc2.tracks.map((track, index) => ({ track, index: index + 1 }));
+    for (const { track, index } of tracks) {
+      for (const clip of track.clips) {
+        const end = clip.start + clip.duration;
+        if (end <= from || clip.start >= to) continue;
+        if (query.assetId !== void 0 && clip.assetId !== query.assetId) continue;
+        if (needle !== void 0 && !(clip.text ?? "").toLowerCase().includes(needle)) continue;
+        if (kind !== void 0) {
+          const asset = clip.assetId === "" ? null : doc2.assets.find((candidate) => candidate.id === clip.assetId) ?? null;
+          const clipKind = clip.assetId === "" ? "text" : asset?.kind ?? "missing";
+          if (clipKind !== kind) continue;
+        }
+        matches.push({ track, trackIndex: index, clip });
+      }
+    }
+    matches.sort((a, b) => a.clip.start - b.clip.start || a.trackIndex - b.trackIndex);
+    const offset = Math.min(clampOffset(query.offset), matches.length);
+    const limit = clampPage(query.limit);
+    const page = matches.slice(offset, offset + limit);
+    return {
+      revision: revision2,
+      total: matches.length,
+      offset,
+      limit,
+      hasMore: offset + page.length < matches.length,
+      nextOffset: offset + page.length,
+      clips: page.map(
+        ({ track, trackIndex, clip }) => clipSummary(doc2, track, trackIndex, clip)
+      )
+    };
+  }
+  function assetsPage(doc2, revision2, query) {
+    const needle = query.name?.toLowerCase();
+    const kind = query.kind?.toLowerCase();
+    const matches = doc2.assets.filter((asset) => {
+      if (kind !== void 0 && asset.kind !== kind) return false;
+      if (query.offline !== void 0 && Boolean(asset.offline) !== query.offline) return false;
+      if (needle !== void 0 && !asset.name.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+    const offset = Math.min(clampOffset(query.offset), matches.length);
+    const limit = clampPage(query.limit, 50, MAX_ASSET_PAGE);
+    const page = matches.slice(offset, offset + limit);
+    return {
+      revision: revision2,
+      total: matches.length,
+      offset,
+      limit,
+      hasMore: offset + page.length < matches.length,
+      nextOffset: offset + page.length,
+      assets: page.map(assetSummary)
+    };
+  }
+  function markers(doc2, revision2, query = {}) {
+    const from = typeof query.from === "number" ? query.from : Number.NEGATIVE_INFINITY;
+    const to = typeof query.to === "number" ? query.to : Number.POSITIVE_INFINITY;
+    const list = doc2.markers.filter((marker) => marker.time >= from && marker.time <= to).filter((marker) => query.sceneId === void 0 ? true : marker.sceneId === query.sceneId).filter((marker) => query.kind === void 0 ? true : marker.kind === query.kind).filter(
+      (marker) => query.severity === void 0 ? true : marker.severity === query.severity
+    ).filter(
+      (marker) => query.resolved === void 0 ? true : marker.resolved === true === query.resolved
+    ).filter((marker) => query.noteOnly ? Boolean(marker.note) : true).slice().sort((a, b) => a.time - b.time || a.name.localeCompare(b.name));
+    const offset = Math.min(clampOffset(query.offset), list.length);
+    const limit = clampPage(query.limit, 200, 1e3);
+    const page = list.slice(offset, offset + limit);
+    return {
+      revision: revision2,
+      total: list.length,
+      offset,
+      limit,
+      hasMore: offset + page.length < list.length,
+      nextOffset: offset + page.length,
+      markers: page
+    };
+  }
+
+  // src/core/audioEdit.ts
+  var TRUE_PEAK_CEILING_DBTP = -1;
+  function loudnessGain(report, targetLufs, ceilingDbtp = TRUE_PEAK_CEILING_DBTP) {
+    const lufs = report.integrated_lufs;
+    if (lufs === null || !Number.isFinite(lufs)) return null;
+    let gain = targetLufs - lufs;
+    const peak = report.true_peak_dbtp;
+    if (peak !== null && Number.isFinite(peak)) {
+      gain = Math.min(gain, ceilingDbtp - peak);
+    }
+    return Math.max(-60, Math.min(12, gain));
+  }
+  function replaceClipAudio(doc2, clipId, assetId, assetDuration, clipDuration) {
+    const duration = assetDuration > 0 ? Math.min(clipDuration, assetDuration) : clipDuration;
+    return updateClip(doc2, clipId, { assetId, in: 0, duration });
+  }
+  function applyProcessedAudio(doc2, clip, assetId, assetDuration, sourceKind, trackName) {
+    if (sourceKind === "audio" || clip.audioOnly) {
+      return replaceClipAudio(doc2, clip.id, assetId, assetDuration, clip.duration);
+    }
+    const sourceIndex = doc2.tracks.findIndex((track2) => track2.id === clip.trackId);
+    const insertAt = sourceIndex >= 0 ? sourceIndex + 1 : doc2.tracks.length;
+    let next = updateClip(doc2, clip.id, { muted: true });
+    next = addTrackAt(next, insertAt, trackName);
+    const track = next.tracks[insertAt];
+    const duration = Math.min(
+      clip.duration,
+      assetDuration > 0 ? assetDuration : clip.duration
+    );
+    if (duration > 0) {
+      next = addClip(
+        next,
+        track.id,
+        createClip({
+          assetId,
+          trackId: track.id,
+          start: clip.start,
+          duration,
+          in: 0
+        })
+      );
+    }
+    return next;
+  }
+  function extractClipAudio(doc2, sourceClip, trackName) {
+    if (sourceClip.assetId === "" || !(sourceClip.duration > 0)) {
+      return { doc: doc2, clipId: null, trackId: null };
+    }
+    const sourceIndex = doc2.tracks.findIndex((track2) => track2.id === sourceClip.trackId);
+    const insertAt = sourceIndex >= 0 ? sourceIndex + 1 : doc2.tracks.length;
+    let next = updateClip(doc2, sourceClip.id, { muted: true });
+    next = addTrackAt(next, insertAt, trackName);
+    const track = next.tracks[insertAt];
+    const audio = createClip({
+      assetId: sourceClip.assetId,
+      trackId: track.id,
+      start: sourceClip.start,
+      duration: sourceClip.duration,
+      in: sourceClip.in ?? 0
+    });
+    next = addClip(next, track.id, { ...audio, audioOnly: true });
+    return { doc: next, clipId: audio.id, trackId: track.id };
+  }
+  function addStemTracks(doc2, sourceClip, stems, baseName, muteSource = true) {
+    if (stems.length === 0) return doc2;
+    const sourceIndex = doc2.tracks.findIndex((track) => track.id === sourceClip.trackId);
+    let next = muteSource ? updateClip(doc2, sourceClip.id, { muted: true }) : doc2;
+    let insertAt = sourceIndex >= 0 ? sourceIndex + 1 : next.tracks.length;
+    for (const stem of stems) {
+      next = addTrackAt(next, insertAt, `${baseName} \xB7 ${stem.label}`);
+      const track = next.tracks[insertAt];
+      const duration = Math.min(sourceClip.duration, stem.duration);
+      if (duration > 0) {
+        next = addClip(
+          next,
+          track.id,
+          createClip({
+            assetId: stem.assetId,
+            trackId: track.id,
+            start: sourceClip.start,
+            duration,
+            in: 0
+          })
+        );
+      }
+      insertAt += 1;
+    }
+    return next;
+  }
+
+  // src/core/videoEdit.ts
+  function replaceClipVideo(doc2, clipId, assetId, assetDuration, clipDuration) {
+    const duration = assetDuration > 0 ? Math.min(clipDuration, assetDuration) : clipDuration;
+    return updateClip(doc2, clipId, { assetId, in: 0, duration });
+  }
+
+  // src/core/voiceover.ts
+  function escapeRegExp2(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function trackPattern(baseName) {
+    return new RegExp(`^${escapeRegExp2(baseName)}(?:\\s+\\d+)?$`);
+  }
+  function findFreeLane(lanes, start, end) {
+    return lanes.find(
+      (lane) => lane.spans.every((span) => end <= span.start || start >= span.end)
+    ) ?? null;
+  }
+  function placeVoiceover(doc2, items, baseName) {
+    if (items.length === 0) return doc2;
+    const pattern = trackPattern(baseName);
+    const lanes = [];
+    for (const track of doc2.tracks) {
+      if (track.locked || !pattern.test(track.name)) continue;
+      lanes.push({
+        id: track.id,
+        name: track.name,
+        spans: track.clips.map((clip) => ({
+          start: clip.start,
+          end: clip.start + clip.duration
+        }))
+      });
+    }
+    let next = doc2;
+    const ordered2 = items.filter((item) => item.duration > 0).slice().sort((a, b) => a.start - b.start || a.duration - b.duration);
+    for (const item of ordered2) {
+      const end = item.start + item.duration;
+      let lane = findFreeLane(lanes, item.start, end);
+      if (!lane) {
+        let name = baseName;
+        let index = 2;
+        while (next.tracks.some((track2) => track2.name === name)) {
+          name = `${baseName} ${index++}`;
+        }
+        next = addTrack(next, name);
+        const track = next.tracks[next.tracks.length - 1];
+        lane = { id: track.id, name, spans: [] };
+        lanes.push(lane);
+      }
+      const clip = createClip({
+        assetId: item.assetId,
+        trackId: lane.id,
+        start: item.start,
+        duration: item.duration
+      });
+      next = addClip(next, lane.id, clip);
+      lane.spans.push({ start: item.start, end });
+    }
+    return next;
+  }
+
+  // src/core/voiceEdit.ts
+  function locate(doc2, clipId) {
+    for (const track of doc2.tracks) {
+      const clip = track.clips.find((candidate) => candidate.id === clipId);
+      if (clip) return clip;
+    }
+    return null;
+  }
+  function placeConvertedVoice(doc2, items, baseName) {
+    if (items.length === 0) return doc2;
+    const ordered2 = items.map((item) => ({ item, clip: locate(doc2, item.clipId) })).filter((entry) => entry.clip !== null).sort((a, b) => a.clip.start - b.clip.start);
+    let next = doc2;
+    const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`^${escaped}(?:\\s+\\d+)?$`);
+    const lanes = [];
+    for (const track of next.tracks) {
+      if (track.locked || !pattern.test(track.name)) continue;
+      lanes.push({
+        id: track.id,
+        spans: track.clips.map((clip) => ({
+          start: clip.start,
+          end: clip.start + clip.duration
+        }))
+      });
+    }
+    for (const { item, clip } of ordered2) {
+      next = setClipMuted(next, clip.id, true);
+      const duration = Math.min(item.duration, clip.duration);
+      if (!(duration > 0)) continue;
+      const end = clip.start + duration;
+      let lane = lanes.find(
+        (candidate) => candidate.spans.every((span) => end <= span.start || clip.start >= span.end)
+      );
+      if (!lane) {
+        let name = baseName;
+        let index = 2;
+        while (next.tracks.some((track2) => track2.name === name)) name = `${baseName} ${index++}`;
+        next = addTrack(next, name);
+        const track = next.tracks[next.tracks.length - 1];
+        lane = { id: track.id, spans: [] };
+        lanes.push(lane);
+      }
+      next = addClip(
+        next,
+        lane.id,
+        createClip({
+          assetId: item.assetId,
+          trackId: lane.id,
+          start: clip.start,
+          duration,
+          in: 0
+        })
+      );
+      lane.spans.push({ start: clip.start, end });
+    }
+    return next;
+  }
+
+  // src/core/subtitleFile.ts
+  function stripTags(text) {
+    return text.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/&quot;/gi, '"').replace(/&#39;/gi, "'").trim();
+  }
+  function parseTimestamp(raw) {
+    const match = raw.trim().match(/^(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})$/);
+    if (!match) return null;
+    const hours = match[1] ? Number(match[1]) : 0;
+    const minutes = Number(match[2]);
+    const seconds = Number(match[3]);
+    const milliseconds = Number(match[4].padEnd(3, "0"));
+    if (minutes >= 60 || seconds >= 60) return null;
+    return hours * 3600 + minutes * 60 + seconds + milliseconds / 1e3;
+  }
+  function timeRange(line) {
+    const arrow = line.indexOf("-->");
+    if (arrow < 0) return null;
+    const left = line.slice(0, arrow).trim();
+    const right = line.slice(arrow + 3).trim().split(/\s+/)[0] ?? "";
+    const start = parseTimestamp(left);
+    const end = parseTimestamp(right);
+    if (start === null || end === null || end <= start) return null;
+    return { start, end };
+  }
+  function parseBlocks(text, vtt) {
+    const normalized = text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+    const blocks = normalized.split(/\n{2,}/);
+    const entries = [];
+    for (const block of blocks) {
+      const lines = block.split("\n").filter((line) => line.trim().length > 0);
+      if (lines.length === 0) continue;
+      const head = lines[0].trim().toUpperCase();
+      if (vtt && (head === "WEBVTT" || head.startsWith("NOTE") || head === "STYLE" || head === "REGION")) {
+        continue;
+      }
+      const rangeIndex = lines.findIndex((line) => line.includes("-->"));
+      if (rangeIndex < 0) continue;
+      const range = timeRange(lines[rangeIndex]);
+      if (!range) continue;
+      const body = lines.slice(rangeIndex + 1).join("\n");
+      const text2 = stripTags(body);
+      if (!text2) continue;
+      entries.push({ start: range.start, end: range.end, text: text2 });
+    }
+    return entries.sort((a, b) => a.start - b.start || a.end - b.end);
+  }
+  function parseSrt(text) {
+    return parseBlocks(text, false);
+  }
+  function parseVtt(text) {
+    return parseBlocks(text, true);
+  }
+  function subtitleFormatFromPath(path) {
+    return path.toLowerCase().endsWith(".vtt") ? "vtt" : "srt";
+  }
+  function parseSubtitleText(text, path = "") {
+    return subtitleFormatFromPath(path) === "vtt" || /^\uFEFF?WEBVTT\b/i.test(text) ? parseVtt(text) : parseSrt(text);
+  }
+  function formatTimestamp(seconds, separator) {
+    const total = Math.max(0, seconds);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor(total % 3600 / 60);
+    const secs = Math.floor(total % 60);
+    const millis = Math.round((total - Math.floor(total)) * 1e3);
+    return [
+      String(hours).padStart(2, "0"),
+      String(minutes).padStart(2, "0"),
+      `${String(secs).padStart(2, "0")}${separator}${String(millis).padStart(3, "0")}`
+    ].join(":");
+  }
+  function ordered(entries) {
+    return entries.filter((entry) => entry.text.trim().length > 0).map((entry) => ({
+      start: Math.max(0, entry.start),
+      end: Math.max(entry.start + 1e-3, entry.end),
+      text: entry.text.trim()
+    })).sort((a, b) => a.start - b.start || a.end - b.end);
+  }
+  function serializeSrt(entries) {
+    return ordered(entries).map(
+      (entry, index) => `${index + 1}
+${formatTimestamp(entry.start, ",")} --> ${formatTimestamp(entry.end, ",")}
+${entry.text}
+`
+    ).join("\n");
+  }
+  function serializeVtt(entries) {
+    return `WEBVTT
+
+${ordered(entries).map(
+      (entry) => `${formatTimestamp(entry.start, ".")} --> ${formatTimestamp(entry.end, ".")}
+${entry.text}
+`
+    ).join("\n")}`;
+  }
+  function serializeSubtitles(entries, format) {
+    return format === "vtt" ? serializeVtt(entries) : serializeSrt(entries);
+  }
+
+  // src/core/playback/activeClips.ts
+  function isAudible(track) {
+    return !track.muted;
+  }
+  function isVisible(track) {
+    return track.visible !== false;
+  }
+  function projectDuration2(doc2) {
+    let max = 0;
+    for (const track of doc2.tracks) {
+      for (const clip of track.clips) max = Math.max(max, clip.start + clip.duration);
+    }
+    return max;
+  }
+
+  // src/types/export.ts
+  var GIF_DITHERS = [
+    "sierra2_4a",
+    "bayer",
+    "floyd_steinberg",
+    "none"
+  ];
+
+  // src/core/export/escape.ts
+  function formatSeconds(seconds) {
+    return String(Number(seconds.toFixed(6)));
+  }
+
+  // src/core/export/plan.ts
+  function clipSpeed2(clip) {
+    return Math.min(4, Math.max(0.1, clip.speed ?? 1));
+  }
+  function clipWindowOf(clip, speed, window) {
+    const clipEnd = clip.start + clip.duration;
+    if (!window) {
+      return {
+        localStart: clip.start,
+        localDuration: clip.duration,
+        localIn: clip.in,
+        sourceDuration: clip.duration * speed,
+        offsetIntoClip: 0,
+        cutsHead: false,
+        cutsTail: false
+      };
+    }
+    const visibleStart = Math.max(clip.start, window.start);
+    const visibleEnd = Math.min(clipEnd, window.end);
+    if (!(visibleEnd > visibleStart + 1e-9)) return null;
+    const offsetIntoClip = Math.max(0, visibleStart - clip.start);
+    return {
+      localStart: visibleStart - window.start,
+      localDuration: visibleEnd - visibleStart,
+      localIn: clip.in + offsetIntoClip * speed,
+      sourceDuration: (visibleEnd - visibleStart) * speed,
+      offsetIntoClip,
+      cutsHead: offsetIntoClip > 1e-9,
+      cutsTail: visibleEnd < clipEnd - 1e-9
+    };
+  }
+  function windowedFadeFilters(clip, localDuration, cutsHead, cutsTail, warnings) {
+    const filters = [];
+    const number2 = (value) => String(Number(value.toFixed(6)));
+    if (clip.transitionIn?.type === "fade") {
+      if (cutsHead) {
+        warnings.push(`\u7247\u6BB5 ${clip.id} \u7684\u5165\u573A\u6DE1\u5165\u88AB\u533A\u95F4\u622A\u65AD\uFF0C\u5DF2\u8DF3\u8FC7`);
+      } else {
+        filters.push(
+          `fade=t=in:st=0:d=${number2(Math.min(clip.transitionIn.duration, localDuration))}:alpha=1`
+        );
+      }
+    }
+    if (clip.transitionOut?.type === "fade") {
+      if (cutsTail) {
+        warnings.push(`\u7247\u6BB5 ${clip.id} \u7684\u51FA\u573A\u6DE1\u51FA\u88AB\u533A\u95F4\u622A\u65AD\uFF0C\u5DF2\u8DF3\u8FC7`);
+      } else {
+        filters.push(
+          `fade=t=out:st=${number2(Math.max(0, localDuration - clip.transitionOut.duration))}:d=${number2(Math.min(clip.transitionOut.duration, localDuration))}:alpha=1`
+        );
+      }
+    }
+    return filters;
+  }
+  function atempoFilters(speed) {
+    if (Math.abs(speed - 1) < 1e-6) return [];
+    const out = [];
+    let value = speed;
+    while (value > 2) {
+      out.push("atempo=2");
+      value /= 2;
+    }
+    while (value < 0.5) {
+      out.push("atempo=0.5");
+      value /= 0.5;
+    }
+    if (Math.abs(value - 1) >= 1e-6) out.push(`atempo=${value.toFixed(6)}`);
+    return out;
+  }
+  function resolveDimensions(project, options) {
+    const aspect = project.width / project.height;
+    let width;
+    let height;
+    if (options.resolution === "custom") {
+      const customWidth = options.width && options.width > 0 ? options.width : null;
+      const customHeight = options.height && options.height > 0 ? options.height : null;
+      if (customWidth !== null && customHeight !== null) {
+        width = customWidth;
+        height = customHeight;
+      } else if (customWidth !== null) {
+        width = customWidth;
+        height = Math.round(customWidth / aspect);
+      } else if (customHeight !== null) {
+        height = customHeight;
+        width = Math.round(customHeight * aspect);
+      } else {
+        width = project.width;
+        height = project.height;
+      }
+    } else {
+      height = options.resolution === "720p" ? 720 : options.resolution === "1080p" ? 1080 : project.height;
+      width = options.resolution === "project" ? project.width : Math.round(height * aspect);
+    }
+    const fps = options.format === "gif" ? Math.min(120, Math.max(1, Math.round(options.fps ?? 15))) : normalizeFps(options.fps ?? project.fps);
+    return { width: evenDimension(width), height: evenDimension(height), fps };
+  }
+  var ANCHOR_OFFSETS = {
+    "top-left": [0, 0],
+    top: [0.5, 0],
+    "top-right": [1, 0],
+    left: [0, 0.5],
+    center: [0.5, 0.5],
+    right: [1, 0.5],
+    "bottom-left": [0, 1],
+    bottom: [0.5, 1],
+    "bottom-right": [1, 1]
+  };
+  function fitFilters(width, height, fit, anchor) {
+    if (fit === "cover") {
+      const [x, y] = ANCHOR_OFFSETS[anchor] ?? ANCHOR_OFFSETS.center;
+      const crop = x === 0.5 && y === 0.5 ? `crop=${width}:${height}` : `crop=${width}:${height}:(iw-ow)*${x}:(ih-oh)*${y}`;
+      return [
+        `scale=${width}:${height}:force_original_aspect_ratio=increase`,
+        crop
+      ];
+    }
+    return [
+      `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black@0`
+    ];
+  }
+  function hasAudio(asset) {
+    return asset.kind === "audio" || asset.kind === "video" && asset.hasAudio === true;
+  }
+  function crfOf(quality) {
+    return quality === "high" ? "18" : quality === "small" ? "28" : "23";
+  }
+  function transformFilters(clip, transform, streamOffset = 0) {
+    const filters = [];
+    const scaleExpr = keyframeExpression(clip.keyframes, "scale", "t", streamOffset);
+    if (scaleExpr) {
+      filters.push(
+        `scale=w='iw*(${scaleExpr})':h='ih*(${scaleExpr})':eval=frame`
+      );
+    } else if (transform.scale !== 1) {
+      filters.push(`scale=iw*${transform.scale}:ih*${transform.scale}`);
+    }
+    const rotationExpr = keyframeExpression(clip.keyframes, "rotation", "t", streamOffset);
+    if (rotationExpr) {
+      filters.push(
+        `rotate=angle='(${rotationExpr})*PI/180':ow=iw:oh=ih:c=none`
+      );
+    } else if (transform.rotation !== 0) {
+      const angle = `${transform.rotation}*PI/180`;
+      filters.push(
+        `rotate=${angle}:ow=rotw(${angle}):oh=roth(${angle}):c=none`
+      );
+    }
+    return filters;
+  }
+  function opacityFilters(clip, opacity, streamOffset = 0) {
+    const expression = keyframeExpression(clip.keyframes, "opacity", "T", streamOffset);
+    if (!expression) {
+      return Math.abs(opacity - 1) < 1e-6 ? [] : [`colorchannelmixer=aa=${opacity}`];
+    }
+    return [
+      "format=rgba",
+      `geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(${expression})'`,
+      "format=yuva420p"
+    ];
+  }
+  function slideExpr(clip, edge, timeShift = 0) {
+    const transition = edge === "in" ? clip.transitionIn : clip.transitionOut;
+    if (transition?.type !== "slide") return { x: "0", y: "0" };
+    const duration = formatSeconds(transition.duration);
+    const start = formatSeconds(clip.start - timeShift);
+    const end = formatSeconds(clip.start + clip.duration - timeShift);
+    const direction = transition.direction ?? "left";
+    const sign = direction === "right" || direction === "down" ? 1 : -1;
+    const expr = edge === "in" ? `if(between(t,${start},${start}+${duration}),${sign * 100}*(1-(t-${start})/${duration}),0)` : `if(between(t,${end}-${duration},${end}),${sign * 100}*(1-(${end}-t)/${duration}),0)`;
+    return direction === "up" || direction === "down" ? { x: "0", y: expr } : { x: expr, y: "0" };
+  }
+  function overlayPosition(clip, transform, localStart = clip.start, timeShift = 0) {
+    const enter = slideExpr(clip, "in", timeShift);
+    const exit = slideExpr(clip, "out", timeShift);
+    const xKey = keyframeExpression(clip.keyframes, "x", "t", localStart);
+    const yKey = keyframeExpression(clip.keyframes, "y", "t", localStart);
+    const hasMotion = xKey !== null || yKey !== null;
+    const hasSlide = enter.x !== "0" || enter.y !== "0" || exit.x !== "0" || exit.y !== "0";
+    if (!hasMotion && !hasSlide && isDefaultTransform(transform)) return "";
+    const x = `${xKey ?? transform.x}+${enter.x}+${exit.x}`;
+    const y = `${yKey ?? transform.y}+${enter.y}+${exit.y}`;
+    return `:x='(main_w-overlay_w)/2+(${x})*main_w/100':y='(main_h-overlay_h)/2+(${y})*main_h/100'`;
+  }
+  function buildExportPlan(project, options, textImages, outputPath, effectVideos = /* @__PURE__ */ new Map(), window, transitionVideos = /* @__PURE__ */ new Map()) {
+    const fullDuration = projectDuration2(project);
+    if (!(fullDuration > 0)) throw new Error(t("export.emptyTimeline"));
+    let windowStart = 0;
+    let duration = fullDuration;
+    if (window) {
+      windowStart = Math.max(0, window.start);
+      const windowEnd = Math.min(window.end, fullDuration);
+      duration = windowEnd - windowStart;
+      if (!(duration > 0)) throw new Error(t("export.emptyTimeline"));
+    }
+    const { width, height, fps } = resolveDimensions(project, options);
+    const warnings = [];
+    const warned = /* @__PURE__ */ new Set();
+    const warnOnce = (key, message) => {
+      if (warned.has(key)) return;
+      warned.add(key);
+      warnings.push(message);
+    };
+    const filters = [
+      `color=c=black:s=${width}x${height}:r=${fps}:d=${formatSeconds(duration)}[b0]`
+    ];
+    const inputs = [];
+    let inputCount = 0;
+    function pushInput(args) {
+      const index = inputCount;
+      inputs.push(...args);
+      inputCount += 1;
+      return index;
+    }
+    function assetOf(clip) {
+      return project.assets.find((a) => a.id === clip.assetId);
+    }
+    function assertOnline(asset) {
+      if (asset.offline) throw new Error(t("export.offlineAsset", { name: asset.name }));
+    }
+    const clipWindows = /* @__PURE__ */ new Map();
+    function windowOf(clip) {
+      if (clipWindows.has(clip.id)) return clipWindows.get(clip.id) ?? null;
+      const value = clipWindowOf(clip, clipSpeed2(clip), window);
+      clipWindows.set(clip.id, value);
+      return value;
+    }
+    const visualTracks = project.tracks.filter((track) => isVisible(track));
+    const preparedVideo = [];
+    const visualLayers = [];
+    const bakedClipIds = /* @__PURE__ */ new Set();
+    for (const track of [...visualTracks].reverse()) {
+      const trackIndex = project.tracks.indexOf(track);
+      for (const clip of track.clips) {
+        if (!(clip.duration > 0)) continue;
+        if (clip.audioOnly) continue;
+        if (!clip.assetId) continue;
+        const asset = assetOf(clip);
+        if (!asset) {
+          warnings.push(t("export.warnMissingAsset"));
+          continue;
+        }
+        if (asset.kind !== "video" && asset.kind !== "image") continue;
+        assertOnline(asset);
+        const win = windowOf(clip);
+        if (!win) continue;
+        const baked = effectVideos.get(clip.id);
+        const args = baked ? [
+          "-ss",
+          formatSeconds(win.offsetIntoClip),
+          "-t",
+          formatSeconds(win.localDuration),
+          "-i",
+          baked
+        ] : asset.kind === "image" ? ["-loop", "1", "-t", formatSeconds(win.localDuration), "-i", asset.src] : [
+          "-ss",
+          formatSeconds(win.localIn),
+          "-t",
+          formatSeconds(win.sourceDuration),
+          "-i",
+          asset.src
+        ];
+        const inputIndex = pushInput(args);
+        if (baked) bakedClipIds.add(clip.id);
+        preparedVideo.push({ clip, asset, inputIndex });
+        visualLayers.push({
+          clip,
+          inputIndex,
+          kind: "video",
+          trackIndex,
+          window: win
+        });
+      }
+    }
+    for (const track of [...visualTracks].reverse()) {
+      const trackIndex = project.tracks.indexOf(track);
+      for (const clip of track.clips) {
+        const text = (clip.text ?? "").trim();
+        if (text === "" || !(clip.duration > 0)) continue;
+        const image = textImages.get(clip.id);
+        if (!image) {
+          warnings.push(t("export.warnMissingTextImage", { text }));
+          continue;
+        }
+        const win = windowOf(clip);
+        if (!win) continue;
+        const inputIndex = pushInput([
+          "-loop",
+          "1",
+          "-t",
+          formatSeconds(win.localDuration),
+          "-i",
+          image
+        ]);
+        visualLayers.push({ clip, inputIndex, kind: "text", trackIndex, window: win });
+      }
+    }
+    visualLayers.sort(
+      (a, b) => b.trackIndex - a.trackIndex || a.clip.start - b.clip.start
+    );
+    const transitionLayers = [];
+    for (const [key, video] of transitionVideos) {
+      const separator = key.lastIndexOf(":");
+      const clipId = separator >= 0 ? key.slice(0, separator) : key;
+      const trackIndex = project.tracks.findIndex(
+        (track) => track.clips.some((clip) => clip.id === clipId)
+      );
+      transitionLayers.push({
+        path: video.path,
+        start: video.start,
+        duration: video.duration,
+        trackIndex
+      });
+    }
+    transitionLayers.sort((a, b) => b.trackIndex - a.trackIndex);
+    let transitionCount = 0;
+    let transitionCursor = 0;
+    const emitTransition = (video) => {
+      const visibleStart = Math.max(video.start, windowStart);
+      const visibleEnd = Math.min(
+        video.start + video.duration,
+        windowStart + duration
+      );
+      if (!(visibleEnd > visibleStart + 1e-6)) return;
+      const offset = visibleStart - video.start;
+      const inputIndex = pushInput([
+        "-ss",
+        formatSeconds(offset),
+        "-t",
+        formatSeconds(visibleEnd - visibleStart),
+        "-i",
+        video.path
+      ]);
+      const start = formatSeconds(visibleStart - windowStart);
+      const end = formatSeconds(visibleEnd - windowStart);
+      filters.push(
+        `[${inputIndex}:v]format=yuva420p,setsar=1,fps=${fps},setpts=PTS-STARTPTS+${start}/TB[tr${transitionCount}]`
+      );
+      filters.push(
+        `${videoLabel}[tr${transitionCount}]overlay=eof_action=pass:enable='between(t,${start},${end})'[vtr${transitionCount}]`
+      );
+      videoLabel = `[vtr${transitionCount}]`;
+      transitionCount += 1;
+    };
+    const emitTransitionsAbove = (trackIndex) => {
+      while (transitionCursor < transitionLayers.length && transitionLayers[transitionCursor].trackIndex > trackIndex) {
+        emitTransition(transitionLayers[transitionCursor]);
+        transitionCursor += 1;
+      }
+    };
+    let videoLabel = "[b0]";
+    let videoCount = 0;
+    let textCount = 0;
+    for (const layer of visualLayers) {
+      emitTransitionsAbove(layer.trackIndex);
+      const { clip, inputIndex, window: win } = layer;
+      const start = formatSeconds(win.localStart);
+      const end = formatSeconds(win.localStart + win.localDuration);
+      const streamOffset = -win.offsetIntoClip;
+      const transform = resolveTransform(clip);
+      const opacity = Math.min(1, Math.max(0, clip.opacity ?? 1));
+      const fades = windowedFadeFilters(
+        clip,
+        win.localDuration,
+        win.cutsHead,
+        win.cutsTail,
+        warnings
+      );
+      if (layer.kind === "video") {
+        const speed = clipSpeed2(clip);
+        const baked = bakedClipIds.has(clip.id);
+        const tail2 = [
+          ...transformFilters(clip, transform, streamOffset),
+          ...clipColorFilters(clip),
+          ...opacityFilters(clip, opacity, streamOffset),
+          ...fades,
+          `setpts=PTS-STARTPTS+${start}/TB[v${videoCount}]`
+        ];
+        const [scaleFilter, ...fitTail] = fitFilters(
+          width,
+          height,
+          options.fit,
+          options.fitAnchor
+        );
+        const base = baked ? [`[${inputIndex}:v]format=yuva420p`, `fps=${fps}`] : [
+          `[${inputIndex}:v]${scaleFilter}`,
+          ...fitTail,
+          "setsar=1",
+          ...speed === 1 ? [] : [`setpts=(PTS-STARTPTS)/${speed}`],
+          `fps=${fps}`
+        ];
+        filters.push(
+          [base[0], "format=yuva420p", ...base.slice(1), ...tail2].join(",")
+        );
+        filters.push(
+          `${videoLabel}[v${videoCount}]overlay=eof_action=pass:enable='between(t,${start},${end})'${overlayPosition(clip, transform, win.localStart - win.offsetIntoClip, windowStart)}[vout${videoCount}]`
+        );
+        videoLabel = `[vout${videoCount}]`;
+        videoCount += 1;
+        continue;
+      }
+      filters.push(
+        [
+          `[${inputIndex}:v]format=yuva420p`,
+          `fps=${fps}`,
+          ...transformFilters(clip, transform, streamOffset),
+          ...clipColorFilters(clip),
+          ...opacityFilters(clip, opacity, streamOffset),
+          ...fades,
+          `setpts=PTS-STARTPTS+${start}/TB[t${textCount}]`
+        ].join(",")
+      );
+      filters.push(
+        `${videoLabel}[t${textCount}]overlay=eof_action=pass:enable='between(t,${start},${end})'${overlayPosition(clip, transform, win.localStart - win.offsetIntoClip, windowStart)}[vtext${textCount}]`
+      );
+      videoLabel = `[vtext${textCount}]`;
+      textCount += 1;
+    }
+    emitTransitionsAbove(-2);
+    const wantsAudio = options.audio !== false && options.format !== "gif";
+    const preparedAudio = [];
+    const videoInputByClip = new Map(preparedVideo.map((p) => [p.clip.id, p.inputIndex]));
+    if (wantsAudio) {
+      for (const track of project.tracks) {
+        if (!isAudible(track)) continue;
+        for (const clip of track.clips) {
+          if (!(clip.duration > 0)) continue;
+          if (clip.muted) continue;
+          const asset = assetOf(clip);
+          if (!asset || !hasAudio(asset)) continue;
+          assertOnline(asset);
+          const win = windowOf(clip);
+          if (!win) continue;
+          const reused = bakedClipIds.has(clip.id) ? void 0 : videoInputByClip.get(clip.id);
+          const inputIndex = reused !== void 0 ? reused : pushInput([
+            "-ss",
+            formatSeconds(win.localIn),
+            "-t",
+            formatSeconds(win.sourceDuration),
+            "-i",
+            asset.src
+          ]);
+          preparedAudio.push({ clip, inputIndex, window: win });
+        }
+      }
+    }
+    preparedAudio.forEach(({ clip, inputIndex, window: win }, index) => {
+      const gain = clip.gain ?? 0;
+      const delayMs = Math.max(0, Math.round(win.localStart * 1e3));
+      let fadeIn = Math.min(Math.max(clip.fadeIn ?? 0, 0), win.localDuration);
+      if (win.cutsHead && fadeIn > 0) {
+        warnOnce(`audio-fade-in:${clip.id}`, `\u7247\u6BB5 ${clip.id} \u7684\u97F3\u9891\u6DE1\u5165\u88AB\u533A\u95F4\u622A\u65AD\uFF0C\u5DF2\u8DF3\u8FC7`);
+        fadeIn = 0;
+      }
+      let fadeOut = Math.min(
+        Math.max(clip.fadeOut ?? 0, 0),
+        Math.max(0, win.localDuration - fadeIn)
+      );
+      if (win.cutsTail && fadeOut > 0) {
+        warnOnce(`audio-fade-out:${clip.id}`, `\u7247\u6BB5 ${clip.id} \u7684\u97F3\u9891\u6DE1\u51FA\u88AB\u533A\u95F4\u622A\u65AD\uFF0C\u5DF2\u8DF3\u8FC7`);
+        fadeOut = 0;
+      }
+      const pitch = Math.min(12, Math.max(-12, clip.pitch ?? 0));
+      const pan = Math.min(1, Math.max(-1, clip.pan ?? 0));
+      const speed = clipSpeed2(clip);
+      const sourceDuration = win.sourceDuration;
+      const chain = [
+        `[${inputIndex}:a]atrim=duration=${formatSeconds(sourceDuration)}`,
+        "asetpts=PTS-STARTPTS",
+        "aresample=48000",
+        "aformat=sample_fmts=fltp:channel_layouts=stereo"
+      ];
+      if (pitch !== 0) {
+        const ratio = 2 ** (pitch / 12);
+        chain.push(
+          `asetrate=${Math.round(48e3 * ratio)}`,
+          "aresample=48000",
+          `atempo=${(1 / ratio).toFixed(6)}`
+        );
+      }
+      chain.push(...atempoFilters(speed));
+      if (gain !== 0) chain.push(`volume=${gain}dB`);
+      if (pan !== 0) {
+        const left = pan > 0 ? 1 - pan : 1;
+        const right = pan < 0 ? 1 + pan : 1;
+        chain.push(`pan=stereo|c0=c0*${left.toFixed(3)}|c1=c1*${right.toFixed(3)}`);
+      }
+      if (fadeIn > 0) chain.push(`afade=t=in:st=0:d=${formatSeconds(fadeIn)}`);
+      if (fadeOut > 0) {
+        chain.push(
+          `afade=t=out:st=${formatSeconds(Math.max(0, win.localDuration - fadeOut))}:d=${formatSeconds(fadeOut)}`
+        );
+      }
+      chain.push(`adelay=${delayMs}:all=1[a${index}]`);
+      filters.push(chain.join(","));
+    });
+    if (window && visualLayers.length === 0 && preparedAudio.length === 0) {
+      throw new Error(t("export.emptyTimeline"));
+    }
+    let audioLabel = "";
+    if (wantsAudio) {
+      if (preparedAudio.length === 0) {
+        filters.push(`anullsrc=r=48000:cl=stereo:d=${formatSeconds(duration)}[aout]`);
+        audioLabel = "[aout]";
+      } else if (preparedAudio.length === 1) {
+        filters.push(`[a0]anull[aout]`);
+        audioLabel = "[aout]";
+      } else {
+        const labels = preparedAudio.map((_, i) => `[a${i}]`).join("");
+        filters.push(
+          `${labels}amix=inputs=${preparedAudio.length}:duration=longest:dropout_transition=0:normalize=0[aout]`
+        );
+        audioLabel = "[aout]";
+      }
+    }
+    let finalVideoLabel = videoLabel;
+    let gifLoop = 0;
+    if (options.format === "gif") {
+      const colors = Math.min(256, Math.max(2, Math.round(options.gifColors ?? 256)));
+      const dither = GIF_DITHERS.includes(options.gifDither) ? options.gifDither : "sierra2_4a";
+      gifLoop = Number.isFinite(options.gifLoop) ? Math.max(-1, Math.round(options.gifLoop)) : 0;
+      filters.push(
+        `${videoLabel}split[g0][g1]`,
+        `[g0]palettegen=max_colors=${colors}:stats_mode=diff[pal]`,
+        `[g1][pal]paletteuse=dither=${dither}[gifout]`
+      );
+      finalVideoLabel = "[gifout]";
+    }
+    const tail = ["-t", formatSeconds(duration), outputPath];
+    const audioMap = wantsAudio && audioLabel ? ["-map", audioLabel] : [];
+    const outputArgs = options.format === "mp4" ? [
+      "-map",
+      finalVideoLabel,
+      ...audioMap,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "medium",
+      "-crf",
+      crfOf(options.quality),
+      "-pix_fmt",
+      "yuv420p",
+      "-r",
+      String(fps),
+      ...wantsAudio ? ["-c:a", "aac", "-b:a", "192k"] : ["-an"],
+      "-movflags",
+      "+faststart",
+      ...tail
+    ] : options.format === "prores" ? [
+      "-map",
+      finalVideoLabel,
+      ...audioMap,
+      "-c:v",
+      "prores_ks",
+      "-profile:v",
+      "2",
+      "-pix_fmt",
+      "yuv422p10le",
+      "-r",
+      String(fps),
+      ...wantsAudio ? ["-c:a", "pcm_s16le", "-ar", "48000"] : ["-an"],
+      ...tail
+    ] : ["-map", finalVideoLabel, "-loop", String(gifLoop), "-an", ...tail];
+    return {
+      format: options.format,
+      width,
+      height,
+      fps,
+      duration,
+      inputs,
+      filterGraph: filters.join(";"),
+      outputArgs,
+      warnings
+    };
+  }
+
+  // src/core/export/contactLayout.ts
+  function buildContactLayout(count, cols, cellWidth, cellHeight) {
+    const safeCols = Math.min(Math.max(1, Math.floor(cols || 1)), Math.max(1, count));
+    const rows = Math.ceil(count / safeCols);
+    const parts = [];
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < safeCols; col += 1) {
+        parts.push(`${col * cellWidth}_${row * cellHeight}`);
+      }
+    }
+    return { cols: safeCols, rows, layout: parts.join("|") };
+  }
+
+  // src/core/export/ssim.ts
+  var FRAME_RE = /n:\s*(\d+)/;
+  var ALL_RE = /\bAll:\s*([0-9.]+)/;
+  var Y_RE = /\bY:\s*([0-9.]+)/;
+  function parseSsimStats(text, fps, start = 0) {
+    const frames = [];
+    for (const line of text.split(/\r?\n/)) {
+      const frameMatch = FRAME_RE.exec(line);
+      if (!frameMatch) continue;
+      const scoreMatch = ALL_RE.exec(line) ?? Y_RE.exec(line);
+      if (!scoreMatch) continue;
+      const score = Number(scoreMatch[1]);
+      if (!Number.isFinite(score)) continue;
+      const frame = Number(frameMatch[1]);
+      frames.push({
+        frame,
+        time: start + (Math.max(1, frame) - 1) / (fps > 0 ? fps : 30),
+        score
+      });
+    }
+    if (frames.length === 0) {
+      return { frames, mean: 1, min: 1, samples: 0 };
+    }
+    const scores = frames.map((frame) => frame.score);
+    return {
+      frames,
+      mean: scores.reduce((sum, value) => sum + value, 0) / scores.length,
+      min: Math.min(...scores),
+      samples: frames.length
+    };
+  }
+  function changedSamples(summary, threshold) {
+    const changed = summary.frames.filter((frame) => frame.score < threshold).map((frame) => ({ time: frame.time, score: frame.score }));
+    const merged = [];
+    for (const sample of changed) {
+      const last = merged[merged.length - 1];
+      if (last && Math.abs(sample.time - last.time) < 1e-3) continue;
+      merged.push(sample);
+    }
+    return merged;
+  }
+
+  // src/core/film/manifest.ts
+  var FILM_MANIFEST_VERSION = 1;
+  var REVIEW_SEVERITIES2 = ["blocker", "high", "medium", "low"];
+  function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+  function isNumber2(value) {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+  function isAbsolutePath(value) {
+    return value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+  }
+  function normalizePath(value) {
+    const absolute = isAbsolutePath(value);
+    const drive = /^([A-Za-z]:)[\\/]/.exec(value)?.[1] ?? "";
+    const unified = value.replace(/\\/g, "/");
+    const parts = unified.split("/");
+    const stack = [];
+    for (const part of parts) {
+      if (part === "" || part === ".") continue;
+      if (part === "..") {
+        if (stack.length > 0 && stack[stack.length - 1] !== "..") stack.pop();
+        else if (!absolute) stack.push("..");
+        continue;
+      }
+      stack.push(part);
+    }
+    if (drive) return `${drive}/${stack.slice(1).join("/")}`;
+    if (value.startsWith("//")) return `//${stack.join("/")}`;
+    return absolute ? `/${stack.join("/")}` : stack.join("/");
+  }
+  function resolveManifestPath(baseDir, value) {
+    if (isAbsolutePath(value)) return normalizePath(value);
+    return normalizePath(`${baseDir}/${value}`);
+  }
+  function relativeToManifest(baseDir, absolute) {
+    const base = normalizePath(baseDir);
+    const target = normalizePath(absolute);
+    if (base === "" || base === ".") return target;
+    const baseParts = base.split("/").filter(Boolean);
+    const targetParts = target.split("/").filter(Boolean);
+    const sameDrive = baseParts.length === 0 || targetParts.length === 0 || baseParts[0].endsWith(":") === targetParts[0].endsWith(":") && (!baseParts[0].endsWith(":") || baseParts[0] === targetParts[0]);
+    if (!sameDrive) return target;
+    let common = 0;
+    while (common < baseParts.length && common < targetParts.length && baseParts[common] === targetParts[common]) {
+      common += 1;
+    }
+    const up = baseParts.length - common;
+    const rest = targetParts.slice(common);
+    if (up === 0 && rest.length === 0) return ".";
+    return [...Array.from({ length: up }, () => ".."), ...rest].join("/");
+  }
+  function parseNote(value, label, warnings, baseDir) {
+    if (!isRecord(value)) {
+      warnings.push(`${label} \u4E0D\u662F\u5BF9\u8C61\uFF0C\u5DF2\u5FFD\u7565`);
+      return null;
+    }
+    if (!isNumber2(value.t) || value.t < 0) {
+      warnings.push(`${label}.t \u5FC5\u987B\u662F\u975E\u8D1F\u6570\u5B57\uFF0C\u5DF2\u5FFD\u7565`);
+      return null;
+    }
+    if (typeof value.text !== "string" || value.text.trim() === "") {
+      warnings.push(`${label}.text \u4E0D\u80FD\u4E3A\u7A7A\uFF0C\u5DF2\u5FFD\u7565`);
+      return null;
+    }
+    const severity = REVIEW_SEVERITIES2.includes(value.severity) ? value.severity : void 0;
+    if (value.severity !== void 0 && !severity) {
+      warnings.push(`${label}.severity \u975E\u6CD5\uFF0C\u5DF2\u4E22\u5F03`);
+    }
+    let bbox;
+    if (isRecord(value.bbox)) {
+      const x = value.bbox.x;
+      const y = value.bbox.y;
+      const width = value.bbox.width;
+      const height = value.bbox.height;
+      if (isNumber2(x) && isNumber2(y) && isNumber2(width) && isNumber2(height)) {
+        bbox = { x, y, width, height };
+      } else {
+        warnings.push(`${label}.bbox \u5B57\u6BB5\u4E0D\u5B8C\u6574\uFF0C\u5DF2\u4E22\u5F03`);
+      }
+    }
+    const tags = Array.isArray(value.tags) ? value.tags.filter((tag) => typeof tag === "string") : void 0;
+    return {
+      ...typeof value.id === "string" && value.id ? { id: value.id } : {},
+      t: value.t,
+      text: value.text,
+      ...severity ? { severity } : {},
+      ...typeof value.resolved === "boolean" ? { resolved: value.resolved } : {},
+      ...bbox ? { bbox } : {},
+      ...typeof value.screenshot === "string" && value.screenshot ? { screenshot: resolveManifestPath(baseDir, value.screenshot) } : {},
+      ...tags && tags.length > 0 ? { tags } : {}
+    };
+  }
+  function parseFilmManifest(raw, manifestPath) {
+    if (!isRecord(raw)) throw new Error("film.json \u5FC5\u987B\u662F JSON \u5BF9\u8C61");
+    if (raw.version !== FILM_MANIFEST_VERSION) {
+      throw new Error(
+        `\u4E0D\u652F\u6301\u7684 film.json \u7248\u672C\uFF1A${String(raw.version)}\uFF08\u9700\u8981 ${FILM_MANIFEST_VERSION}\uFF09`
+      );
+    }
+    if (!Array.isArray(raw.scenes) || raw.scenes.length === 0) {
+      throw new Error("film.json \u7684 scenes \u5FC5\u987B\u662F\u975E\u7A7A\u6570\u7EC4");
+    }
+    const normalizedManifestPath = normalizePath(manifestPath);
+    const slash = normalizedManifestPath.lastIndexOf("/");
+    const baseDir = slash > 0 ? normalizedManifestPath.slice(0, slash) : slash === 0 ? "/" : ".";
+    const warnings = [];
+    const seen = /* @__PURE__ */ new Set();
+    const takePaths = /* @__PURE__ */ new Map();
+    const scenes = [];
+    raw.scenes.forEach((item, index) => {
+      const label = `scenes[${index}]`;
+      if (!isRecord(item)) {
+        warnings.push(`${label} \u4E0D\u662F\u5BF9\u8C61\uFF0C\u5DF2\u5FFD\u7565`);
+        return;
+      }
+      const id = typeof item.id === "string" ? item.id.trim() : "";
+      if (!id) {
+        warnings.push(`${label}.id \u4E0D\u80FD\u4E3A\u7A7A\uFF0C\u5DF2\u5FFD\u7565`);
+        return;
+      }
+      if (seen.has(id)) {
+        warnings.push(`${label}.id \u91CD\u590D\uFF08${id}\uFF09\uFF0C\u5DF2\u5FFD\u7565`);
+        return;
+      }
+      const t0 = isNumber2(item.t0) ? item.t0 : Number.NaN;
+      const t1 = isNumber2(item.t1) ? item.t1 : Number.NaN;
+      if (!(t0 >= 0) || !(t1 > t0)) {
+        warnings.push(`${label} \u7684 t0/t1 \u975E\u6CD5\uFF08\u9700\u8981 0 <= t0 < t1\uFF09\uFF0C\u5DF2\u5FFD\u7565`);
+        return;
+      }
+      seen.add(id);
+      const review = [];
+      if (Array.isArray(item.review)) {
+        item.review.forEach((note, noteIndex) => {
+          const parsed = parseNote(note, `${label}.review[${noteIndex}]`, warnings, baseDir);
+          if (!parsed) return;
+          if (parsed.t < t0 || parsed.t > t1) {
+            warnings.push(`${label}.review[${noteIndex}] \u7684\u65F6\u95F4 ${parsed.t} \u4E0D\u5728\u573A\u666F [${t0},${t1}] \u5185`);
+          }
+          review.push(parsed);
+        });
+      }
+      const markers2 = Array.isArray(item.markers) ? item.markers.filter((time) => isNumber2(time) && time >= 0) : [];
+      if (Array.isArray(item.markers) && markers2.length !== item.markers.length) {
+        warnings.push(`${label}.markers \u542B\u975E\u6CD5\u65F6\u95F4\uFF0C\u5DF2\u4E22\u5F03`);
+      }
+      const take = typeof item.take === "string" && item.take.trim() ? item.take.trim() : void 0;
+      if (take) takePaths.set(id, resolveManifestPath(baseDir, take));
+      scenes.push({
+        id,
+        t0,
+        t1,
+        ...typeof item.title === "string" && item.title ? { title: item.title } : {},
+        ...take ? { take } : {},
+        ...markers2.length > 0 ? { markers: markers2 } : {},
+        ...review.length > 0 ? { review } : {}
+      });
+    });
+    if (scenes.length === 0) throw new Error("film.json \u6CA1\u6709\u53EF\u7528\u7684 scenes");
+    scenes.sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1 || a.id.localeCompare(b.id));
+    for (let index = 1; index < scenes.length; index += 1) {
+      const prev = scenes[index - 1];
+      const current2 = scenes[index];
+      if (current2.t0 < prev.t1 - 1e-6) {
+        warnings.push(
+          `\u573A\u666F ${prev.id} \u4E0E ${current2.id} \u91CD\u53E0\uFF08${current2.t0} < ${prev.t1}\uFF09\uFF1B\u6309\u8F6C\u573A\u5904\u7406`
+        );
+      }
+    }
+    const duration = isNumber2(raw.duration) && raw.duration > 0 ? raw.duration : void 0;
+    if (duration !== void 0) {
+      for (const scene of scenes) {
+        if (scene.t1 > duration + 1e-6) {
+          warnings.push(`\u573A\u666F ${scene.id} \u7684\u7ED3\u675F\u65F6\u95F4 ${scene.t1} \u8D85\u8FC7 duration ${duration}`);
+        }
+      }
+    }
+    const topReview = [];
+    if (Array.isArray(raw.review)) {
+      raw.review.forEach((note, index) => {
+        const parsed = parseNote(note, `review[${index}]`, warnings, baseDir);
+        if (parsed) topReview.push(parsed);
+      });
+    }
+    const music = isRecord(raw.music) ? raw.music : void 0;
+    return {
+      manifest: {
+        version: FILM_MANIFEST_VERSION,
+        ...typeof raw.name === "string" && raw.name ? { name: raw.name } : {},
+        ...isNumber2(raw.fps) && raw.fps > 0 ? { fps: raw.fps } : {},
+        ...isNumber2(raw.width) && raw.width > 0 ? { width: raw.width } : {},
+        ...isNumber2(raw.height) && raw.height > 0 ? { height: raw.height } : {},
+        ...duration !== void 0 ? { duration } : {},
+        scenes,
+        ...topReview.length > 0 ? { review: topReview } : {},
+        ...music ? { music } : {}
+      },
+      baseDir,
+      takePaths,
+      raw,
+      warnings
+    };
+  }
+
+  // src/core/film/import.ts
+  var FILM_TAG = "film-manifest";
+  function snap(seconds, fps) {
+    if (!(fps > 0)) return Math.round(seconds * 1e3) / 1e3;
+    return Math.round(seconds * fps) / fps;
+  }
+  function markerTitle(note) {
+    const prefix = note.severity ? `[${note.severity}] ` : "";
+    const text = note.text.replace(/\s+/g, " ").trim();
+    return `${prefix}${text.length > 40 ? `${text.slice(0, 40)}\u2026` : text}`;
+  }
+  function markerKey(kind, sceneId, time, identity) {
+    return [kind, sceneId ?? "", time.toFixed(3), identity ?? ""].join("|");
+  }
+  function noteIdentity(note) {
+    return note.text.trim();
+  }
+  function fromNote(note, sceneId, fps) {
+    const time = snap(note.t, fps);
+    return {
+      key: markerKey("review", sceneId, time, noteIdentity(note)),
+      time,
+      marker: {
+        time,
+        name: markerTitle(note),
+        kind: "review",
+        ...sceneId ? { sceneId } : {},
+        note: note.text,
+        ...note.severity ? { severity: note.severity } : {},
+        ...note.resolved === true ? { resolved: true } : {},
+        ...note.bbox ? { bbox: note.bbox } : {},
+        ...note.screenshot ? { screenshot: note.screenshot } : {},
+        ...note.tags ? { tags: [...note.tags, FILM_TAG] } : { tags: [FILM_TAG] }
+      }
+    };
+  }
+  function sameNoteMarker(existing, desired) {
+    return existing.time === desired.time && existing.name === desired.name && existing.kind === desired.kind && existing.sceneId === desired.sceneId && existing.note === desired.note && existing.severity === desired.severity && existing.resolved === desired.resolved && existing.screenshot === desired.screenshot && JSON.stringify(existing.bbox ?? null) === JSON.stringify(desired.bbox ?? null) && JSON.stringify(existing.tags ?? []) === JSON.stringify(desired.tags ?? []);
+  }
+  function sameClip(existing, desired) {
+    return existing.start === desired.start && existing.duration === desired.duration && existing.in === desired.in && existing.assetId === desired.assetId && existing.sceneId === desired.sceneId;
+  }
+  function assetFor(path, assets) {
+    return assets.get(normalizePath(path));
+  }
+  function buildManifestCommands(project, parsed, options) {
+    const now = options.now ?? Date.now();
+    const drafts = [];
+    const warnings = [...parsed.warnings];
+    const summary = {
+      scenes: parsed.manifest.scenes.length,
+      clipsAdded: 0,
+      clipsUpdated: 0,
+      clipsRemoved: 0,
+      markersAdded: 0,
+      markersUpdated: 0,
+      markersRemoved: 0,
+      assetsAdded: 0,
+      warnings
+    };
+    if (parsed.manifest.fps && Math.abs(parsed.manifest.fps - project.fps) > 1e-6) {
+      warnings.push(
+        options.conform ? `manifest fps=${parsed.manifest.fps}\uFF1B\u5DF2\u81EA\u52A8 conform \u5DE5\u7A0B\u8F93\u51FA\u89C4\u683C` : `manifest fps=${parsed.manifest.fps} \u4E0E\u5DE5\u7A0B fps=${project.fps} \u4E0D\u4E00\u81F4\uFF1B\u65F6\u95F4\u6309\u5DE5\u7A0B\u5E27\u7387\u5438\u9644\uFF08\u53EF\u4F20 conform:true\uFF09`
+      );
+    }
+    if (options.conform) {
+      const patch = {};
+      if (parsed.manifest.fps && Math.abs(parsed.manifest.fps - project.fps) > 1e-6) {
+        patch.fps = parsed.manifest.fps;
+      }
+      if (parsed.manifest.width && parsed.manifest.width !== project.width) {
+        patch.width = parsed.manifest.width;
+      }
+      if (parsed.manifest.height && parsed.manifest.height !== project.height) {
+        patch.height = parsed.manifest.height;
+      }
+      if (Object.keys(patch).length > 0) {
+        drafts.push({
+          kind: "project.output",
+          payload: patch,
+          label: "\u5339\u914D\u5F71\u7247\u89C4\u683C"
+        });
+      }
+    }
+    const frameRate = options.conform && parsed.manifest.fps ? parsed.manifest.fps : project.fps;
+    const assetBySrc = new Map(
+      project.assets.map((asset) => [normalizePath(asset.src), asset])
+    );
+    const incomingAssets = new Map(
+      options.assets.map((asset) => [normalizePath(asset.path), asset])
+    );
+    const resolveAssetId = (path) => {
+      const key = normalizePath(path);
+      const existing = assetBySrc.get(key);
+      if (existing) return existing.id;
+      const meta = assetFor(path, incomingAssets);
+      if (!meta) return null;
+      const asset = {
+        id: crypto.randomUUID(),
+        name: path.replace(/\\/g, "/").split("/").pop() ?? path,
+        kind: meta.kind,
+        src: path,
+        duration: meta.kind === "image" ? 0 : meta.duration,
+        addedAt: now,
+        hasAudio: meta.hasAudio ?? false,
+        ...meta.width != null ? { width: meta.width } : {},
+        ...meta.height != null ? { height: meta.height } : {},
+        ...meta.fps != null ? { fps: meta.fps } : {}
+      };
+      assetBySrc.set(key, asset);
+      incomingAssets.delete(key);
+      summary.assetsAdded += 1;
+      drafts.push({
+        kind: "asset.add",
+        payload: { asset },
+        label: `\u5BFC\u5165\u7D20\u6750 ${asset.name}`
+      });
+      return asset.id;
+    };
+    const sceneEnds = /* @__PURE__ */ new Map();
+    parsed.manifest.scenes.forEach((scene, index) => {
+      const next = parsed.manifest.scenes[index + 1];
+      sceneEnds.set(scene.id, next && next.t0 < scene.t1 ? next.t0 : scene.t1);
+    });
+    const takes = parsed.manifest.scenes.filter((scene) => scene.take);
+    let track = project.tracks.find((candidate) => candidate.name === options.trackName);
+    let trackRef = track?.id;
+    if (!track && takes.length > 0) {
+      drafts.push({
+        kind: "track.add",
+        payload: { name: options.trackName },
+        label: `\u65B0\u5EFA\u573A\u666F\u8F68 ${options.trackName}`
+      });
+      trackRef = project.tracks.length + 1;
+    }
+    const existingMarkers = /* @__PURE__ */ new Map();
+    for (const marker of project.markers) {
+      if (!marker.tags?.includes(FILM_TAG)) continue;
+      const kind = marker.kind;
+      if (kind !== "scene" && kind !== "hit" && kind !== "review") continue;
+      const time = snap(marker.time, frameRate);
+      const key = kind === "review" ? markerKey(kind, marker.sceneId, time, marker.note?.trim() ?? "") : markerKey(kind, marker.sceneId, time);
+      existingMarkers.set(key, marker);
+    }
+    const desiredMarkerIds = /* @__PURE__ */ new Set();
+    const pushMarker = (desired, key) => {
+      const existing = existingMarkers.get(key);
+      if (existing) {
+        desiredMarkerIds.add(existing.id);
+        if (!sameNoteMarker(existing, desired)) {
+          drafts.push({
+            kind: "marker.update",
+            payload: { markerId: existing.id, patch: desired },
+            label: `\u66F4\u65B0\u6807\u8BB0 ${desired.name}`
+          });
+          summary.markersUpdated += 1;
+        }
+        return;
+      }
+      const id = crypto.randomUUID();
+      desiredMarkerIds.add(id);
+      drafts.push({
+        kind: "marker.add",
+        payload: { id, ...desired },
+        label: `\u6DFB\u52A0\u6807\u8BB0 ${desired.name}`
+      });
+      summary.markersAdded += 1;
+    };
+    const existingClips = /* @__PURE__ */ new Map();
+    for (const candidate of project.tracks) {
+      for (const clip of candidate.clips) {
+        if (clip.sceneId) existingClips.set(clip.sceneId, clip);
+      }
+    }
+    const desiredSceneIds = new Set(parsed.manifest.scenes.map((scene) => scene.id));
+    for (const scene of parsed.manifest.scenes) {
+      const sceneEnd = sceneEnds.get(scene.id) ?? scene.t1;
+      if (scene.take) {
+        const takePath = parsed.takePaths.get(scene.id);
+        const assetId = takePath ? resolveAssetId(takePath) : null;
+        if (takePath && assetId) {
+          const meta = assetFor(takePath, incomingAssets) ?? options.assets.find((a) => normalizePath(a.path) === normalizePath(takePath));
+          let duration = sceneEnd - scene.t0;
+          if (meta && meta.kind !== "image" && meta.duration > 0 && duration > meta.duration) {
+            warnings.push(
+              `\u573A\u666F ${scene.id} \u7684 ${duration.toFixed(2)}s \u8D85\u8FC7 take \u65F6\u957F ${meta.duration.toFixed(2)}s\uFF0C\u5DF2\u622A\u65AD`
+            );
+            duration = meta.duration;
+          }
+          const desired = {
+            assetId,
+            trackId: "",
+            start: scene.t0,
+            duration,
+            in: 0,
+            sceneId: scene.id
+          };
+          const existing = existingClips.get(scene.id);
+          if (existing) {
+            if (!sameClip(existing, desired)) {
+              drafts.push({
+                kind: "clip.update",
+                payload: {
+                  clipId: existing.id,
+                  patch: {
+                    assetId,
+                    start: desired.start,
+                    duration: desired.duration,
+                    in: 0,
+                    sceneId: scene.id
+                  }
+                },
+                label: `\u66F4\u65B0\u573A\u666F ${scene.id}`
+              });
+              summary.clipsUpdated += 1;
+            }
+          } else {
+            if (trackRef === void 0) {
+              warnings.push(`\u573A\u666F ${scene.id} \u6CA1\u6709\u53EF\u7528\u7684\u573A\u666F\u8F68\uFF0C\u5DF2\u8DF3\u8FC7\u753B\u9762`);
+            } else {
+              const clipId = crypto.randomUUID();
+              drafts.push({
+                kind: "clip.add",
+                payload: { trackId: trackRef, clip: { id: clipId, ...desired } },
+                label: `\u6DFB\u52A0\u573A\u666F ${scene.id}`
+              });
+              summary.clipsAdded += 1;
+            }
+          }
+        } else if (takePath) {
+          warnings.push(`\u573A\u666F ${scene.id} \u7684 take \u63A2\u6D4B\u5931\u8D25\uFF0C\u5DF2\u8DF3\u8FC7\u753B\u9762\uFF1A${takePath}`);
+        }
+      }
+      const sceneMarker = {
+        time: snap(scene.t0, frameRate),
+        name: scene.title ? `${scene.id} \xB7 ${scene.title}` : scene.id,
+        kind: "scene",
+        sceneId: scene.id,
+        tags: [FILM_TAG]
+      };
+      pushMarker(sceneMarker, markerKey("scene", scene.id, sceneMarker.time));
+      for (const time of scene.markers ?? []) {
+        const snapped = snap(time, frameRate);
+        pushMarker(
+          {
+            time: snapped,
+            name: `hit ${snapped.toFixed(2)}s`,
+            kind: "hit",
+            sceneId: scene.id,
+            tags: [FILM_TAG]
+          },
+          markerKey("hit", scene.id, snapped)
+        );
+      }
+      for (const note of scene.review ?? []) {
+        const { marker, key } = fromNote(note, scene.id, frameRate);
+        pushMarker(marker, key);
+      }
+    }
+    for (const note of parsed.manifest.review ?? []) {
+      const { marker, key } = fromNote(note, void 0, frameRate);
+      pushMarker(marker, key);
+    }
+    if (options.mode === "replace") {
+      for (const marker of project.markers) {
+        if (!marker.tags?.includes(FILM_TAG)) continue;
+        if (desiredMarkerIds.has(marker.id)) continue;
+        drafts.push({
+          kind: "marker.remove",
+          payload: { markerId: marker.id },
+          label: `\u79FB\u9664\u8FC7\u671F\u6807\u8BB0 ${marker.name}`
+        });
+        summary.markersRemoved += 1;
+      }
+      for (const sceneId of existingClips.keys()) {
+        if (desiredSceneIds.has(sceneId)) continue;
+        const clip = existingClips.get(sceneId);
+        if (!clip) continue;
+        drafts.push({
+          kind: "clip.remove",
+          payload: { clipIds: [clip.id] },
+          label: `\u79FB\u9664\u8FC7\u671F\u573A\u666F ${sceneId}`
+        });
+        summary.clipsRemoved += 1;
+      }
+    }
+    const commands = drafts.map((draft, index) => ({
+      id: crypto.randomUUID(),
+      baseRevision: options.baseRevision,
+      actor: options.actor,
+      ...options.sessionId ? { sessionId: options.sessionId } : {},
+      kind: draft.kind,
+      payload: draft.payload,
+      label: options.label ?? `\u5BFC\u5165 film.json\uFF08${drafts.length} \u6B65\uFF09`,
+      timestamp: now + index
+    }));
+    if (trackRef !== void 0 && typeof trackRef === "number") {
+      summary.trackId = void 0;
+    } else {
+      summary.trackId = typeof trackRef === "string" ? trackRef : void 0;
+    }
+    return { commands, summary };
+  }
+
+  // src/core/film/export.ts
+  function durationOf(project) {
+    let end = 0;
+    for (const track of project.tracks) {
+      for (const clip of track.clips) end = Math.max(end, clip.start + clip.duration);
+    }
+    return end;
+  }
+  function noteOf(marker) {
+    return {
+      ...marker.id ? { id: marker.id } : {},
+      t: marker.time,
+      text: marker.note ?? marker.name,
+      ...marker.severity ? { severity: marker.severity } : {},
+      ...marker.resolved === true ? { resolved: true } : {},
+      ...marker.bbox ? { bbox: marker.bbox } : {},
+      ...marker.screenshot ? { screenshot: marker.screenshot } : {},
+      ...marker.tags && marker.tags.length > 0 ? { tags: marker.tags } : {}
+    };
+  }
+  function isReviewMarker(marker) {
+    return marker.kind === "review" || Boolean(marker.note);
+  }
+  function projectToManifest(project, options) {
+    const clipsByScene = /* @__PURE__ */ new Map();
+    for (const track of project.tracks) {
+      for (const clip of track.clips) {
+        if (!clip.sceneId) continue;
+        const list = clipsByScene.get(clip.sceneId) ?? [];
+        list.push(clip);
+        clipsByScene.set(clip.sceneId, list);
+      }
+    }
+    const sceneMarkers = /* @__PURE__ */ new Map();
+    const hits = /* @__PURE__ */ new Map();
+    const reviews = /* @__PURE__ */ new Map();
+    const looseReviews = [];
+    for (const marker of project.markers) {
+      const sceneId = marker.sceneId;
+      if (marker.kind === "scene" && sceneId) {
+        sceneMarkers.set(sceneId, marker);
+      } else if (marker.kind === "hit" && sceneId) {
+        const list = hits.get(sceneId) ?? [];
+        list.push(marker.time);
+        hits.set(sceneId, list);
+      } else if (isReviewMarker(marker)) {
+        if (sceneId) {
+          const list = reviews.get(sceneId) ?? [];
+          list.push(noteOf(marker));
+          reviews.set(sceneId, list);
+        } else {
+          looseReviews.push(noteOf(marker));
+        }
+      }
+    }
+    const sceneIds = /* @__PURE__ */ new Set([
+      ...clipsByScene.keys(),
+      ...sceneMarkers.keys(),
+      ...hits.keys(),
+      ...reviews.keys()
+    ]);
+    const assetById = new Map(project.assets.map((asset) => [asset.id, asset]));
+    const scenes = [];
+    for (const id of sceneIds) {
+      const clips = (clipsByScene.get(id) ?? []).slice().sort((a, b) => a.start - b.start);
+      const marker = sceneMarkers.get(id);
+      const t0 = clips.length > 0 ? clips[0].start : marker?.time ?? 0;
+      const t1 = clips.length > 0 ? Math.max(...clips.map((clip) => clip.start + clip.duration)) : t0;
+      const takeClip = clips.find((clip) => clip.assetId !== "");
+      const asset = takeClip ? assetById.get(takeClip.assetId) : void 0;
+      const titleSource = marker?.name ?? "";
+      const title = titleSource.includes(" \xB7 ") ? titleSource.slice(titleSource.indexOf(" \xB7 ") + 3) : void 0;
+      const sceneHits = (hits.get(id) ?? []).slice().sort((a, b) => a - b);
+      const sceneReviews = (reviews.get(id) ?? []).slice().sort((a, b) => a.t - b.t);
+      scenes.push({
+        id,
+        t0,
+        t1,
+        ...title ? { title } : {},
+        ...asset ? { take: relativeToManifest(options.baseDir, asset.src) } : {},
+        ...sceneHits.length > 0 ? { markers: sceneHits } : {},
+        ...sceneReviews.length > 0 ? { review: sceneReviews } : {}
+      });
+    }
+    scenes.sort((a, b) => a.t0 - b.t0 || a.id.localeCompare(b.id));
+    for (let index = 0; index < scenes.length; index += 1) {
+      const scene = scenes[index];
+      if (scene.t1 > scene.t0) continue;
+      const following = scenes[index + 1];
+      const t1 = following && following.t0 > scene.t0 ? following.t0 : scene.t0 + 1 / Math.max(1, project.fps);
+      scenes[index] = { ...scene, t1 };
+    }
+    const next = {
+      version: FILM_MANIFEST_VERSION,
+      name: project.name,
+      fps: project.fps,
+      width: project.width,
+      height: project.height,
+      duration: durationOf(project),
+      scenes,
+      ...looseReviews.length > 0 ? { review: looseReviews } : {}
+    };
+    const previous = options.previous;
+    const merged = {
+      ...previous ?? {},
+      ...next
+    };
+    if (next.music === void 0 && previous && previous.music !== void 0) {
+      merged.music = previous.music;
+    }
+    return merged;
+  }
+
+  // src/core/time.ts
+  function secToFrame(sec, fps) {
+    return Math.round(sec * fps);
+  }
+  function frameToSec(frame, fps) {
+    return frame / fps;
+  }
+  function snapToFrame(sec, fps) {
+    return frameToSec(secToFrame(sec, fps), fps);
+  }
+
+  // src/core/subtitles.ts
+  function mapCueToTimeline(cue, clip, fps) {
+    let start = cue.start;
+    let end = cue.end;
+    if (clip) {
+      const inPoint = clip.in ?? 0;
+      const outPoint = inPoint + clip.duration;
+      if (end <= inPoint || start >= outPoint) return null;
+      start = clip.start + Math.max(0, start - inPoint);
+      end = clip.start + Math.min(clip.duration, end - inPoint);
+    }
+    start = snapToFrame(Math.max(0, start), fps);
+    end = snapToFrame(Math.max(0, end), fps);
+    if (end - start < 0.1) return null;
+    end = snapToFrame(Math.max(start + 0.2, end), fps);
+    if (end - start < 0.1) return null;
+    return { start, duration: end - start, text: cue.text };
+  }
+
+  // src/core/cuts.ts
+  var EPS = 1e-6;
+  var MERGE_GAP = 0.02;
+  function isTextClip(clip) {
+    return clip.assetId === "" && typeof clip.text === "string";
+  }
+  function clipSpeed3(clip) {
+    return Math.min(4, Math.max(0.1, clip.speed ?? 1));
+  }
+  function newCut(kind, srcStart, srcEnd, text) {
+    return {
+      id: crypto.randomUUID(),
+      srcStart: Math.min(srcStart, srcEnd),
+      srcEnd: Math.max(srcStart, srcEnd),
+      kind,
+      text,
+      createdAt: Date.now()
+    };
+  }
+  function cutScopes(doc2) {
+    return doc2.cutScopes ?? [];
+  }
+  function scopeOfClip(doc2, clipId) {
+    return cutScopes(doc2).find((scope) => scope.pieces.includes(clipId));
+  }
+  function cutTimelineStart(scope, cut) {
+    const removed = scope.cuts.filter((other) => other.srcEnd <= cut.srcStart + EPS && other.id !== cut.id).reduce((sum, other) => sum + (other.srcEnd - other.srcStart), 0);
+    return scope.baseStart + (cut.srcStart - scope.baseIn - removed) / clipSpeed3(scope.template);
+  }
+  function cutTimelineLength(scope, cut) {
+    return (cut.srcEnd - cut.srcStart) / clipSpeed3(scope.template);
+  }
+  function keptSpans(baseIn, baseOut, cuts) {
+    const ordered2 = cuts.map((cut) => ({
+      start: Math.max(baseIn, Math.min(cut.srcStart, cut.srcEnd)),
+      end: Math.min(baseOut, Math.max(cut.srcStart, cut.srcEnd))
+    })).filter((cut) => cut.end - cut.start > EPS).sort((a, b) => a.start - b.start);
+    const spans = [];
+    let cursor = baseIn;
+    for (const cut of ordered2) {
+      if (cut.start > cursor + EPS) spans.push({ start: cursor, end: cut.start });
+      cursor = Math.max(cursor, cut.end);
+    }
+    if (baseOut > cursor + EPS) spans.push({ start: cursor, end: baseOut });
+    return spans;
+  }
+  function scopeFromClip(clip) {
+    const speed = clipSpeed3(clip);
+    return {
+      id: crypto.randomUUID(),
+      assetId: clip.assetId,
+      trackId: clip.trackId,
+      baseIn: clip.in,
+      baseOut: clip.in + clip.duration * speed,
+      baseStart: clip.start,
+      template: { ...clip },
+      pieces: [clip.id],
+      cuts: []
+    };
+  }
+  function detachPieces(doc2, ids) {
+    if (ids.length === 0) return doc2;
+    const set = new Set(ids);
+    let changed = false;
+    const tracks = doc2.tracks.map((track) => {
+      const clips = track.clips.filter((clip) => !set.has(clip.id));
+      if (clips.length === track.clips.length) return track;
+      changed = true;
+      return { ...track, clips };
+    });
+    return changed ? withTouch(doc2, { tracks }) : doc2;
+  }
+  function ensureScope(doc2, scope) {
+    const scopes = cutScopes(doc2);
+    if (scopes.some((item) => item.id === scope.id)) return doc2;
+    return withTouch(doc2, { cutScopes: [...scopes, scope] });
+  }
+  function sortCuts(cuts) {
+    return cuts.slice().sort((a, b) => a.srcStart - b.srcStart);
+  }
+  function projectScope(doc2, scope) {
+    const spans = keptSpans(scope.baseIn, scope.baseOut, scope.cuts);
+    const track = doc2.tracks.find((item) => item.id === scope.trackId);
+    if (!track) return doc2;
+    const template = track.clips.find((clip) => clip.id === scope.pieces[0]) ?? scope.template;
+    const speedNow = clipSpeed3(template);
+    const keptIds = scope.pieces.slice();
+    let cursor = scope.baseStart;
+    const pieces = spans.map((span, index) => {
+      const duration = (span.end - span.start) / speedNow;
+      const piece = {
+        ...template,
+        id: keptIds[index] ?? crypto.randomUUID(),
+        trackId: scope.trackId,
+        assetId: scope.assetId,
+        start: cursor,
+        duration,
+        in: span.start
+      };
+      cursor += duration;
+      return piece;
+    });
+    const pieceIds = new Set(scope.pieces);
+    const clips = [];
+    for (const clip of track.clips) {
+      if (pieceIds.has(clip.id)) continue;
+      clips.push(clip);
+    }
+    const nextTrack = { ...track, clips: sortClips([...clips, ...pieces]) };
+    const tracks = doc2.tracks.map((item) => item.id === nextTrack.id ? nextTrack : item);
+    const nextScope = {
+      ...scope,
+      template,
+      pieces: pieces.map((piece) => piece.id)
+    };
+    const scopes = cutScopes(doc2).map((item) => item.id === scope.id ? nextScope : item);
+    const known = scopes.some((item) => item.id === scope.id);
+    return withTouch(doc2, {
+      tracks,
+      cutScopes: known ? scopes : [...scopes, nextScope]
+    });
+  }
+  function rippleRemove(doc2, t0, t1, excluded) {
+    const length = t1 - t0;
+    if (length <= EPS) return doc2;
+    let touched = false;
+    const tracks = doc2.tracks.map((track) => {
+      const clips = [];
+      let changed = false;
+      for (const clip of track.clips) {
+        if (excluded.has(clip.id)) {
+          clips.push(clip);
+          continue;
+        }
+        const end = clip.start + clip.duration;
+        if (isTextClip(clip)) {
+          if (end <= t0 + EPS) {
+            clips.push(clip);
+          } else if (clip.start >= t1 - EPS) {
+            clips.push({ ...clip, start: Math.max(0, clip.start - length) });
+            changed = true;
+          } else {
+            const overlap = Math.min(end, t1) - Math.max(clip.start, t0);
+            const duration = Math.max(1 / 25, clip.duration - Math.max(0, overlap));
+            const start = clip.start >= t0 - EPS ? Math.max(0, t0) : clip.start;
+            clips.push({ ...clip, start, duration });
+            changed = true;
+          }
+          continue;
+        }
+        if (end <= t0 + EPS) {
+          clips.push(clip);
+        } else if (clip.start >= t1 - EPS) {
+          clips.push({ ...clip, start: Math.max(0, clip.start - length) });
+          changed = true;
+        } else {
+          changed = true;
+          const speed = clipSpeed3(clip);
+          const hasLeft = clip.start < t0 - EPS;
+          const hasRight = end > t1 + EPS;
+          if (hasLeft) {
+            clips.push({ ...clip, duration: t0 - clip.start });
+          }
+          if (hasRight) {
+            const consumed = (t1 - clip.start) * speed;
+            clips.push({
+              ...clip,
+              id: hasLeft ? crypto.randomUUID() : clip.id,
+              start: Math.max(0, t0),
+              duration: end - t1,
+              in: clip.in + consumed
+            });
+          }
+        }
+      }
+      if (!changed) return track;
+      touched = true;
+      return { ...track, clips: sortClips(clips) };
+    });
+    return touched ? withTouch(doc2, { tracks }) : doc2;
+  }
+  function applyCuts(doc2, clipId, proposals, words = [], timed = true) {
+    const found = findClip(doc2, clipId);
+    if (!found) return doc2;
+    const base = scopeOfClip(doc2, clipId) ?? scopeFromClip(found.clip);
+    const fresh = [];
+    for (const proposal of proposals) {
+      const start = Math.max(base.baseIn, Math.min(proposal.srcStart, proposal.srcEnd));
+      const end = Math.min(base.baseOut, Math.max(proposal.srcStart, proposal.srcEnd));
+      if (end - start <= EPS) continue;
+      const overlaps2 = [...base.cuts, ...fresh].some(
+        (cut) => cut.srcStart < end - MERGE_GAP && start < cut.srcEnd - MERGE_GAP
+      );
+      if (overlaps2) continue;
+      fresh.push(newCut(proposal.kind, start, end, proposal.text));
+    }
+    if (fresh.length === 0) return doc2;
+    const scope = {
+      ...base,
+      cuts: sortCuts([...base.cuts, ...fresh]),
+      ...words.length > 0 ? { words, timed } : {}
+    };
+    const ranges = fresh.map((cut) => ({
+      t0: cutTimelineStart(base, cut),
+      t1: cutTimelineStart(base, cut) + cutTimelineLength(base, cut)
+    })).sort((a, b) => b.t0 - a.t0);
+    let next = ensureScope(doc2, scope);
+    next = detachPieces(next, scope.pieces);
+    for (const range of ranges) {
+      next = rippleRemove(next, range.t0, range.t1, /* @__PURE__ */ new Set());
+    }
+    return projectScope(next, scope);
+  }
+
+  // src/core/cutSubtitles.ts
+  var MAX_CUE_CHARS = 24;
+  var CUE_GAP = 0.6;
+  function speedOf(clip) {
+    return Math.min(4, Math.max(0.1, clip.speed ?? 1));
+  }
+  function appendText(current2, next) {
+    if (!current2) return next;
+    const last = current2[current2.length - 1];
+    const first = next[0] ?? "";
+    const latin = /[A-Za-z0-9]/;
+    if (latin.test(last) && latin.test(first)) return `${current2} ${next}`;
+    return current2 + next;
+  }
+  function buildCutCues(scope, words, clips, fps) {
+    const pieces = clips.filter((clip) => scope.pieces.includes(clip.id)).sort((a, b) => a.start - b.start);
+    if (pieces.length === 0 || words.length === 0) return [];
+    const minDuration = 1 / Math.max(1, fps);
+    const cut = (word) => {
+      const middle = (word.start + word.end) / 2;
+      return scope.cuts.some((item) => middle >= item.srcStart && middle < item.srcEnd);
+    };
+    const pieceAt = (time) => pieces.find((piece) => {
+      const span = piece.duration * speedOf(piece);
+      return time >= piece.in - 1e-6 && time <= piece.in + span + 1e-6;
+    }) ?? null;
+    const toTimeline = (piece, time) => piece.start + (time - piece.in) / speedOf(piece);
+    const cues = [];
+    let open = null;
+    const flush = () => {
+      if (!open) return;
+      if (open.end - open.start >= minDuration && open.text.trim()) {
+        cues.push({
+          start: open.start,
+          end: open.end,
+          text: open.text.trim(),
+          key: `${open.first}-${open.last}`
+        });
+      }
+      open = null;
+    };
+    for (const [position, word] of words.entries()) {
+      if (cut(word)) {
+        flush();
+        continue;
+      }
+      const piece = pieceAt((word.start + word.end) / 2) ?? pieceAt(word.start);
+      if (!piece) {
+        flush();
+        continue;
+      }
+      const start = toTimeline(piece, word.start);
+      const end = Math.max(start + minDuration, toTimeline(piece, word.end));
+      if (open && (open.pieceId !== piece.id || start - open.end > CUE_GAP || open.text.length + word.text.length > MAX_CUE_CHARS)) {
+        flush();
+      }
+      if (!open) {
+        open = { pieceId: piece.id, start, end, text: word.text, first: position, last: position };
+      } else {
+        open.end = Math.max(open.end, end);
+        open.text = appendText(open.text, word.text);
+        open.last = position;
+      }
+    }
+    flush();
+    for (let index = 1; index < cues.length; index += 1) {
+      const previous = cues[index - 1];
+      if (cues[index].start < previous.end + minDuration) {
+        const start = previous.end + minDuration;
+        cues[index] = { ...cues[index], start, end: Math.max(start + minDuration, cues[index].end) };
+      }
+    }
+    return cues;
+  }
+  function placeCueTrack(doc2, cues, name) {
+    const pattern = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s+\\d+)?$`);
+    const previous = /* @__PURE__ */ new Map();
+    for (const track2 of doc2.tracks) {
+      if (!pattern.test(track2.name)) continue;
+      for (const clip of track2.clips) {
+        if (clip.cueRange) {
+          previous.set(clip.cueRange, {
+            text: clip.text ?? "",
+            ...clip.textStyle ? { textStyle: clip.textStyle } : {}
+          });
+        }
+      }
+    }
+    let next = doc2;
+    for (const track2 of doc2.tracks) {
+      if (pattern.test(track2.name)) next = removeTrack(next, track2.id);
+    }
+    if (cues.length === 0) return next;
+    next = addTrackAt(next, 0, name);
+    const track = next.tracks[0];
+    for (const cue of cues) {
+      const duration = Math.max(1 / next.fps, cue.end - cue.start);
+      const kept = previous.get(cue.key);
+      const clip = createClip({
+        assetId: "",
+        trackId: track.id,
+        start: cue.start,
+        duration,
+        text: kept?.text ?? cue.text
+      });
+      clip.cueRange = cue.key;
+      if (kept?.textStyle) clip.textStyle = kept.textStyle;
+      next = addClip(next, track.id, clip);
+    }
+    return next;
+  }
+
+  // src/core/cutAnalysis.ts
+  var DEFAULT_PAUSE = {
+    minPause: 0.8,
+    keep: 0.3,
+    sentenceKeep: 0.4,
+    maxGap: 4
+  };
+  var DEFAULT_FILLER = {
+    lang: "both",
+    includeSoft: true,
+    custom: [],
+    disabled: []
+  };
+  var HARD_FILLERS = {
+    zh: ["\u55EF", "\u5443", "\u989D", "\u5514", "\u5509", "\u54CE"],
+    en: ["um", "umm", "uh", "uhh", "er", "erm", "hmm", "mhm", "ah"]
+  };
+  var SOFT_FILLERS = {
+    zh: ["\u90A3\u4E2A", "\u8FD9\u4E2A", "\u5C31\u662F", "\u7136\u540E", "\u5176\u5B9E", "\u53CD\u6B63", "\u5BF9\u5427", "\u4F60\u77E5\u9053\u5427", "\u600E\u4E48\u8BF4"],
+    en: ["you know", "i mean", "kind of", "sort of", "like", "basically", "actually", "literally", "honestly"]
+  };
+  var ISOLATION_GAP = 0.12;
+  function normalizeWord(text) {
+    return text.replace(/[\p{P}\p{S}\s]/gu, "").toLowerCase();
+  }
+  function withWordIds(words) {
+    return words.map((word, index) => ({
+      id: `w${index}`,
+      text: word.text,
+      start: word.start,
+      end: word.end
+    }));
+  }
+  function sentenceEnd(text) {
+    return /[。！？.!?…；;]\s*["'”’」』]?$/.test(text.trim());
+  }
+  function hasPunctuation(text) {
+    return /[\p{P}]/u.test(text);
+  }
+  function detectPauses(words, options = {}) {
+    const opts = { ...DEFAULT_PAUSE, ...options };
+    const out = [];
+    for (let index = 0; index + 1 < words.length; index += 1) {
+      const word = words[index];
+      const next = words[index + 1];
+      const gap = next.start - word.end;
+      if (gap < opts.minPause || gap > opts.maxGap) continue;
+      const keep = sentenceEnd(word.text) ? opts.sentenceKeep : opts.keep;
+      const srcStart = word.end + keep / 2;
+      const srcEnd = next.start - keep / 2;
+      if (srcEnd - srcStart < 0.15) continue;
+      out.push({
+        kind: "pause",
+        srcStart,
+        srcEnd,
+        wordIds: [word.id, next.id],
+        text: "",
+        reason: `${gap.toFixed(1)}s \u2192 ${keep.toFixed(1)}s`
+      });
+    }
+    return out;
+  }
+  function matchSoft(phrase, words, index) {
+    const target = normalizeWord(phrase);
+    if (!target) return null;
+    if (phrase.includes(" ")) {
+      const parts = phrase.split(" ").filter(Boolean).map(normalizeWord);
+      if (index + parts.length > words.length) return null;
+      const hit = parts.every((part, offset) => normalizeWord(words[index + offset].text) === part);
+      return hit ? { length: parts.length, text: target } : null;
+    }
+    let text = "";
+    let count = 0;
+    while (index + count < words.length && text.length < target.length) {
+      text += normalizeWord(words[index + count].text);
+      count += 1;
+    }
+    return text === target ? { length: count, text } : null;
+  }
+  function isolatedSpan(words, startIndex, endIndex) {
+    const first = words[startIndex];
+    const last = words[endIndex];
+    const previous = words[startIndex - 1];
+    const next = words[endIndex + 1];
+    const beforePause = previous ? first.start - previous.end >= ISOLATION_GAP : false;
+    const afterPause = next ? next.start - last.end >= ISOLATION_GAP : false;
+    if (beforePause || afterPause) return true;
+    if (previous && hasPunctuation(previous.text)) return true;
+    return hasPunctuation(last.text);
+  }
+  function detectFillers(words, options = {}) {
+    const opts = { ...DEFAULT_FILLER, ...options };
+    const langs = opts.lang === "both" ? ["zh", "en"] : [opts.lang];
+    const disabled = new Set(
+      (opts.disabled ?? []).map((word) => normalizeWord(word)).filter(Boolean)
+    );
+    const out = [];
+    for (let index = 0; index < words.length; index += 1) {
+      const normalized = normalizeWord(words[index].text);
+      if (!normalized) continue;
+      if (disabled.has(normalized)) continue;
+      let matched = null;
+      for (const lang of langs) {
+        if ((HARD_FILLERS[lang] ?? []).includes(normalized)) {
+          matched = { length: 1, text: normalized, soft: false };
+          break;
+        }
+      }
+      if (!matched && opts.custom && opts.custom.length > 0) {
+        for (const phrase of opts.custom) {
+          if (disabled.has(normalizeWord(phrase))) continue;
+          const span2 = matchSoft(phrase, words, index);
+          if (!span2) continue;
+          matched = { length: span2.length, text: span2.text, soft: true };
+          break;
+        }
+      }
+      if (!matched && opts.includeSoft) {
+        for (const lang of langs) {
+          for (const item of SOFT_FILLERS[lang] ?? []) {
+            if (disabled.has(normalizeWord(item))) continue;
+            const span2 = matchSoft(item, words, index);
+            if (!span2) continue;
+            if (!isolatedSpan(words, index, index + span2.length - 1)) continue;
+            matched = { length: span2.length, text: span2.text, soft: true };
+            break;
+          }
+          if (matched) break;
+        }
+      }
+      if (!matched) continue;
+      const span = words.slice(index, index + matched.length);
+      const srcStart = span[0].start;
+      const srcEnd = span[span.length - 1].end;
+      if (srcEnd - srcStart < 0.05) continue;
+      out.push({
+        kind: "filler",
+        srcStart,
+        srcEnd,
+        wordIds: span.map((word) => word.id),
+        text: span.map((word) => word.text).join(""),
+        reason: matched.soft ? "\u53E3\u5934\u7985" : "\u8BED\u6C14\u8BCD"
+      });
+      index += matched.length - 1;
+    }
+    return out;
+  }
+  var DEFAULT_TRIM = { pad: 0.12, guard: 0.02 };
+  function trimLimits(words, first, last, guard) {
+    const prev = words[first - 1];
+    const next = words[last + 1];
+    return {
+      floor: prev ? prev.end + guard : 0,
+      ceil: next ? next.start - guard : Number.POSITIVE_INFINITY
+    };
+  }
+  function padFillerCuts(cuts, words, options = {}) {
+    const opts = { ...DEFAULT_TRIM, ...options };
+    const pad = Math.max(0, opts.pad);
+    const guard = Math.max(0, opts.guard);
+    if (pad <= 0 || words.length === 0) return cuts;
+    const indexes = new Map(words.map((word, index) => [word.id, index]));
+    return cuts.map((cut) => {
+      if (cut.kind !== "filler" || cut.wordIds.length === 0) return cut;
+      const first = indexes.get(cut.wordIds[0]);
+      const last = indexes.get(cut.wordIds[cut.wordIds.length - 1]);
+      if (first === void 0 || last === void 0) return cut;
+      const { floor, ceil } = trimLimits(words, first, last, guard);
+      const srcStart = Math.min(cut.srcStart, Math.max(floor, cut.srcStart - pad));
+      const srcEnd = Math.max(cut.srcEnd, Math.min(ceil, cut.srcEnd + pad));
+      if (srcStart === cut.srcStart && srcEnd === cut.srcEnd) return cut;
+      return { ...cut, srcStart, srcEnd };
+    });
+  }
+  function overlaps(a, b) {
+    return a.srcStart < b.srcEnd && b.srcStart < a.srcEnd;
+  }
+  var FILLER_MERGE_GAP = 0.03;
+  function unionFillerCuts(cuts) {
+    const ordered2 = cuts.slice().sort((a, b) => a.srcStart - b.srcStart || a.srcEnd - b.srcEnd);
+    const out = [];
+    for (const cut of ordered2) {
+      const last = out[out.length - 1];
+      if (last && cut.srcStart <= last.srcEnd + FILLER_MERGE_GAP) {
+        last.srcEnd = Math.max(last.srcEnd, cut.srcEnd);
+        for (const id of cut.wordIds) {
+          if (!last.wordIds.includes(id)) last.wordIds.push(id);
+        }
+        last.text += cut.text;
+        continue;
+      }
+      out.push({ ...cut, wordIds: [...cut.wordIds] });
+    }
+    return out;
+  }
+  function subtractCut(cut, holes) {
+    let segments = [{ start: cut.srcStart, end: cut.srcEnd }];
+    for (const hole of holes) {
+      const next = [];
+      for (const segment of segments) {
+        if (hole.srcEnd <= segment.start + 1e-6 || hole.srcStart >= segment.end - 1e-6) {
+          next.push(segment);
+          continue;
+        }
+        if (hole.srcStart > segment.start + 1e-6) {
+          next.push({ start: segment.start, end: hole.srcStart });
+        }
+        if (hole.srcEnd < segment.end - 1e-6) {
+          next.push({ start: hole.srcEnd, end: segment.end });
+        }
+      }
+      segments = next;
+    }
+    return segments.filter((segment) => segment.end - segment.start > 0.05).map((segment) => ({ ...cut, srcStart: segment.start, srcEnd: segment.end }));
+  }
+  function mergeProposals(groups, taken = []) {
+    const fresh = groups.flat().filter((proposal) => !taken.some((range) => overlaps(proposal, range)));
+    const fillers = unionFillerCuts(fresh.filter((proposal) => proposal.kind === "filler"));
+    const holes = fillers.map((cut) => ({ srcStart: cut.srcStart, srcEnd: cut.srcEnd }));
+    const out = [...fillers];
+    for (const proposal of fresh) {
+      if (proposal.kind === "filler") continue;
+      for (const piece of subtractCut(proposal, holes)) {
+        if (out.some((item) => overlaps(item, piece))) continue;
+        out.push(piece);
+      }
+    }
+    return out.sort((a, b) => a.srcStart - b.srcStart || a.srcEnd - b.srcEnd);
+  }
 
   // src/domain/host.ts
   globalThis.crypto = {
@@ -6087,6 +8571,39 @@ var AICUT = (() => {
   Date.now = () => __aicut_now();
   var doc = null;
   var revision = 0;
+  var HISTORY_LIMIT = 50;
+  var undoStack = [];
+  var redoStack = [];
+  function remember(before) {
+    undoStack.push(before);
+    if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+    redoStack.length = 0;
+  }
+  function undo() {
+    if (!doc) throw new Error("project not loaded");
+    const previous = undoStack.pop();
+    if (!previous) {
+      return JSON.stringify({ ok: true, revision, changed: false, error: "\u6CA1\u6709\u53EF\u64A4\u9500\u7684\u64CD\u4F5C" });
+    }
+    redoStack.push(doc);
+    doc = previous;
+    revision += 1;
+    return JSON.stringify({ ok: true, revision, changed: true });
+  }
+  function redo() {
+    if (!doc) throw new Error("project not loaded");
+    const next = redoStack.pop();
+    if (!next) {
+      return JSON.stringify({ ok: true, revision, changed: false, error: "\u6CA1\u6709\u53EF\u91CD\u505A\u7684\u64CD\u4F5C" });
+    }
+    undoStack.push(doc);
+    doc = next;
+    revision += 1;
+    return JSON.stringify({ ok: true, revision, changed: true });
+  }
+  function historyDepth() {
+    return JSON.stringify({ undo: undoStack.length, redo: redoStack.length });
+  }
   function fail(revisionNow, error) {
     const wire = { ok: false, revision: revisionNow, error };
     return JSON.stringify(wire);
@@ -6097,6 +8614,15 @@ var AICUT = (() => {
   function load(json) {
     doc = parseProject(json);
     revision = 0;
+    undoStack.length = 0;
+    redoStack.length = 0;
+    return JSON.stringify({ ok: true, revision });
+  }
+  function blank() {
+    doc = newProject();
+    revision = 0;
+    undoStack.length = 0;
+    redoStack.length = 0;
     return JSON.stringify({ ok: true, revision });
   }
   function snapshot() {
@@ -6136,6 +8662,7 @@ var AICUT = (() => {
         };
         return JSON.stringify(wire2);
       }
+      remember(doc);
       doc = result.doc;
       revision += 1;
       const wire = {
@@ -6151,14 +8678,531 @@ var AICUT = (() => {
   }
   function view(method, argsJson) {
     if (!doc) throw new Error("project not loaded");
-    const args = argsJson ? JSON.parse(argsJson) : {};
+    const args = argsJson && argsJson !== "null" ? JSON.parse(argsJson) : {};
     switch (method) {
       case "overview":
         return JSON.stringify(overview(doc, revision));
       case "clip":
         return JSON.stringify(clipDetail(doc, revision, String(args.clipId ?? "")));
+      // 智能体的"渐进读取"：桌面 `tools.rs` 用同名视图，无头版直接复用同一份实现。
+      case "track":
+        return JSON.stringify(
+          trackPage(
+            doc,
+            revision,
+            args.trackId ?? args.track ?? args.ref,
+            args.offset,
+            args.limit
+          )
+        );
+      case "find_clips":
+        return JSON.stringify(findClips(doc, revision, args));
+      case "assets":
+        return JSON.stringify(assetsPage(doc, revision, args));
+      case "markers":
+        return JSON.stringify(markers(doc, revision, args));
       default:
         throw new Error(`unknown view: ${method}`);
+    }
+  }
+  function opFail(revisionNow, error) {
+    const wire = { ok: false, revision: revisionNow, changed: false, error };
+    return JSON.stringify(wire);
+  }
+  function evenSize(value, fallback) {
+    if (!Number.isFinite(value) || value <= 0) return fallback;
+    const rounded = Math.round(value);
+    return rounded % 2 === 0 ? rounded : rounded + 1;
+  }
+  function numberOr(value, fallback) {
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  }
+  function stemLabel(name) {
+    const key = `audio.stem.${name}`;
+    const label = t(key);
+    return label === key ? name : label;
+  }
+  function stringList(value) {
+    return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+  }
+  function requireClip(docIn, clipId) {
+    const found = findClip(docIn, clipId);
+    if (!found) throw new Error(`\u7247\u6BB5\u4E0D\u5B58\u5728\uFF1A${clipId}`);
+    return found;
+  }
+  function op(kind, argsJson) {
+    if (!doc) return opFail(revision, "project not loaded");
+    let args;
+    try {
+      args = argsJson && argsJson !== "null" ? JSON.parse(argsJson) : {};
+    } catch (error) {
+      return opFail(revision, `invalid op json: ${errorText(error)}`);
+    }
+    const before = doc;
+    try {
+      let next = before;
+      for (const asset of Array.isArray(args.assets) ? args.assets : []) {
+        next = addAsset(next, asset);
+      }
+      let result = null;
+      let dropHistory = false;
+      switch (kind) {
+        // 素材内字幕 → 时间线字幕：帧吸附与"超出片段窗口丢弃"都在这里，
+        // 换语言/改工程帧率时两个形态的换算结果一致（只读，不改文档）。
+        case "map_cues": {
+          const cues = args.cues ?? [];
+          const clipArg = args.clipId;
+          const clip = typeof clipArg === "string" && clipArg ? findClip(next, clipArg)?.clip ?? null : null;
+          const fps = numberOr(args.fps, next.fps);
+          result = {
+            cues: cues.map((cue) => mapCueToTimeline(cue, clip, fps)).filter((cue) => cue !== null)
+          };
+          break;
+        }
+        // 字幕 / 译文字幕：顶部新建字幕轨，一次事务写入全部 cue。
+        case "subtitle_track": {
+          const cues = args.cues ?? [];
+          const known = new Set(next.tracks.map((track) => track.id));
+          next = insertCueTrack(
+            next,
+            cues,
+            String(args.baseName || t(String(args.defaultName || "ai.subtitleTrack")))
+          );
+          const created = next.tracks.filter((track) => !known.has(track.id));
+          result = {
+            track: created[0] ? { id: created[0].id, name: created[0].name, clipCount: created[0].clips.length } : null,
+            inserted: cues.filter((cue) => cue.text.trim().length > 0).length
+          };
+          break;
+        }
+        // 降噪 / DSP：音频片段就地换素材，视频片段静音后另开一轨（桌面语义）。
+        case "processed_audio": {
+          const { clip } = requireClip(next, String(args.clipId ?? ""));
+          const known = new Set(next.tracks.map((track) => track.id));
+          next = applyProcessedAudio(
+            next,
+            clip,
+            String(args.assetId ?? ""),
+            numberOr(args.duration, 0),
+            String(args.sourceKind ?? "audio"),
+            String(args.trackName ?? "AI \u5904\u7406")
+          );
+          result = {
+            clipId: clip.id,
+            tracks: next.tracks.filter((track) => !known.has(track.id)).map((track) => ({ id: track.id, name: track.name, clipCount: track.clips.length }))
+          };
+          break;
+        }
+        // 音源分离：在源轨道下方逐条新建分轨，源片段静音。
+        case "stem_tracks": {
+          const { clip } = requireClip(next, String(args.clipId ?? ""));
+          const stems = (args.stems ?? []).map((stem) => ({
+            label: stem.label ?? stemLabel(stem.name),
+            assetId: stem.assetId,
+            duration: stem.duration
+          }));
+          const known = new Set(next.tracks.map((track) => track.id));
+          next = addStemTracks(
+            next,
+            clip,
+            stems,
+            String(args.baseName || t("audio.stemTrack")),
+            args.muteSource !== false
+          );
+          result = {
+            tracks: next.tracks.filter((track) => !known.has(track.id)).map((track) => ({ id: track.id, name: track.name, clipCount: track.clips.length }))
+          };
+          break;
+        }
+        // 视频 AI（超分 / 补帧 / 裁剪）：用新素材替换片段引用，入点归零。
+        case "replace_video": {
+          const { clip } = requireClip(next, String(args.clipId ?? ""));
+          next = replaceClipVideo(
+            next,
+            clip.id,
+            String(args.assetId ?? ""),
+            numberOr(args.duration, 0),
+            clip.duration
+          );
+          result = { clipId: clip.id, assetId: String(args.assetId ?? "") };
+          break;
+        }
+        // 朗读 / 译制配音：按文字片段起点落轨，重叠自动开新轨。
+        case "voiceover": {
+          const muteClipId = args.muteClipId;
+          if (typeof muteClipId === "string" && muteClipId) {
+            next = setClipMuted(next, muteClipId, true);
+          }
+          const items = args.items ?? [];
+          const known = new Set(next.tracks.map((track) => track.id));
+          next = placeVoiceover(
+            next,
+            items,
+            String(args.baseName || t(String(args.defaultName || "ai.voiceoverTrack")))
+          );
+          result = {
+            tracks: next.tracks.filter((track) => !known.has(track.id)).map((track) => ({ id: track.id, name: track.name, clipCount: track.clips.length }))
+          };
+          break;
+        }
+        // 变声：原片段静音，结果按原起点落轨。
+        case "converted_voice": {
+          const items = args.items ?? [];
+          const known = new Set(next.tracks.map((track) => track.id));
+          next = placeConvertedVoice(next, items, String(args.baseName || t("ai.voiceChangeTrack")));
+          result = {
+            tracks: next.tracks.filter((track) => !known.has(track.id)).map((track) => ({ id: track.id, name: track.name, clipCount: track.clips.length }))
+          };
+          break;
+        }
+        // 智能剪口播：检测 + 落地 + 重铺「口播字幕」轨，全在一个事务里。
+        case "cut_filler": {
+          const clipId = String(args.clipId ?? "");
+          const { clip } = requireClip(next, clipId);
+          const words = withWordIds(
+            args.words ?? []
+          );
+          const options = args.options ?? {};
+          const existing = scopeOfClip(next, clipId);
+          const taken = (existing?.cuts ?? []).map((cut) => ({
+            srcStart: cut.srcStart,
+            srcEnd: cut.srcEnd
+          }));
+          const fillerCuts = padFillerCuts(
+            detectFillers(words, {
+              includeSoft: options.includeSoft !== false,
+              custom: stringList(options.custom),
+              disabled: stringList(options.disabled)
+            }),
+            words,
+            { pad: numberOr(options.pad, DEFAULT_TRIM.pad) }
+          );
+          const proposals = mergeProposals(
+            [
+              fillerCuts,
+              detectPauses(words, {
+                minPause: numberOr(options.minPause, DEFAULT_PAUSE.minPause),
+                keep: numberOr(options.pauseKeep, DEFAULT_PAUSE.keep),
+                sentenceKeep: numberOr(options.sentenceKeep, DEFAULT_PAUSE.sentenceKeep)
+              })
+            ],
+            taken
+          );
+          const removed = proposals.reduce(
+            (sum, proposal) => sum + (proposal.srcEnd - proposal.srcStart),
+            0
+          );
+          const timed = args.timed !== false;
+          const summary = {
+            clipId: clip.id,
+            aligned: timed,
+            wordCount: words.length,
+            cutCount: proposals.length,
+            removedSeconds: Math.round(removed * 100) / 100,
+            proposals: proposals.map((proposal) => ({
+              kind: proposal.kind,
+              start: proposal.srcStart,
+              end: proposal.srcEnd,
+              text: proposal.text,
+              reason: proposal.reason
+            }))
+          };
+          if (args.dryRun === true || proposals.length === 0 || words.length === 0) {
+            result = { ...summary, applied: false };
+            break;
+          }
+          next = applyCuts(
+            next,
+            clipId,
+            proposals.map((proposal) => ({
+              kind: proposal.kind,
+              srcStart: proposal.srcStart,
+              srcEnd: proposal.srcEnd,
+              text: proposal.text
+            })),
+            words.map((word) => ({ text: word.text, start: word.start, end: word.end })),
+            timed
+          );
+          const scope = scopeOfClip(next, clipId);
+          if (scope) {
+            const cues = buildCutCues(
+              scope,
+              words,
+              next.tracks.flatMap((track) => track.clips),
+              next.fps
+            );
+            next = placeCueTrack(next, cues, String(args.cueTrackName || t("cutReview.cueTrack")));
+          }
+          result = { ...summary, applied: true };
+          break;
+        }
+        // 文案查表：无头侧不重复维护一份词典，轨道名 / 标签直接用桌面那份 i18n。
+        case "translate_keys": {
+          const keys = stringList(args.keys);
+          result = { labels: Object.fromEntries(keys.map((key) => [key, t(key)])) };
+          break;
+        }
+        // 响度统一：由测量结果算非破坏性增益，看得上再写回片段。
+        case "apply_loudness": {
+          const clipId = String(args.clipId ?? "");
+          requireClip(next, clipId);
+          const report = args.report ?? {};
+          const target = numberOr(args.targetLufs, -14);
+          const gain = loudnessGain(report, target);
+          const apply2 = args.apply === true && gain !== null;
+          if (apply2) next = setClipGain(next, clipId, gain);
+          result = {
+            integratedLufs: report.integrated_lufs,
+            truePeakDbtp: report.true_peak_dbtp,
+            targetLufs: target,
+            suggestedGainDb: gain,
+            applied: apply2
+          };
+          break;
+        }
+        // 拆音轨：视频片段静音，声音另起一条音轨（复用同一素材与入点）。
+        case "extract_audio": {
+          const clipId = String(args.clipId ?? "");
+          const { clip } = requireClip(next, clipId);
+          const kind2 = next.assets.find((asset) => asset.id === clip.assetId)?.kind;
+          if (kind2 !== "video") throw new Error(`\u7247\u6BB5 ${clipId} \u4E0D\u662F\u89C6\u9891\u7D20\u6750`);
+          if (clip.audioOnly) throw new Error(`\u7247\u6BB5 ${clipId} \u5DF2\u7ECF\u662F\u7EAF\u97F3\u9891\u7247\u6BB5`);
+          if (!(clip.duration > 0)) throw new Error(`\u7247\u6BB5 ${clipId} \u65F6\u957F\u65E0\u6548`);
+          const known = new Set(next.tracks.map((track) => track.id));
+          const extracted = extractClipAudio(
+            next,
+            clip,
+            String(args.baseName || t("inspector.extractAudioTrack"))
+          );
+          next = extracted.doc;
+          result = {
+            clipId: extracted.clipId,
+            trackId: extracted.trackId,
+            tracks: next.tracks.filter((track) => !known.has(track.id)).map((track) => ({ id: track.id, name: track.name, clipCount: track.clips.length }))
+          };
+          break;
+        }
+        // 导入字幕：SRT / VTT 文本 → 置顶文字轨（重叠自动拆轨）。
+        case "place_subtitles": {
+          const text = String(args.text ?? "");
+          if (!text.trim()) throw new Error("\u5B57\u5E55\u6587\u4EF6\u662F\u7A7A\u7684");
+          const entries = parseSubtitleText(text, String(args.path ?? ""));
+          const baseName = String(args.baseName || t("ai.subtitleTrack"));
+          const known = new Set(next.tracks.map((track) => track.id));
+          next = placeSubtitleCues(next, entries, baseName, numberOr(args.offset, 0));
+          result = {
+            count: entries.length,
+            tracks: next.tracks.filter((track) => !known.has(track.id)).map((track) => ({ id: track.id, name: track.name, clipCount: track.clips.length }))
+          };
+          break;
+        }
+        // 导出字幕：文字片段 → SRT / VTT 文本（写盘由调用方做）。
+        case "serialize_subtitles": {
+          const trackRef = args.trackId;
+          const tracks = trackRef === void 0 || trackRef === null ? next.tracks : (() => {
+            const track = resolveTrack2(next, trackRef);
+            return track ? [track] : [];
+          })();
+          const entries = tracks.flatMap((track) => track.clips).map((clip) => ({
+            start: clip.start,
+            end: clip.start + clip.duration,
+            text: (clip.text ?? "").trim(),
+            subtitle: clip.assetId === ""
+          })).filter((entry) => entry.subtitle && entry.text.length > 0).sort((left, right) => left.start - right.start || left.end - right.end);
+          const format = args.format === "vtt" ? "vtt" : "srt";
+          result = {
+            format,
+            count: entries.length,
+            text: serializeSubtitles(entries, format)
+          };
+          break;
+        }
+        // 新建工程：与桌面 `project.new` 同一个 `makeProject` 默认值 + 可选出图规格。
+        case "new_project": {
+          const created = newProject(
+            typeof args.name === "string" && args.name.trim() ? args.name.trim() : void 0
+          );
+          next = setProjectOutput(created, {
+            ...typeof args.width === "number" ? { width: args.width } : {},
+            ...typeof args.height === "number" ? { height: args.height } : {},
+            ...typeof args.fps === "number" ? { fps: args.fps } : {}
+          });
+          dropHistory = true;
+          result = { name: next.name, width: next.width, height: next.height, fps: next.fps };
+          break;
+        }
+        // 编译导出计划：与桌面「导出按钮」走同一个 `buildExportPlan`，
+        // ffmpeg 滤镜图只在这里生成一次，无头侧只负责执行。
+        case "compile_export": {
+          const outputPath = String(args.outputPath ?? "");
+          if (!outputPath.trim()) throw new Error("compile_export \u9700\u8981 outputPath");
+          const raw = args.options ?? {};
+          const options = {
+            format: raw.format === "prores" || raw.format === "gif" ? raw.format : "mp4",
+            resolution: raw.resolution ?? "project",
+            width: typeof raw.width === "number" ? raw.width : null,
+            height: typeof raw.height === "number" ? raw.height : null,
+            fps: typeof raw.fps === "number" ? raw.fps : null,
+            quality: raw.quality ?? "high",
+            fit: raw.fit === "cover" ? "cover" : "contain",
+            fitAnchor: raw.fitAnchor ?? "center",
+            gifColors: typeof raw.gifColors === "number" ? raw.gifColors : 256,
+            gifDither: raw.gifDither ?? "sierra2_4a",
+            gifLoop: typeof raw.gifLoop === "number" ? raw.gifLoop : 0,
+            audio: raw.audio !== false
+          };
+          const window = args.window;
+          const plan = buildExportPlan(
+            next,
+            options,
+            /* @__PURE__ */ new Map(),
+            outputPath,
+            /* @__PURE__ */ new Map(),
+            window && typeof window.start === "number" && typeof window.end === "number" ? { start: window.start, end: window.end } : void 0,
+            /* @__PURE__ */ new Map()
+          );
+          let outputArgs = plan.outputArgs;
+          const frameTime = typeof args.frameTime === "number" ? args.frameTime : null;
+          if (frameTime !== null) {
+            const mapIndex = outputArgs.indexOf("-map");
+            const videoLabel = mapIndex >= 0 ? outputArgs[mapIndex + 1] : null;
+            if (!videoLabel) throw new Error("\u5BFC\u51FA\u8BA1\u5212\u91CC\u6CA1\u6709\u89C6\u9891\u8F93\u51FA");
+            if (!(frameTime >= 0 && frameTime <= plan.duration)) {
+              throw new Error(t("export.frameTimeInvalid"));
+            }
+            const at = Math.min(frameTime, Math.max(0, plan.duration - 1 / plan.fps));
+            outputArgs = [
+              "-map",
+              videoLabel,
+              "-an",
+              "-ss",
+              String(at),
+              "-frames:v",
+              "1",
+              "-update",
+              "1",
+              outputPath
+            ];
+          }
+          result = { ...plan, outputArgs };
+          break;
+        }
+        // film.json 导入：解析 + 生成命令 + 逐条应用（一个撤销步）。
+        case "film_import": {
+          const text = String(args.text ?? "");
+          const path = String(args.path ?? "");
+          if (!text.trim()) throw new Error("film_import \u9700\u8981 text");
+          if (!path.trim()) throw new Error("film_import \u9700\u8981 path");
+          let raw;
+          try {
+            raw = JSON.parse(text);
+          } catch (error) {
+            throw new Error(`film.json \u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${errorText(error)}`);
+          }
+          const parsed = parseFilmManifest(raw, path);
+          const plan = buildManifestCommands(next, parsed, {
+            mode: args.mode === "merge" ? "merge" : "replace",
+            trackName: String(args.trackName || "Scenes"),
+            assets: Array.isArray(args.assets) ? args.assets : [],
+            baseRevision: revision + 1,
+            actor: "agent",
+            ...typeof args.label === "string" ? { label: args.label } : {},
+            ...args.conform === true ? { conform: true } : {}
+          });
+          let working = next;
+          let applied = 0;
+          for (const command of plan.commands) {
+            const step = applyCommandToDoc(working, {
+              ...command,
+              baseRevision: revision + applied + 1
+            });
+            working = step.doc;
+            applied += 1;
+          }
+          next = working;
+          result = { ...plan.summary, applied, changed: next !== before };
+          break;
+        }
+        // film.json 里的场次表（逐场渲染用）。
+        case "manifest_scenes": {
+          const path = String(args.path ?? "");
+          if (!path.trim()) throw new Error("manifest_scenes \u9700\u8981 path");
+          let raw;
+          try {
+            raw = JSON.parse(String(args.text ?? "{}"));
+          } catch (error) {
+            throw new Error(`film.json \u4E0D\u662F\u5408\u6CD5 JSON\uFF1A${errorText(error)}`);
+          }
+          const parsed = parseFilmManifest(raw, path);
+          result = {
+            fps: parsed.manifest.fps ?? null,
+            scenes: parsed.manifest.scenes.map((scene) => ({
+              id: scene.id,
+              start: scene.t0,
+              end: scene.t1
+            }))
+          };
+          break;
+        }
+        // film.json 导出：把工程重建为 manifest（写盘由调用方做）。
+        case "film_export": {
+          const manifest = projectToManifest(next, {
+            baseDir: String(args.baseDir || "."),
+            previous: args.previous ?? null
+          });
+          result = { manifest };
+          break;
+        }
+        // 接触表版面：格子尺寸 / 行数 / xstack layout 字符串（与导出共用一份算法）。
+        case "contact_layout": {
+          const count = Math.max(1, Math.round(numberOr(args.count, 1)));
+          const cols = Math.min(
+            6,
+            Math.max(1, Math.round(numberOr(args.cols, Math.ceil(Math.sqrt(count)))))
+          );
+          const cellWidth = evenSize(numberOr(args.cellWidth, 480), 480);
+          const cellHeight = evenSize(Math.round(cellWidth * 9 / 16), 270);
+          const rows = Math.ceil(count / cols);
+          const layout = buildContactLayout(count, cols, cellWidth, cellHeight);
+          result = { cols, rows, cellWidth, cellHeight, layout: layout.layout, total: cols * rows };
+          break;
+        }
+        // SSIM 统计解析 + 变化点（低于阈值）；同一份解析器，不另写一份。
+        case "parse_ssim": {
+          const text = String(args.text ?? "");
+          const fps = numberOr(args.fps, 30);
+          const start = numberOr(args.start, 0);
+          const summary = parseSsimStats(text, fps, start);
+          const threshold = numberOr(args.threshold, 0.98);
+          result = {
+            ssim: { mean: summary.mean, min: summary.min, samples: summary.samples },
+            changed: changedSamples(summary, threshold),
+            frames: summary.frames.slice(0, 200)
+          };
+          break;
+        }
+        // 只登记素材（导入素材 / 模型输出的通用路径）。
+        case "add_assets": {
+          result = { assets: next.assets.length - before.assets.length };
+          break;
+        }
+        default:
+          return opFail(revision, `unknown op: ${kind}`);
+      }
+      if (next !== before) {
+        if (dropHistory) {
+          undoStack.length = 0;
+          redoStack.length = 0;
+        } else {
+          remember(before);
+        }
+        doc = next;
+        revision += 1;
+      }
+      const wire = { ok: true, revision, changed: next !== before, result };
+      return JSON.stringify(wire);
+    } catch (error) {
+      return opFail(revision, errorText(error));
     }
   }
   return __toCommonJS(host_exports);

@@ -33,4 +33,15 @@ const result = await build({
 
 const bytes = statSync(outfile).size;
 const inputs = Object.keys(result.metafile.inputs).length;
+
+// 硬约束：无头引擎跑在 QuickJS 里，没有 DOM / Vue / Node。
+// 只要有人不小心把 `@/i18n`（Vue 版）或 store 拖进依赖图，这里直接失败——
+// 而不是等到容器里 `process is not defined` 才发现。
+const forbidden = Object.keys(result.metafile.inputs).filter((input) =>
+  /(^|\/)node_modules\/(\.pnpm\/)?(vue|@vue\/)|(^|\/)src\/stores\//.test(input),
+);
+if (forbidden.length > 0) {
+  console.error(`domain bundle 不能依赖 Vue / store：\n  ${forbidden.join("\n  ")}`);
+  process.exit(1);
+}
 console.log(`domain bundle: ${path.relative(root, outfile)} (${(bytes / 1024).toFixed(1)} KiB, ${inputs} inputs)`);

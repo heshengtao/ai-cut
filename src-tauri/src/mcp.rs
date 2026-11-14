@@ -34,74 +34,8 @@ const STOP_WAIT: Duration = Duration::from_secs(2);
 const BUSY_RETRIES: u32 = 30;
 const BUSY_INTERVAL: Duration = Duration::from_millis(50);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct McpConfig {
-    pub enabled: bool,
-    pub port: u16,
-}
-
-impl Default for McpConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            port: DEFAULT_MCP_PORT,
-        }
-    }
-}
-
-/// 配置端口没绑上、退回系统临时端口的原因。
-///
-/// 前端据此给出一句人话（而不是只把端口悄悄换掉，让人拿着旧地址去配客户端）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PortConflict {
-    /// 端口被别的进程占着（也可能是同一台机器上的另一个 AI Cut 实例）。
-    Busy,
-    /// 端口被系统保留 / 当前用户无权限（Windows 排除端口区、1024 以下的特权端口）。
-    Denied,
-}
-
-impl PortConflict {
-    fn reason(self) -> &'static str {
-        match self {
-            PortConflict::Busy => "已被其他程序占用",
-            PortConflict::Denied => "被系统保留或没有权限",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct McpStatus {
-    /// 配置里写的端口（用户填的；下次启动还会先试它）。
-    pub port: u16,
-    pub enabled: bool,
-    pub running: bool,
-    /// 实际接入地址，形如 `http://127.0.0.1:50563/mcp`；未运行时为 `None`。
-    pub url: Option<String>,
-    /// 实际监听的端口；未运行时为 `None`。配置端口被占用时它会和 `port` 不同。
-    #[serde(rename = "boundPort")]
-    pub bound_port: Option<u16>,
-    /// 实际端口 ≠ 配置端口，说明本次运行退回了系统临时端口。
-    pub fallback: bool,
-    /// 退回临时端口的原因；没退回时为 `None`。
-    #[serde(rename = "portConflict")]
-    pub port_conflict: Option<PortConflict>,
-}
-
-impl McpStatus {
-    fn stopped(config: &McpConfig) -> Self {
-        Self {
-            enabled: config.enabled,
-            port: config.port,
-            running: false,
-            url: None,
-            bound_port: None,
-            fallback: false,
-            port_conflict: None,
-        }
-    }
-}
+// 结构与语义定义在 daemon（无头版要序列化同一份）；桌面壳 re-export，前端看到的 JSON 不变。
+pub use aicut_daemon::mcp::{McpConfig, McpStatus, PortConflict};
 
 struct Running {
     addr: SocketAddr,
@@ -473,6 +407,23 @@ fn write_file(path: &Option<PathBuf>, text: &str) -> Result<(), String> {
 fn remove_file(path: &Option<PathBuf>) {
     if let Some(path) = path {
         let _ = std::fs::remove_file(path);
+    }
+}
+
+/// 浏览器端 `/rpc/mcp_status` 打到的是**桌面壳这一份** McpRuntime（全量工具面），
+/// 不是 daemon 自带的那份——所以这里实现 daemon 的 `McpControl` 做桥。
+pub struct DesktopMcp(pub Arc<McpRuntime>);
+
+impl aicut_daemon::mcp::McpControl for DesktopMcp {
+    fn status(&self) -> aicut_daemon::mcp::McpStatus {
+        McpRuntime::status(&self.0)
+    }
+
+    fn apply(
+        &self,
+        config: aicut_daemon::mcp::McpConfig,
+    ) -> Result<aicut_daemon::mcp::McpStatus, String> {
+        McpRuntime::apply(&self.0, config)
     }
 }
 

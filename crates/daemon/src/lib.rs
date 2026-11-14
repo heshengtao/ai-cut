@@ -6,18 +6,46 @@
 //! - `rpc` / `http`：浏览器端 `Channel` 打进来的 HTTP RPC 与静态托管；
 //! - `DocEngine`：把前端**同一份** TS 领域代码放进 QuickJS 执行。
 
+pub mod agent;
+pub mod aligner;
+pub mod agent_bridge;
+pub mod agent_tools;
+pub mod ai_backend;
+pub mod ai_session;
+pub mod analysis;
+pub mod asr;
+pub mod audio_ai;
+pub mod audio_analysis;
+pub mod capabilities;
+pub mod cloud_gen;
+pub mod cloud_tts;
 pub mod doc_actor;
+pub mod doc_ops;
 pub mod events;
 pub mod export;
 pub mod fonts;
 pub mod history;
 pub mod host;
 pub mod http;
+pub mod image_prep;
+pub mod mcp;
 pub mod media;
+pub mod models;
+pub mod network;
+pub mod ort_probe;
+pub mod ofx;
 pub mod paths;
+pub mod plugins;
 pub mod project;
 pub mod rpc;
+pub mod runtime_ort;
 pub mod session;
+pub mod tts;
+pub mod tts_core;
+pub mod zipvoice;
+pub mod video_ai;
+pub mod video_dsp;
+pub mod voice_change;
 
 pub use doc::{DocEngine, IdSource};
 pub use doc_actor::DocHandle;
@@ -111,8 +139,16 @@ mod doc {
                     .set("__aicut_now", now_fn)
                     .map_err(|e| format!("注册 __aicut_now 失败：{e}"))?;
 
-                ctx.eval::<(), _>(DOMAIN_JS)
-                    .map_err(|e| format!("加载领域 bundle 失败：{e}"))?;
+                ctx.eval::<(), _>(DOMAIN_JS).map_err(|e| {
+                    let thrown = ctx.catch();
+                    format!(
+                        "加载领域 bundle 失败：{e}（{}）",
+                        thrown
+                            .as_exception()
+                            .map(|exception| format!("{exception:?}"))
+                            .unwrap_or_else(|| format!("{thrown:?}"))
+                    )
+                })?;
                 Ok::<(), String>(())
             })?;
 
@@ -139,6 +175,11 @@ mod doc {
         /// 载入工程快照。
         pub fn load(&self, json: &str) -> Result<String, String> {
             self.call1("load", json)
+        }
+
+        /// 载入一份空白工程（无头进程启动时用，字段与桌面「新建」一致）。
+        pub fn blank(&self) -> Result<String, String> {
+            self.call1("blank", "")
         }
 
         /// 当前文档快照（紧凑格式由 JS 侧决定）。
@@ -174,9 +215,41 @@ mod doc {
             self.call1("apply", command_json)
         }
 
+        /// 撤销一步（引擎侧的快照式撤销栈）。
+        pub fn undo(&self) -> Result<String, String> {
+            self.call1("undo", "")
+        }
+
+        /// 重做一步。
+        pub fn redo(&self) -> Result<String, String> {
+            self.call1("redo", "")
+        }
+
         /// 设置引擎语言（`zh` / `en`），影响默认命名与错误文案。
         pub fn set_locale(&self, locale: &str) -> Result<String, String> {
             self.call1("setLocale", locale)
+        }
+
+        /// AI 产出物落位等写操作（与桌面 `core/aiActions` 同一份领域实现）。
+        pub fn op(&self, kind: &str, args_json: &str) -> Result<String, String> {
+            self.call2("op", kind, args_json)
+        }
+
+        /// 两参数导出函数。
+        fn call2(&self, method: &str, first: &str, second: &str) -> Result<String, String> {
+            self.ctx.with(|ctx| {
+                let globals = ctx.globals();
+                let api: Object = globals
+                    .get("AICUT")
+                    .map_err(|e| format!("bundle 没有暴露 AICUT：{e}"))?;
+                let f: Function = api
+                    .get(method)
+                    .map_err(|e| format!("AICUT.{method} 不存在：{e}"))?;
+                f.call::<_, String>((first, second)).map_err(|e| {
+                    let thrown = ctx.catch();
+                    format!("AICUT.{method} 抛错：{e}（{thrown:?}）")
+                })
+            })
         }
 
         /// MCP / CLI 的只读视图。

@@ -38,6 +38,11 @@ impl Host for TauriHost {
         &self.config
     }
 
+    fn resource_dir(&self) -> Option<std::path::PathBuf> {
+        use tauri::Manager;
+        self.app.path().resource_dir().ok()
+    }
+
     fn emit(&self, event: &str, payload: serde_json::Value) {
         use tauri::Emitter;
         // 桌面 webview 与浏览器客户端都要收到同一条事件。

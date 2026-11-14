@@ -1577,3 +1577,23 @@ mod tests {
         assert_eq!(parse_step("step 3/20", 8), None);
     }
 }
+
+#[cfg(test)]
+mod spec_coverage {
+    use super::*;
+
+    /// 清单里每个视频模型都必须有规格（帧率 / 帧数网格），否则生成时会算不出尺寸。
+    #[test]
+    fn every_video_model_has_a_spec() {
+        for entry in crate::models::all()
+            .iter()
+            .filter(|entry| entry.feature == "video-gen")
+        {
+            assert!(
+                VideoSpec::for_family(entry.family).is_some(),
+                "{} 缺少视频规格",
+                entry.id
+            );
+        }
+    }
+}

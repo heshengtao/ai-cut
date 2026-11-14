@@ -29,6 +29,19 @@ pub struct RpcCtx {
     pub export: Arc<crate::export::ExportState>,
     pub session: Arc<crate::session::Session>,
     pub doc: crate::DocHandle,
+    /// 网络配置（代理 / 模型源 / 插件注册表 / HF token）。
+    /// 桌面壳传进来的就是它自己 `app.manage` 的那一份实例，读写同一份配置。
+    pub network: Arc<crate::network::NetworkRuntime>,
+    /// 云端 TTS 服务配置（provider 列表）。
+    pub cloud_tts: Arc<crate::cloud_tts::CloudTtsRuntime>,
+    /// 云端出图 / 出视频的服务配置。
+    pub cloud_gen: Arc<crate::cloud_gen::CloudGenRuntime>,
+    /// 无模型视频处理的运行状态（互斥 + 取消）。
+    pub video_dsp: Arc<crate::video_dsp::VideoDspState>,
+    /// 剪辑智能体（配置 / 会话 / 运行态）。工具调用走 `agent_tools` → `agent_bridge`。
+    pub agent: Arc<crate::agent::AgentState>,
+    /// MCP 服务器（谁在管由壳决定：桌面壳是自己那份全量工具面，无头是 daemon 这份）。
+    pub mcp: Arc<dyn crate::mcp::McpControl>,
 }
 
 #[derive(Deserialize)]
@@ -137,6 +150,470 @@ struct OptionalIdArgs {
 struct OptionalForceArgs {
     #[serde(default)]
     force: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OfxProbeArgs {
+    bundle: String,
+    #[serde(default)]
+    plugin: Option<String>,
+    #[serde(default)]
+    context: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OfxRenderFrameArgs {
+    bundle: String,
+    plugin: String,
+    #[serde(default)]
+    context: Option<String>,
+    width: u32,
+    height: u32,
+    #[serde(default)]
+    time: f64,
+    rgba_base64: String,
+    #[serde(default)]
+    params: Option<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OfxRenderPreviewArgs {
+    source: String,
+    #[serde(default)]
+    source_time: f64,
+    #[serde(default)]
+    time: f64,
+    width: u32,
+    height: u32,
+    #[serde(default)]
+    is_image: bool,
+    #[serde(default)]
+    fit: Option<String>,
+    #[serde(default)]
+    fps: Option<f64>,
+    #[serde(default)]
+    duration: Option<f64>,
+    #[serde(default)]
+    retimer_source_time: Option<f64>,
+    #[serde(default)]
+    effects: Vec<crate::ofx::OfxEffectSpec>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OfxSourceTimeArgs {
+    bundle: String,
+    plugin: String,
+    #[serde(default)]
+    context: Option<String>,
+    #[serde(default)]
+    time: f64,
+    #[serde(default)]
+    duration: Option<f64>,
+    #[serde(default)]
+    fps: Option<f64>,
+    #[serde(default)]
+    width: Option<u32>,
+    #[serde(default)]
+    height: Option<u32>,
+    #[serde(default)]
+    params: Option<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_excessive_bools)]
+struct OfxRenderTransitionArgs {
+    bundle: String,
+    plugin: String,
+    #[serde(default)]
+    context: Option<String>,
+    #[serde(default)]
+    params: Option<Value>,
+    #[serde(default)]
+    from: Option<crate::ofx::OfxTransitionSource>,
+    #[serde(default)]
+    to: Option<crate::ofx::OfxTransitionSource>,
+    #[serde(default)]
+    timeline_time: f64,
+    #[serde(default)]
+    progress: f64,
+    #[serde(default)]
+    duration: f64,
+    width: u32,
+    height: u32,
+    #[serde(default)]
+    fps: Option<f64>,
+    #[serde(default)]
+    fit: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OfxBakeImageArgs {
+    request: crate::ofx::OfxBakeImageRequest,
+}
+
+#[derive(Deserialize)]
+struct OfxBakeArgs {
+    request: crate::ofx::OfxBakeRequest,
+}
+
+#[derive(Deserialize)]
+struct OfxBakeTransitionArgs {
+    request: crate::ofx::OfxBakeTransitionRequest,
+}
+
+#[derive(Deserialize)]
+struct SlugArgs {
+    slug: String,
+}
+
+#[derive(Deserialize)]
+struct McpConfigArgs {
+    enabled: bool,
+    port: u16,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AsrArgs {
+    path: String,
+    model_id: String,
+    #[serde(default)]
+    language: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TtsSynthArgs {
+    model_id: String,
+    #[serde(default)]
+    items: Vec<crate::tts::TtsItem>,
+    #[serde(default)]
+    voice: Option<String>,
+    #[serde(default)]
+    reference_path: Option<String>,
+    #[serde(default)]
+    reference_text: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelIdArgs {
+    model_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoUpscaleArgs {
+    path: String,
+    #[serde(default)]
+    start: f64,
+    #[serde(default)]
+    duration: f64,
+    #[serde(default)]
+    fps: f64,
+    model_id: String,
+    #[serde(default)]
+    scale: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoImageArgs {
+    path: String,
+    model_id: String,
+    #[serde(default)]
+    scale: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoInterpolateArgs {
+    path: String,
+    #[serde(default)]
+    start: f64,
+    #[serde(default)]
+    duration: f64,
+    #[serde(default)]
+    fps: f64,
+    model_id: String,
+    #[serde(default)]
+    factor: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoReframeArgs {
+    path: String,
+    #[serde(default)]
+    start: f64,
+    #[serde(default)]
+    duration: f64,
+    #[serde(default)]
+    fps: f64,
+    #[serde(default)]
+    yolo_model_id: Option<String>,
+    #[serde(default)]
+    yunet_model_id: Option<String>,
+    #[serde(default)]
+    subject: String,
+    #[serde(default)]
+    aspect: String,
+    #[serde(default)]
+    height: u32,
+    #[serde(default = "default_smooth")]
+    smooth: f32,
+}
+
+fn default_smooth() -> f32 {
+    0.5
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoSamplesArgs {
+    path: String,
+    #[serde(default)]
+    interval: f64,
+    #[serde(default = "default_samples")]
+    max_samples: usize,
+    #[serde(default)]
+    subject: String,
+}
+
+fn default_samples() -> usize {
+    60
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceConvertArgs {
+    #[serde(default)]
+    clips: Vec<crate::voice_change::VcClip>,
+    voice_id: String,
+    model_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceImportArgs {
+    asset_path: String,
+    name: String,
+    #[serde(default)]
+    start: Option<f64>,
+    #[serde(default)]
+    duration: Option<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AudioTaskArgs {
+    path: String,
+    #[serde(default)]
+    start: f64,
+    #[serde(default)]
+    duration: f64,
+    #[serde(default)]
+    model_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AudioDspArgs {
+    path: String,
+    #[serde(default)]
+    start: f64,
+    #[serde(default)]
+    duration: f64,
+    effect: String,
+    preset: String,
+}
+
+#[derive(Deserialize)]
+struct TranslateArgs {
+    texts: Vec<String>,
+    target: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoDspArgs {
+    path: String,
+    #[serde(default)]
+    start: f64,
+    #[serde(default)]
+    duration: f64,
+    #[serde(default)]
+    fps: f64,
+    #[serde(default)]
+    options: crate::video_dsp::VideoDspOptions,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoudnessArgs {
+    path: String,
+    #[serde(default)]
+    start: f64,
+    #[serde(default)]
+    duration: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentConfigArgs {
+    #[serde(default)]
+    base_url: String,
+    #[serde(default)]
+    api_key: String,
+    #[serde(default)]
+    model: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentModelArgs {
+    #[serde(default)]
+    base_url: String,
+    #[serde(default)]
+    api_key: String,
+    #[serde(default)]
+    model: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentSetHeadArgs {
+    id: String,
+    node_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentSendArgs {
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    parent_id: Option<String>,
+    #[serde(default)]
+    text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BridgeArgs {
+    method: String,
+    #[serde(default)]
+    payload: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeInstallArgs {
+    id: String,
+    #[serde(default)]
+    force: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GenProvidersArgs {
+    #[serde(default)]
+    providers: Vec<crate::cloud_gen::CloudGenProvider>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GenProviderArgs {
+    provider: crate::cloud_gen::CloudGenProvider,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GenImageArgs {
+    request: crate::cloud_gen::CloudImageRequest,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GenVideoArgs {
+    request: crate::cloud_gen::CloudVideoRequest,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProvidersArgs {
+    #[serde(default)]
+    providers: Vec<crate::cloud_tts::CloudTtsProvider>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderArgs {
+    provider: crate::cloud_tts::CloudTtsProvider,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CloudTtsTestArgs {
+    provider: crate::cloud_tts::CloudTtsProvider,
+    #[serde(default)]
+    text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CloudTtsSynthArgs {
+    provider_id: String,
+    #[serde(default)]
+    items: Vec<crate::tts_core::TtsItem>,
+    #[serde(default)]
+    voice: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TokenArgs {
+    token: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NetworkSetArgs {
+    proxy_mode: crate::network::ProxyMode,
+    #[serde(default)]
+    proxy_url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelSourceArgs {
+    preference: crate::network::ModelSourcePreference,
+    #[serde(default)]
+    mirrors: Vec<String>,
+    #[serde(default)]
+    download_prefix: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RegistryArgs {
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    mirrors: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NetworkProbeArgs {
+    proxy_mode: crate::network::ProxyMode,
+    #[serde(default)]
+    proxy_url: String,
 }
 
 #[derive(Deserialize)]
@@ -257,6 +734,17 @@ pub struct UploadQuery {
     pub token: Option<String>,
 }
 
+/// `ai_set_backend` 的参数（与桌面命令同名同形）。
+#[derive(Deserialize)]
+struct BackendArgs {
+    preference: crate::ai_backend::BackendPreference,
+}
+
+/// `asr_*` 把宿主按 `Arc` 拿走（要在阻塞线程里继续用），这里做一次浅拷贝。
+fn host_arc(ctx: &RpcCtx) -> &std::sync::Arc<dyn Host> {
+    &ctx.host
+}
+
 fn from_value<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, String> {
     serde_json::from_value(args).map_err(|e| format!("参数不合法：{e}"))
 }
@@ -266,6 +754,673 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
     let host = ctx.host.as_ref();
     match command {
         "ping" => Ok(json!("pong")),
+        // ---- ONNX Runtime 可加载性探针（镜像验证用） ----
+        "ai_ort_probe" => Ok(json!(crate::ort_probe::probe(host))),
+        // ---- 执行后端（CPU / CoreML / DirectML / CUDA 12·13）----
+        "ai_backend_info" => Ok(json!(crate::ai_session::ai_backend_info(
+            host,
+            &ctx.network
+        ))),
+        "ai_set_backend" => {
+            let args: BackendArgs = from_value(args)?;
+            Ok(json!(crate::ai_session::ai_set_backend(
+                host,
+                &ctx.network,
+                args.preference
+            )?))
+        }
+        // ---- ONNX Runtime 运行库（与桌面共用 `aicut_daemon::runtime_ort`） ----
+        "runtime_catalog" => Ok(json!(crate::runtime_ort::runtime_catalog(host))),
+        "runtime_install" => {
+            let args: RuntimeInstallArgs = from_value(args)?;
+            crate::runtime_ort::runtime_install(host, &ctx.network, args.id, args.force).await?;
+            Ok(Value::Null)
+        }
+        "runtime_remove" => {
+            let args: IdArgs = from_value(args)?;
+            crate::runtime_ort::runtime_remove(host, args.id)?;
+            Ok(Value::Null)
+        }
+        "runtime_cancel" => {
+            crate::runtime_ort::runtime_cancel();
+            Ok(Value::Null)
+        }
+        "runtime_busy" => Ok(json!(crate::runtime_ort::runtime_busy())),
+        "runtime_reveal" => Err("在文件管理器中显示运行库需要桌面应用".to_string()),
+        "app_restart" => Err("重启应用需要桌面应用；容器里请重启容器".to_string()),
+        // ---- 模型清单 / 下载 / 探测（与桌面共用 `aicut_daemon::models`） ----
+        "model_catalog" => Ok(json!(crate::models::model_catalog(host))),
+        "model_download" => {
+            let args: IdArgs = from_value(args)?;
+            Ok(json!(
+                crate::models::model_download(host, &ctx.network, args.id).await?
+            ))
+        }
+        "model_probe" => {
+            let args: IdArgs = from_value(args)?;
+            Ok(json!(
+                crate::models::model_probe(host, &ctx.network, args.id).await?
+            ))
+        }
+        "model_cancel" => {
+            crate::models::model_cancel();
+            Ok(Value::Null)
+        }
+        "model_remove" => {
+            let args: IdArgs = from_value(args)?;
+            crate::models::model_remove(host, args.id)?;
+            Ok(Value::Null)
+        }
+        "model_reveal" => Err("在文件管理器中显示模型需要桌面应用".to_string()),
+        // ---- 无模型视频处理（滤镜链 + 一次 ffmpeg 转码） ----
+        "video_dsp_process" => {
+            let args: VideoDspArgs = from_value(args)?;
+            Ok(json!(
+                crate::video_dsp::video_dsp_process(
+                    host,
+                    &ctx.video_dsp,
+                    args.path,
+                    args.start,
+                    args.duration,
+                    args.fps,
+                    args.options,
+                )
+                .await?
+            ))
+        }
+        "video_dsp_cancel" => {
+            crate::video_dsp::video_dsp_cancel(&ctx.video_dsp)?;
+            Ok(Value::Null)
+        }
+        "video_dsp_busy" => Ok(json!(crate::video_dsp::video_dsp_busy(&ctx.video_dsp))),
+        // ---- 响度测量（纯 ffmpeg + ebur128，无模型） ----
+        "audio_measure_loudness" => {
+            let args: LoudnessArgs = from_value(args)?;
+            Ok(json!(
+                crate::audio_analysis::audio_measure_loudness(
+                    host,
+                    args.path,
+                    args.start,
+                    args.duration
+                )
+                .await?
+            ))
+        }
+        // ---- 音频 AI（LocalVQE 降噪 / HTDemucs 分离）与无模型 DSP ----
+        "audio_ai_denoise" => {
+            let args: AudioTaskArgs = from_value(args)?;
+            Ok(json!(
+                crate::audio_ai::audio_ai_denoise(
+                    &ctx.host,
+                    args.path,
+                    args.start,
+                    args.duration,
+                    args.model_id
+                )
+                .await?
+            ))
+        }
+        "audio_ai_separate" => {
+            let args: AudioTaskArgs = from_value(args)?;
+            Ok(json!(
+                crate::audio_ai::audio_ai_separate(
+                    &ctx.host,
+                    args.path,
+                    args.start,
+                    args.duration,
+                    args.model_id
+                )
+                .await?
+            ))
+        }
+        "audio_ai_cancel" => {
+            crate::audio_ai::audio_ai_cancel();
+            Ok(Value::Null)
+        }
+        "audio_dsp_process" => {
+            let args: AudioDspArgs = from_value(args)?;
+            Ok(json!(
+                crate::audio_ai::audio_dsp_process(
+                    &ctx.host,
+                    args.path,
+                    args.start,
+                    args.duration,
+                    args.effect,
+                    args.preset
+                )
+                .await?
+            ))
+        }
+        "audio_extract_reference" => {
+            let args: LoudnessArgs = from_value(args)?;
+            Ok(json!(
+                crate::audio_ai::audio_extract_reference(
+                    host,
+                    args.path,
+                    args.start,
+                    args.duration
+                )
+                .await?
+            ))
+        }
+        "translate_text" => {
+            let args: TranslateArgs = from_value(args)?;
+            Ok(json!(
+                crate::audio_ai::translate_text(
+                    &ctx.network,
+                    {
+                        let config = ctx.agent.config();
+                        crate::audio_ai::TranslateEndpoint {
+                            base_url: config.base_url,
+                            api_key: config.api_key,
+                            model: config.model,
+                        }
+                    },
+                    args.texts,
+                    args.target
+                )
+                .await?
+            ))
+        }
+        // ---- 语音识别（一键字幕 / 剪口播） ----
+        "asr_transcribe" => {
+            let args: AsrArgs = from_value(args)?;
+            Ok(json!(
+                crate::asr::asr_transcribe(host_arc(&ctx), args.path, args.model_id, args.language)
+                    .await?
+            ))
+        }
+        "asr_transcribe_words" => {
+            let args: AsrArgs = from_value(args)?;
+            Ok(json!(
+                crate::asr::asr_transcribe_words(
+                    host_arc(&ctx),
+                    args.path,
+                    args.model_id,
+                    args.language
+                )
+                .await?
+            ))
+        }
+        "asr_cancel" => {
+            crate::asr::asr_cancel();
+            Ok(Value::Null)
+        }
+        // ---- AI 朗读（MOSS-TTS-Nano / ZipVoice） ----
+        "tts_voices" => {
+            let args: ModelIdArgs = from_value(args)?;
+            Ok(json!(crate::tts::tts_voices(host, args.model_id)?))
+        }
+        "tts_synthesize" => {
+            let args: TtsSynthArgs = from_value(args)?;
+            Ok(json!(
+                crate::tts::tts_synthesize(
+                    &ctx.host,
+                    args.model_id,
+                    args.items,
+                    args.voice,
+                    args.reference_path,
+                    args.reference_text
+                )
+                .await?
+            ))
+        }
+        "tts_cancel" => {
+            crate::tts::tts_cancel();
+            Ok(Value::Null)
+        }
+        // ---- 视频 AI（超分 / 补帧 / 智能裁剪 / 采样） ----
+        "video_ai_upscale" => {
+            let args: VideoUpscaleArgs = from_value(args)?;
+            Ok(json!(
+                crate::video_ai::video_ai_upscale(
+                    &ctx.host,
+                    args.path,
+                    args.start,
+                    args.duration,
+                    args.fps,
+                    args.model_id,
+                    args.scale
+                )
+                .await?
+            ))
+        }
+        "video_ai_upscale_image" => {
+            let args: VideoImageArgs = from_value(args)?;
+            Ok(json!(
+                crate::video_ai::video_ai_upscale_image(
+                    &ctx.host,
+                    args.path,
+                    args.model_id,
+                    args.scale
+                )
+                .await?
+            ))
+        }
+        "video_ai_interpolate" => {
+            let args: VideoInterpolateArgs = from_value(args)?;
+            Ok(json!(
+                crate::video_ai::video_ai_interpolate(
+                    &ctx.host,
+                    args.path,
+                    args.start,
+                    args.duration,
+                    args.fps,
+                    args.model_id,
+                    args.factor
+                )
+                .await?
+            ))
+        }
+        "video_ai_reframe" => {
+            let args: VideoReframeArgs = from_value(args)?;
+            Ok(json!(
+                crate::video_ai::video_ai_reframe(
+                    &ctx.host,
+                    args.path,
+                    args.start,
+                    args.duration,
+                    args.fps,
+                    args.yolo_model_id,
+                    args.yunet_model_id,
+                    args.subject,
+                    args.aspect,
+                    args.height,
+                    args.smooth
+                )
+                .await?
+            ))
+        }
+        "video_ai_samples" => {
+            let args: VideoSamplesArgs = from_value(args)?;
+            Ok(json!(
+                crate::video_ai::video_ai_samples(
+                    &ctx.host,
+                    args.path,
+                    args.interval,
+                    args.max_samples,
+                    args.subject
+                )
+                .await?
+            ))
+        }
+        "video_ai_cancel" => {
+            crate::video_ai::video_ai_cancel();
+            Ok(Value::Null)
+        }
+        // ---- 离线 AI 变声 ----
+        "voice_change_convert" => {
+            let args: VoiceConvertArgs = from_value(args)?;
+            Ok(json!(
+                crate::voice_change::voice_change_convert(
+                    &ctx.host,
+                    args.clips,
+                    args.voice_id,
+                    args.model_id
+                )
+                .await?
+            ))
+        }
+        "voice_change_cancel" => {
+            crate::voice_change::voice_change_cancel();
+            Ok(Value::Null)
+        }
+        "voice_change_voice_list" => Ok(json!(
+            crate::voice_change::voice_change_voice_list(host)?
+        )),
+        "voice_change_voice_import" => {
+            let args: VoiceImportArgs = from_value(args)?;
+            Ok(json!(
+                crate::voice_change::voice_change_voice_import(
+                    &ctx.host,
+                    args.asset_path,
+                    args.name,
+                    args.start,
+                    args.duration
+                )
+                .await?
+            ))
+        }
+        // ---- OFX 效果：探测 / 单帧预览 / 图片烘焙 / 转场预览 ----
+        "ofx_probe" => {
+            let args: OfxProbeArgs = from_value(args)?;
+            Ok(json!(
+                crate::ofx::ofx_probe(args.bundle, args.plugin, args.context).await?
+            ))
+        }
+        "ofx_render_frame" => {
+            let args: OfxRenderFrameArgs = from_value(args)?;
+            Ok(json!(
+                crate::ofx::ofx_render_frame(
+                    args.bundle,
+                    args.plugin,
+                    args.context,
+                    args.width,
+                    args.height,
+                    args.time,
+                    args.rgba_base64,
+                    args.params,
+                )
+                .await?
+            ))
+        }
+        "ofx_render_preview" => {
+            let args: OfxRenderPreviewArgs = from_value(args)?;
+            Ok(json!(
+                crate::ofx::ofx_render_preview(
+                    &ctx.host,
+                    args.source,
+                    args.source_time,
+                    args.time,
+                    args.width,
+                    args.height,
+                    args.is_image,
+                    args.fit,
+                    args.fps,
+                    args.duration,
+                    args.retimer_source_time,
+                    args.effects,
+                )
+                .await?
+            ))
+        }
+        "ofx_source_time" => {
+            let args: OfxSourceTimeArgs = from_value(args)?;
+            Ok(json!(
+                crate::ofx::ofx_source_time(
+                    args.bundle,
+                    args.plugin,
+                    args.context,
+                    args.time,
+                    args.duration,
+                    args.fps,
+                    args.width,
+                    args.height,
+                    args.params,
+                )
+                .await?
+            ))
+        }
+        "ofx_render_transition" => {
+            let args: OfxRenderTransitionArgs = from_value(args)?;
+            Ok(json!(
+                crate::ofx::ofx_render_transition(
+                    &ctx.host,
+                    args.bundle,
+                    args.plugin,
+                    args.context,
+                    args.params,
+                    args.from,
+                    args.to,
+                    args.timeline_time,
+                    args.progress,
+                    args.duration,
+                    args.width,
+                    args.height,
+                    args.fps,
+                    args.fit,
+                )
+                .await?
+            ))
+        }
+        "ofx_bake_image" => {
+            let args: OfxBakeImageArgs = from_value(args)?;
+            Ok(json!(
+                crate::ofx::ofx_bake_image(&ctx.host, args.request).await?
+            ))
+        }
+        "ofx_bake_clip" => {
+            let args: OfxBakeArgs = from_value(args)?;
+            Ok(json!(
+                crate::ofx::ofx_bake_clip(&ctx.host, args.request).await?
+            ))
+        }
+        "ofx_bake_transition" => {
+            let args: OfxBakeTransitionArgs = from_value(args)?;
+            Ok(json!(
+                crate::ofx::ofx_bake_transition(&ctx.host, args.request).await?
+            ))
+        }
+        "ofx_cancel_bake" => {
+            let args: OptionalIdArgs = from_value(args)?;
+            crate::ofx::ofx_cancel_bake(args.id);
+            Ok(Value::Null)
+        }
+        // ---- OFX 插件管理（注册表 / 安装 / 导入 / 删除）----
+        "plugin_registry" => {
+            let args: OptionalForceArgs = from_value(args)?;
+            Ok(json!(
+                crate::plugins::plugin_registry(
+                    &ctx.host,
+                    &ctx.network,
+                    args.force.unwrap_or(false)
+                )
+                .await?
+            ))
+        }
+        "plugin_installed" => Ok(json!(crate::plugins::plugin_installed(&ctx.host)?)),
+        "plugin_install" => {
+            let args: SlugArgs = from_value(args)?;
+            crate::plugins::plugin_install(&ctx.host, &ctx.network, args.slug).await?;
+            Ok(Value::Null)
+        }
+        "plugin_cancel" => {
+            crate::plugins::plugin_cancel();
+            Ok(Value::Null)
+        }
+        "plugin_remove" => {
+            let args: SlugArgs = from_value(args)?;
+            crate::plugins::plugin_remove(&ctx.host, args.slug)?;
+            Ok(Value::Null)
+        }
+        "plugin_import" => {
+            let args: PathArgs = from_value(args)?;
+            crate::plugins::plugin_import(&ctx.host, args.path)?;
+            Ok(Value::Null)
+        }
+        "plugin_reveal" => {
+            let args: SlugArgs = from_value(args)?;
+            crate::plugins::plugin_reveal(&ctx.host, args.slug)?;
+            Ok(Value::Null)
+        }
+        "plugin_open" => {
+            let args: SlugArgs = from_value(args)?;
+            crate::plugins::plugin_open(&ctx.host, &ctx.network, args.slug).await?;
+            Ok(Value::Null)
+        }
+        // ---- MCP 服务器（状态查询 / 开 / 关 / 换端口） ----
+        "mcp_status" => Ok(json!(ctx.mcp.status())),
+        "set_mcp_config" => {
+            let args: McpConfigArgs = from_value(args)?;
+            Ok(json!(ctx.mcp.apply(crate::mcp::McpConfig {
+                enabled: args.enabled,
+                port: args.port,
+            })?))
+        }
+        "voice_change_voice_delete" => {
+            let args: IdArgs = from_value(args)?;
+            crate::voice_change::voice_change_voice_delete(host, args.id)?;
+            Ok(Value::Null)
+        }
+        // ---- 云端出图 / 出视频 ----
+        "cloud_gen_presets" => Ok(json!(crate::cloud_gen::cloud_gen_presets())),
+        "cloud_gen_config" => Ok(json!(crate::cloud_gen::cloud_gen_config(&ctx.cloud_gen))),
+        "cloud_gen_set_config" => {
+            let args: GenProvidersArgs = from_value(args)?;
+            Ok(json!(crate::cloud_gen::cloud_gen_set_config(
+                &ctx.cloud_gen,
+                args.providers,
+            )))
+        }
+        "cloud_gen_busy" => Ok(json!(crate::cloud_gen::cloud_gen_busy())),
+        "cloud_gen_cancel" => {
+            crate::cloud_gen::cloud_gen_cancel();
+            Ok(Value::Null)
+        }
+        "cloud_gen_image" => {
+            let args: GenImageArgs = from_value(args)?;
+            Ok(json!(
+                crate::cloud_gen::cloud_gen_image(host, &ctx.network, &ctx.cloud_gen, args.request)
+                    .await?
+            ))
+        }
+        "cloud_gen_video" => {
+            let args: GenVideoArgs = from_value(args)?;
+            Ok(json!(
+                crate::cloud_gen::cloud_gen_video(host, &ctx.network, &ctx.cloud_gen, args.request)
+                    .await?
+            ))
+        }
+        "cloud_gen_test" => {
+            let args: GenProviderArgs = from_value(args)?;
+            Ok(json!(
+                crate::cloud_gen::cloud_gen_test(host, &ctx.network, args.provider).await?
+            ))
+        }
+        // ---- 云端 TTS（只依赖 HTTP + 配置，浏览器与容器同样可用） ----
+        "cloud_tts_config" => Ok(json!(crate::cloud_tts::cloud_tts_config(&ctx.cloud_tts))),
+        "cloud_tts_set_config" => {
+            let args: ProvidersArgs = from_value(args)?;
+            Ok(json!(crate::cloud_tts::cloud_tts_set_config(
+                &ctx.cloud_tts,
+                args.providers,
+            )))
+        }
+        "cloud_tts_voices" => {
+            let args: ProviderArgs = from_value(args)?;
+            Ok(json!(
+                crate::cloud_tts::cloud_tts_voices(&ctx.network, args.provider).await?
+            ))
+        }
+        "cloud_tts_test" => {
+            let args: CloudTtsTestArgs = from_value(args)?;
+            Ok(json!(
+                crate::cloud_tts::cloud_tts_test(host, &ctx.network, args.provider, args.text)
+                    .await?
+            ))
+        }
+        "cloud_tts_synthesize" => {
+            let args: CloudTtsSynthArgs = from_value(args)?;
+            Ok(json!(
+                crate::cloud_tts::cloud_tts_synthesize(
+                    host,
+                    &ctx.network,
+                    &ctx.cloud_tts,
+                    args.provider_id,
+                    args.items,
+                    args.voice,
+                )
+                .await?
+            ))
+        }
+        // ---- 网络配置（与桌面共用 `aicut_daemon::network` 同一份实现） ----
+        "network_config" => Ok(json!(crate::network::network_config(&ctx.network))),
+        "model_hf_token_status" => Ok(json!(crate::network::model_hf_token_status(&ctx.network))),
+        "model_save_hf_token" => {
+            let args: TokenArgs = from_value(args)?;
+            crate::network::model_save_hf_token(&ctx.network, args.token)?;
+            Ok(Value::Null)
+        }
+        "network_set_config" => {
+            let args: NetworkSetArgs = from_value(args)?;
+            Ok(json!(crate::network::network_set_config(
+                &ctx.network,
+                args.proxy_mode,
+                args.proxy_url,
+            )))
+        }
+        "model_source_config" => Ok(json!(crate::network::model_source_config(&ctx.network))),
+        "model_set_source_config" => {
+            let args: ModelSourceArgs = from_value(args)?;
+            Ok(json!(crate::network::model_set_source_config(
+                &ctx.network,
+                args.preference,
+                args.mirrors,
+                args.download_prefix,
+            )))
+        }
+        "plugin_registry_config" => Ok(json!(crate::network::plugin_registry_config(&ctx.network))),
+        "plugin_set_registry_config" => {
+            let args: RegistryArgs = from_value(args)?;
+            Ok(json!(crate::network::plugin_set_registry_config(
+                &ctx.network,
+                args.url,
+                args.mirrors,
+            )))
+        }
+        "network_status" => Ok(json!(crate::network::network_status(&ctx.network))),
+        "network_probe" => {
+            let args: NetworkProbeArgs = from_value(args)?;
+            Ok(json!(
+                crate::network::network_probe(&ctx.network, args.proxy_mode, args.proxy_url,).await
+            ))
+        }
+        // ---- 剪辑智能体（无头版：工具走文档引擎，不再回传 webview） ----
+        "agent_config" => Ok(json!(crate::agent::agent_config(&ctx.agent))),
+        "agent_set_config" => {
+            let args: AgentConfigArgs = from_value(args)?;
+            Ok(json!(crate::agent::agent_set_config(
+                &ctx.agent,
+                args.base_url,
+                args.api_key,
+                args.model,
+            )))
+        }
+        "agent_models" => {
+            let args: AgentModelArgs = from_value(args)?;
+            Ok(json!(
+                crate::agent::agent_models(&ctx.agent, args.base_url, args.api_key, args.model,)
+                    .await?
+            ))
+        }
+        "agent_test" => {
+            let args: AgentModelArgs = from_value(args)?;
+            Ok(json!(
+                crate::agent::agent_test(&ctx.agent, args.base_url, args.api_key, args.model)
+                    .await?
+            ))
+        }
+        "agent_sessions" => Ok(json!(crate::agent::agent_sessions(&ctx.agent))),
+        "agent_session" => {
+            let args: IdArgs = from_value(args)?;
+            Ok(json!(crate::agent::agent_session(&ctx.agent, args.id)?))
+        }
+        "agent_delete_session" => {
+            let args: IdArgs = from_value(args)?;
+            crate::agent::agent_delete_session(&ctx.agent, args.id)?;
+            Ok(Value::Null)
+        }
+        "agent_set_head" => {
+            let args: AgentSetHeadArgs = from_value(args)?;
+            Ok(json!(crate::agent::agent_set_head(
+                &ctx.agent,
+                args.id,
+                args.node_id
+            )?))
+        }
+        "agent_send" => {
+            let args: AgentSendArgs = from_value(args)?;
+            Ok(json!(crate::agent::agent_send(
+                &ctx.agent,
+                args.session_id,
+                args.parent_id,
+                args.text
+            )?))
+        }
+        "agent_cancel" => Ok(json!(crate::agent::agent_cancel(&ctx.agent))),
+        "agent_running" => Ok(json!(crate::agent::agent_running(&ctx.agent))),
+        // ---- 智能体 / MCP 的工程命令桥（无头版，M5a） ----
+        "bridge_request" => {
+            let args: BridgeArgs = from_value(args)?;
+            Ok(crate::agent_bridge::call(&ctx.doc, &args.method, args.payload).await?)
+        }
+        "bridge_methods" => Ok(json!(crate::agent_bridge::METHODS)),
+        // ---- 能力表：前端据此门控入口，而不是靠 `isTauri()` 猜 ----
+        "capabilities" => Ok(json!({
+            "version": ctx.version,
+            "nativeUi": host.has_ui(),
+            "items": crate::capabilities::all(),
+        })),
         // ---- 历史工程（桌面与浏览器共用 `aicut_daemon::history`） ----
         "project_history_list" => Ok(json!(crate::history::list(host.data_dir()))),
         "project_history_record" => {
@@ -291,12 +1446,10 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
         // ---- 字体库（与桌面端共用 `aicut_daemon::fonts`） ----
         "font_registry" => {
             let args: OptionalForceArgs = from_value(args)?;
-            Ok(json!(crate::fonts::registry(
-                host.data_dir(),
-                crate::fonts::client(),
-                args.force,
-            )
-            .await?))
+            Ok(json!(
+                crate::fonts::registry(host.data_dir(), crate::fonts::client(), args.force,)
+                    .await?
+            ))
         }
         "font_list" => Ok(json!(crate::fonts::list(host.data_dir())?)),
         "font_probe" => {
@@ -306,14 +1459,16 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
         "font_install" => {
             let args: FontInstallArgs = from_value(args)?;
             let emit = |name: &str, payload: Value| crate::events::publish(name, &payload);
-            Ok(json!(crate::fonts::install(
-                host.data_dir(),
-                crate::fonts::client(),
-                &emit,
-                args.id,
-                args.weights,
-            )
-            .await?))
+            Ok(json!(
+                crate::fonts::install(
+                    host.data_dir(),
+                    crate::fonts::client(),
+                    &emit,
+                    args.id,
+                    args.weights,
+                )
+                .await?
+            ))
         }
         "font_cancel" => {
             let args: OptionalIdArgs = from_value(args)?;

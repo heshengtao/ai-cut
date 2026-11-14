@@ -858,31 +858,9 @@ fn run(
 
 /// 把素材库里的任意图片转成 PNG：ffmpeg 顺带处理 EXIF 旋转 / WebP / HEIC。
 pub(crate) async fn prepare_init_image(app: &AppHandle, source: &str) -> Result<PathBuf, String> {
-    if !Path::new(source).is_file() {
-        return Err(format!("原图不存在：{source}"));
-    }
-    let target = media::cache_dir(app)?.join(format!(
-        "image-gen-init-{}-{}.png",
-        std::process::id(),
-        stamp()
-    ));
-    let args: Vec<String> = vec![
-        "-y".into(),
-        "-i".into(),
-        source.into(),
-        "-frames:v".into(),
-        "1".into(),
-        // 长边超过 2048 的照片先缩下来：sd.cpp 反正会按请求尺寸重采样，
-        // 提前缩小可以避免 stb_image 把整张 50MP 原图读进内存。
-        "-vf".into(),
-        "scale=w='min(iw\\,2048)':h='min(ih\\,2048)':force_original_aspect_ratio=decrease".into(),
-        target.to_string_lossy().into_owned(),
-    ];
-    let (code, _) = crate::sidecar::run_sidecar(app, "ffmpeg", &args).await?;
-    if code != Some(0) || !target.is_file() {
-        return Err(format!("无法读取原图：{source}"));
-    }
-    Ok(target)
+    // 实现已下沉到 daemon（云端出图与本地 sd.cpp 共用同一份缩放规则）。
+    let host = crate::host::TauriHost::new(app.clone());
+    aicut_daemon::image_prep::prepare_init_image(&host, source).await
 }
 
 /// 把前端画布导出的 `data:image/png;base64,...` 落到缓存目录。
@@ -1404,6 +1382,26 @@ mod tests {
             assert_eq!(name_of(&files.te_aux).as_deref(), case.te_aux);
             assert_eq!(name_of(&files.te_vision).as_deref(), case.te_vision);
             let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+}
+
+#[cfg(test)]
+mod spec_coverage {
+    use super::*;
+
+    /// 清单里每个图像模型都必须有规格（尺寸/步数），否则生成时会算不出参数。
+    #[test]
+    fn every_image_model_has_a_spec() {
+        for entry in crate::models::all()
+            .iter()
+            .filter(|entry| entry.feature == "image-gen")
+        {
+            assert!(
+                ImageSpec::for_family(entry.family).is_some(),
+                "{} 缺少图像规格",
+                entry.id
+            );
         }
     }
 }

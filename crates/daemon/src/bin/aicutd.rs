@@ -7,7 +7,7 @@ use std::sync::Arc;
 use aicut_daemon::http::{self, ServerConfig};
 use aicut_daemon::paths::DataPaths;
 use aicut_daemon::rpc::RpcCtx;
-use aicut_daemon::HeadlessHost;
+use aicut_daemon::{HeadlessHost, Host};
 use tokio_util::sync::CancellationToken;
 
 const DEFAULT_PORT: u16 = 28440;
@@ -21,6 +21,9 @@ async fn main() {
 }
 
 async fn run() -> Result<(), String> {
+    // `reqwest` 用的是 `rustls-no-provider`：**必须先装一份加密 provider**，否则第一次
+    // 建 Client 会直接 panic（智能体的对话、云端 TTS/出图、模型下载都走这条路）。
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let mut data_dir: Option<String> = None;
     let mut port = DEFAULT_PORT;
     let mut lan = false;
@@ -55,17 +58,76 @@ async fn run() -> Result<(), String> {
         .map_err(|e| format!("准备数据目录失败：{e}"))?;
 
     let token = String::new();
-    let host = Arc::new(HeadlessHost::new(
+    // 统一成 trait object：后面 agent / MCP / 各命令都按 `Arc<dyn Host>` 传，少一层阻抗。
+    let host: Arc<dyn Host> = Arc::new(HeadlessHost::new(
         paths.data().to_path_buf(),
         paths.config().to_path_buf(),
     ));
+    // 网络配置与桌面壳同一个文件名（`<配置目录>/network.json`）。
+    let network = Arc::new(aicut_daemon::network::NetworkRuntime::load(Some(
+        host.config_dir().join("network.json"),
+    )));
+    let cloud_tts = Arc::new(aicut_daemon::cloud_tts::CloudTtsRuntime::load(Some(
+        host.config_dir().join("tts.json"),
+    )));
+    // 执行后端偏好只影响"装/删运行库是否需要重启"的提示，从同一份 network.json 读。
+    aicut_daemon::runtime_ort::set_preference(network.get().backend_preference);
+    // 会话创建（EP 注册 / 运行时懒加载）用同一份偏好：容器里就是随包 CPU 那份，
+    // 桌面装过 CUDA 的话也能在网页模式里用上（同一台机器、同一个进程）。
+    aicut_daemon::ai_session::set_preference(network.get().backend_preference);
+    match aicut_daemon::ai_session::init_runtime(host.clone()) {
+        Ok(Some(dir)) => eprintln!(
+            "[aicutd] ONNX Runtime 将在首次建会话时加载：{}",
+            dir.display()
+        ),
+        Ok(None) => {}
+        Err(error) => eprintln!("[aicutd] 准备 ONNX Runtime 失败：{error}"),
+    }
+    let cloud_gen = Arc::new(aicut_daemon::cloud_gen::CloudGenRuntime::load(Some(
+        host.config_dir().join("cloud-gen.json"),
+    )));
+    let video_dsp = Arc::new(aicut_daemon::video_dsp::VideoDspState::default());
+    // 智能体：配置与会话都落在数据目录；工具调用打到同一份文档引擎。
+    let doc = aicut_daemon::DocHandle::spawn();
+    // 无头进程没有"前端新建工程"这一步：先放一份空白工程进去，
+    // 否则 MCP 客户端连上后每个工具都会回 "project not loaded"。
+    if let Err(error) = doc.blank().await {
+        eprintln!("[aicutd] 预置空白工程失败：{error}");
+    }
+    let agent = Arc::new(aicut_daemon::agent::AgentState::new(
+        doc.clone(),
+        Arc::clone(&host),
+        Arc::clone(&video_dsp),
+        Arc::clone(&network),
+        Some(host.config_dir().join("ai.json")),
+        Some(host.data_dir().join("agent").join("sessions")),
+    ));
+    // MCP：容器里也能被外部客户端（Claude Desktop / IDE）接上。
+    // 工具面与内置智能体同一份（`agent_tools`），所以能力表里它是「降级」而不是「不可用」。
+    let mcp = Arc::new(aicut_daemon::mcp::McpRuntime::load(
+        Arc::clone(&host),
+        doc.clone(),
+        Arc::clone(&video_dsp),
+        Some(host.config_dir().join("mcp.json")),
+        Some(host.config_dir().join("mcp-url")),
+    ));
+    mcp.autostart();
+    // 导出状态是进程级单例：注册一份，智能体 / MCP 的工具直接用同一份。
+    let export = Arc::new(aicut_daemon::export::ExportState::default());
+    aicut_daemon::export::install_shared(Arc::clone(&export));
     let ctx = Arc::new(RpcCtx {
         host,
         token: token.clone(),
         version: env!("CARGO_PKG_VERSION"),
-        export: Arc::new(Default::default()),
+        export,
         session: Arc::new(Default::default()),
-        doc: aicut_daemon::DocHandle::spawn(),
+        doc,
+        network,
+        cloud_tts,
+        cloud_gen,
+        video_dsp,
+        agent,
+        mcp: Arc::new(aicut_daemon::mcp::McpHandle(Arc::clone(&mcp))),
     });
 
     let bind = if lan {

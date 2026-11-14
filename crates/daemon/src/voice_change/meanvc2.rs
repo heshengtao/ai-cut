@@ -341,7 +341,10 @@ impl Model {
         for step in 0..self.steps {
             let t_val = 1.0 - step as f32 * dt;
             let r_val = (t_val - dt).max(0.0);
-            let len = kv[0].len() / 128;
+            // 每层缓存的长度**不保证相同**：MeanVC2 的 DiT 前两层是滑窗注意力
+            // （缓存随步长增长），后两层是定长缓存。以前这里用 `kv[0]` 的长度去套
+            // 全部 8 张量，第二块之后就会报"shape 4608 vs data 3072"。
+            let len_of = |index: usize| kv[index].len() / 128;
             let outputs = self
                 .dit
                 .run(ort::inputs![
@@ -353,14 +356,14 @@ impl Model {
                     "k_mem" => tensor_f32([1, 32, HIDDEN], k_mem.to_vec())?,
                     "v_mem" => tensor_f32([1, 32, HIDDEN], v_mem.to_vec())?,
                     "offset" => scalar_i64(st.vc_offset)?,
-                    "k_cache0" => tensor_f32([1, 2, len, 64], kv[0].clone())?,
-                    "v_cache0" => tensor_f32([1, 2, len, 64], kv[1].clone())?,
-                    "k_cache1" => tensor_f32([1, 2, len, 64], kv[2].clone())?,
-                    "v_cache1" => tensor_f32([1, 2, len, 64], kv[3].clone())?,
-                    "k_cache2" => tensor_f32([1, 2, len, 64], kv[4].clone())?,
-                    "v_cache2" => tensor_f32([1, 2, len, 64], kv[5].clone())?,
-                    "k_cache3" => tensor_f32([1, 2, len, 64], kv[6].clone())?,
-                    "v_cache3" => tensor_f32([1, 2, len, 64], kv[7].clone())?,
+                    "k_cache0" => tensor_f32([1, 2, len_of(0), 64], kv[0].clone())?,
+                    "v_cache0" => tensor_f32([1, 2, len_of(1), 64], kv[1].clone())?,
+                    "k_cache1" => tensor_f32([1, 2, len_of(2), 64], kv[2].clone())?,
+                    "v_cache1" => tensor_f32([1, 2, len_of(3), 64], kv[3].clone())?,
+                    "k_cache2" => tensor_f32([1, 2, len_of(4), 64], kv[4].clone())?,
+                    "v_cache2" => tensor_f32([1, 2, len_of(5), 64], kv[5].clone())?,
+                    "k_cache3" => tensor_f32([1, 2, len_of(6), 64], kv[6].clone())?,
+                    "v_cache3" => tensor_f32([1, 2, len_of(7), 64], kv[7].clone())?,
                 ])
                 .map_err(|e| format!("DiT 失败：{e}"))?;
             let (_, u) = outputs["u"]

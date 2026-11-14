@@ -12,6 +12,9 @@ enum Request {
         json: String,
         reply: oneshot::Sender<Result<String, String>>,
     },
+    Blank {
+        reply: oneshot::Sender<Result<String, String>>,
+    },
     Snapshot {
         reply: oneshot::Sender<Result<String, String>>,
     },
@@ -25,6 +28,17 @@ enum Request {
     View {
         method: String,
         args: String,
+        reply: oneshot::Sender<Result<String, String>>,
+    },
+    Op {
+        kind: String,
+        args: String,
+        reply: oneshot::Sender<Result<String, String>>,
+    },
+    Undo {
+        reply: oneshot::Sender<Result<String, String>>,
+    },
+    Redo {
         reply: oneshot::Sender<Result<String, String>>,
     },
 }
@@ -54,6 +68,9 @@ impl DocHandle {
                         Request::Load { json, reply } => {
                             let _ = reply.send(engine.load(&json));
                         }
+                        Request::Blank { reply } => {
+                            let _ = reply.send(engine.blank());
+                        }
                         Request::Snapshot { reply } => {
                             let _ = reply.send(engine.snapshot());
                         }
@@ -69,6 +86,15 @@ impl DocHandle {
                             reply,
                         } => {
                             let _ = reply.send(engine.view(&method, &args));
+                        }
+                        Request::Op { kind, args, reply } => {
+                            let _ = reply.send(engine.op(&kind, &args));
+                        }
+                        Request::Undo { reply } => {
+                            let _ = reply.send(engine.undo());
+                        }
+                        Request::Redo { reply } => {
+                            let _ = reply.send(engine.redo());
                         }
                     }
                 }
@@ -90,6 +116,11 @@ impl DocHandle {
 
     pub async fn load(&self, json: String) -> Result<String, String> {
         self.call(|reply| Request::Load { json, reply }).await
+    }
+
+    /// 载入空白工程（无头进程启动时用）。
+    pub async fn blank(&self) -> Result<String, String> {
+        self.call(|reply| Request::Blank { reply }).await
     }
 
     pub async fn snapshot(&self) -> Result<String, String> {
@@ -115,5 +146,21 @@ impl DocHandle {
             reply,
         })
         .await
+    }
+
+    /// AI 产出物落位（领域层写操作，与桌面 `core/aiActions` 同一实现）。
+    pub async fn op(&self, kind: String, args: String) -> Result<String, String> {
+        self.call(|reply| Request::Op { kind, args, reply })
+            .await
+    }
+
+    /// 撤销一步。
+    pub async fn undo(&self) -> Result<String, String> {
+        self.call(|reply| Request::Undo { reply }).await
+    }
+
+    /// 重做一步。
+    pub async fn redo(&self) -> Result<String, String> {
+        self.call(|reply| Request::Redo { reply }).await
     }
 }

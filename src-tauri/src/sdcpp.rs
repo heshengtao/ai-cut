@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
 use walkdir::WalkDir;
@@ -37,80 +37,9 @@ pub const EVENT_SDCPP: &str = "sdcpp-progress";
 /// 清单版本：换 official release 时同步换掉，老安装会被判定为未安装并重新下载。
 const REVISION: &str = "sd-master-1031-c6dfa9d";
 
-/// sd.cpp 的执行后端。与 ONNX Runtime 的 CPU / CUDA **不是同一套**：
-/// 这里是 ggml 的 CPU / Vulkan / CUDA / ROCm / Metal，选择结果只影响视频生成进程。
-///
-/// 注意 CPU 在 macOS 上没有独立构建：它复用 Metal 包，用 `--backend cpu` 强制跑 CPU
-/// （包里的 `libstable-diffusion.dylib` 本来就带着 ggml-cpu）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum SdcppBackend {
-    /// 旧配置兼容 / 内部兜底：按显卡自动挑（有 NVIDIA 且装了 CUDA 12 → CUDA 12，
-    /// 有 AMD 且装了 ROCm → ROCm，否则 Vulkan，最后 CPU）。界面**不再**把它当作一个可选项，
-    /// `info()` 会换算成实际挑中的那一份。
-    #[default]
-    Auto,
-    /// 纯 CPU（全平台可用，最慢）。macOS 上复用 Metal 包、强制 CPU 后端。
-    Cpu,
-    /// Vulkan（Windows / Linux；AMD / Intel / NVIDIA 都能用）。
-    Vulkan,
-    /// NVIDIA CUDA 12（Windows x86_64）。
-    #[serde(rename = "cuda12")]
-    Cuda12,
-    /// AMD ROCm / HIP（Windows / Linux x86_64）。
-    #[serde(rename = "rocm")]
-    Rocm,
-    /// Apple Silicon Metal（macOS）。
-    Metal,
-}
+// 枚举本体在 daemon（与 `BackendPreference` 一起），桌面壳只 re-export。
+pub use aicut_daemon::ai_backend::SdcppBackend;
 
-impl SdcppBackend {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Cpu => "cpu",
-            Self::Vulkan => "vulkan",
-            Self::Cuda12 => "cuda12",
-            Self::Rocm => "rocm",
-            Self::Metal => "metal",
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Auto => "自动",
-            Self::Cpu => "CPU",
-            Self::Vulkan => "Vulkan",
-            Self::Cuda12 => "CUDA 12",
-            Self::Rocm => "ROCm",
-            Self::Metal => "Metal",
-        }
-    }
-
-    pub fn platform_ok(self) -> bool {
-        match self {
-            Self::Auto | Self::Cpu => true,
-            Self::Vulkan => cfg!(any(target_os = "windows", target_os = "linux")),
-            Self::Cuda12 => cfg!(all(target_os = "windows", target_arch = "x86_64")),
-            Self::Rocm => cfg!(all(
-                any(target_os = "windows", target_os = "linux"),
-                target_arch = "x86_64"
-            )),
-            Self::Metal => cfg!(all(target_os = "macos", target_arch = "aarch64")),
-        }
-    }
-
-    fn from_device(device: &str) -> Option<Self> {
-        match device {
-            "cpu" => Some(Self::Cpu),
-            "vulkan" => Some(Self::Vulkan),
-            "cuda12" => Some(Self::Cuda12),
-            "rocm" => Some(Self::Rocm),
-            "metal" => Some(Self::Metal),
-            _ => None,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 struct Source {

@@ -154,12 +154,12 @@ mod tests {
     use super::{info_for, WebConfig};
 
     #[test]
-    fn builds_tokenised_urls() {
+    fn builds_loopback_urls() {
         let config = WebConfig {
             lan: false,
             port: 28440,
         };
-        let info = info_for(&config, "abc");
+        let info = info_for(&config);
         assert_eq!(info.loopback_url, "http://127.0.0.1:28440/");
         assert_eq!(info.port, 28440);
         assert!(!info.lan);

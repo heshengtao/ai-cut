@@ -14,11 +14,9 @@ use sherpa_onnx::{
     GenerationConfig, OfflineTts, OfflineTtsConfig, OfflineTtsModelConfig,
     OfflineTtsZipvoiceModelConfig, Wave,
 };
-use tauri::AppHandle;
-
+use crate::host::{Host, RunOptions};
 use crate::media;
 use crate::models;
-use crate::sidecar;
 use crate::tts::{emit, now_millis, to_pcm16, write_wav, TtsAudio, TtsItem};
 
 /// 模型自带的默认音色。
@@ -43,7 +41,7 @@ fn cache() -> &'static Mutex<Option<Loaded>> {
 }
 
 fn with_loaded<R>(
-    app: &AppHandle,
+    host: &dyn Host,
     model_id: &str,
     f: impl FnOnce(&Loaded) -> Result<R, String>,
 ) -> Result<R, String> {
@@ -55,8 +53,8 @@ fn with_loaded<R>(
         .map(|loaded| loaded.model_id != model_id)
         .unwrap_or(true);
     if reload {
-        emit(app, "loading", 0.03, Some("正在加载 ZipVoice 模型".into()));
-        *guard = Some(Loaded::load(app, model_id)?);
+        emit(host, "loading", 0.03, Some("正在加载 ZipVoice 模型".into()));
+        *guard = Some(Loaded::load(host, model_id)?);
     }
     let loaded = guard
         .as_ref()
@@ -109,12 +107,12 @@ fn build_config(dir: &Path) -> Result<OfflineTtsConfig, String> {
 }
 
 impl Loaded {
-    fn load(app: &AppHandle, model_id: &str) -> Result<Self, String> {
+    fn load(host: &dyn Host, model_id: &str) -> Result<Self, String> {
         let entry = models::by_id(model_id).ok_or_else(|| format!("未知朗读模型：{model_id}"))?;
         if entry.family != models::ModelFamily::ZipVoice {
             return Err(format!("{} 不是 ZipVoice 模型", entry.name));
         }
-        let dir = models::require_dir(app, entry)?;
+        let dir = models::require_dir(host, entry)?;
         let config = build_config(&dir)?;
         let tts =
             OfflineTts::create(&config).ok_or_else(|| "无法创建 ZipVoice 引擎".to_string())?;
@@ -138,7 +136,7 @@ impl Loaded {
 
 /// 合成选中的文字。`reference` 为空时使用模型自带的默认音色。
 pub fn synthesize(
-    app: &AppHandle,
+    host: &std::sync::Arc<dyn Host>,
     model_id: &str,
     items: &[TtsItem],
     reference: Option<&[f32]>,
@@ -146,7 +144,7 @@ pub fn synthesize(
     reference_text: Option<&str>,
     cancel: &'static AtomicBool,
 ) -> Result<Vec<TtsAudio>, String> {
-    with_loaded(app, model_id, |loaded| {
+    with_loaded(host.as_ref(), model_id, |loaded| {
         let (reference_audio, reference_rate, reference_text) = match reference {
             Some(samples) => {
                 if samples.is_empty() {
@@ -179,7 +177,7 @@ pub fn synthesize(
             ..Default::default()
         };
 
-        let dir = media::cache_dir(app)?;
+        let dir = media::cache_dir(host.as_ref())?;
         let total = items.len().max(1);
         let mut results = Vec::with_capacity(items.len());
 
@@ -194,13 +192,13 @@ pub fn synthesize(
 
             let progress_base = 0.1 + 0.85 * (index as f32 / total as f32);
             let progress_scale = 0.85 / total as f32;
-            let app_cb = app.clone();
+            let host_cb = std::sync::Arc::clone(host);
             let generated = loaded.tts.generate_with_config(
                 text,
                 &config,
                 Some(move |_samples: &[f32], progress: f32| -> bool {
                     emit(
-                        &app_cb,
+                        host_cb.as_ref(),
                         "synthesizing",
                         progress_base + progress_scale * progress,
                         Some(format!("正在朗读 {}/{}", index + 1, total)),
@@ -240,7 +238,7 @@ pub fn synthesize(
 }
 
 /// 媒体库参考音频：ffmpeg 解成 24 kHz 单声道 float32，最多取 10 秒。
-pub async fn load_reference(app: &AppHandle, path: &str) -> Result<Vec<f32>, String> {
+pub async fn load_reference(host: &dyn Host, path: &str) -> Result<Vec<f32>, String> {
     let args: Vec<String> = vec![
         "-v".into(),
         "error".into(),
@@ -257,10 +255,20 @@ pub async fn load_reference(app: &AppHandle, path: &str) -> Result<Vec<f32>, Str
         "f32le".into(),
         "-".into(),
     ];
-    let (code, stdout) = sidecar::run_sidecar(app, "ffmpeg", &args).await?;
-    if code != Some(0) {
+    let output = host
+        .run(
+            "ffmpeg",
+            &args,
+            RunOptions {
+                raw_stdout: true,
+                ..Default::default()
+            },
+        )
+        .await?;
+    if !output.ok() {
         return Err(format!("无法读取参考音频：{path}"));
     }
+    let stdout = output.stdout;
     if stdout.len() < 48_000 {
         return Err("参考音频太短".into());
     }

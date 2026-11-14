@@ -34,7 +34,6 @@ mod video_ai;
 mod video_dsp;
 mod video_gen;
 mod web;
-mod zipvoice;
 mod voice_change;
 
 use std::sync::Arc;
@@ -102,13 +101,48 @@ fn start_local_daemon(app: &tauri::AppHandle) {
         .inner()
         .clone();
     session::spawn_bridge(app.clone(), Arc::clone(&session));
+    // 浏览器打进来的网络类命令要走桌面壳**同一份** NetworkRuntime：
+    // 两边共用同一个 `network.json` 与同一份内存配置，切代理不必重启。
+    let network = app
+        .state::<Arc<network::NetworkRuntime>>()
+        .inner()
+        .clone();
+    let cloud_tts = app.state::<Arc<cloud_tts::CloudTtsRuntime>>().inner().clone();
+    let cloud_gen = app.state::<Arc<cloud_gen::CloudGenRuntime>>().inner().clone();
+    let video_dsp = app.state::<Arc<video_dsp::VideoDspState>>().inner().clone();
+    // 浏览器端的智能体：与浏览器编辑共用同一份文档引擎；配置/会话落在桌面配置目录。
+    let doc = aicut_daemon::DocHandle::spawn();
+    let agent = Arc::new(aicut_daemon::agent::AgentState::new(
+        doc.clone(),
+        Arc::new(crate::host::TauriHost::new(app.clone())),
+        Arc::clone(&video_dsp),
+        Arc::clone(&network),
+        Some(
+            paths::config_dir(app)
+                .map(|dir| dir.join("ai.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("ai.json")),
+        ),
+        Some(
+            paths::config_dir(app)
+                .map(|dir| dir.join("agent").join("sessions"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("agent/sessions")),
+        ),
+    ));
     let ctx = Arc::new(aicut_daemon::rpc::RpcCtx {
         host,
         token,
         version: env!("CARGO_PKG_VERSION"),
         export,
         session,
-        doc: aicut_daemon::DocHandle::spawn(),
+        doc,
+        network,
+        cloud_tts,
+        cloud_gen,
+        video_dsp,
+        agent,
+        mcp: Arc::new(mcp::DesktopMcp(
+            app.state::<Arc<mcp::McpRuntime>>().inner().clone(),
+        )),
     });
     let web_config = web::load_config(app);
     let bind = if web_config.lan {
@@ -179,10 +213,14 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(Arc::new(aicut_daemon::export::ExportState::default()))
+        .manage({
+            let export = Arc::new(aicut_daemon::export::ExportState::default());
+            aicut_daemon::export::install_shared(Arc::clone(&export));
+            export
+        })
         .manage(web::WebState::default())
         .manage(Arc::new(aicut_daemon::session::Session::new()))
-        .manage(video_dsp::VideoDspState::default())
+        .manage(Arc::new(video_dsp::VideoDspState::default()))
         .invoke_handler(tauri::generate_handler![
             app_ready,
             paths::data_dir_info,
@@ -346,6 +384,7 @@ pub fn run() {
             backend::set_preference(network.get().backend_preference);
             // 运行库的「待删除 / 待重启」清理必须在**任何 dylib 被加载之前**：
             // 已映射的 dll 在本进程里删不掉，晚一步就又要等下一次启动。
+            runtime::set_preference(network.get().backend_preference);
             runtime::init(app.handle());
             sdcpp::init(app.handle());
             // Windows / Linux 是运行时加载：dylib 延迟到**第一次建会话**才装进进程，
