@@ -1,5 +1,5 @@
 /** 云端 / 自定义 TTS 的 Tauri 调用封装。 */
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/platform/tauri";
 import type {
   CloudTtsConfig,
   CloudTtsProvider,

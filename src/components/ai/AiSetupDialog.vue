@@ -118,9 +118,7 @@ function choose(kind: string): void {
 
     <ul class="deps">
       <li v-for="row in rows" :key="row.id" class="dep">
-        <span class="mark" :class="{ ready: row.installed }" aria-hidden="true">
-          {{ row.installed ? "✓" : "↓" }}
-        </span>
+        <span class="mark" :class="{ ready: row.installed }" aria-hidden="true" />
         <span class="dep-main">
           <span class="dep-label">{{ row.label }}</span>
           <span v-if="row.hint" class="dep-hint">{{ row.hint }}</span>

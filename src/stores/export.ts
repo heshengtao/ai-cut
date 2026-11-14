@@ -5,7 +5,7 @@
  */
 import { computed, reactive, ref } from "vue";
 import { defineStore } from "pinia";
-import type { UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@/platform/tauri";
 import type { ExportOptions } from "@/types/export";
 import { EXPORT_FORMATS } from "@/types/export";
 import { buildExportPlan, collectUsedAssets, resolveDimensions } from "@/core/export/plan";

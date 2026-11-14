@@ -52,7 +52,7 @@ import {
   type KeyframeInput,
 } from "@/core/keyframes";
 import { placeSubtitleCues } from "@/core/subtitleTrack";
-import { t } from "@/i18n";
+import { t } from "@/i18n/translate";
 
 /** 命令执行结果：新文档 + 受影响对象。 */
 export interface ApplyResult {

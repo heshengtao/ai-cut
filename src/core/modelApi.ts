@@ -1,6 +1,6 @@
 /** 模型下载、字幕生成与 AI 朗读的 Tauri 调用封装。 */
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@/platform/tauri";
+import { listen, type UnlistenFn } from "@/platform/tauri";
 import type {
   AsrProgress,
   AsrTranscription,

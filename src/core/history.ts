@@ -4,7 +4,7 @@
  * 写入是串行队列，避免连续切换时几个快照互相覆盖索引；打开历史列表前先
  * `flushHistoryRecords()`，保证刚被替换掉的工程已经出现在列表里。
  */
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/platform/tauri";
 import type { Project, ProjectHistoryEntry } from "@/types/project";
 import { serializeProject } from "@/core/serialize";
 import { isTauri } from "@/utils/platform";

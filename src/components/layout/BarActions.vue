@@ -9,7 +9,7 @@
  * - 「帮助」里放快速上手 / 快捷键 / 仓库。
  */
 import { computed, ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/platform/tauri";
 import {
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
@@ -102,8 +102,15 @@ function onFileAction(id: string): void {
 }
 
 function onHelpAction(id: string): void {
-  if (id === "tour") onboarding.startTour();
-  else if (id === "shortcuts") layout.shortcutsOpen = true;
+  if (id === "tour") {
+    // 引导的锚点在工作区；设置页里启动时先回到工作区，等界面切换完再量位置。
+    if (layout.settingsOpen) {
+      layout.closeSettings();
+      window.setTimeout(() => onboarding.startTour(), 260);
+    } else {
+      onboarding.startTour();
+    }
+  } else if (id === "shortcuts") layout.shortcutsOpen = true;
   else if (id === "github") openRepository();
 }
 
@@ -182,13 +189,17 @@ function openAgent(): void {
 
     <LayoutMenu />
 
-    <Tooltip :text="i18n.t('topbar.settings')" align="end">
+    <Tooltip
+      :text="layout.settingsOpen ? i18n.t('topbar.backToWorkspace') : i18n.t('topbar.settings')"
+      align="end"
+    >
       <button
         class="bar-btn"
         data-tour="settings"
         :class="{ on: layout.settingsOpen }"
-        :aria-label="i18n.t('topbar.settings')"
+        :aria-label="layout.settingsOpen ? i18n.t('topbar.backToWorkspace') : i18n.t('topbar.settings')"
         :aria-expanded="layout.settingsOpen"
+        :aria-current="layout.settingsOpen ? 'page' : undefined"
         @click="actions.toggleSettings"
       >
         <Cog6ToothIcon class="bar-icon" />

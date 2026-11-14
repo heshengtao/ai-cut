@@ -1,6 +1,6 @@
 /** 字体库 IPC：Fontsource 注册表、安装 / 删除、进度事件。 */
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@/platform/tauri";
+import { listen, type UnlistenFn } from "@/platform/tauri";
 
 /** Fontsource `/v1/fonts` 列表项（只声明用到的字段）。 */
 export interface FontSourceSummary {

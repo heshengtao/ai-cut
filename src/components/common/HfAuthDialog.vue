@@ -13,7 +13,7 @@
 import { computed, ref, watch } from "vue";
 import ModalShell from "@/components/common/ModalShell.vue";
 import { useModelsStore } from "@/stores/models";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/platform/tauri";
 
 const models = useModelsStore();
 const token = ref("");

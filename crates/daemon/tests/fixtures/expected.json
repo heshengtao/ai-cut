@@ -1,0 +1,243 @@
+{
+  "results": [
+    {
+      "ok": true,
+      "revision": 1,
+      "changed": true,
+      "affected": {
+        "clipIds": [],
+        "trackIds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "assetIds": []
+      }
+    },
+    {
+      "ok": true,
+      "revision": 2,
+      "changed": true,
+      "affected": {
+        "clipIds": [],
+        "trackIds": [],
+        "assetIds": [
+          "a1"
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "revision": 3,
+      "changed": true,
+      "affected": {
+        "clipIds": [
+          "c1"
+        ],
+        "trackIds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "assetIds": [],
+        "range": [
+          0,
+          5
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "revision": 4,
+      "changed": true,
+      "affected": {
+        "clipIds": [
+          "c1"
+        ],
+        "trackIds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "assetIds": [],
+        "range": [
+          2,
+          7
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "revision": 5,
+      "changed": true,
+      "affected": {
+        "clipIds": [
+          "c1"
+        ],
+        "trackIds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "assetIds": [],
+        "range": [
+          2,
+          7
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "revision": 6,
+      "changed": true,
+      "affected": {
+        "clipIds": [],
+        "trackIds": [],
+        "assetIds": []
+      }
+    },
+    {
+      "ok": true,
+      "revision": 7,
+      "changed": true,
+      "affected": {
+        "clipIds": [
+          "c1",
+          "00000000-0000-4000-8000-000000000003"
+        ],
+        "trackIds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "assetIds": [],
+        "range": [
+          2,
+          7
+        ]
+      }
+    },
+    {
+      "ok": true,
+      "revision": 8,
+      "changed": true,
+      "affected": {
+        "clipIds": [],
+        "trackIds": [],
+        "assetIds": []
+      }
+    },
+    {
+      "ok": true,
+      "revision": 9,
+      "changed": true,
+      "affected": {
+        "clipIds": [],
+        "trackIds": [],
+        "assetIds": []
+      }
+    },
+    {
+      "ok": true,
+      "revision": 10,
+      "changed": true,
+      "affected": {
+        "clipIds": [],
+        "trackIds": [
+          "00000000-0000-4000-8000-000000000004"
+        ],
+        "assetIds": []
+      }
+    },
+    {
+      "ok": true,
+      "revision": 11,
+      "changed": true,
+      "affected": {
+        "clipIds": [],
+        "trackIds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "assetIds": []
+      }
+    },
+    {
+      "ok": false,
+      "revision": 11,
+      "error": "命令参数不合法：片段不存在：missing"
+    },
+    {
+      "ok": false,
+      "revision": 11,
+      "error": "stale revision: expected 11, got 99"
+    }
+  ],
+  "snapshot": {
+    "version": 1,
+    "name": "M0 renamed",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000012,
+    "fps": 24,
+    "width": 1080,
+    "height": 1920,
+    "assets": [
+      {
+        "id": "a1",
+        "name": "take.mp4",
+        "kind": "video",
+        "src": "/media/take.mp4",
+        "duration": 12,
+        "width": 1920,
+        "height": 1080,
+        "addedAt": 1700000000000
+      }
+    ],
+    "tracks": [
+      {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "name": "V1",
+        "muted": true,
+        "visible": true,
+        "locked": false,
+        "clips": [
+          {
+            "id": "c1",
+            "assetId": "a1",
+            "start": 2,
+            "duration": 2,
+            "in": 0,
+            "trackId": "00000000-0000-4000-8000-000000000001",
+            "color": {
+              "brightness": 0.2,
+              "contrast": 1,
+              "saturation": 1.1,
+              "temperature": 0,
+              "tint": 0
+            }
+          },
+          {
+            "id": "00000000-0000-4000-8000-000000000003",
+            "assetId": "a1",
+            "start": 4,
+            "duration": 3,
+            "in": 2,
+            "trackId": "00000000-0000-4000-8000-000000000001",
+            "color": {
+              "brightness": 0.2,
+              "contrast": 1,
+              "saturation": 1.1,
+              "temperature": 0,
+              "tint": 0
+            }
+          }
+        ]
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000004",
+        "name": "A1",
+        "muted": false,
+        "visible": true,
+        "locked": false,
+        "clips": []
+      }
+    ],
+    "markers": [
+      {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "time": 3.5,
+        "name": "beat",
+        "createdAt": 1700000000006
+      }
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 /** 数据目录的 Tauri 封装：查看、选择、一键迁移、清理旧目录。 */
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@/platform/tauri";
+import { listen, type UnlistenFn } from "@/platform/tauri";
 import type { DataDirInfo, DataDirProgress } from "@/types/storage";
 import { EVENT_DATA_DIR } from "@/types/storage";
 import { isTauri } from "@/utils/platform";

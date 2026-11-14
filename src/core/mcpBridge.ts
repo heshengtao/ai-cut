@@ -5,8 +5,8 @@
  * 再 invoke `bridge_respond` 把结果送回 Rust。所有写操作仍走 project store
  * 的统一命令入口，因此时间线会直接更新、撤销历史也一致。
  */
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@/platform/tauri";
+import { listen } from "@/platform/tauri";
 import { join } from "@tauri-apps/api/path";
 import type { Command, CommandResult } from "@/types/events";
 import { isCommandKind } from "@/types/events";

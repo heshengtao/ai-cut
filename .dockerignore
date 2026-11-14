@@ -1,0 +1,10 @@
+**/node_modules
+**/target
+/dist
+/docs
+/assets
+/src-tauri
+.git
+.tmp
+.cache
+.workbuddy-ai

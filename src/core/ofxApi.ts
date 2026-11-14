@@ -1,6 +1,6 @@
 /** OFX host 的 Tauri 封装。浏览器环境返回空 / 报错，不阻塞界面。 */
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@/platform/tauri";
+import { listen, type UnlistenFn } from "@/platform/tauri";
 import type {
   OfxBakeProgress,
   OfxBakeImageRequest,

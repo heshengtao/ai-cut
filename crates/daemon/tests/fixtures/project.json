@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "M0 fixture",
+  "createdAt": 1700000000000,
+  "updatedAt": 1700000000000,
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "assets": [],
+  "tracks": [],
+  "markers": []
+}

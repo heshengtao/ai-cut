@@ -957,7 +957,7 @@ onUnmounted(() => {
         </div>
         <ul v-if="refAudioAssets.length > 0" class="ref-list">
           <li v-for="asset in refAudioAssets" :key="asset.id" class="ref-item">
-            <span class="ref-index">♪</span>
+            <span class="ref-index">音</span>
             <span class="ref-name">{{ asset.name }}</span>
             <button
               class="ref-remove"

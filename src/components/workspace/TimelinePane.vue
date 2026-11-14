@@ -50,7 +50,6 @@ import {
 import { useTimelineActions } from "@/composables/useTimelineActions";
 import { useTimelineInsert } from "@/composables/useTimelineInsert";
 import { useTimelineMenus, type TimelineMenuTarget } from "@/composables/useTimelineMenus";
-import { useMediaImport } from "@/composables/useMediaImport";
 import { toast } from "@/composables/useToast";
 import { confirm } from "@/composables/useConfirm";
 import { baseName } from "@/core/media";
@@ -63,8 +62,6 @@ import EmptyTimeline from "@/components/onboarding/EmptyTimeline.vue";
 
 const project = useProjectStore();
 const playback = usePlaybackStore();
-const { importing, importMedia } = useMediaImport();
-
 /** 时间轴上的剪口：每条一行细竖线，点一下还原。 */
 const cutMarks = computed(() =>
   (project.doc.cutScopes ?? []).flatMap((scope) =>
@@ -1013,13 +1010,6 @@ function onLaneDrop(event: DragEvent): void {
               <EmptyTimeline class="empty-art" />
               <p class="empty-title">{{ i18n.t("timeline.emptyTitle") }}</p>
               <p class="empty-sub">{{ i18n.t("timeline.emptySub") }}</p>
-              <button
-                class="empty-cta"
-                :disabled="importing"
-                @click="importMedia({ insertToTimeline: true })"
-              >
-                {{ importing ? i18n.t("media.importing") : i18n.t("media.importAndPlace") }}
-              </button>
             </div>
           </div>
 

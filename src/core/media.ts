@@ -1,5 +1,7 @@
 /** 前端媒体层：Tauri 命令封装 + webview 可用的文件 URL。 */
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@/platform/tauri";
+import { isWebRuntime } from "@/platform/env";
+import { pickLocalFiles, uploadLocalFile } from "@/platform/files";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import type { AssetKind, MediaAsset } from "@/types/project";
 import { t } from "@/i18n";
@@ -191,14 +193,29 @@ function mediaFilter(): { name: string; extensions: string[] } {
 
 /** 原生文件框：选一个或多个素材。取消返回空数组。 */
 export async function pickMediaFiles(): Promise<string[]> {
+  if (isWebRuntime()) {
+    const files = await pickLocalFiles(mediaAccept(), true);
+    const paths: string[] = [];
+    for (const file of files) paths.push(await uploadLocalFile(file));
+    return paths;
+  }
   const { open } = await import("@tauri-apps/plugin-dialog");
   const picked = await open({ multiple: true, filters: [mediaFilter()] });
   if (picked === null) return [];
   return Array.isArray(picked) ? picked : [picked];
 }
 
+/** 浏览器文件框的 accept 串：按扩展名列全，冷门容器也能选到。 */
+function mediaAccept(): string {
+  return [...VIDEO_EXTS, ...AUDIO_EXTS, ...IMAGE_EXTS].map((ext) => `.${ext}`).join(",");
+}
+
 /** 原生文件框：打开工程。取消返回 null。 */
 export async function pickProjectFile(): Promise<string | null> {
+  if (isWebRuntime()) {
+    const [file] = await pickLocalFiles(".json,application/json", false);
+    return file ? uploadLocalFile(file) : null;
+  }
   const { open } = await import("@tauri-apps/plugin-dialog");
   const picked = await open({
     multiple: false,
@@ -209,6 +226,10 @@ export async function pickProjectFile(): Promise<string | null> {
 
 /** 原生文件框：另存为工程路径。取消返回 null。 */
 export async function pickSaveProjectPath(defaultName: string): Promise<string | null> {
+  if (isWebRuntime()) {
+    // 浏览器没有文件框：由 daemon 在 `<data>/projects/` 里分配路径。
+    return invoke<string>("new_project_path", { name: defaultName });
+  }
   const { save } = await import("@tauri-apps/plugin-dialog");
   const picked = await save({
     defaultPath: `${defaultName}.json`,
@@ -302,6 +323,10 @@ export async function pickExportPath(
   extension: string,
   label: string,
 ): Promise<string | null> {
+  if (isWebRuntime()) {
+    // 浏览器没有文件框：daemon 在 `<data>/exports/` 里分配路径，完成后可从 /file 下载。
+    return invoke<string>("new_export_path", { name: `${defaultName}.${extension}` });
+  }
   const { save } = await import("@tauri-apps/plugin-dialog");
   const picked = await save({
     defaultPath: `${defaultName}.${extension}`,
@@ -347,6 +372,13 @@ export async function sessionPath(): Promise<string> {
 
 /** 读恢复草稿；不存在返回 null。 */
 export async function recoveryRead(): Promise<string | null> {
+  if (isWebRuntime()) {
+    try {
+      return localStorage.getItem("ai-cut-recovery");
+    } catch {
+      return null;
+    }
+  }
   try {
     return await readProjectFile(await recoveryPath());
   } catch {
@@ -356,6 +388,13 @@ export async function recoveryRead(): Promise<string | null> {
 
 /** 读最后一次工作会话；不存在返回 null。 */
 export async function sessionRead(): Promise<string | null> {
+  if (isWebRuntime()) {
+    try {
+      return localStorage.getItem("ai-cut-session");
+    } catch {
+      return null;
+    }
+  }
   try {
     return await readProjectFile(await sessionPath());
   } catch {
@@ -364,5 +403,13 @@ export async function sessionRead(): Promise<string | null> {
 }
 
 export async function sessionWrite(json: string): Promise<void> {
+  if (isWebRuntime()) {
+    try {
+      localStorage.setItem("ai-cut-session", json);
+    } catch {
+      // 配额满或隐私模式：自动保存静默失败。
+    }
+    return;
+  }
   await writeProjectFile(await sessionPath(), json);
 }

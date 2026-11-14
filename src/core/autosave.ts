@@ -63,6 +63,7 @@ export function startAutosave(): void {
   let timer: number | undefined;
 
   const schedule = (): void => {
+    if (project.readOnly) return;
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
       void writeSession().catch(() => {

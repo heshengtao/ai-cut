@@ -1,6 +1,6 @@
 /** 运行时管理的 Tauri 封装：清单、下载、删除、定位。 */
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@/platform/tauri";
+import { listen, type UnlistenFn } from "@/platform/tauri";
 import type { RuntimeProgress, RuntimeStatus } from "@/types/runtime";
 import { EVENT_RUNTIME } from "@/types/runtime";
 import { isTauri } from "@/utils/platform";

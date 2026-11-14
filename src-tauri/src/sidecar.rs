@@ -9,21 +9,22 @@ use tauri_plugin_shell::ShellExt;
 /// stderr 只保留开头一段用于报错，避免解码大文件时无限增长。
 const STDERR_LIMIT: usize = 8192;
 
-/// 运行 sidecar 并等待结束，返回 `(退出码, stdout 字节)`。
+/// 运行 sidecar 并等待结束，返回 `(退出码, stdout, stderr)`。
 ///
 /// stdout **必须按原始字节读取**：`Command::output()` 走的是按行切分，会在每个
 /// 数据块后补一个换行，读 rawvideo / s16le / f32le 时会把数据撑大并错位。
-pub async fn run_sidecar<R: Runtime>(
+pub async fn run_sidecar_full<R: Runtime>(
     app: &AppHandle<R>,
     name: &str,
     args: &[String],
-) -> Result<(Option<i32>, Vec<u8>), String> {
+    raw_stdout: bool,
+) -> Result<(Option<i32>, Vec<u8>, String), String> {
     let (mut rx, _child) = app
         .shell()
         .sidecar(name)
         .map_err(|e| format!("sidecar {name} 不可用：{e}"))?
         .args(args)
-        .set_raw_out(true)
+        .set_raw_out(raw_stdout)
         .spawn()
         .map_err(|e| format!("执行 {name} 失败：{e}"))?;
 
@@ -49,9 +50,82 @@ pub async fn run_sidecar<R: Runtime>(
         }
     }
 
+    Ok((
+        code,
+        stdout,
+        String::from_utf8_lossy(&stderr).into_owned(),
+    ))
+}
+
+/// 运行 sidecar 并等待结束，返回 `(退出码, stdout 字节)`。
+///
+/// stderr 只记日志，不当作失败：ffmpeg 会把正常信息写到 stderr。
+pub async fn run_sidecar<R: Runtime>(
+    app: &AppHandle<R>,
+    name: &str,
+    args: &[String],
+) -> Result<(Option<i32>, Vec<u8>), String> {
+    let (code, stdout, stderr) = run_sidecar_full(app, name, args, true).await?;
     if !stderr.is_empty() {
-        // 只记日志，不当作失败：ffmpeg 会把正常信息写到 stderr。
-        eprintln!("[{name}] {}", String::from_utf8_lossy(&stderr));
+        eprintln!("[{name}] {stderr}");
     }
     Ok((code, stdout))
+}
+
+/// 流式运行 sidecar：stdout 逐块回调，`cancel` 触发时杀掉子进程。
+pub async fn run_sidecar_stream<R: Runtime>(
+    app: &AppHandle<R>,
+    name: &str,
+    args: &[String],
+    raw_stdout: bool,
+    mut on_stdout: impl FnMut(&[u8]),
+    cancel: tokio_util::sync::CancellationToken,
+) -> Result<(Option<i32>, Vec<u8>, String), String> {
+    let (mut rx, child) = app
+        .shell()
+        .sidecar(name)
+        .map_err(|e| format!("sidecar {name} 不可用：{e}"))?
+        .args(args)
+        .set_raw_out(raw_stdout)
+        .spawn()
+        .map_err(|e| format!("执行 {name} 失败：{e}"))?;
+    let mut child = Some(child);
+
+    let mut code = None;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                if let Some(child) = child.take() {
+                    let _ = child.kill();
+                }
+                return Err("已取消".into());
+            }
+            event = rx.recv() => {
+                match event {
+                    Some(CommandEvent::Stdout(chunk)) => {
+                        on_stdout(&chunk);
+                        stdout.extend_from_slice(&chunk);
+                    }
+                    Some(CommandEvent::Stderr(chunk)) => {
+                        if stderr.len() < STDERR_LIMIT {
+                            stderr.extend_from_slice(&chunk);
+                        }
+                    }
+                    Some(CommandEvent::Terminated(payload)) => {
+                        code = payload.code;
+                        break;
+                    }
+                    Some(CommandEvent::Error(error)) => {
+                        return Err(format!("执行 {name} 失败：{error}"));
+                    }
+                    Some(_) => {}
+                    None => break,
+                }
+            }
+        }
+    }
+
+    Ok((code, stdout, String::from_utf8_lossy(&stderr).into_owned()))
 }

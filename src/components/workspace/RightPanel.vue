@@ -13,6 +13,7 @@ import {
   ListBulletIcon,
   PuzzlePieceIcon,
   ScissorsIcon,
+  ChevronRightIcon,
 } from "@heroicons/vue/24/outline";
 import MediaPane from "./panes/MediaPane.vue";
 import InspectorPane from "./panes/InspectorPane.vue";
@@ -67,11 +68,14 @@ const activeKey = computed(() =>
                 :style="{ '--i': i }"
               >
                 <button class="empty-item" @click="layout.openTab(p.id)">
-                  <component :is="ICONS[p.id]" class="empty-icon" />
+                  <span class="empty-icon-wrap">
+                    <component :is="ICONS[p.id]" class="empty-icon" />
+                  </span>
                   <span class="empty-text">
                     <span class="empty-label">{{ i18n.t(p.labelKey) }}</span>
                     <span class="empty-hint">{{ i18n.t(p.hintKey) }}</span>
                   </span>
+                  <ChevronRightIcon class="empty-arrow" />
                 </button>
               </li>
             </ul>
@@ -155,20 +159,32 @@ const activeKey = computed(() =>
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px;
+  padding: 9px 10px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 14px;
   background: transparent;
   color: rgb(var(--md-on-surface));
   text-align: left;
   cursor: pointer;
-  transition:
-    background-color var(--md-duration-short-2) var(--md-ease-standard),
-    transform var(--md-duration-short-2) var(--md-ease-standard);
+  transition: background-color var(--md-duration-short-2) var(--md-ease-standard);
 }
 .empty-item:hover {
   background-color: rgb(var(--md-on-surface) / var(--md-state-hover-alpha));
-  transform: translateX(2px);
+}
+.empty-icon-wrap {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background-color: rgb(var(--md-secondary-container));
+  color: rgb(var(--md-on-secondary-container));
+  transition: transform var(--md-duration-medium-1) var(--md-ease-spring-fast);
+}
+.empty-item:hover .empty-icon-wrap {
+  transform: scale(1.06);
 }
 .empty-item:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
@@ -177,14 +193,13 @@ const activeKey = computed(() =>
 .empty-icon {
   width: 16px;
   height: 16px;
-  flex: 0 0 auto;
-  color: rgb(var(--md-on-surface-variant));
 }
 .empty-text {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 .empty-label {
   font-size: 13px;
@@ -192,7 +207,23 @@ const activeKey = computed(() =>
 }
 .empty-hint {
   font-size: 11px;
+  line-height: 1.4;
   color: rgb(var(--md-on-surface-variant));
+}
+.empty-arrow {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: rgb(var(--md-on-surface-muted));
+  opacity: 0;
+  transform: translateX(-3px);
+  transition:
+    opacity var(--md-duration-short-2) var(--md-ease-standard),
+    transform var(--md-duration-medium-1) var(--md-ease-spring-fast);
+}
+.empty-item:hover .empty-arrow {
+  opacity: 1;
+  transform: translateX(0);
 }
 
 @media (prefers-reduced-motion: reduce) {

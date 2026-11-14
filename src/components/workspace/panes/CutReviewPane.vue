@@ -422,7 +422,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
         {{ i18n.t("cutReview.cutSelection", { value: seconds(selectedSeconds) }) }}
       </button>
       <button class="icon-btn" :title="i18n.t('common.cancel')" @click="clearSelection">
-        ✕
+        ×
       </button>
     </div>
 

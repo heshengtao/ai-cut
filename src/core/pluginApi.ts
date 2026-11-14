@@ -1,6 +1,6 @@
 /** OFX 插件注册表、安装与本地导入的 Tauri 调用封装。 */
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@/platform/tauri";
+import { listen, type UnlistenFn } from "@/platform/tauri";
 import type {
   PluginProgress,
   PluginRegistryConfig,

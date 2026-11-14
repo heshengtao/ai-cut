@@ -6,8 +6,8 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ArrowLeftIcon } from "@heroicons/vue/24/outline";
 import NumberField from "@/components/common/NumberField.vue";
+import Md3Slider from "@/components/common/Md3Slider.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
-import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
 import ComboField from "@/components/common/ComboField.vue";
 import {
@@ -38,7 +38,13 @@ import { useDownloadsStore } from "@/stores/downloads";
 import { useDeviceStore } from "@/stores/device";
 import { useUpdaterStore } from "@/stores/updater";
 import { displayProjectName } from "@/utils/projectName";
-import { useI18n } from "@/i18n";
+import {
+  webAccessInfo,
+  webAccessOpen,
+  webAccessSetLan,
+  type WebAccessInfo,
+} from "@/core/webApi";
+import { useI18n, type Locale } from "@/i18n";
 import type {
   AgentProbe,
   BackendInfo,
@@ -134,17 +140,17 @@ type Section = SettingsSection;
 
 const SECTIONS: { id: Section; labelKey: string; captionKey: string }[] = [
   { id: "general", labelKey: "settings.section.general", captionKey: "settings.section.general.caption" },
-  { id: "storage", labelKey: "settings.section.storage", captionKey: "settings.section.storage.caption" },
   {
     id: "appearance",
     labelKey: "settings.section.appearance",
     captionKey: "settings.section.appearance.caption",
   },
   { id: "layout", labelKey: "settings.section.layout", captionKey: "settings.section.layout.caption" },
+  { id: "storage", labelKey: "settings.section.storage", captionKey: "settings.section.storage.caption" },
+  { id: "network", labelKey: "settings.section.network", captionKey: "settings.section.network.caption" },
   { id: "ai", labelKey: "settings.section.ai", captionKey: "settings.section.ai.caption" },
   { id: "gen", labelKey: "settings.section.gen", captionKey: "settings.section.gen.caption" },
   { id: "tts", labelKey: "settings.section.tts", captionKey: "settings.section.tts.caption" },
-  { id: "network", labelKey: "settings.section.network", captionKey: "settings.section.network.caption" },
   { id: "cli", labelKey: "settings.section.cli", captionKey: "settings.section.cli.caption" },
   { id: "about", labelKey: "settings.section.about", captionKey: "settings.section.about.caption" },
 ];
@@ -167,6 +173,19 @@ const MODEL_SOURCE_PREFS: { id: ModelSourcePreference; labelKey: string }[] = [
   { id: "international", labelKey: "settings.store.sourceIntl" },
 ];
 
+const localeSegOptions = computed(() =>
+  i18n.locales.map((locale) => ({ value: locale.id, label: locale.label })),
+);
+const themeSegOptions = computed(() =>
+  THEMES.map((theme) => ({ value: theme.id, label: i18n.t(theme.labelKey) })),
+);
+const proxySegOptions = computed(() =>
+  PROXY_MODES.map((mode) => ({ value: mode.id, label: i18n.t(mode.labelKey) })),
+);
+const sourceSegOptions = computed(() =>
+  MODEL_SOURCE_PREFS.map((pref) => ({ value: pref.id, label: i18n.t(pref.labelKey) })),
+);
+
 const APP_VERSION = "1.0.0";
 
 const i18n = useI18n();
@@ -183,6 +202,8 @@ const updater = useUpdaterStore();
 
 const active = ref<Section>(layout.settingsSection ?? "general");
 const activeMeta = computed(() => SECTIONS.find((s) => s.id === active.value) ?? SECTIONS[0]);
+const contentScroll = ref<HTMLElement | null>(null);
+watch(active, () => contentScroll.value?.scrollTo({ top: 0 }));
 const projectName = computed(() => displayProjectName(project.doc.name));
 
 // ---- 自动更新 ----
@@ -1869,6 +1890,10 @@ function openCliFromAi(): void {
   active.value = "cli";
 }
 
+function onLocalePick(value: string): void {
+  i18n.setLocale(value as Locale);
+}
+
 function onTheme(id: ThemeMode): void {
   setTheme(id);
 }
@@ -1878,6 +1903,42 @@ function onAccent(id: AccentColor): void {
 }
 
 // ---- 存储：数据目录 ----
+const webInfo = ref<WebAccessInfo | null>(null);
+
+async function loadWebInfo(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    webInfo.value = await webAccessInfo();
+  } catch {
+    webInfo.value = null;
+  }
+}
+
+async function setWebLan(lan: boolean): Promise<void> {
+  try {
+    webInfo.value = await webAccessSetLan(lan);
+  } catch {
+    // 设置页的失败不打断其他操作；状态保持原样。
+  }
+}
+
+async function openWebAccess(): Promise<void> {
+  try {
+    await webAccessOpen();
+  } catch {
+    // 打不开浏览器时用户仍可以手动复制地址。
+  }
+}
+
+async function copyWebUrl(url: string | null | undefined): Promise<void> {
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    // 剪贴板不可用：地址仍然可见，可手动选中复制。
+  }
+}
+
 const dataDir = ref<DataDirInfo | null>(null);
 const dataDirLoading = ref(false);
 const dataDirBusy = ref(false);
@@ -2018,6 +2079,7 @@ onMounted(() => {
   void loadCloudGen();
   void loadCli();
   void loadDataDir();
+  void loadWebInfo();
   // 从下载管理器装完运行库回来：弹一次「重启后生效」（和 ai-daw 一样）。
   if (runtimes.consumeRestartPrompt()) {
     void confirm({
@@ -2064,63 +2126,13 @@ onUnmounted(() => {
     </aside>
 
     <!-- 内容：居中列 -->
-    <section class="settings-body">
+    <section ref="contentScroll" class="settings-body">
       <div class="settings-content">
         <h1 class="page-title">{{ i18n.t(activeMeta.labelKey) }}</h1>
         <p class="page-sub">{{ i18n.t(activeMeta.captionKey) }}</p>
 
         <!-- 通用 -->
         <template v-if="active === 'general'">
-          <div class="group">
-            <div class="group-title">{{ i18n.t("settings.language") }}</div>
-            <div class="card">
-              <div class="row">
-                <div class="row-text">
-                  <span class="row-title">{{ i18n.t("settings.language.label") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.language.hint") }}</span>
-                </div>
-                <div class="m3-seg" role="group" :aria-label="i18n.t('settings.language.label')">
-                  <button
-                    v-for="l in i18n.locales"
-                    :key="l.id"
-                    class="m3-seg-btn"
-                    :class="{ on: i18n.locale.value === l.id }"
-                    :aria-pressed="i18n.locale.value === l.id"
-                    @click="i18n.setLocale(l.id)"
-                  >
-                    {{ l.label }}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="group">
-            <div class="group-title">{{ i18n.t("settings.startup") }}</div>
-            <div class="card">
-              <div class="row">
-                <div class="row-text">
-                  <span class="row-title">{{ i18n.t("settings.welcome.label") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.welcome.hint") }}</span>
-                </div>
-                <ToggleSwitch
-                  :model-value="onboarding.welcomeOnStart"
-                  :label="i18n.t('settings.welcome.label')"
-                  @update:model-value="onboarding.setWelcomeOnStart"
-                />
-              </div>
-              <div class="row">
-                <div class="row-text">
-                  <span class="row-title">{{ i18n.t("settings.welcome.replay") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.welcome.replayHint") }}</span>
-                </div>
-                <button class="scan-btn" @click="replayTour">
-                  {{ i18n.t("settings.welcome.replayAction") }}
-                </button>
-              </div>
-            </div>
-          </div>
-
           <div class="group">
             <div class="group-title">{{ i18n.t("settings.project") }}</div>
             <div class="card">
@@ -2189,6 +2201,99 @@ onUnmounted(() => {
                     @update:model-value="onProjectFps"
                   />
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.language") }}</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.language.label") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.language.hint") }}</span>
+                </div>
+                <SegmentedControl
+                  :model-value="i18n.locale.value"
+                  :options="localeSegOptions"
+                  :aria-label="i18n.t('settings.language.label')"
+                  @update:model-value="onLocalePick"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.startup") }}</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.welcome.label") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.welcome.hint") }}</span>
+                </div>
+                <button
+                  class="m3-switch"
+                  :class="{ on: onboarding.welcomeOnStart }"
+                  role="switch"
+                  :aria-checked="onboarding.welcomeOnStart"
+                  :aria-label="i18n.t('settings.welcome.label')"
+                  @click="onboarding.setWelcomeOnStart(!onboarding.welcomeOnStart)"
+                />
+              </div>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.welcome.replay") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.welcome.replayHint") }}</span>
+                </div>
+                <button class="scan-btn" @click="replayTour">
+                  {{ i18n.t("settings.welcome.replayAction") }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Web 访问：浏览器 / 第二屏 -->
+          <div v-if="isTauri()" class="group">
+            <div class="group-title">{{ i18n.t("settings.web.title") }}</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.web.local") }}</span>
+                  <span class="row-sub mono">{{ webInfo?.loopbackUrl ?? "—" }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.web.localHint") }}</span>
+                </div>
+                <button class="scan-btn" :disabled="!webInfo" @click="copyWebUrl(webInfo?.loopbackUrl)">
+                  {{ i18n.t("settings.web.copy") }}
+                </button>
+              </div>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.web.lan") }}</span>
+                  <span class="row-sub mono">{{
+                    webInfo?.lanUrl ?? i18n.t("settings.web.lanUnavailable")
+                  }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.web.lanHint") }}</span>
+                  <span v-if="webInfo?.restartRequired" class="row-sub">{{
+                    i18n.t("settings.web.restart")
+                  }}</span>
+                </div>
+                <button
+                  class="m3-switch"
+                  :class="{ on: webInfo?.lan ?? false }"
+                  role="switch"
+                  :aria-checked="webInfo?.lan ?? false"
+                  :aria-label="i18n.t('settings.web.lan')"
+                  @click="setWebLan(!(webInfo?.lan ?? false))"
+                />
+              </div>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.web.open") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.web.openHint") }}</span>
+                </div>
+                <button class="scan-btn primary" @click="openWebAccess">
+                  {{ i18n.t("settings.web.openButton") }}
+                </button>
               </div>
             </div>
           </div>
@@ -2327,18 +2432,12 @@ onUnmounted(() => {
                   <span class="row-title">{{ i18n.t("settings.theme.label") }}</span>
                   <span class="row-sub">{{ i18n.t("settings.theme.hint") }}</span>
                 </div>
-                <div class="m3-seg" role="group" :aria-label="i18n.t('settings.theme.label')">
-                  <button
-                    v-for="t in THEMES"
-                    :key="t.id"
-                    class="m3-seg-btn"
-                    :class="{ on: themeMode === t.id }"
-                    :aria-pressed="themeMode === t.id"
-                    @click="onTheme(t.id)"
-                  >
-                    {{ i18n.t(t.labelKey) }}
-                  </button>
-                </div>
+                <SegmentedControl
+                  :model-value="themeMode"
+                  :options="themeSegOptions"
+                  :aria-label="i18n.t('settings.theme.label')"
+                  @update:model-value="onTheme($event as ThemeMode)"
+                />
               </div>
             </div>
           </div>
@@ -2407,27 +2506,29 @@ onUnmounted(() => {
               <div class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("settings.width.tracks") }}</span>
+                  <span class="row-sub">{{ Math.round(layout.timelineHeight) }} px</span>
                 </div>
-                <NumberField
+                <Md3Slider
                   v-model="layout.timelineHeight"
+                  class="row-slider"
                   :min="MIN_TIMELINE_HEIGHT"
                   :max="MAX_TIMELINE_HEIGHT"
                   :step="10"
-                  :sr-label="i18n.t('settings.width.tracks')"
-                  input-width="40px"
+                  :label="i18n.t('settings.width.tracks')"
                 />
               </div>
               <div class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("settings.width.inspector") }}</span>
+                  <span class="row-sub">{{ Math.round(layout.panelWidth) }} px</span>
                 </div>
-                <NumberField
+                <Md3Slider
                   v-model="layout.panelWidth"
+                  class="row-slider"
                   :min="MIN_PANEL_WIDTH"
                   :max="MAX_PANEL_WIDTH"
                   :step="10"
-                  :sr-label="i18n.t('settings.width.inspector')"
-                  input-width="40px"
+                  :label="i18n.t('settings.width.inspector')"
                 />
               </div>
             </div>
@@ -3275,18 +3376,12 @@ onUnmounted(() => {
                   <span class="row-title">{{ i18n.t("settings.proxy.mode") }}</span>
                   <span class="row-sub">{{ i18n.t("settings.proxy.modeHint") }}</span>
                 </div>
-                <div class="m3-seg" role="group" :aria-label="i18n.t('settings.proxy.mode')">
-                  <button
-                    v-for="mode in PROXY_MODES"
-                    :key="mode.id"
-                    class="m3-seg-btn"
-                    :class="{ on: proxyMode === mode.id }"
-                    :aria-pressed="proxyMode === mode.id"
-                    @click="proxyMode = mode.id"
-                  >
-                    {{ i18n.t(mode.labelKey) }}
-                  </button>
-                </div>
+                <SegmentedControl
+                  :model-value="proxyMode"
+                  :options="proxySegOptions"
+                  :aria-label="i18n.t('settings.proxy.mode')"
+                  @update:model-value="proxyMode = $event as ProxyMode"
+                />
               </div>
               <div v-if="proxyMode === 'manual'" class="col-row">
                 <span class="row-title">{{ i18n.t("settings.proxy.url") }}</span>
@@ -3345,22 +3440,12 @@ onUnmounted(() => {
                   <span class="row-title">{{ i18n.t("settings.store.source") }}</span>
                   <span class="row-sub">{{ i18n.t("settings.store.sourceHint") }}</span>
                 </div>
-                <div
-                  class="m3-seg"
-                  role="group"
+                <SegmentedControl
+                  :model-value="modelSourcePref"
+                  :options="sourceSegOptions"
                   :aria-label="i18n.t('settings.store.source')"
-                >
-                  <button
-                    v-for="pref in MODEL_SOURCE_PREFS"
-                    :key="pref.id"
-                    class="m3-seg-btn"
-                    :class="{ on: modelSourcePref === pref.id }"
-                    :aria-pressed="modelSourcePref === pref.id"
-                    @click="modelSourcePref = pref.id"
-                  >
-                    {{ i18n.t(pref.labelKey) }}
-                  </button>
-                </div>
+                  @update:model-value="modelSourcePref = $event as ModelSourcePreference"
+                />
               </div>
               <div class="col-row">
                 <span class="row-title">{{ i18n.t("settings.store.hfToken") }}</span>
@@ -3490,13 +3575,14 @@ onUnmounted(() => {
               <div class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("settings.cli.mount") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.cli.mountHint") }}</span>
+                  <span class="row-sub">{{ cliMessage }}</span>
                 </div>
                 <button
                   class="m3-switch"
                   :class="{ on: cliOn }"
                   role="switch"
                   :aria-checked="cliOn"
+                  :aria-label="i18n.t('settings.cli.mount')"
                   :disabled="cliBusy"
                   @click="onToggleCli"
                 />
@@ -3504,22 +3590,21 @@ onUnmounted(() => {
               <div class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("settings.cli.status") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.cli.mountHint") }}</span>
                 </div>
-                <span class="row-value">
-                  {{ cliBusy ? i18n.t("settings.cli.busy") : cliStateLabel }}
-                </span>
+                <span class="row-value">{{ cliBusy ? i18n.t("settings.cli.busy") : cliStateLabel }}</span>
               </div>
               <div class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("settings.cli.command") }}</span>
+                  <span class="row-sub mono">{{ cliLocation }}</span>
                 </div>
-                <span class="row-value mono">{{ cliLocation }}</span>
               </div>
               <div v-if="cli?.full_path && !cliOn" class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("settings.cli.fullPath") }}</span>
+                  <span class="row-sub mono">{{ cli.full_path }}</span>
                 </div>
-                <span class="row-value mono">{{ cli.full_path }}</span>
                 <button class="scan-btn" @click="copy(cli.full_path)">
                   {{ i18n.t("settings.cli.copy") }}
                 </button>
@@ -3527,14 +3612,13 @@ onUnmounted(() => {
               <div v-if="cli?.manual_command" class="row">
                 <div class="row-text">
                   <span class="row-title">{{ i18n.t("settings.cli.manual") }}</span>
+                  <span class="row-sub mono">{{ cli.manual_command }}</span>
                 </div>
-                <span class="row-value mono">{{ cli.manual_command }}</span>
                 <button class="scan-btn" @click="copy(cli.manual_command)">
                   {{ i18n.t("settings.cli.copy") }}
                 </button>
               </div>
             </div>
-            <p class="probe" :class="{ error: !!cliError }">{{ cliMessage }}</p>
           </div>
         </template>
 
@@ -3556,19 +3640,6 @@ onUnmounted(() => {
                   <span class="row-sub">{{ i18n.t("settings.about.engineHint") }}</span>
                 </div>
                 <span class="row-value">Tauri + ffmpeg</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="group">
-            <div class="group-title">{{ i18n.t("settings.about.license") }}</div>
-            <div class="card">
-              <div class="row">
-                <div class="row-text">
-                  <span class="row-title">{{ i18n.t("settings.about.licenseLabel") }}</span>
-                  <span class="row-sub">{{ i18n.t("settings.about.licenseHint") }}</span>
-                </div>
-                <span class="row-value">Apache-2.0</span>
               </div>
             </div>
           </div>
@@ -3628,6 +3699,19 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.about.license") }}</div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.about.licenseLabel") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.about.licenseHint") }}</span>
+                </div>
+                <span class="row-value">Apache-2.0</span>
+              </div>
+            </div>
+          </div>
+
         </template>
       </div>
     </section>
@@ -3647,6 +3731,7 @@ onUnmounted(() => {
 /* ---- 设置侧栏 ---- */
 .settings-nav {
   width: 220px;
+  scrollbar-gutter: stable;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -3751,6 +3836,7 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   display: flex;
   justify-content: center;
 }
@@ -3782,7 +3868,8 @@ onUnmounted(() => {
   padding: 0 4px 8px;
 }
 .card {
-  background-color: var(--app-bg);
+  background-color: var(--app-inset);
+  border: 1px solid rgb(var(--md-outline-variant) / 0.22);
   border-radius: 20px;
   padding: 4px 16px;
 }
@@ -3801,6 +3888,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  flex: 1 1 0;
   min-width: 0;
 }
 /* 竖向排布的设置行（网络 / AI 端点这种：标题在上、控件占满一整行）。 */
@@ -3898,6 +3986,10 @@ onUnmounted(() => {
 }
 .probe-error {
   color: rgb(var(--md-error));
+}
+.row-slider {
+  width: 200px;
+  flex: 0 0 auto;
 }
 .row-value {
   font-size: 13px;
@@ -4035,11 +4127,13 @@ textarea.mirror-field {
 }
 .update-notes {
   margin: 0;
+  max-height: 160px;
+  overflow-y: auto;
   white-space: pre-wrap;
 }
 .scan-btn {
-  height: 30px;
-  padding: 0 13px;
+  height: 32px;
+  padding: 0 14px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -4047,7 +4141,7 @@ textarea.mirror-field {
   border-radius: 999px;
   background: transparent;
   color: rgb(var(--md-primary));
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
@@ -4094,39 +4188,6 @@ textarea.mirror-field {
   color: rgb(var(--md-error));
 }
 
-/* ---- 分段按钮 ---- */
-.m3-seg {
-  display: inline-flex;
-  padding: 3px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-surface-container-high));
-  flex: 0 0 auto;
-}
-.m3-seg-btn {
-  height: 30px;
-  padding: 0 13px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--md-on-surface-variant));
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-.m3-seg-btn:hover {
-  color: rgb(var(--md-on-surface));
-}
-.m3-seg-btn.on {
-  background-color: rgb(var(--md-secondary-container));
-  color: rgb(var(--md-on-secondary-container));
-}
-.m3-seg-btn:focus-visible {
-  outline: 2px solid rgb(var(--md-primary));
-  outline-offset: 1px;
-}
-
 /* ---- 主题色 swatches ---- */
 .swatches {
   display: flex;
@@ -4136,8 +4197,8 @@ textarea.mirror-field {
 }
 .swatch {
   position: relative;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: 0;
   border-radius: 999px;
@@ -4235,6 +4296,15 @@ textarea.mirror-field {
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
+  }
+  .row .net-input,
+  .row .row-combo,
+  .row .output-controls {
+    width: 100%;
+    max-width: none;
+  }
+  .row-slider {
+    width: 100%;
   }
 }
 @media (prefers-reduced-motion: reduce) {

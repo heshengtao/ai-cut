@@ -1,6 +1,6 @@
 /** 图像生成 / 编辑（stable-diffusion.cpp）的 Tauri 封装。 */
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@/platform/tauri";
+import { listen, type UnlistenFn } from "@/platform/tauri";
 import type {
   ImageGenProgress,
   ImageGenRequest,

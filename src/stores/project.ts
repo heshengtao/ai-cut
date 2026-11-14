@@ -23,6 +23,7 @@ import { parseProject, serializeProject } from "@/core/serialize";
 import { applyCommandToDoc, applyCommandsToDoc, diffAffected } from "@/core/commands";
 import { recordProjectHistory, getProjectHistory, flushHistoryRecords } from "@/core/history";
 import { updateAsset } from "@/core/ops";
+import { mergeRemoteProject } from "@/core/sessionMerge";
 import { ensureThumbnail } from "@/core/thumbnails";
 import { renameProject } from "@/core/ops/project";
 import {
@@ -74,6 +75,11 @@ function makeCommand(input: {
 export const useProjectStore = defineStore("project", () => {
   const doc = shallowRef<Project>(makeProject());
   const dirty = ref(false);
+  /**
+   * 只读跟随：浏览器看桌面会话时置 true，所有写入口（dispatch / applyCommand /
+   * undo / redo）直接拒绝，避免本地改动被下一份快照覆盖成「无声丢失」。
+   */
+  const readOnly = ref(false);
   const filePath = ref<string | null>(null);
   /**
    * 启动时是否从上次会话恢复了一份非空工程。
@@ -92,6 +98,14 @@ export const useProjectStore = defineStore("project", () => {
   const busy = ref(false);
   /** 最近事件（环形缓冲）。 */
   const opLog = shallowRef<OpEvent[]>([]);
+  /** 最近一次本地编辑影响了哪些对象：会话广播只发这一小块。 */
+  const lastAffected = shallowRef<Affected | null>(null);
+  /** 最近一次本地编辑是否需要整份同步（撤销 / 重做 / 替换工程）。 */
+  const lastPatchFull = ref(true);
+  /** 最近一次本地编辑的时间；远端快照到达时用来避免回推。 */
+  const lastLocalEventAt = ref(0);
+  /** 最近一次应用远端快照的时间；会话发布器据此跳过回声。 */
+  const remoteApplyAt = ref(0);
 
   const listeners = new Set<(event: OpEvent) => void>();
   let pendingCoalesce: PendingCoalesce | null = null;
@@ -120,6 +134,14 @@ export const useProjectStore = defineStore("project", () => {
   }
 
   function emitEvent(event: OpEvent): void {
+    if (!event.error) {
+      lastAffected.value = event.affected;
+      lastPatchFull.value =
+        event.command.kind === "history.undo" ||
+        event.command.kind === "history.redo" ||
+        event.command.kind === "project.reset";
+      lastLocalEventAt.value = Date.now();
+    }
     opLog.value = [...opLog.value, event].slice(-EVENT_LOG_LIMIT);
     for (const listener of listeners) {
       try {
@@ -228,6 +250,7 @@ export const useProjectStore = defineStore("project", () => {
     mutate: (current: Project) => Project,
     meta?: DispatchMeta,
   ): boolean {
+    if (readOnly.value) return false;
     flushCoalesce();
     const before = doc.value;
     const baseRevision = revision.value;
@@ -264,6 +287,7 @@ export const useProjectStore = defineStore("project", () => {
     key: string,
     meta?: DispatchMeta,
   ): boolean {
+    if (readOnly.value) return false;
     if (pendingCoalesce && pendingCoalesce.key !== key) flushCoalesce();
 
     const before = doc.value;
@@ -315,6 +339,15 @@ export const useProjectStore = defineStore("project", () => {
 
   /** 可序列化命令入口：MCP / 外部客户端使用。 */
   function applyCommand(command: Command): CommandResult {
+    if (readOnly.value) {
+      return {
+        ok: false,
+        revision: revision.value,
+        affected: EMPTY_AFFECTED,
+        changed: false,
+        error: t("error.command.readOnly"),
+      };
+    }
     flushCoalesce();
 
     if (command.baseRevision !== revision.value) {
@@ -552,10 +585,12 @@ export const useProjectStore = defineStore("project", () => {
   }
 
   function undo(): void {
+    if (readOnly.value) return;
     undoOne(true);
   }
 
   function redo(): void {
+    if (readOnly.value) return;
     redoOne(true);
   }
 
@@ -564,6 +599,7 @@ export const useProjectStore = defineStore("project", () => {
    * 被撤销的步骤仍留在操作记录里，可以随时重做到其中任意一步。
    */
   function revertTo(id: string): boolean {
+    if (readOnly.value) return false;
     flushCoalesce();
     const index = undoStack.value.findIndex((step) => step.id === id);
     if (index < 0) return false;
@@ -577,6 +613,7 @@ export const useProjectStore = defineStore("project", () => {
 
   /** 重做到某一步（含该步），把它之前的撤销步骤一并恢复。 */
   function reapplyTo(id: string): boolean {
+    if (readOnly.value) return false;
     flushCoalesce();
     const index = redoStack.value.findIndex((step) => step.id === id);
     if (index < 0) return false;
@@ -779,15 +816,58 @@ export const useProjectStore = defineStore("project", () => {
     return true;
   }
 
+  /** 只读跟随开关；退出跟随时清空历史，避免撤销回镜像之前的状态。 */
+  function setReadOnly(value: boolean): void {
+    readOnly.value = value;
+    if (value) {
+      pendingCoalesce = null;
+      coalesceKey.value = null;
+      undoStack.value = [];
+      redoStack.value = [];
+      dirty.value = false;
+    }
+  }
+
+  /**
+   * 应用远端快照：整份替换（hello / 撤销 / 打开工程），或只合并受影响对象。
+   *
+   * 合并只覆盖 `affected` 里的轨道与素材，未受影响的部分保持本地版本；因此两台机器
+   * 同时改不同轨道不会互相覆盖。`revision` 取较大值，避免本地命令的乐观校验倒退。
+   */
+  function applyRemote(
+    project: Project,
+    remoteRevision: number,
+    affected?: Affected | null,
+    full = true,
+    remoteDirty = true,
+    remotePath?: string | null,
+  ): void {
+    doc.value = mergeRemoteProject(doc.value, project, affected, full);
+    applyRemoteMeta(remoteRevision, remoteDirty);
+    if (remotePath !== undefined) filePath.value = remotePath;
+  }
+
+  /** 只同步版本 / dirty，不换文档（调用方自己合并了对象）。 */
+  function applyRemoteMeta(remoteRevision: number, remoteDirty: boolean): void {
+    revision.value = Math.max(revision.value, remoteRevision);
+    dirty.value = remoteDirty;
+    remoteApplyAt.value = Date.now();
+  }
+
   return {
     doc,
     dirty,
+    readOnly,
     filePath,
     restoredFromSession,
     revision,
     busy,
     opLog,
     history,
+    lastAffected,
+    lastPatchFull,
+    lastLocalEventAt,
+    remoteApplyAt,
     canUndo,
     canRedo,
     subscribe,
@@ -808,6 +888,9 @@ export const useProjectStore = defineStore("project", () => {
     rename,
     markSaved,
     markOfflineAssets,
+    setReadOnly,
+    applyRemote,
+    applyRemoteMeta,
     open,
     openPath,
     restoreHistory,

@@ -1,6 +1,6 @@
 /** stable-diffusion.cpp 引擎管理的 Tauri 封装。 */
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@/platform/tauri";
+import { listen, type UnlistenFn } from "@/platform/tauri";
 import type { SdcppInfo, SdcppProgress, SdcppStatus } from "@/types/sdcpp";
 import { EVENT_SDCPP } from "@/types/sdcpp";
 import { isTauri } from "@/utils/platform";

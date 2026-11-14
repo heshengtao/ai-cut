@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn(async () => []) }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => undefined) }));
+vi.mock("@/platform/tauri", () => ({
+  invoke,
+  listen: vi.fn(async () => () => undefined),
+  convertFileSrc: (path: string) => path,
+}));
 vi.mock("@/utils/platform", () => ({ isTauri: () => true }));
 
 import { convertVoiceBatch, importVoice } from "@/core/voiceChangeApi";

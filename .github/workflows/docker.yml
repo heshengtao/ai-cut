@@ -1,0 +1,181 @@
+name: Docker (ai-cut)
+
+# 无头后端镜像：只跑工程引擎 + HTTP API，不链 WebKit。
+# 推送到：ailm32442/ai-cut
+#
+# 只需要一个 Secret：DOCKERHUB_TOKEN（Docker Hub Access Token，Read & Write）。
+#
+# 标签策略（和 git tag 对齐）：
+#   v1.7.1  → 1.7.1、1.7、latest、sha-<短 sha>
+#   main    → latest、sha-<短 sha>
+#
+# 架构：amd64 / arm64 各用一台原生 runner 构建（不走 QEMU），但**按 digest 推送**——
+# 不再产生 `main-amd64` 这类中间标签：每台机器只交出镜像 digest，最后在 merge 任务里
+# 用 `imagetools create` 把两个 digest 合成一份多架构 manifest。
+# 参考实现：ExamBot/.github/workflows/release-docker.yml
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      cleanup_legacy:
+        description: '删除旧方案留下的 *-amd64 / *-arm64 / main-* 标签'
+        type: boolean
+        default: false
+
+env:
+  DOCKERHUB_USERNAME: ailm32442
+  IMAGE: ailm32442/ai-cut
+
+jobs:
+  preflight:
+    name: check secrets
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "${TOKEN}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::仓库还没配 DOCKERHUB_TOKEN，跳过镜像发布"
+          fi
+
+  build:
+    name: build (${{ matrix.platform }})
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: amd64
+            runner: ubuntu-latest
+          - platform: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/${{ matrix.platform }}
+          # 关键：不落任何 tag，只推 digest —— 仓库里因此不会出现 `-amd64` 这类标签。
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=aicutd-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=aicutd-${{ matrix.platform }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.platform }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: publish multi-arch
+    needs: [preflight, build]
+    if: needs.preflight.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: digests
+          merge-multiple: true
+          pattern: digest-*
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short,prefix=sha-
+            type=raw,value=latest
+
+      - name: Create and push manifest
+        run: |
+          set -euo pipefail
+          tags=$(echo "${META_TAGS}" | tr '\n' ' ' | xargs -n1 printf -- '-t %s ')
+          digests=""
+          for f in $(find digests -type f); do
+            digests="${digests} ${IMAGE}@sha256:$(basename "$f")"
+          done
+          echo "tags: ${tags}"
+          echo "digests: ${digests}"
+          docker buildx imagetools create ${tags} ${digests}
+        env:
+          META_TAGS: ${{ steps.meta.outputs.tags }}
+
+  # 一次性清理：旧方案（每个架构各推一个带后缀的标签）留下的中间标签。
+  # 只在手动触发且勾选 cleanup_legacy 时运行，删完即止。
+  cleanup:
+    name: cleanup legacy tags
+    if: github.event_name == 'workflow_dispatch' && inputs.cleanup_legacy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete arch-suffixed tags
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          REPO: ${{ env.IMAGE }}
+        run: |
+          set -euo pipefail
+          jwt=$(curl -sS -X POST -H 'Content-Type: application/json' \
+            -d "{\"username\":\"${DOCKERHUB_USERNAME}\",\"password\":\"${DOCKERHUB_TOKEN}\"}" \
+            https://hub.docker.com/v2/users/login | jq -r .token)
+          curl -sS "https://hub.docker.com/v2/repositories/${REPO}/tags?page_size=100" \
+            | jq -r '.results[].name' > /tmp/tags.txt
+          while read -r tag; do
+            case "$tag" in
+              *-amd64|*-arm64|main-*)
+                code=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
+                  -H "Authorization: JWT ${jwt}" \
+                  "https://hub.docker.com/v2/repositories/${REPO}/tags/${tag}/")
+                echo "删除 ${tag} → HTTP ${code}"
+                ;;
+            esac
+          done < /tmp/tags.txt

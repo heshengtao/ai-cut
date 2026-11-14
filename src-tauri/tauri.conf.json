@@ -29,7 +29,9 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": [
+          "**"
+        ]
       }
     }
   },
@@ -37,10 +39,15 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "externalBin": ["binaries/ffmpeg", "binaries/ffprobe", "binaries/aicut"],
+    "externalBin": [
+      "binaries/ffmpeg",
+      "binaries/ffprobe",
+      "binaries/aicut"
+    ],
     "resources": {
       "resources/models/": "models/",
-      "resources/ort/": "ort/"
+      "resources/ort/": "ort/",
+      "../dist/": "dist/"
     },
     "icon": [
       "icons/32x32.png",

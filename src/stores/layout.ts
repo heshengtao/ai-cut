@@ -258,15 +258,53 @@ export const useLayoutStore = defineStore("layout", () => {
   }
 
   /** 打开全屏设置页；可指定分区（如智能体跳转到 AI 设置）。 */
+  let syncingHash = false;
+
+  /** 把设置页写进地址栏：桌面 / 浏览器都能后退、刷新、深链。 */
+  function syncHash(): void {
+    if (typeof window === "undefined" || syncingHash) return;
+    syncingHash = true;
+    try {
+      if (settingsOpen.value) {
+        const suffix = settingsSection.value ? `/${settingsSection.value}` : "";
+        const next = `#/settings${suffix}`;
+        if (window.location.hash !== next) window.location.hash = next;
+      } else if (window.location.hash.startsWith("#/settings")) {
+        history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+    } finally {
+      syncingHash = false;
+    }
+  }
+
+  /** 启动 / 后退时从地址栏恢复。 */
+  function restoreFromHash(): void {
+    if (typeof window === "undefined") return;
+    const match = /^#\/settings(?:\/([a-z]+))?/.exec(window.location.hash);
+    if (match) {
+      settingsOpen.value = true;
+      settingsSection.value = (match[1] as SettingsSection | undefined) ?? null;
+    } else if (settingsOpen.value) {
+      settingsOpen.value = false;
+      settingsSection.value = null;
+    }
+  }
+
   function openSettings(section?: SettingsSection): void {
     if (section) settingsSection.value = section;
     settingsOpen.value = true;
+    syncHash();
   }
 
   /** 返回工作区。 */
   function closeSettings(): void {
     settingsOpen.value = false;
     settingsSection.value = null;
+    syncHash();
+  }
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("hashchange", () => restoreFromHash());
   }
 
   watch(
@@ -334,5 +372,6 @@ export const useLayoutStore = defineStore("layout", () => {
     clampPanes,
     openSettings,
     closeSettings,
+    restoreFromHash,
   };
 });

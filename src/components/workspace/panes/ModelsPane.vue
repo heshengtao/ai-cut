@@ -258,14 +258,24 @@ let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 async function applyFocus(): Promise<void> {
   const target = downloads.consumeFocus();
   if (!target) return;
+  // 搜索框可能把目标过滤掉了；跳转时先清空，确保它真的会出现。
+  query.value = "";
   tab.value = "available";
   kind.value = target.section === "model" ? "model" : "runtime";
   highlight.value = target.id;
   await nextTick();
-  const element = document.querySelector<HTMLElement>(
-    `[data-download-id="${target.id}"]`,
-  );
-  element?.scrollIntoView({ block: "center", behavior: "smooth" });
+  // 目录 / 运行时清单可能还在加载：等目标元素真正出现再滚，最多等 2.5 秒。
+  const started = performance.now();
+  while (performance.now() - started < 2500) {
+    const element = document.querySelector<HTMLElement>(
+      `[data-download-id="${target.id}"]`,
+    );
+    if (element) {
+      element.scrollIntoView({ block: "center", behavior: "smooth" });
+      break;
+    }
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 60));
+  }
   if (highlightTimer) clearTimeout(highlightTimer);
   highlightTimer = setTimeout(() => {
     if (highlight.value === target.id) highlight.value = null;

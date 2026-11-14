@@ -1,0 +1,36 @@
+[package]
+name = "aicut-daemon"
+version = "0.1.0"
+edition = "2021"
+description = "AI Cut headless daemon core (Tauri-free): document engine, media, HTTP RPC"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "aicutd"
+path = "src/bin/aicutd.rs"
+
+[dependencies]
+# 浏览器会话标识用系统 CSPRNG（已在依赖树里）。
+getrandom = "0.3"
+axum = { version = "0.8", features = ["ws"] }
+base64 = "0.22"
+rquickjs = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "signal",
+    "process",
+    "time",
+] }
+tokio-util = { version = "0.7", features = ["io"] }
+tower-http = { version = "0.6", features = ["fs"] }
+tower = "0.5"
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

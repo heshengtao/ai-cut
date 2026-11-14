@@ -91,7 +91,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 3px;
+  padding: 4px;
   border-radius: 999px;
   background-color: rgb(var(--md-surface-container-high));
   /* 窄容器里不换行、也不裁掉最后一项：保持一条，必要时横向滚动。 */
@@ -109,8 +109,8 @@ onUnmounted(() => {
 }
 .m3-seg-pill {
   position: absolute;
-  top: 3px;
-  bottom: 3px;
+  top: 4px;
+  bottom: 4px;
   border-radius: 999px;
   background-color: rgb(var(--md-secondary-container));
   box-shadow: var(--md-elevation-1);
@@ -133,13 +133,13 @@ onUnmounted(() => {
   position: relative;
   z-index: 1;
   flex: 0 0 auto;
-  height: 30px;
-  padding: 0 13px;
+  height: 36px;
+  padding: 0 16px;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: rgb(var(--md-on-surface-variant));
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;

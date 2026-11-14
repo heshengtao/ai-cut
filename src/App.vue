@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 应用根：布局初始化 + 自动保存 + 启动时检查恢复草稿 + 全局快捷键。 */
 import { onMounted, onUnmounted, ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/platform/tauri";
 import AppShell from "@/components/layout/AppShell.vue";
 import Logo from "@/components/common/Logo.vue";
 import Toast from "@/components/common/Toast.vue";
@@ -29,6 +29,8 @@ import { ensureInstalledFontsLoaded } from "@/core/installedFonts";
 import { useI18n } from "@/i18n";
 import { toast } from "@/composables/useToast";
 import { isTauri } from "@/utils/platform";
+import { startSessionBridge } from "@/core/sessionSync";
+import { startSessionPublisher } from "@/composables/useSessionPublisher";
 
 const layout = useLayoutStore();
 const onboarding = useOnboardingStore();
@@ -70,6 +72,7 @@ function onWindowResize(): void {
 }
 
 onMounted(() => {
+  layout.restoreFromHash();
   layout.clampPanes();
   // 字体清单只影响文字渲染：不阻塞首屏，加载完自然刷新预览。
   if (isTauri()) void ensureInstalledFontsLoaded();
@@ -90,6 +93,9 @@ onMounted(() => {
   });
   uninstall = installShortcuts();
   initProjectBridge();
+  // 桌面与浏览器共用一份会话：本地编辑广播补丁，远端补丁合并回来。
+  startSessionPublisher();
+  startSessionBridge();
   // 智能体事件订阅放在根组件：切到别的面板时不丢流式内容。
   void agent.start().catch(() => undefined);
   // 启动时静默查一次更新；查不到（还没发过 release）或连不上都当作「已是最新」。

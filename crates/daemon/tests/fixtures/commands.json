@@ -1,0 +1,133 @@
+[
+  {
+    "id": "cmd-1",
+    "baseRevision": 0,
+    "actor": "human",
+    "kind": "track.add",
+    "payload": { "name": "V1" },
+    "label": "add track",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-2",
+    "baseRevision": 1,
+    "actor": "human",
+    "kind": "asset.add",
+    "payload": {
+      "asset": {
+        "id": "a1",
+        "name": "take.mp4",
+        "kind": "video",
+        "src": "/media/take.mp4",
+        "duration": 12,
+        "width": 1920,
+        "height": 1080,
+        "addedAt": 1700000000000
+      }
+    },
+    "label": "add asset",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-3",
+    "baseRevision": 2,
+    "actor": "human",
+    "kind": "clip.add",
+    "payload": {
+      "trackId": "1",
+      "clip": { "id": "c1", "assetId": "a1", "start": 0, "duration": 5, "in": 0 }
+    },
+    "label": "add clip",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-4",
+    "baseRevision": 3,
+    "actor": "human",
+    "kind": "clip.update",
+    "payload": { "clipId": "c1", "patch": { "start": 2 } },
+    "label": "move clip",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-5",
+    "baseRevision": 4,
+    "actor": "human",
+    "kind": "clip.color",
+    "payload": { "clipId": "c1", "patch": { "brightness": 0.2, "saturation": 1.1 } },
+    "label": "grade clip",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-6",
+    "baseRevision": 5,
+    "actor": "human",
+    "kind": "marker.add",
+    "payload": { "time": 3.5, "name": "beat" },
+    "label": "add marker",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-7",
+    "baseRevision": 6,
+    "actor": "human",
+    "kind": "clip.split",
+    "payload": { "clipIds": ["c1"], "at": 4 },
+    "label": "split clip",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-8",
+    "baseRevision": 7,
+    "actor": "human",
+    "kind": "project.rename",
+    "payload": { "name": "M0 renamed" },
+    "label": "rename project",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-9",
+    "baseRevision": 8,
+    "actor": "human",
+    "kind": "project.output",
+    "payload": { "width": 1080, "height": 1920, "fps": 24 },
+    "label": "set output",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-10",
+    "baseRevision": 9,
+    "actor": "human",
+    "kind": "track.add",
+    "payload": { "name": "A1", "index": 1 },
+    "label": "add audio track",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-11",
+    "baseRevision": 10,
+    "actor": "human",
+    "kind": "track.update",
+    "payload": { "trackId": "1", "patch": { "muted": true } },
+    "label": "mute track",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-12",
+    "baseRevision": 11,
+    "actor": "human",
+    "kind": "clip.update",
+    "payload": { "clipId": "missing", "patch": { "start": 1 } },
+    "label": "invalid clip",
+    "timestamp": 1700000000000
+  },
+  {
+    "id": "cmd-13",
+    "baseRevision": 99,
+    "actor": "human",
+    "kind": "project.rename",
+    "payload": { "name": "stale" },
+    "label": "stale revision",
+    "timestamp": 1700000000000
+  }
+]

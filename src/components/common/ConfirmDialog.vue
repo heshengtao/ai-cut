@@ -1,7 +1,9 @@
 <script setup lang="ts">
 /** MD3 确认框渲染层：遮罩 + 对话框，替代原生 confirm。 */
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { XMarkIcon } from "@heroicons/vue/24/outline";
 import { answerConfirm, currentConfirm } from "@/composables/useConfirm";
+import { t } from "@/i18n";
 
 const confirmButton = ref<HTMLButtonElement | null>(null);
 
@@ -39,6 +41,9 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown, true));
           aria-modal="true"
           :aria-labelledby="'confirm-title'"
         >
+          <button class="dialog-close" :aria-label="t('common.close')" @click="answerConfirm(false)">
+            <XMarkIcon class="w-[18px] h-[18px]" />
+          </button>
           <h2 id="confirm-title" class="dialog-title">{{ currentConfirm.title }}</h2>
           <p v-if="currentConfirm.message" class="dialog-message">
             {{ currentConfirm.message }}
@@ -75,6 +80,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown, true));
   background-color: rgb(0 0 0 / 0.32);
 }
 .dialog {
+  position: relative;
   width: min(400px, 100%);
   padding: 24px;
   border-radius: 28px;
@@ -82,8 +88,28 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown, true));
   color: rgb(var(--md-on-surface));
   box-shadow: var(--md-elevation-3);
 }
+.dialog-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--md-on-surface-variant));
+  cursor: pointer;
+}
+.dialog-close:hover {
+  background-color: rgb(var(--md-on-surface-variant) / var(--md-state-hover-alpha));
+  color: rgb(var(--md-on-surface));
+}
 .dialog-title {
   margin: 0;
+  padding-right: 32px;
   font-size: 20px;
   font-weight: 500;
   line-height: 1.4;

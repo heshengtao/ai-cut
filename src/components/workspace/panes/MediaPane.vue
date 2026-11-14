@@ -15,7 +15,7 @@ import {
   ArrowDownTrayIcon,
   ArchiveBoxIcon,
 } from "@heroicons/vue/24/outline";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/platform/tauri";
 import type { AssetKind, Clip, ClipTextStyle, MediaAsset } from "@/types/project";
 import { pickSubtitleFile, pickSubtitleSavePath } from "@/core/media";
 import {

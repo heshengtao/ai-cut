@@ -5,8 +5,9 @@
  * 这里；找不到时回退到默认苹方，保证旧工程 / 换机器时不会变成无衬线。
  */
 import { computed, ref } from "vue";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@/platform/tauri";
 import { listFonts, type InstalledFont } from "./fontsApi";
+import { setInstalledFontResolver } from "./fontStack";
 import { isTauri } from "@/utils/platform";
 import type { Project } from "@/types/project";
 
@@ -38,11 +39,11 @@ export function findInstalledFont(id: string): InstalledFont | undefined {
   return byId.value.get(id);
 }
 
-/** 已安装字体的 CSS 字体栈；未安装返回 null。 */
-export function installedFontStack(id: string): string | null {
+// 领域侧（`clipStyle`）通过这个解析器取字体栈：它不能依赖本模块的 Vue/Tauri 依赖。
+setInstalledFontResolver((id) => {
   const font = byId.value.get(id);
   return font ? `${JSON.stringify(font.family)}, ${FALLBACK_STACK}` : null;
-}
+});
 
 function normalizePath(dir: string, file: string): string {
   return `${dir.replace(/\\/g, "/").replace(/\/+$/, "")}/${file.replace(/^\/+/, "")}`;

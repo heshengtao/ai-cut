@@ -22,6 +22,7 @@ import {
   MagnifyingGlassPlusIcon,
   PauseIcon,
   PlayIcon,
+  XMarkIcon,
 } from "@heroicons/vue/24/outline";
 import type { Clip, ClipTransform, MediaAsset, Project } from "@/types/project";
 import { activeClipsAt, isVisible, projectDuration } from "@/core/playback/activeClips";
@@ -71,6 +72,7 @@ import {
 import { isTauri } from "@/utils/platform";
 import { usePlaybackStore } from "@/stores/playback";
 import { useProjectStore } from "@/stores/project";
+import { useOnboardingStore } from "@/stores/onboarding";
 import { useEffectRenderStore } from "@/stores/effectRender";
 import {
   useLayoutStore,
@@ -88,6 +90,7 @@ const playback = usePlaybackStore();
 const effectRender = useEffectRenderStore();
 const selection = useSelectionStore();
 const layout = useLayoutStore();
+const onboarding = useOnboardingStore();
 const { importing, importMedia } = useMediaImport();
 const i18n = useI18n();
 const frameBusy = ref(false);
@@ -1770,8 +1773,15 @@ watch(
             draggable="false"
           />
 
-          <div v-if="projectIsEmpty" class="black-frame">
+          <div v-if="projectIsEmpty && !onboarding.coachDismissed" class="black-frame">
             <div class="empty-coach">
+              <button
+                class="coach-close"
+                :aria-label="i18n.t('onboarding.later')"
+                @click="onboarding.dismissCoach()"
+              >
+                <XMarkIcon class="w-[15px] h-[15px]" />
+              </button>
               <svg class="coach-art" viewBox="0 0 180 90" aria-hidden="true" focusable="false">
                 <rect
                   x="10"
@@ -2173,6 +2183,7 @@ watch(
     #000;
 }
 .empty-coach {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2181,8 +2192,27 @@ watch(
   pointer-events: auto;
   animation: m3-rise var(--md-duration-medium-2) var(--md-ease-emphasized-decel) both;
 }
+.coach-close {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.1);
+  color: rgb(255 255 255 / 0.75);
+  cursor: pointer;
+}
+.coach-close:hover {
+  background: rgb(255 255 255 / 0.18);
+  color: #fff;
+}
 .coach-art {
-  width: min(190px, 64%);
+  width: min(208px, 66%);
   height: auto;
   margin-bottom: 6px;
   opacity: 0.9;

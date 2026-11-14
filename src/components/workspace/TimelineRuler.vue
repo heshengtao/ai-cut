@@ -19,8 +19,7 @@ function markerColor(marker: Marker): string | undefined {
 function markerTitle(marker: Marker): string {
   const prefix = marker.severity ? `[${marker.severity}] ` : "";
   const note = marker.note ? `\n${marker.note}` : "";
-  const resolved = marker.resolved ? "\n✓" : "";
-  return `${prefix}${marker.name}${note}${resolved}`;
+  return `${prefix}${marker.name}${note}`;
 }
 
 const props = defineProps<{

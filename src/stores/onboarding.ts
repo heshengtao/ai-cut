@@ -11,16 +11,20 @@ const KEY = "ai-cut-onboarding";
 
 interface Saved {
   welcomeOnStart: boolean;
+  coachDismissed: boolean;
 }
 
-const EMPTY: Saved = { welcomeOnStart: true };
+const EMPTY: Saved = { welcomeOnStart: true, coachDismissed: false };
 
 function load(): Saved {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return EMPTY;
     const parsed = JSON.parse(raw) as Partial<Saved>;
-    return { welcomeOnStart: parsed.welcomeOnStart !== false };
+    return {
+      welcomeOnStart: parsed.welcomeOnStart !== false,
+      coachDismissed: parsed.coachDismissed === true,
+    };
   } catch {
     return EMPTY;
   }
@@ -31,6 +35,8 @@ export const useOnboardingStore = defineStore("onboarding", () => {
 
   /** 启动时是否自动打开欢迎页。 */
   const welcomeOnStart = ref(saved.welcomeOnStart);
+  /** 空工程引导是否被用户关掉（只记偏好，不阻塞编辑）。 */
+  const coachDismissed = ref(saved.coachDismissed);
   /** 欢迎面板是否打开。 */
   const welcomeOpen = ref(false);
   /** 聚光灯引导是否进行中。 */
@@ -44,6 +50,7 @@ export const useOnboardingStore = defineStore("onboarding", () => {
         KEY,
         JSON.stringify({
           welcomeOnStart: welcomeOnStart.value,
+          coachDismissed: coachDismissed.value,
         } satisfies Saved),
       );
     } catch {
@@ -53,6 +60,11 @@ export const useOnboardingStore = defineStore("onboarding", () => {
 
   function setWelcomeOnStart(value: boolean): void {
     welcomeOnStart.value = value;
+    persist();
+  }
+
+  function dismissCoach(): void {
+    coachDismissed.value = true;
     persist();
   }
 
@@ -82,6 +94,8 @@ export const useOnboardingStore = defineStore("onboarding", () => {
 
   return {
     welcomeOnStart,
+    coachDismissed,
+    dismissCoach,
     welcomeOpen,
     tourOpen,
     step,

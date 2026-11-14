@@ -249,13 +249,6 @@ onUnmounted(() => {
               </button>
             </div>
 
-            <div class="project-note">
-              <span class="dot" aria-hidden="true" />
-              <span class="project-name">
-                {{ i18n.t("onboarding.projectNote", { name: projectName }) }}
-              </span>
-            </div>
-
             <div class="foot">
               <button class="link" @click="close">{{ i18n.t("onboarding.later") }}</button>
               <button class="tour-btn" @click="startTour">

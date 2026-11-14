@@ -1,6 +1,6 @@
 /** 导出相关的 Tauri 命令与事件封装。 */
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@/platform/tauri";
+import { listen, type UnlistenFn } from "@/platform/tauri";
 import type { ExportProgress } from "@/types/export";
 
 export interface ExportJob {

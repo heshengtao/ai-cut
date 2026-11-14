@@ -57,7 +57,7 @@
 <style scoped>
 .art {
   width: 100%;
-  max-width: 180px;
+  max-width: 132px;
   height: auto;
   display: block;
   margin: 0 auto;

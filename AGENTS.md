@@ -10,9 +10,35 @@
 
 - Frontend tests: `pnpm test`
 - Type-check + build: `pnpm build`
+- Headless domain engine: `pnpm domain:golden` (rebuild `crates/daemon/assets/domain.js` + the
+  V8 golden), then `cargo test --manifest-path crates/daemon/Cargo.toml`. If you change
+  `src/core/{ops,commands,serialize,...}`, regenerate the golden — CI diffs it.
 - Rust tests: `cargo test --lib` (in `src-tauri`). The CUDA session check is opt-in:
   `AICUT_TEST_RUNTIME=<runtime/ort/cuda or cuda13> AICUT_TEST_MODEL=<a .onnx>` then
   `cargo test --lib cuda_runs_a_model -- --ignored --nocapture`.
+
+## Web access / headless daemon
+
+- The Tauri-free core lives in `crates/daemon`: `Host` trait, data paths, project/media/export
+  commands, the QuickJS document engine, and the HTTP server (`/rpc`, `/events`, `/file`,
+  `/upload`, static `dist`). **Do not add `tauri` imports there** — `aicutd` and the Docker
+  image depend on it compiling without GTK/WebKit.
+- `src-tauri` commands are thin wrappers that build `TauriHost` and call the daemon functions;
+  keep media/project/export implementations in one place only.
+- Browser transport lives in `src/platform/tauri.ts` (`invoke` / `listen` / `convertFileSrc`
+  switch between Tauri and HTTP). Command names and argument names stay identical to Rust.
+- Access token is `<data dir>/web-token`, passed as `?token=` (WS/SSE/`<video>` cannot send
+  headers). The desktop server binds `127.0.0.1:28440`; LAN binding is `web.json` (`lan`,
+  `port`) and requires a restart. Settings → General → Web access shows the URL.
+- `aicutd --data-dir <path> --port <n> [--lan] [--dist <dir>]` is the headless entry; it prints
+  the tokenised URL. Dockerfile builds only `aicutd` (no window, ffmpeg from the image).
+- Shared live session: desktop and browser clients all publish edits to `WS /session`
+  (`session_publish` with `origin` + `affected` + `full`); the daemon broadcasts them and every
+  other client merges only the affected tracks/assets (`src/core/sessionMerge.ts`). Both sides
+  are read-write and always share one project. `hello` is a full snapshot; every client ignores
+  messages whose `origin` is its own id. Undo/redo and project replacement publish `full`.
+  Playhead is still desktop → browser only. When changing the session payload, update both the
+  Tauri command (`src-tauri/src/session.rs`) and the HTTP RPC (`crates/daemon/src/rpc.rs`).
 
 ## Timeline context menu
 

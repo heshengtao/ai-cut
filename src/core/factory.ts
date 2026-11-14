@@ -1,7 +1,7 @@
 /** 领域对象构造器：统一 id 生成与默认值。 */
 import type { Clip, ClipTextStyle, Marker, MediaAsset, Project, Track } from "@/types/project";
 import { PROJECT_VERSION } from "@/types/project";
-import { t } from "@/i18n";
+import { t } from "@/i18n/translate";
 
 function newId(): string {
   return crypto.randomUUID();

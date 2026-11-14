@@ -1,5 +1,5 @@
 /** 磁盘剩余空间探测（下载前的尽力预检）。 */
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/platform/tauri";
 import { isTauri } from "@/utils/platform";
 
 /**

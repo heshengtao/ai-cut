@@ -1,6 +1,6 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/platform/tauri";
 import App from "./App.vue";
 import { initTheme } from "./composables/useTheme";
 import { isTauri } from "./utils/platform";

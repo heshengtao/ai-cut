@@ -1,5 +1,5 @@
 /** 片段外观：文字样式、混合模式、描边、阴影与圆角的默认值 / 归一化。 */
-import { installedFontStack } from "./installedFonts";
+import { installedFontStack } from "./fontStack";
 import type {
   BlendMode,
   Clip,

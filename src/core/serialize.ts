@@ -9,7 +9,7 @@ import {
   normalizeKeyframes,
   type KeyframeInput,
 } from "@/core/keyframes";
-import { t } from "@/i18n";
+import { t } from "@/i18n/translate";
 
 export function serializeProject(project: Project): string {
   return JSON.stringify(project, null, 2);

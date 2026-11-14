@@ -55,6 +55,7 @@ plist = "1"
 walkdir = "2"
 png = "0.17"
 ofx-host = { path = "../crates/ofx-host" }
+aicut-daemon = { path = "../crates/daemon" }
 # ONNX Runtime 由 ort 自带：macOS 含 CoreML、Windows 含 DirectML、Linux 用 CPU。
 # sherpa-onnx 预编译包自带的 ONNX Runtime 不再参与链接（见 crates/sherpa-onnx-sys）。
 # sherpa-onnx 静态库里的 UVR / Spleeter 音源分离 C API（Rust 绑定尚未暴露）。
