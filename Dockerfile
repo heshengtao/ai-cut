@@ -103,6 +103,9 @@ COPY --from=web /src/dist /opt/aicut/dist
 COPY src-tauri/resources/models /opt/aicut/models
 # 运行阶段的 ORT 来自构建阶段下载的那一份（`resources/ort` 在 macOS 上是空的）。
 COPY --from=build /opt/ort-bundle/lib/libonnxruntime.so.1.30.0 /opt/aicut/ort/
+# 兼容两种文件名：加载器先认裸名 `libonnxruntime.so`，再扫带版本号的那份
+# （`ai_session::ort_library_in`）。这里建一个符号链接，让两套逻辑都能命中。
+RUN ln -sf /opt/aicut/ort/libonnxruntime.so.1.30.0 /opt/aicut/ort/libonnxruntime.so
 # 与桌面同款的静态 ffmpeg / ffprobe（无外部 .so 依赖，版本也一致）。
 COPY --from=web /opt/ffmpeg-static /usr/local/bin/ffmpeg
 COPY --from=web /opt/ffprobe-static /usr/local/bin/ffprobe

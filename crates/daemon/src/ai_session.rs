@@ -322,6 +322,36 @@ const ORT_LIBRARY: &str = "libonnxruntime.so";
 #[allow(dead_code)]
 const ORT_LIBRARY: &str = "libonnxruntime.dylib";
 
+/// 在目录里找 ONNX Runtime 本体，**兼容带版本号的文件名**。
+///
+/// 发行包里常见 `libonnxruntime.so.1.30.0` / `libonnxruntime.so.1.26.0`（Linux）和
+/// `onnxruntime.dll`（Windows）。镜像里如果只带了版本化的那份，按裸名 `join` 就会
+/// 找不到 → 会话创建直接 panic。这里先认裸名，再扫同前缀（`libonnxruntime.so*`）。
+fn ort_library_in(dir: &std::path::Path) -> Option<PathBuf> {
+    let exact = dir.join(ORT_LIBRARY);
+    if exact.is_file() {
+        return Some(exact);
+    }
+    // 前缀规则：`libonnxruntime.so` → `libonnxruntime.so.1.30.0`。
+    // 三个平台统一按这个规则扫：Windows 上没有这种文件名时自然扫不到，没有副作用。
+    let prefix = format!("{ORT_LIBRARY}.");
+    let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(&prefix))
+        })
+        .collect();
+    // 多个版本共存时取名字最大的（语义上是更新的版本），保证同一台机器行为稳定。
+    found.sort();
+    found.pop()
+}
+
 /// 启动时调用：按偏好加载 CUDA 运行时或随包基线。macOS 是静态链接，直接返回。
 pub fn init_runtime(host: Arc<dyn Host>) -> Result<Option<PathBuf>, String> {
     // 只记下宿主：真正的加载推迟到第一次建会话（见 `ensure_runtime_loaded`）。
@@ -419,7 +449,7 @@ fn bundled_dir(host: &dyn Host) -> Option<PathBuf> {
     candidates.push(dev_resource_dir().join("ort"));
     candidates
         .into_iter()
-        .find(|dir| dir.join(ORT_LIBRARY).is_file())
+        .find(|dir| ort_library_in(dir).is_some())
 }
 
 /// 创建 ORT 会话 builder。
@@ -458,7 +488,8 @@ fn load_ort(dir: &std::path::Path, flavor: Option<u8>) -> Result<(), String> {
     //    `ort::Error`，而它在构造错误信息时就去拿 ORT 的 API 指针；此刻 dylib 还没
     //    初始化，于是退回裸文件名去系统目录抓一份老版本 → `expect` 直接 panic。
     //    上面用的 `ort::util::preload_dylib` 只返回 `libloading::Error`，没有这个坑。
-    let library = dir.join(ORT_LIBRARY);
+    let library = ort_library_in(dir)
+        .ok_or_else(|| format!("{} 里没有 {ORT_LIBRARY}", dir.display()))?;
     ort::init_from(&library)
         .map_err(|error| format!("加载 {} 失败：{error}", library.display()))?
         .with_name("ai-cut")
@@ -1644,4 +1675,43 @@ mod tests {
         let outputs = session.run(ort::inputs![tensor]).expect("推理失败");
         eprintln!("推理完成：{name} → {} 个输出", outputs.len());
     }
+
+#[cfg(test)]
+mod ort_library_tests {
+    use super::*;
+
+    #[test]
+    fn finds_versioned_library_names() {
+        let dir = std::env::temp_dir().join(format!(
+            "aicut-ort-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 只有裸名：直接用
+        std::fs::write(dir.join(ORT_LIBRARY), b"x").unwrap();
+        assert_eq!(
+            ort_library_in(&dir).unwrap().file_name().unwrap(),
+            ORT_LIBRARY
+        );
+
+        // 只有版本化名字（镜像里就是这种）：也要能找到
+        let _ = std::fs::remove_file(dir.join(ORT_LIBRARY));
+        std::fs::write(dir.join(format!("{ORT_LIBRARY}.1.30.0")), b"x").unwrap();
+        let found = ort_library_in(&dir).expect("版本化文件名要能认出来");
+        assert!(
+            found.file_name().unwrap().to_string_lossy().ends_with(".1.30.0"),
+            "{}",
+            found.display()
+        );
+
+        // 多个版本：取名字最大的那个
+        std::fs::write(dir.join(format!("{ORT_LIBRARY}.1.26.0")), b"x").unwrap();
+        let found = ort_library_in(&dir).unwrap();
+        assert!(found.file_name().unwrap().to_string_lossy().ends_with(".1.30.0"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
 }
