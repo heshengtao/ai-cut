@@ -3,8 +3,22 @@
 /dist
 /docs
 /assets
-/src-tauri
 .git
 .tmp
 .cache
 .workbuddy-ai
+
+# 只挡掉 `src-tauri` 里**构建用不到**的部分：`src-tauri/resources` 必须留在上下文里，
+# 否则镜像里就没有随包模型 / ONNX Runtime，桌面能用的本地 AI 在容器里会静默失效。
+src-tauri/src
+src-tauri/gen
+src-tauri/icons
+src-tauri/capabilities
+src-tauri/nsis
+src-tauri/assets
+src-tauri/target
+src-tauri/Cargo.toml
+src-tauri/Cargo.lock
+src-tauri/build.rs
+src-tauri/tauri.conf.json
+src-tauri/binaries

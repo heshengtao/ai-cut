@@ -229,7 +229,21 @@ docker build -t ai-cut .
 docker run -d --name ai-cut -p 28440:28440 -v aicut-data:/data ai-cut
 ```
 
-The image is Alpine-based (multi-stage) and ships ffmpeg; open <http://localhost:28440>.
+The image is Debian slim based (multi-stage, ~430 MB) and ships the same static ffmpeg/ffprobe as the desktop app, plus the 5 bundled models and ONNX Runtime (arch is checked against the ELF header at build time); open <http://localhost:28440>.
+
+**The container matches the desktop app** except where physics says otherwise:
+
+| Capability | Desktop | Container / browser |
+| --- | --- | --- |
+| Editing / subtitles / export / fonts | ✅ | ✅ same daemon implementation |
+| Local inference: ASR, TTS, denoise, stem separation, upscale, interpolation, voice change | ✅ | ✅ same daemon implementation (CPU, slower) |
+| Model & runtime management, cloud image/TTS, loudness, video processing | ✅ | ✅ |
+| Agent / MCP | ✅ 62 tools | ✅ the same 62 tools (editing macros, clip-level AI, export & render, project lifecycle, undo/redo, review notes, film manifests, background jobs) |
+| OFX effects | ✅ including whole-clip bakes | ✅ frame / image / transition previews **and** whole-clip + transition baking (single-process sequential bake) |
+| Plugin install / import / remove | ✅ | ✅ (`reveal in file manager` needs the desktop) |
+| Native plugin GUIs, system dialogs / browser launch, GPU generation | ✅ | ⛔ no window / desktop session / GPU |
+
+Models are downloaded on first use (Settings → Models) through the configured proxy; the 5 bundled models work out of the box.
 
 ### Headless binary
 
@@ -269,8 +283,13 @@ every screen works in both shells; the browser build is the same app talking to 
 backend over the network.
 
 In headless mode projects, imported media and exports live in the data directory; ffmpeg
-comes from the image. Local AI (CUDA / ONNX Runtime, plugins) stays desktop-only and the
-browser hides those entries.
+comes from the image.
+
+Local AI (ASR / TTS / denoise / separation / upscale / voice change), model and runtime
+management, plugins/OFX and the editing agent are **not wired into the headless backend
+yet** — that is migration debt, not a product boundary. `GET /rpc/capabilities` declares,
+per feature, whether it is available, missing a component, or not ported yet, and the UI
+gates on that instead of guessing with `isTauri()`.
 
 ## FAQ
 
