@@ -9,7 +9,7 @@
  * - 「帮助」里放快速上手 / 快捷键 / 仓库。
  */
 import { computed, ref } from "vue";
-import { invoke } from "@/platform/tauri";
+import { openExternal } from "@/platform/tauri";
 import {
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
@@ -116,9 +116,7 @@ function onHelpAction(id: string): void {
 
 /** 在系统浏览器里打开 GitHub 仓库（浏览器调试时退回新标签页）。 */
 function openRepository(): void {
-  void invoke("open_external_url", { url: REPO_URL }).catch(() => {
-    window.open(REPO_URL, "_blank", "noopener");
-  });
+  openExternal(REPO_URL);
 }
 
 /** AI 剪辑 = 打开右侧的智能体面板。它是这个应用的主张，给它唯一的实心按钮。 */

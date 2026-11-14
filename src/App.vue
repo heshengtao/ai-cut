@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 应用根：布局初始化 + 自动保存 + 启动时检查恢复草稿 + 全局快捷键。 */
 import { onMounted, onUnmounted, ref } from "vue";
-import { invoke } from "@/platform/tauri";
+import { openExternal } from "@/platform/tauri";
 import AppShell from "@/components/layout/AppShell.vue";
 import Logo from "@/components/common/Logo.vue";
 import Toast from "@/components/common/Toast.vue";
@@ -61,10 +61,8 @@ const restoreOverlay = ref(false);
 let restoreTimer: number | undefined;
 
 function openReleaseNotes(version: string): void {
-  const url = releaseNotesUrl(version);
-  void invoke("open_external_url", { url }).catch(() => {
-    window.open(url, "_blank", "noopener");
-  });
+  // `openExternal` 自己分环境：桌面走系统浏览器，浏览器直接开新标签。
+  openExternal(releaseNotesUrl(version));
 }
 
 function onWindowResize(): void {

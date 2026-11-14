@@ -10,10 +10,13 @@ import { EVENT_IMAGE_GEN } from "@/types/imageGen";
 import { isTauri } from "@/utils/platform";
 
 export function imageGenStart(request: ImageGenRequest): Promise<ImageGenResult> {
+  // 出图要靠桌面端的 stable-diffusion.cpp 与模型目录，无头 daemon 里没有。
+  if (!isTauri()) return Promise.reject(new Error("AI 出图需要在桌面应用中使用"));
   return invoke<ImageGenResult>("image_gen_start", { request });
 }
 
 export function imageGenCancel(): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
   return invoke<void>("image_gen_cancel");
 }
 

@@ -10,10 +10,13 @@ import { EVENT_VIDEO_GEN } from "@/types/videoGen";
 import { isTauri } from "@/utils/platform";
 
 export function videoGenStart(request: VideoGenRequest): Promise<VideoGenResult> {
+  // 同出图：桌面端的本地扩散后端，无头 daemon 没接。
+  if (!isTauri()) return Promise.reject(new Error("AI 视频生成需要在桌面应用中使用"));
   return invoke<VideoGenResult>("video_gen_start", { request });
 }
 
 export function videoGenCancel(): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
   return invoke<void>("video_gen_cancel");
 }
 

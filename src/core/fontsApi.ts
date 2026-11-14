@@ -1,6 +1,16 @@
 /** 字体库 IPC：Fontsource 注册表、安装 / 删除、进度事件。 */
 import { invoke } from "@/platform/tauri";
 import { listen, type UnlistenFn } from "@/platform/tauri";
+import { isTauri } from "@/utils/platform";
+
+/**
+ * 字体安装 / 删除要靠桌面端的字体目录与解包逻辑，浏览器模式下明确拒绝。
+ *
+ * 不这么写就会打到 daemon 上换来一句 `未知命令：font_install`——界面上看是"点了没反应"。
+ */
+function desktopOnly<T>(label: string): Promise<T> {
+  return Promise.reject(new Error(`${label}需要在桌面应用中使用`));
+}
 
 /** Fontsource `/v1/fonts` 列表项（只声明用到的字段）。 */
 export interface FontSourceSummary {
@@ -82,18 +92,22 @@ export function listFonts(): Promise<InstalledFont[]> {
 }
 
 export function installFont(id: string, weights: number[]): Promise<InstalledFont> {
+  if (!isTauri()) return desktopOnly("字体安装");
   return invoke("font_install", { id, weights });
 }
 
 export function cancelFontInstall(id?: string): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
   return invoke("font_cancel", { id });
 }
 
 export function removeFont(id: string): Promise<void> {
+  if (!isTauri()) return desktopOnly("删除字体");
   return invoke("font_remove", { id });
 }
 
 export function revealFont(id: string): Promise<void> {
+  if (!isTauri()) return Promise.resolve();
   return invoke("font_reveal", { id });
 }
 
@@ -107,6 +121,7 @@ export function importFont(
   weight?: number,
   style?: string,
 ): Promise<InstalledFont> {
+  if (!isTauri()) return desktopOnly("导入字体");
   return invoke("font_import", { path, family, weight, style });
 }
 
