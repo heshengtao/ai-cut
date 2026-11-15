@@ -2386,7 +2386,112 @@ var AICUT = (() => {
     "board.toolbar": "Canvas toolbar",
     "board.pan": "Pan mode",
     "board.zoomOut": "Zoom out",
-    "board.zoom": "{value}%"
+    "board.zoom": "{value}%",
+    // ---- Board nodes ----
+    "board.undo": "Undo",
+    "board.redo": "Redo",
+    "board.fit": "Fit view",
+    "board.zoomIn": "Zoom in",
+    "board.panHint": "Scroll to pan \xB7 drag to marquee",
+    "board.category.input": "Input",
+    "board.category.display": "Display",
+    "board.category.model": "Model",
+    "board.node.inputImage": "Image input",
+    "board.node.inputVideo": "Video input",
+    "board.node.inputAudio": "Audio input",
+    "board.node.inputText": "Text input",
+    "board.node.displayImage": "Image display",
+    "board.node.displayVideo": "Video display",
+    "board.node.displayAudio": "Audio display",
+    "board.node.displayText": "Text display",
+    "board.node.noAsset": "No media yet",
+    "board.node.noText": "Empty text",
+    "board.node.modelHint": "Model node",
+    "board.port.image": "Image",
+    "board.port.video": "Video",
+    "board.port.audio": "Audio",
+    "board.port.text": "Text",
+    "board.param.text": "Text",
+    "board.param.textMode": "Render as",
+    "board.textMode.markdown": "Markdown",
+    "board.textMode.plain": "Plain text",
+    "board.status.idle": "Idle",
+    "board.status.queued": "Queued",
+    "board.status.running": "Running",
+    "board.status.done": "Done",
+    "board.status.error": "Failed",
+    "board.status.stale": "Upstream changed",
+    "panel.boardInspector": "Node inspector",
+    "panel.boardInspectorHint": "Parameters, media and run state of a canvas node",
+    "board.inspect.node": "Node",
+    "board.inspect.media": "Media",
+    "board.inspect.params": "Parameters",
+    "board.inspect.actions": "Actions",
+    "board.inspect.pickFile": "Choose file",
+    "board.inspect.pickAsset": "Pick from library",
+    "board.inspect.clearMedia": "Clear",
+    "board.inspect.insertTimeline": "Insert into current part",
+    "board.inspect.inserted": "Inserted into the current part",
+    "board.inspect.insertFailed": "Unknown duration \u2014 could not insert",
+    "board.inspect.copyPath": "Copy path",
+    "board.inspect.pathCopied": "Media path copied",
+    "board.inspect.empty": "No node selected",
+    "board.inspect.emptyHint": "Select a node on the canvas to edit its parameters, media and run state here.",
+    "board.node.modelImage": "Image generation",
+    "board.node.modelVideo": "Video generation",
+    "board.node.modelTts": "Text to speech",
+    "board.node.modelAsr": "Speech to text",
+    "board.node.modelText": "Text \xB7 LLM",
+    "board.node.modelEnhance": "Picture enhance",
+    "board.node.modelSeparate": "Audio separation",
+    "board.param.model": "Model",
+    "board.param.prompt": "Prompt",
+    "board.param.negative": "Negative prompt",
+    "board.param.width": "Width",
+    "board.param.height": "Height",
+    "board.param.steps": "Steps",
+    "board.param.seed": "Seed",
+    "board.param.seconds": "Seconds",
+    "board.param.scale": "Scale",
+    "board.param.factor": "Interpolation",
+    "board.param.enhanceOp": "Operation",
+    "board.param.refImage": "Reference image",
+    "board.port.firstFrame": "First frame",
+    "board.port.lastFrame": "Last frame",
+    "board.port.refImage": "Ref image",
+    "board.port.refAudio": "Ref audio",
+    "board.port.refVideo": "Ref video",
+    "board.textMode.chat": "Chat",
+    "board.textMode.template": "Template",
+    "board.enhance.upscale": "Upscale",
+    "board.enhance.interpolate": "Interpolate",
+    "board.run.run": "Run",
+    "board.run.stop": "Stop",
+    "board.run.mode": "Run mode",
+    "board.run.manual": "Run once",
+    "board.run.always": "Auto re-run",
+    "board.run.repeat": "Repeat N times",
+    "board.run.none": "Mark only",
+    "board.run.queued": "{count} queued",
+    "board.run.done": "Run finished",
+    "board.run.failed": "Run failed",
+    "board.run.empty": "No runnable node",
+    "board.run.needSelection": "Select a node first",
+    "board.inspect.run": "Run this node",
+    "board.inspect.model": "Model source",
+    "board.inspect.output": "Output",
+    "board.inspect.outputEmpty": "No output yet",
+    "board.inspect.missing": "not installed",
+    "board.inspect.cloud": "cloud",
+    "board.inspect.pickModel": "Pick a model",
+    "board.inspect.chars": "{count} chars",
+    "board.ctx.ignore": "Disable node",
+    "board.ctx.enable": "Enable node",
+    "board.ctx.duplicate": "Duplicate node",
+    "board.dropHint": "Drop to import and create an input node",
+    "board.inspect.download": "Download",
+    "board.ctx.download": "Download",
+    "board.download.done": "Saved {name}"
   };
   var en_default = en;
 
@@ -4742,7 +4847,112 @@ var AICUT = (() => {
     "board.toolbar": "\u753B\u5E03\u5DE5\u5177\u680F",
     "board.pan": "\u62D6\u52A8\u6A21\u5F0F",
     "board.zoomOut": "\u7F29\u5C0F",
-    "board.zoom": "{value}%"
+    "board.zoom": "{value}%",
+    // ---- 画布节点 ----
+    "board.undo": "\u64A4\u9500",
+    "board.redo": "\u91CD\u505A",
+    "board.fit": "\u9002\u5E94\u89C6\u56FE",
+    "board.zoomIn": "\u653E\u5927",
+    "board.panHint": "\u6EDA\u8F6E\u5E73\u79FB \xB7 \u6846\u9009\u591A\u9009",
+    "board.category.input": "\u8F93\u5165",
+    "board.category.display": "\u663E\u793A",
+    "board.category.model": "\u6A21\u578B",
+    "board.node.inputImage": "\u56FE\u7247\u8F93\u5165",
+    "board.node.inputVideo": "\u89C6\u9891\u8F93\u5165",
+    "board.node.inputAudio": "\u97F3\u9891\u8F93\u5165",
+    "board.node.inputText": "\u6587\u672C\u8F93\u5165",
+    "board.node.displayImage": "\u56FE\u7247\u663E\u793A",
+    "board.node.displayVideo": "\u89C6\u9891\u663E\u793A",
+    "board.node.displayAudio": "\u97F3\u9891\u663E\u793A",
+    "board.node.displayText": "\u6587\u672C\u663E\u793A",
+    "board.node.noAsset": "\u672A\u9009\u62E9\u7D20\u6750",
+    "board.node.noText": "\u7A7A\u6587\u672C",
+    "board.node.modelHint": "\u6A21\u578B\u8282\u70B9",
+    "board.port.image": "\u56FE\u7247",
+    "board.port.video": "\u89C6\u9891",
+    "board.port.audio": "\u97F3\u9891",
+    "board.port.text": "\u6587\u672C",
+    "board.param.text": "\u6587\u672C\u5185\u5BB9",
+    "board.param.textMode": "\u6E32\u67D3\u65B9\u5F0F",
+    "board.textMode.markdown": "Markdown",
+    "board.textMode.plain": "\u7EAF\u6587\u672C",
+    "board.status.idle": "\u7A7A\u95F2",
+    "board.status.queued": "\u6392\u961F\u4E2D",
+    "board.status.running": "\u8FD0\u884C\u4E2D",
+    "board.status.done": "\u5B8C\u6210",
+    "board.status.error": "\u5931\u8D25",
+    "board.status.stale": "\u5DF2\u8FC7\u671F",
+    "panel.boardInspector": "\u8282\u70B9\u68C0\u67E5\u5668",
+    "panel.boardInspectorHint": "\u753B\u5E03\u8282\u70B9\u7684\u53C2\u6570\u3001\u7D20\u6750\u4E0E\u8FD0\u884C\u72B6\u6001",
+    "board.inspect.node": "\u8282\u70B9",
+    "board.inspect.media": "\u7D20\u6750",
+    "board.inspect.params": "\u53C2\u6570",
+    "board.inspect.actions": "\u64CD\u4F5C",
+    "board.inspect.pickFile": "\u9009\u62E9\u672C\u5730\u6587\u4EF6",
+    "board.inspect.pickAsset": "\u4ECE\u7D20\u6750\u5E93\u9009\u62E9",
+    "board.inspect.clearMedia": "\u6E05\u9664",
+    "board.inspect.insertTimeline": "\u63D2\u5165\u5F53\u524D\u5206P \u65F6\u95F4\u7EBF",
+    "board.inspect.inserted": "\u5DF2\u63D2\u5165\u5F53\u524D\u5206P \u65F6\u95F4\u7EBF",
+    "board.inspect.insertFailed": "\u7D20\u6750\u65F6\u957F\u672A\u77E5\uFF0C\u672A\u80FD\u63D2\u5165\u65F6\u95F4\u7EBF",
+    "board.inspect.copyPath": "\u590D\u5236\u8DEF\u5F84",
+    "board.inspect.pathCopied": "\u5DF2\u590D\u5236\u7D20\u6750\u8DEF\u5F84",
+    "board.inspect.empty": "\u6CA1\u6709\u9009\u4E2D\u8282\u70B9",
+    "board.inspect.emptyHint": "\u5728\u753B\u5E03\u4E0A\u70B9\u9009\u4E00\u4E2A\u8282\u70B9\uFF0C\u53C2\u6570\u3001\u7D20\u6750\u4E0E\u8FD0\u884C\u72B6\u6001\u90FD\u5728\u8FD9\u91CC\u7F16\u8F91\u3002",
+    "board.node.modelImage": "\u56FE\u50CF\u751F\u6210",
+    "board.node.modelVideo": "\u89C6\u9891\u751F\u6210",
+    "board.node.modelTts": "\u8BED\u97F3\u5408\u6210",
+    "board.node.modelAsr": "\u8BED\u97F3\u8BC6\u522B",
+    "board.node.modelText": "\u6587\u672C \xB7 LLM",
+    "board.node.modelEnhance": "\u753B\u9762\u589E\u5F3A",
+    "board.node.modelSeparate": "\u97F3\u9891\u5206\u79BB",
+    "board.param.model": "\u6A21\u578B",
+    "board.param.prompt": "\u63D0\u793A\u8BCD",
+    "board.param.negative": "\u53CD\u5411\u63D0\u793A\u8BCD",
+    "board.param.width": "\u5BBD",
+    "board.param.height": "\u9AD8",
+    "board.param.steps": "\u91C7\u6837\u6B65\u6570",
+    "board.param.seed": "\u968F\u673A\u79CD\u5B50",
+    "board.param.seconds": "\u65F6\u957F\uFF08\u79D2\uFF09",
+    "board.param.scale": "\u653E\u5927\u500D\u6570",
+    "board.param.factor": "\u63D2\u5E27\u500D\u6570",
+    "board.param.enhanceOp": "\u5904\u7406\u65B9\u5F0F",
+    "board.param.refImage": "\u53C2\u8003\u56FE",
+    "board.port.firstFrame": "\u9996\u5E27",
+    "board.port.lastFrame": "\u5C3E\u5E27",
+    "board.port.refImage": "\u53C2\u8003\u56FE",
+    "board.port.refAudio": "\u53C2\u8003\u97F3\u9891",
+    "board.port.refVideo": "\u53C2\u8003\u89C6\u9891",
+    "board.textMode.chat": "\u5BF9\u8BDD",
+    "board.textMode.template": "\u6A21\u677F\u62FC\u63A5",
+    "board.enhance.upscale": "\u8D85\u5206",
+    "board.enhance.interpolate": "\u63D2\u5E27",
+    "board.run.run": "\u8FD0\u884C",
+    "board.run.stop": "\u505C\u6B62",
+    "board.run.mode": "\u8FD0\u884C\u6A21\u5F0F",
+    "board.run.manual": "\u624B\u52A8\u8FD0\u884C\u4E00\u6B21",
+    "board.run.always": "\u81EA\u52A8\u91CD\u8DD1",
+    "board.run.repeat": "\u91CD\u590D N \u6B21",
+    "board.run.none": "\u53EA\u6807\u8BB0\u4E0D\u8FD0\u884C",
+    "board.run.queued": "\u961F\u5217 {count}",
+    "board.run.done": "\u8FD0\u884C\u5B8C\u6210",
+    "board.run.failed": "\u8FD0\u884C\u5931\u8D25",
+    "board.run.empty": "\u6CA1\u6709\u53EF\u8FD0\u884C\u7684\u8282\u70B9",
+    "board.run.needSelection": "\u5148\u9009\u4E2D\u4E00\u4E2A\u8282\u70B9",
+    "board.inspect.run": "\u8FD0\u884C\u6B64\u8282\u70B9",
+    "board.inspect.model": "\u6A21\u578B\u6765\u6E90",
+    "board.inspect.output": "\u8F93\u51FA",
+    "board.inspect.outputEmpty": "\u8FD8\u6CA1\u6709\u8F93\u51FA",
+    "board.inspect.missing": "\u672A\u5B89\u88C5",
+    "board.inspect.cloud": "\u4E91\u7AEF",
+    "board.inspect.pickModel": "\u9009\u62E9\u6A21\u578B",
+    "board.inspect.chars": "{count} \u5B57",
+    "board.ctx.ignore": "\u7981\u7528\u8282\u70B9",
+    "board.ctx.enable": "\u542F\u7528\u8282\u70B9",
+    "board.ctx.duplicate": "\u590D\u5236\u8282\u70B9",
+    "board.dropHint": "\u677E\u624B\u5BFC\u5165\u7D20\u6750\u5E76\u521B\u5EFA\u8F93\u5165\u8282\u70B9",
+    "board.inspect.download": "\u4E0B\u8F7D\u5230\u672C\u5730",
+    "board.ctx.download": "\u4E0B\u8F7D\u5230\u672C\u5730",
+    "board.download.done": "\u5DF2\u4FDD\u5B58 {name}"
   };
   var zh_default = zh;
 
@@ -6287,6 +6497,122 @@ var AICUT = (() => {
     return { doc: next, affected: diffAffected(doc2, next) };
   }
 
+  // src/types/board.ts
+  var BOARD_VERSION = 1;
+  var DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 };
+
+  // src/core/board/schema.ts
+  function emptyBoard() {
+    return {
+      version: BOARD_VERSION,
+      nodes: [],
+      edges: [],
+      viewport: { ...DEFAULT_VIEWPORT },
+      updatedAt: Date.now()
+    };
+  }
+  var PORT_TYPES = ["text", "image", "video", "audio", "any"];
+  function isObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+  function isPortType(value) {
+    return typeof value === "string" && PORT_TYPES.includes(value);
+  }
+  function normalizeParams(raw) {
+    if (!isObject(raw)) return {};
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (value === void 0) continue;
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        out[key] = value;
+      }
+    }
+    return out;
+  }
+  function normalizeBindings(raw) {
+    if (!isObject(raw)) return {};
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (!isObject(value)) continue;
+      if (typeof value.nodeId !== "string" || typeof value.portId !== "string") continue;
+      out[key] = { nodeId: value.nodeId, portId: value.portId };
+    }
+    return out;
+  }
+  function normalizeNode(raw) {
+    if (!isObject(raw)) return null;
+    if (typeof raw.id !== "string" || !raw.id || typeof raw.type !== "string" || !raw.type) return null;
+    const position = isObject(raw.position) ? raw.position : {};
+    const x = typeof position.x === "number" && Number.isFinite(position.x) ? position.x : 0;
+    const y = typeof position.y === "number" && Number.isFinite(position.y) ? position.y : 0;
+    const rawData = isObject(raw.data) ? raw.data : {};
+    const data = {
+      params: normalizeParams(rawData.params),
+      bindings: normalizeBindings(rawData.bindings)
+    };
+    if (typeof rawData.title === "string" && rawData.title) data.title = rawData.title;
+    if (typeof rawData.assetId === "string" && rawData.assetId) data.assetId = rawData.assetId;
+    if (typeof rawData.outputAssetId === "string" && rawData.outputAssetId) {
+      data.outputAssetId = rawData.outputAssetId;
+    }
+    if (typeof rawData.outputText === "string" && rawData.outputText) data.outputText = rawData.outputText;
+    if (typeof rawData.error === "string" && rawData.error) data.error = rawData.error;
+    if (typeof rawData.progress === "number" && Number.isFinite(rawData.progress)) {
+      data.progress = Math.max(0, Math.min(1, rawData.progress));
+    }
+    if (rawData.ignored === true) data.ignored = true;
+    const status = rawData.status;
+    if (status === "idle" || status === "queued" || status === "running" || status === "done" || status === "error" || status === "stale") {
+      data.status = status;
+    }
+    const node = { id: raw.id, type: raw.type, position: { x, y }, data };
+    if (isObject(raw.size)) {
+      const width = typeof raw.size.width === "number" ? raw.size.width : 0;
+      const height = typeof raw.size.height === "number" ? raw.size.height : 0;
+      if (width > 80 && height > 60) node.size = { width, height };
+    }
+    return node;
+  }
+  function normalizeBoard(raw, portTypeOf) {
+    if (!isObject(raw)) return emptyBoard();
+    const nodes = Array.isArray(raw.nodes) ? raw.nodes.map(normalizeNode).filter((node) => node !== null) : [];
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const edges = [];
+    const seen = /* @__PURE__ */ new Set();
+    if (Array.isArray(raw.edges)) {
+      for (const item of raw.edges) {
+        if (!isObject(item)) continue;
+        const { id, source, sourcePort, target, targetPort } = item;
+        if (typeof id !== "string" || !id || seen.has(id)) continue;
+        if (typeof source !== "string" || typeof target !== "string") continue;
+        if (typeof sourcePort !== "string" || typeof targetPort !== "string") continue;
+        if (!nodeIds.has(source) || !nodeIds.has(target)) continue;
+        if (source === target) continue;
+        if (portTypeOf) {
+          const from = portTypeOf(source, sourcePort, "out");
+          const to = portTypeOf(target, targetPort, "in");
+          if (!from || !to || !isPortType(from) || !isPortType(to)) continue;
+        }
+        seen.add(id);
+        edges.push({ id, source, sourcePort, target, targetPort });
+      }
+    }
+    const rawViewport = isObject(raw.viewport) ? raw.viewport : {};
+    const zoom = typeof rawViewport.zoom === "number" && Number.isFinite(rawViewport.zoom) ? Math.min(2.2, Math.max(0.15, rawViewport.zoom)) : 1;
+    const viewport = {
+      x: typeof rawViewport.x === "number" && Number.isFinite(rawViewport.x) ? rawViewport.x : 0,
+      y: typeof rawViewport.y === "number" && Number.isFinite(rawViewport.y) ? rawViewport.y : 0,
+      zoom
+    };
+    return {
+      version: BOARD_VERSION,
+      nodes,
+      edges,
+      viewport,
+      updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now()
+    };
+  }
+
   // src/core/serialize.ts
   function serializeProject(project) {
     const doc2 = attachEpisodeView(project);
@@ -6295,7 +6621,7 @@ var AICUT = (() => {
     delete wire.markers;
     return JSON.stringify(wire, null, 2);
   }
-  function isObject(v) {
+  function isObject2(v) {
     return typeof v === "object" && v !== null && !Array.isArray(v);
   }
   function isNumber(v) {
@@ -6303,10 +6629,10 @@ var AICUT = (() => {
   }
   function assertTracks(tracks) {
     for (const track of tracks) {
-      if (!isObject(track)) throw new Error(t("error.serialize.badTrack"));
+      if (!isObject2(track)) throw new Error(t("error.serialize.badTrack"));
       if (!Array.isArray(track.clips)) throw new Error(t("error.serialize.badClips"));
       for (const clip of track.clips) {
-        if (!isObject(clip)) throw new Error(t("error.serialize.badClip"));
+        if (!isObject2(clip)) throw new Error(t("error.serialize.badClip"));
         if (!isNumber(clip.start) || !isNumber(clip.duration) || !isNumber(clip.in)) {
           throw new Error(t("error.serialize.badClipTime"));
         }
@@ -6314,7 +6640,7 @@ var AICUT = (() => {
     }
   }
   function assertProjectShape(value) {
-    if (!isObject(value)) throw new Error(t("error.serialize.notObject"));
+    if (!isObject2(value)) throw new Error(t("error.serialize.notObject"));
     if (value.version !== 1 && value.version !== PROJECT_VERSION) {
       throw new Error(
         t("error.serialize.version", {
@@ -6339,7 +6665,7 @@ var AICUT = (() => {
     if (typeof value.activeEpisodeId !== "string" || !value.activeEpisodeId)
       throw new Error(t("error.serialize.badActiveEpisode"));
     for (const episode of value.episodes) {
-      if (!isObject(episode) || typeof episode.id !== "string" || !episode.id)
+      if (!isObject2(episode) || typeof episode.id !== "string" || !episode.id)
         throw new Error(t("error.serialize.badEpisode"));
       if (!Array.isArray(episode.tracks) || !Array.isArray(episode.markers))
         throw new Error(t("error.serialize.badEpisode"));
@@ -6352,7 +6678,7 @@ var AICUT = (() => {
   function legacyKeyframeValue(frames, time, fallback) {
     if (!Array.isArray(frames)) return fallback;
     const points = frames.filter(
-      (frame) => isObject(frame) && isNumber(frame.time) && isNumber(frame.value)
+      (frame) => isObject2(frame) && isNumber(frame.time) && isNumber(frame.value)
     ).map((frame) => ({
       time: frame.time,
       value: frame.value
@@ -6378,13 +6704,13 @@ var AICUT = (() => {
       const frames2 = normalizeKeyframes(raw, clip.duration, base);
       return frames2.length > 0 ? frames2 : void 0;
     }
-    if (!isObject(raw)) return void 0;
+    if (!isObject2(raw)) return void 0;
     const times = /* @__PURE__ */ new Set();
     for (const property of KEYFRAME_PROPERTIES) {
       const frames2 = raw[property];
       if (!Array.isArray(frames2)) continue;
       for (const frame of frames2) {
-        if (isObject(frame) && isNumber(frame.time)) {
+        if (isObject2(frame) && isNumber(frame.time)) {
           times.add(clampValue(frame.time, 0, Math.max(0, clip.duration)));
         }
       }
@@ -6406,13 +6732,13 @@ var AICUT = (() => {
     if (!Array.isArray(raw)) return void 0;
     const scopes = [];
     for (const item of raw) {
-      if (!isObject(item)) continue;
-      if (typeof item.id !== "string" || typeof item.assetId !== "string" || typeof item.trackId !== "string" || !isNumber(item.baseIn) || !isNumber(item.baseOut) || !isNumber(item.baseStart) || !isObject(item.template) || !Array.isArray(item.pieces) || !Array.isArray(item.cuts)) {
+      if (!isObject2(item)) continue;
+      if (typeof item.id !== "string" || typeof item.assetId !== "string" || typeof item.trackId !== "string" || !isNumber(item.baseIn) || !isNumber(item.baseOut) || !isNumber(item.baseStart) || !isObject2(item.template) || !Array.isArray(item.pieces) || !Array.isArray(item.cuts)) {
         continue;
       }
       const cuts = [];
       for (const cut of item.cuts) {
-        if (!isObject(cut) || !isNumber(cut.srcStart) || !isNumber(cut.srcEnd)) continue;
+        if (!isObject2(cut) || !isNumber(cut.srcStart) || !isNumber(cut.srcEnd)) continue;
         cuts.push({
           id: typeof cut.id === "string" && cut.id ? cut.id : crypto.randomUUID(),
           srcStart: cut.srcStart,
@@ -6423,7 +6749,7 @@ var AICUT = (() => {
         });
       }
       const words = Array.isArray(item.words) ? item.words.filter(
-        (word) => isObject(word) && typeof word.text === "string" && isNumber(word.start) && isNumber(word.end)
+        (word) => isObject2(word) && typeof word.text === "string" && isNumber(word.start) && isNumber(word.end)
       ).map((word) => ({ text: word.text, start: word.start, end: word.end })) : [];
       scopes.push({
         id: item.id,
@@ -6470,10 +6796,10 @@ var AICUT = (() => {
     });
   }
   function normalizeMarkers(source) {
-    return Array.isArray(source) ? source.filter((marker) => isObject(marker) && isNumber(marker.time)).map((marker) => {
+    return Array.isArray(source) ? source.filter((marker) => isObject2(marker) && isNumber(marker.time)).map((marker) => {
       const severity = marker.severity === "blocker" || marker.severity === "high" || marker.severity === "medium" || marker.severity === "low" ? marker.severity : void 0;
       const kind = marker.kind === "scene" || marker.kind === "hit" || marker.kind === "review" || marker.kind === "chapter" ? marker.kind : void 0;
-      const bbox = isObject(marker.bbox) && isNumber(marker.bbox.x) && isNumber(marker.bbox.y) && isNumber(marker.bbox.width) && isNumber(marker.bbox.height) ? {
+      const bbox = isObject2(marker.bbox) && isNumber(marker.bbox.x) && isNumber(marker.bbox.y) && isNumber(marker.bbox.width) && isNumber(marker.bbox.height) ? {
         x: marker.bbox.x,
         y: marker.bbox.y,
         width: marker.bbox.width,
@@ -6507,7 +6833,8 @@ var AICUT = (() => {
     }));
     const doc2 = patchProjectMeta(migrated, { episodes });
     const cutScopes2 = normalizeCutScopes(doc2);
-    return patchProjectMeta(doc2, { cutScopes: cutScopes2 });
+    const board = doc2.board === void 0 ? void 0 : normalizeBoard(doc2.board);
+    return patchProjectMeta(doc2, { cutScopes: cutScopes2, board });
   }
   function parseProject(json) {
     let raw;
