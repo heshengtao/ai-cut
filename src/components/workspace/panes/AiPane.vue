@@ -50,6 +50,7 @@ import {
   ASR_SETTINGS_ACTION,
   CLOUD_ASR_PREFIX,
   buildAsrOptions,
+  hasNativeWordTimes,
   parseAsrModelId,
 } from "@/core/asrSources";
 import { useAudioAiStore } from "@/stores/audioAi";
@@ -66,7 +67,12 @@ import { useSelectionStore } from "@/stores/selection";
 import { useI18n } from "@/i18n";
 import { useModelChoice } from "@/composables/useModelChoice";
 import { useImageModelSource } from "@/composables/useImageModelSource";
-import { useEngineSetup, useRuntimeSetup, useVoiceSetup } from "@/composables/useAiSetup";
+import {
+  useAlignerSetup,
+  useEngineSetup,
+  useRuntimeSetup,
+  useVoiceSetup,
+} from "@/composables/useAiSetup";
 import { useModelChoiceStore } from "@/stores/modelChoice";
 import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
 import type { CloudGenPreset, CloudGenProvider } from "@/types/cloudGen";
@@ -148,22 +154,51 @@ const cutTarget = computed(() => {
 
 /** 剪口播：识别模型（下拉框，默认 SenseVoice）+ 必选的对齐器。 */
 const cutModel = computed(() => cutReview.candidateModel());
-const cutModelReady = computed(
-  () => Boolean(cutModel.value?.installed) && cutReview.alignerReady(),
-);
+const cutModelReady = computed(() => cutReview.readyNow());
 const cutMissing = computed(() => cutReview.missingBytesNow());
 const cutAsrOptions = computed<SelectOption[]>(() =>
   buildAsrOptions(
-    models.ofFeature("asr").map((model) => ({
-      id: model.id,
-      label: model.installed ? model.name : `${model.name} · ${humanSize(missingBytes(model))}`,
-    })),
+    [
+      ...models.ofFeature("asr").map((model) => ({
+        id: model.id,
+        label: model.installed ? model.name : `${model.name} · ${humanSize(missingBytes(model))}`,
+        group: i18n.t("ai.asrLocalGroup"),
+      })),
+      ...cloudAsrProviders.value.map((provider) => ({
+        id: `${CLOUD_ASR_PREFIX}${provider.id}`,
+        label: provider.name,
+        group: i18n.t("ai.asrCloudGroup"),
+        hint: hasNativeWordTimes(provider.kind)
+          ? i18n.t(`settings.asr.kind.${provider.kind}`)
+          : i18n.t("ai.cutCloudNeedsAligner"),
+      })),
+    ],
     { label: i18n.t("ai.asrSettings"), hint: i18n.t("ai.asrSettingsHint") },
   ),
 );
 
 /** 缺的模型一次性确认、按顺序下载。 */
-async function downloadCutModels(): Promise<boolean> {
+/**
+ * 缺什么补什么。
+ *
+ * 对齐器（以及它需要的 ORT 运行时组件）走统一的「准备」向导：钩子会先算体积、
+ * 弹 `AiSetupDialog`，确认后并行下载并在需要时切后端 / 提示重启。
+ * 本地识别模型仍走下载管理器，保持原有行为。
+ */
+async function ensureCutDeps(): Promise<boolean> {
+  const alignerMissing = cutReview.alignerRequired && !cutReview.alignerModel()?.installed;
+  const localMissing = !cutReview.usingCloud && Boolean(cutModel.value && !cutModel.value.installed);
+  if (!alignerMissing && !localMissing) return true;
+
+  if (alignerMissing) {
+    alignerSetup.setDone(() => {
+      void startCutReview();
+    });
+    const ready = await alignerSetup.ensure();
+    if (!ready) return false;
+  }
+  if (!localMissing) return true;
+
   const targets = [cutModel.value, cutReview.alignerModel()].filter(
     (model): model is ModelStatus => Boolean(model) && !model!.installed,
   );
@@ -196,13 +231,18 @@ async function startCutReview(): Promise<void> {
     toast(i18n.t("cutReview.selectClip"));
     return;
   }
-  if (!cutModel.value) {
+  if (cutReview.usingCloud && !cutReview.cloudProvider) {
+    toast(i18n.t("cutReview.noCloudService"), "error");
+    layout.openSettings("asr");
+    return;
+  }
+  if (!cutReview.usingCloud && !cutModel.value) {
     toast(i18n.t("cutReview.noModel"), "error");
     layout.openTab("models");
     return;
   }
-  // 与其它卡片一致：缺模型时按钮就是「下载 XX MB」，点一下先下再跑。
-  if (!cutModelReady.value && !(await downloadCutModels())) return;
+  // 与其它卡片一致：缺模型 / 缺对齐器时按钮就是「下载 XX MB」，点一下先下再跑。
+  if (!cutModelReady.value && !(await ensureCutDeps())) return;
   layout.openTab("cutReview");
   try {
     const count = await cutReview.run(target.asset, target.clip);
@@ -1986,6 +2026,7 @@ function openImageEdit(): void {
 
 // ---- AI 变声：缺运行时 / 缺模型先弹「准备」向导，装完自动进变声页 ----
 const voiceSetup = useVoiceSetup(() => voiceChange.modelId);
+const alignerSetup = useAlignerSetup();
 const voiceSetupOpen = voiceSetup.open;
 const voiceSetupPlan = voiceSetup.plan;
 const voiceSetupForced = voiceSetup.forced;

@@ -194,6 +194,18 @@ pub fn kind_max_bytes(kind: CloudAsrKind) -> usize {
     }
 }
 
+/// 该接口是否自带词级/句级时间戳。不带的需要本地对齐器补时间。
+pub fn kind_native_words(kind: CloudAsrKind) -> bool {
+    matches!(
+        kind,
+        CloudAsrKind::Openai
+            | CloudAsrKind::Azure
+            | CloudAsrKind::Google
+            | CloudAsrKind::Tencent
+            | CloudAsrKind::Volcengine
+    )
+}
+
 pub fn normalize(provider: &mut CloudAsrProvider) {
     if provider.id.trim().is_empty() {
         provider.id = uuid::Uuid::new_v4().to_string();
@@ -350,6 +362,18 @@ async fn transcribe_inner(
     if merged.cues.is_empty() {
         return Err("没有识别到语音".into());
     }
+
+    // 云端只给了文本（或只给了句级时间）时，用本地对齐器把词时间补出来。
+    // 服务自带词时间就不碰本地模型——那一路本来就更准、也更快。
+    if want_words && !merged.timed {
+        let aligned = crate::asr::align_cues(host, &samples, &merged.cues).map_err(|error| {
+            format!("{error}；剪口播需要词级时间戳，请先在下载管理器安装对齐器模型")
+        })?;
+        if !aligned.is_empty() {
+            merged.words = aligned;
+            merged.timed = true;
+        }
+    }
     if !want_words {
         merged.words.clear();
     }
@@ -398,6 +422,15 @@ mod tests {
         };
         normalize(&mut provider);
         assert_eq!(provider.max_seconds, 7200.0);
+    }
+
+    #[test]
+    fn native_word_times_only_for_some_kinds() {
+        assert!(kind_native_words(CloudAsrKind::Openai));
+        assert!(kind_native_words(CloudAsrKind::Tencent));
+        assert!(!kind_native_words(CloudAsrKind::Deepseek));
+        assert!(!kind_native_words(CloudAsrKind::Aliyun));
+        assert!(!kind_native_words(CloudAsrKind::Baidu));
     }
 
     #[test]

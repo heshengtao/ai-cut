@@ -22,6 +22,22 @@ export interface AsrOptionRow {
   group?: string;
 }
 
+/**
+ * 自带词级/句级时间戳的接口类型，与 daemon 的 `kind_native_words` 一一对应。
+ * 这些不需要本地对齐器；改动时两边一起改。
+ */
+export const NATIVE_WORD_KINDS: readonly string[] = [
+  "openai",
+  "azure",
+  "google",
+  "tencent",
+  "volcengine",
+];
+
+export function hasNativeWordTimes(kind: string | null | undefined): boolean {
+  return Boolean(kind) && NATIVE_WORD_KINDS.includes(kind as string);
+}
+
 export function parseAsrModelId(id: string | null | undefined): AsrSourceRef | null {
   if (!id) return null;
   if (id === ASR_SETTINGS_ACTION) return { kind: "action" };

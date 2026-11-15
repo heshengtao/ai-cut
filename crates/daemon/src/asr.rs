@@ -309,6 +309,56 @@ pub(crate) fn read_samples(wav: &Path) -> Result<Vec<f32>, String> {
     Ok(wave.samples().to_vec())
 }
 
+/// 用本地对齐器把「云端只给了文本」的字幕补成词级时间。
+///
+/// 按 cue 分窗：窗口来自云端句级时间（或 VAD 段），每窗 ≤28 秒；某一窗对不上就退回按字数估算，
+/// 整个函数只在**对齐器没装**时返回 `Err`——那是剪口播真的跑不了的情况。
+pub(crate) fn align_cues(
+    host: &dyn Host,
+    samples: &[f32],
+    cues: &[SubtitleCue],
+) -> Result<Vec<TranscriptWord>, String> {
+    let entry = models::by_id("qwen3-aligner-0.6b-q4").ok_or("清单里缺少对齐器模型")?;
+    let dir = models::installed_dir(host, entry).ok_or("对齐器模型尚未安装：qwen3-aligner-0.6b-q4")?;
+    let sample_rate = SAMPLE_RATE as f64;
+    let total = samples.len() as f64 / sample_rate;
+    let mut words: Vec<TranscriptWord> = Vec::new();
+
+    for cue in cues {
+        let text = clean_text(&cue.text);
+        if text.is_empty() {
+            continue;
+        }
+        let start = cue.start.max(0.0);
+        let end = cue.end.max(start + 0.05).min(total);
+        // 超出一窗的（长句 / 无 VAD 的定长块）不做强制对齐，直接按字数估。
+        if end - start > 28.0 {
+            words.extend(estimate_words(&text, start, end));
+            continue;
+        }
+        let from = (((start - 0.1).max(0.0)) * sample_rate) as usize;
+        let to = (((end + 0.1) * sample_rate) as usize).min(samples.len());
+        if to <= from + SAMPLE_RATE as usize / 20 {
+            words.extend(estimate_words(&text, start, end));
+            continue;
+        }
+        let offset = from as f64 / sample_rate;
+        match with_aligner(&dir, |aligner| aligner.align(&samples[from..to], &text)) {
+            Ok(hits) if !hits.is_empty() => {
+                for hit in hits {
+                    words.push(TranscriptWord {
+                        text: hit.text,
+                        start: (offset + hit.start as f64).max(0.0),
+                        end: (offset + hit.end as f64).max(offset + hit.start as f64 + 0.02),
+                    });
+                }
+            }
+            _ => words.extend(estimate_words(&text, start, end)),
+        }
+    }
+    Ok(words)
+}
+
 /// 从已读出的样本里截 `[start, end]` 秒，拼成带 44 字节头的 WAV。
 pub(crate) fn samples_to_wav(samples: &[f32], start: f64, end: f64) -> Result<Vec<u8>, String> {
     let from = ((start * SAMPLE_RATE as f64).floor().max(0.0) as usize).min(samples.len());

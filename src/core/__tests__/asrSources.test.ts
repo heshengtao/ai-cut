@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ASR_SETTINGS_ACTION,
   buildAsrOptions,
+  hasNativeWordTimes,
   parseAsrModelId,
 } from "@/core/asrSources";
 
@@ -24,6 +25,16 @@ describe("parseAsrModelId", () => {
   it("ignores empty ids", () => {
     expect(parseAsrModelId(null)).toBeNull();
     expect(parseAsrModelId("")).toBeNull();
+  });
+});
+
+describe("hasNativeWordTimes", () => {
+  it("only trusts the providers that return timings", () => {
+    expect(hasNativeWordTimes("openai")).toBe(true);
+    expect(hasNativeWordTimes("tencent")).toBe(true);
+    expect(hasNativeWordTimes("deepseek")).toBe(false);
+    expect(hasNativeWordTimes("aliyun")).toBe(false);
+    expect(hasNativeWordTimes(null)).toBe(false);
   });
 });
 
