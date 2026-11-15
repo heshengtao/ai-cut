@@ -1,6 +1,7 @@
 /** 顶部三视图：预览 / 画布 / 剧集。只切换主窗口内容，外壳与右侧面板不动。 */
 import { ref } from "vue";
 import { defineStore } from "pinia";
+import { useLayoutStore, type PaneId } from "@/stores/layout";
 
 export type AppView = "preview" | "board" | "series";
 
@@ -39,9 +40,34 @@ function storedView(): AppView | null {
   }
 }
 
+interface ViewPanelState {
+  tab: PaneId;
+  open: boolean;
+}
+
 export const useViewStore = defineStore("view", () => {
+  const layout = useLayoutStore();
   /** 当前视图：hash 深链 > 上次记住的 > 预览。 */
   const view = ref<AppView>(hashView() ?? storedView() ?? "preview");
+  /** 每个视图记住自己的右侧面板标签（切回来还是上次那个），进程内即可，不持久化。 */
+  const panels = ref<Partial<Record<AppView, ViewPanelState>>>({
+    board: { tab: "boardInspector", open: true },
+  });
+
+  function capturePanel(current: AppView): void {
+    panels.value = {
+      ...panels.value,
+      [current]: { tab: layout.activeTab, open: layout.showPanel },
+    };
+  }
+
+  function restorePanel(next: AppView): void {
+    const saved = panels.value[next];
+    if (!saved) return;
+    if (!layout.tabs.includes(saved.tab)) layout.openTab(saved.tab);
+    else layout.activeTab = saved.tab;
+    layout.showPanel = saved.open;
+  }
 
   function persist(): void {
     try {
@@ -53,7 +79,9 @@ export const useViewStore = defineStore("view", () => {
 
   function setView(next: AppView): void {
     if (view.value === next) return;
+    capturePanel(view.value);
     view.value = next;
+    restorePanel(next);
     persist();
   }
 

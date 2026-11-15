@@ -2497,6 +2497,11 @@ const zh: Record<string, string> = {
   "board.inspect.cloud": "云端",
   "board.inspect.pickModel": "选择模型",
   "board.inspect.chars": "{count} 字",
+
+  "board.ctx.ignore": "禁用节点",
+  "board.ctx.enable": "启用节点",
+  "board.ctx.duplicate": "复制节点",
+  "board.dropHint": "松手导入素材并创建输入节点",
 };
 
 export default zh;

@@ -2497,6 +2497,11 @@ const en: Record<string, string> = {
   "board.inspect.cloud": "cloud",
   "board.inspect.pickModel": "Pick a model",
   "board.inspect.chars": "{count} chars",
+
+  "board.ctx.ignore": "Disable node",
+  "board.ctx.enable": "Enable node",
+  "board.ctx.duplicate": "Duplicate node",
+  "board.dropHint": "Drop to import and create an input node",
 };
 
 export default en;

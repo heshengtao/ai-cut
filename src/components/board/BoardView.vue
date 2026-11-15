@@ -12,6 +12,7 @@ import {
   type Connection,
   type Edge,
   type Node,
+  type NodeMouseEvent,
   type NodeTypesObject,
 } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
@@ -34,6 +35,10 @@ import { useI18n } from "@/i18n";
 import { useBoardStore } from "@/stores/board";
 import { useLayoutStore } from "@/stores/layout";
 import { useBoardRun } from "@/composables/useBoardRun";
+import { useProjectStore } from "@/stores/project";
+import { addAsset } from "@/core/ops";
+import { importAssetAt, kindFromPath } from "@/core/media";
+import { toast } from "@/composables/useToast";
 import { portsCompatible } from "@/core/board/schema";
 import { nodeDefinition, nodesByCategory, portOf } from "@/core/board/registry";
 import type { BoardNode } from "@/types/board";
@@ -42,6 +47,7 @@ const i18n = useI18n();
 const board = useBoardStore();
 const layout = useLayoutStore();
 const run = useBoardRun();
+const project = useProjectStore();
 
 const nodeTypes = { board: BoardNodeCard } as unknown as NodeTypesObject;
 
@@ -50,6 +56,8 @@ const flowNodes = shallowRef<Node[]>([]);
 const flowEdges = shallowRef<Edge[]>([]);
 const addOpen = ref(false);
 const runMenuOpen = ref(false);
+const dropActive = ref(false);
+const ctx = ref<null | { x: number; y: number; nodeId?: string }>(null);
 const addAnchor = ref<HTMLElement | null>(null);
 
 const { fitView, zoomIn, zoomOut, setViewport, screenToFlowCoordinate, onNodeDragStop, onMoveEnd } =
@@ -158,6 +166,124 @@ onMoveEnd(({ flowTransform }) => {
   board.setViewport({ x: flowTransform.x, y: flowTransform.y, zoom: flowTransform.zoom });
 });
 
+function onNodeCtx(payload: NodeMouseEvent): void {
+  const event = payload.event as MouseEvent;
+  if (typeof event.clientX !== "number" || typeof event.clientY !== "number") return;
+  event.preventDefault();
+  board.select([payload.node.id]);
+  ctx.value = { x: event.clientX, y: event.clientY, nodeId: payload.node.id };
+}
+
+function onPaneCtx(event: MouseEvent): void {
+  event.preventDefault();
+  board.select([]);
+  ctx.value = { x: event.clientX, y: event.clientY };
+}
+
+function closeCtx(): void {
+  ctx.value = null;
+}
+
+const ctxNode = computed(() => {
+  const id = ctx.value?.nodeId;
+  return id ? board.nodes.find((item) => item.id === id) ?? null : null;
+});
+
+const ctxIgnored = computed(() => ctxNode.value?.data.ignored === true);
+
+function toggleIgnoreCtx(): void {
+  const node = ctxNode.value;
+  if (!node) return;
+  board.updateNodeData(node.id, { ignored: !node.data.ignored });
+  closeCtx();
+}
+
+function duplicateCtx(): void {
+  const node = ctxNode.value;
+  if (!node) return;
+  duplicateNode(node.id);
+}
+
+function removeCtx(): void {
+  const node = ctxNode.value;
+  if (!node) return;
+  board.removeNodes([node.id]);
+  closeCtx();
+}
+
+function addCtxNode(type: string): void {
+  const point = ctx.value;
+  if (!point) return;
+  addAtPoint(type, point.x, point.y);
+}
+
+function duplicateNode(nodeId: string): void {
+  const node = board.nodes.find((item) => item.id === nodeId);
+  if (!node) return;
+  board.addNode({
+    ...node,
+    id: crypto.randomUUID(),
+    position: { x: node.position.x + 28, y: node.position.y + 28 },
+    data: {
+      ...node.data,
+      params: { ...node.data.params },
+      bindings: { ...node.data.bindings },
+      status: undefined,
+      error: undefined,
+      outputAssetId: undefined,
+    },
+  });
+  closeCtx();
+}
+
+function addAtPoint(type: string, x: number, y: number): void {
+  const definition = nodeDefinition(type);
+  if (!definition) return;
+  const point = screenToFlowCoordinate({ x, y });
+  board.addNode({
+    id: crypto.randomUUID(),
+    type,
+    position: {
+      x: Math.round(point.x - definition.defaultSize.width / 2),
+      y: Math.round(point.y - definition.defaultSize.height / 2),
+    },
+    data: { params: {}, bindings: {} },
+  });
+  closeCtx();
+}
+
+async function onFileDrop(event: DragEvent): Promise<void> {
+  dropActive.value = false;
+  const files = Array.from(event.dataTransfer?.files ?? []);
+  for (const file of files) {
+    const path = (file as File & { path?: string }).path;
+    if (!path) continue;
+    const kind = kindFromPath(path);
+    if (!kind) continue;
+    try {
+      const asset = await importAssetAt(path);
+      project.dispatch((doc) => addAsset(doc, asset));
+      const type = kind === "image" ? "input.image" : kind === "video" ? "input.video" : "input.audio";
+      const definition = nodeDefinition(type);
+      if (!definition) continue;
+      const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY });
+      board.addNode({
+        id: crypto.randomUUID(),
+        type,
+        position: { x: Math.round(point.x), y: Math.round(point.y) },
+        data: { params: {}, bindings: {}, assetId: asset.id },
+      });
+    } catch (error) {
+      toast(String(error), "error");
+    }
+  }
+}
+
+function onDragOver(event: DragEvent): void {
+  event.preventDefault();
+  dropActive.value = true;
+}
+
 function onKeyDown(event: KeyboardEvent): void {
   const target = event.target as HTMLElement | null;
   if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
@@ -174,11 +300,13 @@ onMounted(() => {
   syncEdges();
   void setViewport({ x: board.viewport.x, y: board.viewport.y, zoom: board.viewport.zoom });
   window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("click", closeCtx);
 });
 
 onUnmounted(() => {
   board.flush();
   window.removeEventListener("keydown", onKeyDown);
+  window.removeEventListener("click", closeCtx);
 });
 
 const runModes = [
@@ -200,7 +328,15 @@ function toggleAdd(event: MouseEvent): void {
 </script>
 
 <template>
-  <section class="board-view" data-view="board" @click.self="onPaneClick">
+  <section
+    class="board-view"
+    data-view="board"
+    :class="{ 'drop-active': dropActive }"
+    @click.self="onPaneClick"
+    @dragover="onDragOver"
+    @dragleave="dropActive = false"
+    @drop.prevent="onFileDrop"
+  >
     <VueFlow
       :nodes="flowNodes"
       :edges="flowEdges"
@@ -218,6 +354,8 @@ function toggleAdd(event: MouseEvent): void {
       @connect="onConnect"
       @node-click="onSelectNode"
       @pane-click="onPaneClick"
+      @node-context-menu="onNodeCtx"
+      @pane-context-menu="onPaneCtx"
     >
       <Background
         id="grid-minor"
@@ -305,6 +443,41 @@ function toggleAdd(event: MouseEvent): void {
         <CursorArrowRaysIcon />
         {{ i18n.t("board.panHint") }}
       </span>
+    </div>
+
+    <div
+      v-if="ctx"
+      class="board-ctx"
+      :style="{ left: `${ctx.x}px`, top: `${ctx.y}px` }"
+      @click.stop
+    >
+      <template v-if="ctx.nodeId">
+        <button type="button" @click="toggleIgnoreCtx">
+          {{ ctxIgnored ? i18n.t("board.ctx.enable") : i18n.t("board.ctx.ignore") }}
+        </button>
+        <button type="button" @click="duplicateCtx">{{ i18n.t("board.ctx.duplicate") }}</button>
+        <button class="danger" type="button" @click="removeCtx">
+          {{ i18n.t("common.delete") }}
+        </button>
+      </template>
+      <template v-else>
+        <p class="board-menu-group">{{ i18n.t("board.addNode") }}</p>
+        <template v-for="(list, category) in groups" :key="category">
+          <button
+            v-for="definition in list"
+            :key="definition.type"
+            class="board-menu-item"
+            type="button"
+            @click="addCtxNode(definition.type)"
+          >
+            {{ i18n.t(definition.titleKey) }}
+          </button>
+        </template>
+      </template>
+    </div>
+
+    <div v-if="dropActive" class="board-drop" aria-hidden="true">
+      {{ i18n.t("board.dropHint") }}
     </div>
 
     <div v-if="runMenuOpen" class="board-menu run-menu">
@@ -432,6 +605,46 @@ function toggleAdd(event: MouseEvent): void {
   border-radius: 999px;
   background-color: rgb(var(--md-surface-container-high) / 0.94);
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
+}
+.board-ctx {
+  position: fixed;
+  z-index: 40;
+  min-width: 168px;
+  padding: 6px;
+  border-radius: 12px;
+  background-color: rgb(var(--md-surface-container-high));
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.22);
+}
+.board-ctx button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  font-size: 12.5px;
+  color: rgb(var(--md-on-surface));
+  cursor: pointer;
+}
+.board-ctx button:hover {
+  background-color: rgb(var(--md-on-surface-variant) / 0.12);
+}
+.board-ctx button.danger:hover {
+  color: rgb(var(--md-error));
+}
+.board-drop {
+  position: absolute;
+  inset: 10px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed rgb(var(--md-primary) / 0.6);
+  border-radius: 16px;
+  background-color: rgb(var(--md-primary) / 0.06);
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(var(--md-primary));
+  pointer-events: none;
 }
 .board-run {
   display: inline-flex;
