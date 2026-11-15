@@ -3,6 +3,7 @@ import { useLayoutStore } from "@/stores/layout";
 import { usePlaybackStore } from "@/stores/playback";
 import { useProjectStore } from "@/stores/project";
 import { useSelectionStore } from "@/stores/selection";
+import { useViewStore, type AppView } from "@/stores/view";
 import { useTimelineActions } from "@/composables/useTimelineActions";
 import { useProjectActions } from "@/composables/useProjectActions";
 
@@ -23,6 +24,7 @@ export function installShortcuts(): () => void {
   const playback = usePlaybackStore();
   const selection = useSelectionStore();
   const layout = useLayoutStore();
+  const view = useViewStore();
   const actions = useTimelineActions();
   const projectActions = useProjectActions();
 
@@ -39,6 +41,17 @@ export function installShortcuts(): () => void {
       return;
     }
     if (layout.settingsOpen) return;
+
+    // ⌘1 / ⌘2 / ⌘3：切换预览 / 画布 / 剧集。
+    if (mod) {
+      const byKey: Record<string, AppView> = { "1": "preview", "2": "board", "3": "series" };
+      const target = byKey[event.key];
+      if (target && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        view.setView(target);
+        return;
+      }
+    }
 
     // 带 ⌘ 的组合键即使在输入框里也应生效（保存/撤销是全局语义）
     if (mod && event.key.toLowerCase() === "s") {

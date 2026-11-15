@@ -13,8 +13,10 @@ import PanelIcon from "@/components/common/PanelIcon.vue";
 import Tooltip from "@/components/common/Tooltip.vue";
 import ProjectDialog from "@/components/common/ProjectDialog.vue";
 import PanelTabs from "@/components/workspace/PanelTabs.vue";
+import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import BarActions from "./BarActions.vue";
 import { useLayoutStore } from "@/stores/layout";
+import { useViewStore, type AppView } from "@/stores/view";
 import { useProjectStore } from "@/stores/project";
 import { useProjectActions } from "@/composables/useProjectActions";
 import { displayProjectName, isUntitled } from "@/utils/projectName";
@@ -22,11 +24,23 @@ import { useI18n } from "@/i18n";
 import { isMacOS, isTauri } from "@/utils/platform";
 
 const layout = useLayoutStore();
+const view = useViewStore();
 const project = useProjectStore();
 const actions = useProjectActions();
 const i18n = useI18n();
 
 const projectDialogOpen = ref(false);
+
+/** 顶部三视图：只换主窗口内容。 */
+const viewOptions = computed(() => [
+  { value: "preview", label: i18n.t("view.preview"), title: i18n.t("view.previewHint") },
+  { value: "board", label: i18n.t("view.board"), title: i18n.t("view.boardHint") },
+  { value: "series", label: i18n.t("view.series"), title: i18n.t("view.seriesHint") },
+]);
+
+function onViewChange(value: string): void {
+  view.setView(value as AppView);
+}
 
 /** 显示用工程名：未命名工程按当前语言显示。 */
 const projectName = computed(() => displayProjectName(project.doc.name));
@@ -123,6 +137,16 @@ function onMouseDown(e: MouseEvent): void {
         </button>
       </Tooltip>
 
+      <SegmentedControl
+        v-if="!isPortrait && !layout.settingsOpen"
+        class="view-switch"
+        size="sm"
+        :model-value="view.view"
+        :options="viewOptions"
+        :aria-label="i18n.t('view.switch')"
+        @update:model-value="onViewChange"
+      />
+
       <div class="flex-1" />
       <BarActions v-if="!isPortrait" />
     </div>
@@ -157,6 +181,14 @@ function onMouseDown(e: MouseEvent): void {
     <!-- 竖屏：标题 → 标签栏 → 动作按钮 → 面板开关 -->
     <template v-else>
       <div v-if="!layout.settingsOpen" class="bar-tabs portrait-tabs">
+        <SegmentedControl
+          class="view-switch"
+          size="sm"
+          :model-value="view.view"
+          :options="viewOptions"
+          :aria-label="i18n.t('view.switch')"
+          @update:model-value="onViewChange"
+        />
         <PanelTabs v-if="layout.showPanel" />
       </div>
       <BarActions />
@@ -255,6 +287,12 @@ function onMouseDown(e: MouseEvent): void {
   letter-spacing: 0.1px;
   color: rgb(var(--md-on-surface));
   white-space: nowrap;
+}
+
+/* 三视图切换：紧凑分段控件，与工程名之间留固定间距 */
+.view-switch {
+  flex: 0 0 auto;
+  margin-left: 6px;
 }
 
 .bar-sep {
