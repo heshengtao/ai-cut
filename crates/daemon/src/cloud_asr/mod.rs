@@ -12,7 +12,9 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 mod chunk;
+mod parse;
 pub use chunk::{fixed_chunks, plan_chunks, SpeechSpan};
+pub use parse::{parse_body, parse_custom, ParsedChunk};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
