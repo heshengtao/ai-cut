@@ -34,70 +34,6 @@ var AICUT = (() => {
     view: () => view
   });
 
-  // src/core/ops/internal.ts
-  function withTouch(doc2, patch) {
-    return { ...doc2, ...patch, updatedAt: Date.now() };
-  }
-  function replaceTrack(doc2, trackId, next) {
-    const index = doc2.tracks.findIndex((t2) => t2.id === trackId);
-    if (index < 0 || doc2.tracks[index] === next) return doc2;
-    const tracks = doc2.tracks.slice();
-    tracks[index] = next;
-    return withTouch(doc2, { tracks });
-  }
-  function mapTrack(doc2, trackId, fn) {
-    const track = doc2.tracks.find((t2) => t2.id === trackId);
-    if (!track) return doc2;
-    return replaceTrack(doc2, trackId, fn(track));
-  }
-  function mapTrackClips(doc2, trackId, fn) {
-    return mapTrack(doc2, trackId, (track) => {
-      const clips = fn(track.clips);
-      return clips === track.clips ? track : { ...track, clips };
-    });
-  }
-  function findClip(doc2, clipId) {
-    for (const track of doc2.tracks) {
-      const clip = track.clips.find((c) => c.id === clipId);
-      if (clip) return { track, clip };
-    }
-    return null;
-  }
-  function sortClips(clips) {
-    return clips.slice().sort((a, b) => a.start - b.start);
-  }
-  function clamp(value, min, max) {
-    return Math.min(max, Math.max(min, value));
-  }
-
-  // src/core/ops/assets.ts
-  function addAsset(doc2, asset) {
-    if (doc2.assets.some((a) => a.id === asset.id)) return doc2;
-    return withTouch(doc2, { assets: [...doc2.assets, asset] });
-  }
-  function removeAsset(doc2, assetId) {
-    const assets = doc2.assets.filter((a) => a.id !== assetId);
-    if (assets.length === doc2.assets.length) return doc2;
-    let changed = false;
-    const tracks = doc2.tracks.map((track) => {
-      const clips = track.clips.filter((c) => c.assetId !== assetId);
-      if (clips.length === track.clips.length) return track;
-      changed = true;
-      return { ...track, clips };
-    });
-    return withTouch(doc2, changed ? { assets, tracks } : { assets });
-  }
-  function updateAsset(doc2, assetId, patch) {
-    const index = doc2.assets.findIndex((a) => a.id === assetId);
-    if (index < 0) return doc2;
-    const assets = doc2.assets.slice();
-    assets[index] = { ...assets[index], ...patch };
-    return withTouch(doc2, { assets });
-  }
-
-  // src/types/project.ts
-  var PROJECT_VERSION = 1;
-
   // src/i18n/en.ts
   var en = {
     // ---- Common ----
@@ -1029,13 +965,9 @@ var AICUT = (() => {
     // ---- capability table: the server declares whether a feature works in this shell ----
     "caps.fallback.separator": "; use instead: ",
     "caps.fallback.desktop": "use the desktop app",
-    "caps.reason.mcpDesktopOnly": "the MCP server still runs inside the desktop app (not ported to the headless backend yet)",
     "caps.reason.notPorted": "not available in the browser build yet",
-    "caps.reason.localAiNotPortable": "local AI is not wired into the browser build yet (needs models and ONNX Runtime)",
-    "caps.reason.agentNeedsWebview": "agent tool calls have to run in the desktop app",
     "caps.reason.pluginRevealDesktopOnly": "plugins can be installed / removed / imported; revealing them in the file manager needs the desktop app",
     "caps.reason.needsPath": "needs system-level permissions; the browser build cannot provide them",
-    "caps.reason.needsGpu": "needs a GPU and multi-GB weights; the browser build does not provide them",
     "caps.feature.agent": "Agent",
     "caps.feature.mcp": "MCP server",
     "caps.feature.cli": "CLI mount",
@@ -1045,6 +977,8 @@ var AICUT = (() => {
     "caps.feature.loudness": "Loudness",
     "caps.feature.videoDsp": "Video DSP",
     "caps.feature.runtime": "AI runtime",
+    "caps.feature.imageGen": "AI image generation",
+    "caps.feature.videoGen": "AI video generation",
     "caps.feature.sdcpp": "local generation engine",
     "caps.feature.dataDir": "data folder",
     "caps.feature.backend": "AI backend",
@@ -1441,7 +1375,6 @@ var AICUT = (() => {
     "sdcpp.current": "Current",
     "sdcpp.group": "sd.cpp generation engine",
     "sdcpp.groupHint": "Shared image / video runtime; separate from ONNX Runtime.",
-    "sdcpp.officialOnly": "Official Release / ModelScope mirror; SHA-256 verified.",
     "videoAi.section": "Visual",
     "videoAi.upscale": "AI super resolution",
     "videoAi.interpolate": "AI frame interpolation",
@@ -1783,6 +1716,92 @@ var AICUT = (() => {
     // ---- Settings: AI / MCP / network / CLI ----
     "settings.section.ai": "AI / MCP",
     "settings.section.ai.caption": "Clip agent, MCP & execution backend",
+    "settings.section.asr": "Speech recognition",
+    "settings.section.asr.caption": "Cloud speech recognition services and custom endpoints",
+    "settings.asr.providers": "Recognition services",
+    "settings.asr.empty": "No recognition service configured yet. Use \u201CAdd service\u201D below to start.",
+    "settings.asr.add": "Add service",
+    "settings.asr.edit": "Edit service",
+    "settings.asr.new": "New service",
+    "settings.asr.name": "Name",
+    "settings.asr.nameHint": "Shown in the subtitle model dropdown",
+    "settings.asr.kind": "API type",
+    "settings.asr.kindHint": "Standard HTTP APIs only",
+    "settings.asr.enabled": "Enabled",
+    "settings.asr.enabledHint": "Disabled services are hidden from the subtitle dropdown",
+    "settings.asr.baseUrl": "Base URL",
+    "settings.asr.baseUrlDeepseekHint": "Empty = https://api.deepseek.com",
+    "settings.asr.baseUrlOpenaiHint": "Enter up to /v1",
+    "settings.asr.apiKey": "API key",
+    "settings.asr.apiKeyHint": "Stored locally in asr.json",
+    "settings.asr.azureKeyHint": "Key of your Azure Speech resource",
+    "settings.asr.googleKeyHint": "Google Cloud API key",
+    "settings.asr.aliyunKeyHint": "Bailian DashScope API key",
+    "settings.asr.baiduKeyHint": "Baidu Speech API key",
+    "settings.asr.secretId": "SecretId",
+    "settings.asr.secretIdHint": "Tencent Cloud API SecretId",
+    "settings.asr.secretKey": "SecretKey",
+    "settings.asr.secretKeyHint": "Tencent Cloud API SecretKey",
+    "settings.asr.baiduSecretHint": "Baidu Speech secret key",
+    "settings.asr.accessKey": "Access key",
+    "settings.asr.accessKeyHint": "Volcengine access key",
+    "settings.asr.appId": "App ID",
+    "settings.asr.appIdHint": "Tencent Cloud account AppId",
+    "settings.asr.volcAppIdHint": "Volcengine application AppId",
+    "settings.asr.region": "Region",
+    "settings.asr.regionHint": "e.g. eastasia, eastus",
+    "settings.asr.resourceId": "Resource ID",
+    "settings.asr.resourceIdHint": "e.g. volc.bigasr.auc_turbo",
+    "settings.asr.model": "Model",
+    "settings.asr.modelHint": "Model name supported by the API",
+    "settings.asr.aliyunModelHint": "e.g. qwen3-asr-flash",
+    "settings.asr.engine": "Engine",
+    "settings.asr.engineHint": "e.g. 16k_zh",
+    "settings.asr.devPid": "Model id",
+    "settings.asr.devPidHint": "e.g. 1537 (Mandarin)",
+    "settings.asr.language": "Language",
+    "settings.asr.languageHint": "e.g. zh, en; empty = auto",
+    "settings.asr.azureLanguageHint": "e.g. zh-CN",
+    "settings.asr.maxSeconds": "Max audio per request",
+    "settings.asr.maxSecondsHint": "Seconds; 0 = preset for this API",
+    "settings.asr.method": "Method",
+    "settings.asr.methodHint": "GET or POST",
+    "settings.asr.headers": "Headers (JSON)",
+    "settings.asr.headersHint": 'e.g. {"Authorization":"Bearer x"}',
+    "settings.asr.body": "Body template",
+    "settings.asr.bodyHint": "Supports {{audio}} (base64) and {{mime}}",
+    "settings.asr.textPath": "Text field path",
+    "settings.asr.textPathHint": "e.g. data.text; empty = whole response",
+    "settings.asr.wordsPath": "Word timing path",
+    "settings.asr.wordsPathHint": "Items need text/word, start, end (seconds)",
+    "settings.asr.url": "Request URL",
+    "settings.asr.urlHint": "Supports the {{audio}} placeholder",
+    "settings.asr.customKeyHint": "Empty = no Authorization header",
+    "settings.asr.customHint": "Self-hosted service: build the body with {{audio}} / {{mime}}, then point the text field path at the result; add a word timing path if it returns timings.",
+    "settings.asr.test": "Test",
+    "settings.asr.testing": "Testing\u2026",
+    "settings.asr.testNoMedia": "No audio or video in the media library \u2014 import one first",
+    "settings.asr.testOk": "Transcript: {text}",
+    "settings.asr.save": "Save",
+    "settings.asr.saving": "Saving\u2026",
+    "settings.asr.saved": "Recognition service saved",
+    "settings.asr.delete": "Delete",
+    "settings.asr.deleteTitle": "Delete recognition service?",
+    "settings.asr.deleteMessage": "The API configuration for \u201C{name}\u201D will be removed.",
+    "settings.asr.kind.openai": "OpenAI compatible",
+    "settings.asr.kind.deepseek": "DeepSeek",
+    "settings.asr.kind.azure": "Azure Speech",
+    "settings.asr.kind.google": "Google Cloud STT",
+    "settings.asr.kind.aliyun": "Aliyun Bailian",
+    "settings.asr.kind.tencent": "Tencent Cloud",
+    "settings.asr.kind.volcengine": "Volcengine",
+    "settings.asr.kind.baidu": "Baidu Speech",
+    "settings.asr.kind.custom": "Custom HTTP",
+    "ai.asrSettings": "Configure speech-recognition services\u2026",
+    "ai.asrSettingsHint": "Add any provider's recognition API, including custom endpoints",
+    "ai.asrLocalGroup": "Local models",
+    "ai.asrCloudGroup": "Cloud recognition",
+    "caps.feature.cloudAsr": "Cloud speech recognition",
     "settings.section.tts": "Speech synthesis",
     "settings.section.tts.caption": "Cloud TTS services and custom endpoints",
     "settings.section.gen": "Image & video",
@@ -2006,6 +2025,9 @@ var AICUT = (() => {
     "settings.tts.kind.baidu": "Baidu Speech",
     "settings.tts.kind.minimax": "MiniMax",
     "settings.tts.kind.volcengine": "Volcengine (Doubao)",
+    "settings.tts.baseUrlDeepseekHint": "Empty = https://api.deepseek.com",
+    "settings.tts.voiceDeepseekHint": "stella (female, default) or tide (male)",
+    "settings.tts.kind.deepseek": "DeepSeek",
     "settings.tts.kind.custom": "Custom HTTP",
     "settings.tts.customHint": "For self-hosted CosyVoice, IndexTTS, GPT-SoVITS, Fish-Speech and similar: pick GET or POST, build the request with {{text}} / {{voice}} / {{speed}} / {{format}} placeholders, and return raw audio or JSON base64.",
     "settings.proxy.group": "Proxy",
@@ -2160,6 +2182,9 @@ var AICUT = (() => {
     "setup.title.image": "Set up \u201CAI image generation\u201D",
     "setup.title.image-edit": "Set up \u201CImage editing\u201D",
     "setup.title.video": "Set up \u201CAI video generation\u201D",
+    "setup.title.aligner": "Prepare the cut-review aligner",
+    "cutReview.noCloudService": "The selected recognition service is disabled \u2014 enable it in Settings \u2192 Speech recognition.",
+    "ai.cutCloudNeedsAligner": "No word timings from this service; the local aligner fills them in",
     "setup.title.voice": "Set up \u201CAI voice change\u201D",
     "setup.title.runtime": "Set up the local AI runtime",
     "setup.lead": "This machine works best with {backend} ({reason}). These need to be downloaded first:",
@@ -2212,6 +2237,10 @@ var AICUT = (() => {
     "error.serialize.badResolution": "Invalid project file: invalid resolution",
     "error.serialize.badAssets": "Invalid project file: assets is not an array",
     "error.serialize.badTracks": "Invalid project file: tracks is not an array",
+    "episode.defaultName": "Part {index}",
+    "error.serialize.badEpisodes": "Invalid project file: no episodes",
+    "error.serialize.badActiveEpisode": "Invalid project file: no active episode",
+    "error.serialize.badEpisode": "Invalid project file: corrupted episode",
     "error.serialize.badTrack": "Invalid project file: track is not an object",
     "error.serialize.badClips": "Invalid project file: track clips is not an array",
     "error.serialize.badClip": "Invalid project file: clip is not an object",
@@ -3258,13 +3287,9 @@ var AICUT = (() => {
     // ---- 能力表：服务端声明"这个功能在当前形态能不能用" ----
     "caps.fallback.separator": "\uFF1B\u53EF\u6539\u7528\uFF1A",
     "caps.fallback.desktop": "\u5728\u684C\u9762\u5E94\u7528\u4E2D\u4F7F\u7528",
-    "caps.reason.mcpDesktopOnly": "MCP \u670D\u52A1\u4ECD\u7531\u684C\u9762\u5E94\u7528\u63D0\u4F9B\uFF08\u5C1A\u672A\u63A5\u5165\u65E0\u5934\u540E\u7AEF\uFF09",
     "caps.reason.notPorted": "\u5C1A\u672A\u5728\u6D4F\u89C8\u5668\u7248\u672C\u63D0\u4F9B",
-    "caps.reason.localAiNotPortable": "\u672C\u5730 AI \u5C1A\u672A\u63A5\u5165\u6D4F\u89C8\u5668\u7248\u672C\uFF08\u9700\u8981\u6A21\u578B\u4E0E ONNX Runtime\uFF09",
-    "caps.reason.agentNeedsWebview": "\u667A\u80FD\u4F53\u7684\u5DE5\u5177\u8C03\u7528\u9700\u8981\u5728\u684C\u9762\u5E94\u7528\u4E2D\u6267\u884C",
     "caps.reason.pluginRevealDesktopOnly": "\u63D2\u4EF6\u53EF\u88C5 / \u53EF\u5220 / \u53EF\u5BFC\u5165\uFF1B\u300C\u5728\u6587\u4EF6\u7BA1\u7406\u5668\u91CC\u663E\u793A\u300D\u9700\u8981\u684C\u9762\u5E94\u7528",
     "caps.reason.needsPath": "\u9700\u8981\u7CFB\u7EDF\u7EA7\u6743\u9650\uFF0C\u6D4F\u89C8\u5668\u7248\u672C\u65E0\u6CD5\u63D0\u4F9B",
-    "caps.reason.needsGpu": "\u9700\u8981 GPU \u4E0E\u6570 GB \u6743\u91CD\uFF0C\u6D4F\u89C8\u5668\u7248\u672C\u4E0D\u63D0\u4F9B",
     "caps.feature.agent": "\u667A\u80FD\u4F53",
     "caps.feature.mcp": "MCP \u670D\u52A1",
     "caps.feature.cli": "\u547D\u4EE4\u884C\u6302\u8F7D",
@@ -3274,6 +3299,8 @@ var AICUT = (() => {
     "caps.feature.loudness": "\u54CD\u5EA6\u6D4B\u91CF",
     "caps.feature.videoDsp": "\u89C6\u9891\u5904\u7406",
     "caps.feature.runtime": "AI \u8FD0\u884C\u5E93",
+    "caps.feature.imageGen": "AI \u51FA\u56FE",
+    "caps.feature.videoGen": "AI \u89C6\u9891\u751F\u6210",
     "caps.feature.sdcpp": "\u672C\u5730\u751F\u6210\u5F15\u64CE",
     "caps.feature.dataDir": "\u6570\u636E\u76EE\u5F55",
     "caps.feature.backend": "AI \u6267\u884C\u540E\u7AEF",
@@ -3670,7 +3697,6 @@ var AICUT = (() => {
     "sdcpp.current": "\u5F53\u524D",
     "sdcpp.group": "sd.cpp \u751F\u6210\u5F15\u64CE",
     "sdcpp.groupHint": "\u56FE\u50CF / \u89C6\u9891\u751F\u6210\u5171\u7528\uFF1B\u4E0E ONNX Runtime \u5206\u5F00\u4E0B\u8F7D\u3002",
-    "sdcpp.officialOnly": "\u5B98\u65B9 Release / \u9B54\u642D\u955C\u50CF\uFF1B\u6587\u4EF6\u6821\u9A8C sha256\u3002",
     "videoAi.section": "\u753B\u9762",
     "videoAi.upscale": "AI \u8D85\u5206",
     "videoAi.interpolate": "AI \u89C6\u9891\u8865\u5E27",
@@ -4012,6 +4038,92 @@ var AICUT = (() => {
     // ---- 设置：AI / MCP / 网络 / 命令行 ----
     "settings.section.ai": "AI / MCP",
     "settings.section.ai.caption": "\u526A\u8F91\u667A\u80FD\u4F53\u3001MCP \u4E0E\u6267\u884C\u540E\u7AEF",
+    "settings.section.asr": "\u8BED\u97F3\u8BC6\u522B",
+    "settings.section.asr.caption": "\u4E91\u7AEF\u8BED\u97F3\u8BC6\u522B\u670D\u52A1\u4E0E\u81EA\u5B9A\u4E49\u63A5\u53E3",
+    "settings.asr.providers": "\u8BC6\u522B\u670D\u52A1",
+    "settings.asr.empty": "\u8FD8\u6CA1\u6709\u914D\u7F6E\u4EFB\u4F55\u8BC6\u522B\u670D\u52A1\u3002\u70B9\u51FB\u4E0B\u65B9\u300C\u6DFB\u52A0\u670D\u52A1\u300D\u5F00\u59CB\u3002",
+    "settings.asr.add": "\u6DFB\u52A0\u670D\u52A1",
+    "settings.asr.edit": "\u7F16\u8F91\u670D\u52A1",
+    "settings.asr.new": "\u65B0\u5EFA\u670D\u52A1",
+    "settings.asr.name": "\u540D\u79F0",
+    "settings.asr.nameHint": "\u663E\u793A\u5728\u5B57\u5E55\u6A21\u578B\u4E0B\u62C9\u5217\u8868\u91CC",
+    "settings.asr.kind": "\u63A5\u53E3\u7C7B\u578B",
+    "settings.asr.kindHint": "\u53EA\u63A5\u5165\u6807\u51C6 HTTP \u63A5\u53E3",
+    "settings.asr.enabled": "\u542F\u7528",
+    "settings.asr.enabledHint": "\u505C\u7528\u540E\u4E0D\u4F1A\u51FA\u73B0\u5728\u5B57\u5E55\u4E0B\u62C9\u5217\u8868",
+    "settings.asr.baseUrl": "\u63A5\u53E3\u5730\u5740",
+    "settings.asr.baseUrlDeepseekHint": "\u7559\u7A7A\u4F7F\u7528 https://api.deepseek.com",
+    "settings.asr.baseUrlOpenaiHint": "\u586B\u5230 /v1 \u4E3A\u6B62",
+    "settings.asr.apiKey": "API Key",
+    "settings.asr.apiKeyHint": "\u4FDD\u5B58\u5728\u672C\u5730 asr.json",
+    "settings.asr.azureKeyHint": "Azure \u8BED\u97F3\u8D44\u6E90\u7684\u5BC6\u94A5",
+    "settings.asr.googleKeyHint": "Google Cloud API Key",
+    "settings.asr.aliyunKeyHint": "\u767E\u70BC DashScope API Key",
+    "settings.asr.baiduKeyHint": "\u767E\u5EA6\u8BED\u97F3\u7684 API Key",
+    "settings.asr.secretId": "SecretId",
+    "settings.asr.secretIdHint": "\u817E\u8BAF\u4E91 API \u5BC6\u94A5 SecretId",
+    "settings.asr.secretKey": "SecretKey",
+    "settings.asr.secretKeyHint": "\u817E\u8BAF\u4E91 API \u5BC6\u94A5 SecretKey",
+    "settings.asr.baiduSecretHint": "\u767E\u5EA6\u8BED\u97F3\u7684 Secret Key",
+    "settings.asr.accessKey": "Access Key",
+    "settings.asr.accessKeyHint": "\u706B\u5C71\u5F15\u64CE Access Key",
+    "settings.asr.appId": "App ID",
+    "settings.asr.appIdHint": "\u817E\u8BAF\u4E91\u8D26\u53F7\u7684 AppId",
+    "settings.asr.volcAppIdHint": "\u706B\u5C71\u5F15\u64CE\u5E94\u7528 AppId",
+    "settings.asr.region": "\u533A\u57DF",
+    "settings.asr.regionHint": "\u5982 eastasia\u3001eastus",
+    "settings.asr.resourceId": "\u8D44\u6E90 ID",
+    "settings.asr.resourceIdHint": "\u5982 volc.bigasr.auc_turbo",
+    "settings.asr.model": "\u6A21\u578B",
+    "settings.asr.modelHint": "\u63A5\u53E3\u652F\u6301\u7684\u6A21\u578B\u540D",
+    "settings.asr.aliyunModelHint": "\u5982 qwen3-asr-flash",
+    "settings.asr.engine": "\u8BC6\u522B\u5F15\u64CE",
+    "settings.asr.engineHint": "\u5982 16k_zh",
+    "settings.asr.devPid": "\u6A21\u578B\u7F16\u53F7",
+    "settings.asr.devPidHint": "\u5982 1537\uFF08\u666E\u901A\u8BDD\uFF09",
+    "settings.asr.language": "\u8BED\u8A00",
+    "settings.asr.languageHint": "\u5982 zh\u3001en\uFF1B\u7559\u7A7A\u81EA\u52A8",
+    "settings.asr.azureLanguageHint": "\u5982 zh-CN",
+    "settings.asr.maxSeconds": "\u5355\u6B21\u65F6\u957F\u4E0A\u9650",
+    "settings.asr.maxSecondsHint": "\u79D2\uFF1B0 = \u4F7F\u7528\u8BE5\u63A5\u53E3\u7684\u9884\u7F6E\u503C",
+    "settings.asr.method": "\u8BF7\u6C42\u65B9\u6CD5",
+    "settings.asr.methodHint": "GET \u6216 POST",
+    "settings.asr.headers": "\u8BF7\u6C42\u5934\uFF08JSON\uFF09",
+    "settings.asr.headersHint": '\u5982 {"Authorization":"Bearer x"}',
+    "settings.asr.body": "\u8BF7\u6C42\u4F53\u6A21\u677F",
+    "settings.asr.bodyHint": "\u652F\u6301 {{audio}}\uFF08base64\uFF09\u4E0E {{mime}}",
+    "settings.asr.textPath": "\u6587\u672C\u5B57\u6BB5\u8DEF\u5F84",
+    "settings.asr.textPathHint": "\u5982 data.text\uFF1B\u7559\u7A7A\u8868\u793A\u6574\u4E2A\u54CD\u5E94",
+    "settings.asr.wordsPath": "\u8BCD\u65F6\u95F4\u5B57\u6BB5\u8DEF\u5F84",
+    "settings.asr.wordsPathHint": "\u5143\u7D20\u9700\u542B text/word\u3001start\u3001end\uFF08\u79D2\uFF09",
+    "settings.asr.url": "\u8BF7\u6C42 URL",
+    "settings.asr.urlHint": "\u652F\u6301 {{audio}} \u5360\u4F4D\u7B26",
+    "settings.asr.customKeyHint": "\u7559\u7A7A\u5219\u4E0D\u52A0 Authorization",
+    "settings.asr.customHint": "\u81EA\u5EFA\u8BC6\u522B\u670D\u52A1\uFF1A\u7528 {{audio}} / {{mime}} \u62FC\u8BF7\u6C42\u4F53\uFF0C\u518D\u7528\u6587\u672C\u5B57\u6BB5\u8DEF\u5F84\u53D6\u7ED3\u679C\uFF1B\u8FD4\u56DE\u8BCD\u65F6\u95F4\u65F6\u518D\u586B\u8BCD\u65F6\u95F4\u5B57\u6BB5\u8DEF\u5F84\u3002",
+    "settings.asr.test": "\u6D4B\u8BD5",
+    "settings.asr.testing": "\u6D4B\u8BD5\u4E2D\u2026",
+    "settings.asr.testNoMedia": "\u5A92\u4F53\u5E93\u91CC\u6CA1\u6709\u53EF\u7528\u7684\u97F3\u89C6\u9891\u7D20\u6750\uFF0C\u5148\u5BFC\u5165\u4E00\u4E2A\u518D\u6D4B\u8BD5",
+    "settings.asr.testOk": "\u8BC6\u522B\u7ED3\u679C\uFF1A{text}",
+    "settings.asr.save": "\u4FDD\u5B58",
+    "settings.asr.saving": "\u4FDD\u5B58\u4E2D\u2026",
+    "settings.asr.saved": "\u8BC6\u522B\u670D\u52A1\u5DF2\u4FDD\u5B58",
+    "settings.asr.delete": "\u5220\u9664",
+    "settings.asr.deleteTitle": "\u5220\u9664\u8BC6\u522B\u670D\u52A1\uFF1F",
+    "settings.asr.deleteMessage": "\u300C{name}\u300D\u7684\u63A5\u53E3\u914D\u7F6E\u4F1A\u88AB\u79FB\u9664\u3002",
+    "settings.asr.kind.openai": "OpenAI \u517C\u5BB9",
+    "settings.asr.kind.deepseek": "DeepSeek",
+    "settings.asr.kind.azure": "Azure \u8BED\u97F3",
+    "settings.asr.kind.google": "Google Cloud STT",
+    "settings.asr.kind.aliyun": "\u963F\u91CC\u767E\u70BC",
+    "settings.asr.kind.tencent": "\u817E\u8BAF\u4E91",
+    "settings.asr.kind.volcengine": "\u706B\u5C71\u5F15\u64CE",
+    "settings.asr.kind.baidu": "\u767E\u5EA6\u8BED\u97F3",
+    "settings.asr.kind.custom": "\u81EA\u5B9A\u4E49 HTTP",
+    "ai.asrSettings": "\u914D\u7F6E\u8BED\u97F3\u8BC6\u522B\u670D\u52A1\u2026",
+    "ai.asrSettingsHint": "\u6DFB\u52A0\u4EFB\u610F\u4F9B\u5E94\u5546\u7684\u8BC6\u522B API\uFF0C\u4E5F\u652F\u6301\u81EA\u5B9A\u4E49\u63A5\u53E3",
+    "ai.asrLocalGroup": "\u672C\u5730\u6A21\u578B",
+    "ai.asrCloudGroup": "\u4E91\u7AEF\u8BC6\u522B",
+    "caps.feature.cloudAsr": "\u4E91\u7AEF\u8BED\u97F3\u8BC6\u522B",
     "settings.section.tts": "\u8BED\u97F3\u5408\u6210",
     "settings.section.tts.caption": "\u4E91\u7AEF TTS \u670D\u52A1\u4E0E\u81EA\u5B9A\u4E49\u63A5\u53E3",
     "settings.section.gen": "\u56FE\u50CF\u4E0E\u89C6\u9891",
@@ -4235,6 +4347,9 @@ var AICUT = (() => {
     "settings.tts.kind.baidu": "\u767E\u5EA6\u8BED\u97F3",
     "settings.tts.kind.minimax": "MiniMax",
     "settings.tts.kind.volcengine": "\u706B\u5C71\u5F15\u64CE\uFF08\u8C46\u5305\uFF09",
+    "settings.tts.baseUrlDeepseekHint": "\u7559\u7A7A\u4F7F\u7528 https://api.deepseek.com",
+    "settings.tts.voiceDeepseekHint": "stella\uFF08\u5973\uFF0C\u9ED8\u8BA4\uFF09\u6216 tide\uFF08\u7537\uFF09",
+    "settings.tts.kind.deepseek": "DeepSeek",
     "settings.tts.kind.custom": "\u81EA\u5B9A\u4E49 HTTP",
     "settings.tts.customHint": "\u9002\u7528\u4E8E CosyVoice\u3001IndexTTS\u3001GPT-SoVITS\u3001Fish-Speech \u7B49\u81EA\u5EFA\u670D\u52A1\uFF1A\u9009\u62E9 GET \u6216 POST\uFF0C\u7528 {{text}} / {{voice}} / {{speed}} / {{format}} \u5360\u4F4D\u7B26\u62FC\u8BF7\u6C42\uFF0C\u54CD\u5E94\u662F\u539F\u59CB\u97F3\u9891\u6216 JSON base64 \u90FD\u652F\u6301\u3002",
     "settings.proxy.group": "\u4EE3\u7406",
@@ -4389,6 +4504,9 @@ var AICUT = (() => {
     "setup.title.image": "\u51C6\u5907\u300CAI \u753B\u56FE\u300D",
     "setup.title.image-edit": "\u51C6\u5907\u300C\u56FE\u50CF\u7F16\u8F91\u300D",
     "setup.title.video": "\u51C6\u5907\u300CAI \u89C6\u9891\u751F\u6210\u300D",
+    "setup.title.aligner": "\u51C6\u5907\u300C\u667A\u80FD\u526A\u53E3\u64AD\u300D\u5BF9\u9F50\u5668",
+    "cutReview.noCloudService": "\u6240\u9009\u8BC6\u522B\u670D\u52A1\u672A\u542F\u7528\uFF0C\u8BF7\u5728\u8BBE\u7F6E \u2192 \u8BED\u97F3\u8BC6\u522B\u91CC\u542F\u7528\u3002",
+    "ai.cutCloudNeedsAligner": "\u8BE5\u670D\u52A1\u65E0\u8BCD\u7EA7\u65F6\u95F4\u6233\uFF0C\u526A\u53E3\u64AD\u4F1A\u7528\u672C\u5730\u5BF9\u9F50\u5668\u8865\u65F6\u95F4",
     "setup.title.voice": "\u51C6\u5907\u300CAI \u53D8\u58F0\u300D",
     "setup.title.runtime": "\u51C6\u5907\u672C\u5730 AI \u8FD0\u884C\u65F6",
     "setup.lead": "\u8FD9\u53F0\u673A\u5668\u9002\u5408\u7528 {backend}\uFF08{reason}\uFF09\u3002\u4EE5\u4E0B\u5185\u5BB9\u9700\u8981\u5148\u4E0B\u8F7D\uFF1A",
@@ -4441,6 +4559,10 @@ var AICUT = (() => {
     "error.serialize.badResolution": "\u5DE5\u7A0B\u6587\u4EF6\u683C\u5F0F\u9519\u8BEF\uFF1A\u5206\u8FA8\u7387\u975E\u6CD5",
     "error.serialize.badAssets": "\u5DE5\u7A0B\u6587\u4EF6\u683C\u5F0F\u9519\u8BEF\uFF1Aassets \u4E0D\u662F\u6570\u7EC4",
     "error.serialize.badTracks": "\u5DE5\u7A0B\u6587\u4EF6\u683C\u5F0F\u9519\u8BEF\uFF1Atracks \u4E0D\u662F\u6570\u7EC4",
+    "episode.defaultName": "\u5206P {index}",
+    "error.serialize.badEpisodes": "\u5DE5\u7A0B\u7F3A\u5C11\u5206P \u6570\u636E",
+    "error.serialize.badActiveEpisode": "\u5DE5\u7A0B\u7F3A\u5C11\u5F53\u524D\u5206P",
+    "error.serialize.badEpisode": "\u5206P \u6570\u636E\u635F\u574F",
     "error.serialize.badTrack": "\u5DE5\u7A0B\u6587\u4EF6\u683C\u5F0F\u9519\u8BEF\uFF1A\u8F68\u9053\u4E0D\u662F\u5BF9\u8C61",
     "error.serialize.badClips": "\u5DE5\u7A0B\u6587\u4EF6\u683C\u5F0F\u9519\u8BEF\uFF1A\u8F68\u9053\u7684 clips \u4E0D\u662F\u6570\u7EC4",
     "error.serialize.badClip": "\u5DE5\u7A0B\u6587\u4EF6\u683C\u5F0F\u9519\u8BEF\uFF1A\u7247\u6BB5\u4E0D\u662F\u5BF9\u8C61",
@@ -4578,6 +4700,159 @@ var AICUT = (() => {
     return text;
   }
 
+  // src/core/episodes.ts
+  var attached = /* @__PURE__ */ new WeakSet();
+  function hasEpisodes(doc2) {
+    const episodes = doc2.episodes;
+    return Array.isArray(episodes) && episodes.length > 0;
+  }
+  function activeEpisode(doc2) {
+    const found = doc2.episodes.find((episode) => episode.id === doc2.activeEpisodeId);
+    return found ?? doc2.episodes[0];
+  }
+  function newEpisode(name, order) {
+    const now = Date.now();
+    return {
+      id: crypto.randomUUID(),
+      name,
+      order,
+      tracks: [],
+      markers: [],
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+  function migrateToEpisodes(doc2) {
+    if (hasEpisodes(doc2)) return doc2;
+    const episode = {
+      id: crypto.randomUUID(),
+      name: t("episode.defaultName", { index: 1 }),
+      order: 0,
+      tracks: Array.isArray(doc2.tracks) ? doc2.tracks : [],
+      markers: Array.isArray(doc2.markers) ? doc2.markers : [],
+      createdAt: doc2.createdAt ?? Date.now(),
+      updatedAt: Date.now()
+    };
+    return { ...doc2, version: 2, episodes: [episode], activeEpisodeId: episode.id };
+  }
+  function replaceActiveEpisode(doc2, patch) {
+    const target = activeEpisode(doc2);
+    doc2.episodes = doc2.episodes.map(
+      (episode) => episode.id === target.id ? { ...episode, ...patch, updatedAt: Date.now() } : episode
+    );
+  }
+  function defineView(doc2) {
+    Object.defineProperties(doc2, {
+      tracks: {
+        // 必须是**可枚举**访问器：`{ ...doc }` 展开时才会把数组值拷过去，
+        // 外部展开出来的文档因此仍然有 `doc.tracks`，不需要改造那 300 多处调用。
+        // 代价是 JSON 里会出现重复字段，由 `serializeProject()` 负责剔除。
+        enumerable: true,
+        configurable: true,
+        get: () => activeEpisode(doc2).tracks,
+        set: (value) => replaceActiveEpisode(doc2, { tracks: value })
+      },
+      markers: {
+        enumerable: true,
+        configurable: true,
+        get: () => activeEpisode(doc2).markers,
+        set: (value) => replaceActiveEpisode(doc2, { markers: value })
+      }
+    });
+    attached.add(doc2);
+    return doc2;
+  }
+  function attachEpisodeView(input) {
+    const doc2 = hasEpisodes(input) ? input : migrateToEpisodes(input);
+    const target = activeEpisode(doc2);
+    const trackAccessor = Boolean(Object.getOwnPropertyDescriptor(doc2, "tracks")?.get);
+    const markerAccessor = Boolean(Object.getOwnPropertyDescriptor(doc2, "markers")?.get);
+    const ownTracks = !trackAccessor && Array.isArray(doc2.tracks);
+    const ownMarkers = !markerAccessor && Array.isArray(doc2.markers);
+    if (attached.has(doc2) && doc2.activeEpisodeId === target.id && trackAccessor && markerAccessor) {
+      return doc2;
+    }
+    const tracks = ownTracks ? doc2.tracks : target.tracks;
+    const markers2 = ownMarkers ? doc2.markers : target.markers;
+    const episodes = doc2.episodes.map(
+      (episode) => episode.id === target.id ? { ...episode, tracks, markers: markers2 } : episode
+    );
+    const next = { ...doc2, episodes, activeEpisodeId: target.id };
+    delete next.tracks;
+    delete next.markers;
+    return defineView(next);
+  }
+  function patchProjectMeta(doc2, patch) {
+    const next = { ...doc2, ...patch };
+    delete next.tracks;
+    delete next.markers;
+    return attachEpisodeView(next);
+  }
+
+  // src/core/ops/internal.ts
+  function withTouch(doc2, patch) {
+    return attachEpisodeView({ ...doc2, ...patch, updatedAt: Date.now() });
+  }
+  function replaceTrack(doc2, trackId, next) {
+    const index = doc2.tracks.findIndex((t2) => t2.id === trackId);
+    if (index < 0 || doc2.tracks[index] === next) return doc2;
+    const tracks = doc2.tracks.slice();
+    tracks[index] = next;
+    return withTouch(doc2, { tracks });
+  }
+  function mapTrack(doc2, trackId, fn) {
+    const track = doc2.tracks.find((t2) => t2.id === trackId);
+    if (!track) return doc2;
+    return replaceTrack(doc2, trackId, fn(track));
+  }
+  function mapTrackClips(doc2, trackId, fn) {
+    return mapTrack(doc2, trackId, (track) => {
+      const clips = fn(track.clips);
+      return clips === track.clips ? track : { ...track, clips };
+    });
+  }
+  function findClip(doc2, clipId) {
+    for (const track of doc2.tracks) {
+      const clip = track.clips.find((c) => c.id === clipId);
+      if (clip) return { track, clip };
+    }
+    return null;
+  }
+  function sortClips(clips) {
+    return clips.slice().sort((a, b) => a.start - b.start);
+  }
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  // src/core/ops/assets.ts
+  function addAsset(doc2, asset) {
+    if (doc2.assets.some((a) => a.id === asset.id)) return doc2;
+    return withTouch(doc2, { assets: [...doc2.assets, asset] });
+  }
+  function removeAsset(doc2, assetId) {
+    const assets = doc2.assets.filter((a) => a.id !== assetId);
+    if (assets.length === doc2.assets.length) return doc2;
+    let changed = false;
+    const tracks = doc2.tracks.map((track) => {
+      const clips = track.clips.filter((c) => c.assetId !== assetId);
+      if (clips.length === track.clips.length) return track;
+      changed = true;
+      return { ...track, clips };
+    });
+    return withTouch(doc2, changed ? { assets, tracks } : { assets });
+  }
+  function updateAsset(doc2, assetId, patch) {
+    const index = doc2.assets.findIndex((a) => a.id === assetId);
+    if (index < 0) return doc2;
+    const assets = doc2.assets.slice();
+    assets[index] = { ...assets[index], ...patch };
+    return withTouch(doc2, { assets });
+  }
+
+  // src/types/project.ts
+  var PROJECT_VERSION = 2;
+
   // src/core/factory.ts
   function newId() {
     return crypto.randomUUID();
@@ -4610,7 +4885,8 @@ var AICUT = (() => {
   }
   function newProject(name = "untitled") {
     const now = Date.now();
-    return {
+    const episode = newEpisode(t("episode.defaultName", { index: 1 }), 0);
+    return attachEpisodeView({
       version: PROJECT_VERSION,
       name,
       createdAt: now,
@@ -4619,9 +4895,11 @@ var AICUT = (() => {
       width: 1920,
       height: 1080,
       assets: [],
-      tracks: [],
-      markers: []
-    };
+      episodes: [episode],
+      activeEpisodeId: episode.id,
+      tracks: episode.tracks,
+      markers: episode.markers
+    });
   }
 
   // src/core/ops/tracks.ts
@@ -5523,7 +5801,7 @@ var AICUT = (() => {
     }
   }
   function diffAffected(before, after) {
-    if (before === after) return EMPTY_AFFECTED;
+    if (before === after) return { ...EMPTY_AFFECTED, episodeId: after.activeEpisodeId };
     const clipIds = /* @__PURE__ */ new Set();
     const trackIds = /* @__PURE__ */ new Set();
     const assetIds = /* @__PURE__ */ new Set();
@@ -5570,7 +5848,9 @@ var AICUT = (() => {
       clipIds: [...clipIds],
       trackIds: [...trackIds],
       assetIds: [...assetIds],
-      ...range ? { range } : {}
+      ...range ? { range } : {},
+      // 会话广播靠它把补丁打到同一分P（工程文档 v2）。
+      episodeId: after.activeEpisodeId
     };
   }
   function applyCommandToDoc(doc2, command) {
@@ -5941,7 +6221,11 @@ var AICUT = (() => {
 
   // src/core/serialize.ts
   function serializeProject(project) {
-    return JSON.stringify(project, null, 2);
+    const doc2 = attachEpisodeView(project);
+    const wire = { ...doc2 };
+    delete wire.tracks;
+    delete wire.markers;
+    return JSON.stringify(wire, null, 2);
   }
   function isObject(v) {
     return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -5949,9 +6233,21 @@ var AICUT = (() => {
   function isNumber(v) {
     return typeof v === "number" && Number.isFinite(v);
   }
+  function assertTracks(tracks) {
+    for (const track of tracks) {
+      if (!isObject(track)) throw new Error(t("error.serialize.badTrack"));
+      if (!Array.isArray(track.clips)) throw new Error(t("error.serialize.badClips"));
+      for (const clip of track.clips) {
+        if (!isObject(clip)) throw new Error(t("error.serialize.badClip"));
+        if (!isNumber(clip.start) || !isNumber(clip.duration) || !isNumber(clip.in)) {
+          throw new Error(t("error.serialize.badClipTime"));
+        }
+      }
+    }
+  }
   function assertProjectShape(value) {
     if (!isObject(value)) throw new Error(t("error.serialize.notObject"));
-    if (value.version !== PROJECT_VERSION) {
+    if (value.version !== 1 && value.version !== PROJECT_VERSION) {
       throw new Error(
         t("error.serialize.version", {
           expected: PROJECT_VERSION,
@@ -5965,16 +6261,21 @@ var AICUT = (() => {
     if (!isNumber(value.width) || !isNumber(value.height))
       throw new Error(t("error.serialize.badResolution"));
     if (!Array.isArray(value.assets)) throw new Error(t("error.serialize.badAssets"));
-    if (!Array.isArray(value.tracks)) throw new Error(t("error.serialize.badTracks"));
-    for (const track of value.tracks) {
-      if (!isObject(track)) throw new Error(t("error.serialize.badTrack"));
-      if (!Array.isArray(track.clips)) throw new Error(t("error.serialize.badClips"));
-      for (const clip of track.clips) {
-        if (!isObject(clip)) throw new Error(t("error.serialize.badClip"));
-        if (!isNumber(clip.start) || !isNumber(clip.duration) || !isNumber(clip.in)) {
-          throw new Error(t("error.serialize.badClipTime"));
-        }
-      }
+    if (value.version === 1) {
+      if (!Array.isArray(value.tracks)) throw new Error(t("error.serialize.badTracks"));
+      assertTracks(value.tracks);
+      return;
+    }
+    if (!Array.isArray(value.episodes) || value.episodes.length === 0)
+      throw new Error(t("error.serialize.badEpisodes"));
+    if (typeof value.activeEpisodeId !== "string" || !value.activeEpisodeId)
+      throw new Error(t("error.serialize.badActiveEpisode"));
+    for (const episode of value.episodes) {
+      if (!isObject(episode) || typeof episode.id !== "string" || !episode.id)
+        throw new Error(t("error.serialize.badEpisode"));
+      if (!Array.isArray(episode.tracks) || !Array.isArray(episode.markers))
+        throw new Error(t("error.serialize.badEpisode"));
+      assertTracks(episode.tracks);
     }
   }
   function clampValue(value, min, max) {
@@ -6072,8 +6373,8 @@ var AICUT = (() => {
     }
     return scopes.length > 0 ? scopes : void 0;
   }
-  function normalizeProject(project) {
-    const tracks = project.tracks.map((track) => {
+  function normalizeTracks(source) {
+    return source.map((track) => {
       const record = { ...track };
       const visible = record.visible !== false;
       delete record.solo;
@@ -6099,7 +6400,9 @@ var AICUT = (() => {
       });
       return { ...record, visible, clips };
     });
-    const markers2 = Array.isArray(project.markers) ? project.markers.filter((marker) => isObject(marker) && isNumber(marker.time)).map((marker) => {
+  }
+  function normalizeMarkers(source) {
+    return Array.isArray(source) ? source.filter((marker) => isObject(marker) && isNumber(marker.time)).map((marker) => {
       const severity = marker.severity === "blocker" || marker.severity === "high" || marker.severity === "medium" || marker.severity === "low" ? marker.severity : void 0;
       const kind = marker.kind === "scene" || marker.kind === "hit" || marker.kind === "review" || marker.kind === "chapter" ? marker.kind : void 0;
       const bbox = isObject(marker.bbox) && isNumber(marker.bbox.x) && isNumber(marker.bbox.y) && isNumber(marker.bbox.width) && isNumber(marker.bbox.height) ? {
@@ -6126,13 +6429,17 @@ var AICUT = (() => {
         ...isNumber(marker.updatedAt) ? { updatedAt: marker.updatedAt } : {}
       };
     }) : [];
-    const cutScopes2 = normalizeCutScopes(project);
-    return {
-      ...project,
-      tracks,
-      markers: markers2,
-      ...cutScopes2 ? { cutScopes: cutScopes2 } : { cutScopes: void 0 }
-    };
+  }
+  function normalizeProject(input) {
+    const migrated = attachEpisodeView(migrateToEpisodes(input));
+    const episodes = migrated.episodes.map((episode) => ({
+      ...episode,
+      tracks: normalizeTracks(episode.tracks),
+      markers: normalizeMarkers(episode.markers)
+    }));
+    const doc2 = patchProjectMeta(migrated, { episodes });
+    const cutScopes2 = normalizeCutScopes(doc2);
+    return patchProjectMeta(doc2, { cutScopes: cutScopes2 });
   }
   function parseProject(json) {
     let raw;

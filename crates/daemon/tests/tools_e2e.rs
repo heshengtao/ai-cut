@@ -22,6 +22,17 @@ use aicut_daemon::video_dsp::VideoDspState;
 use aicut_daemon::{DocHandle, HeadlessHost, Host};
 use serde_json::{json, Value};
 
+/// 当前分P（工程文档 v2：时间线在 `episodes[activeEpisodeId]` 里，根级不再有 tracks）。
+fn active_episode(doc: &serde_json::Value) -> &serde_json::Value {
+    let active = doc["activeEpisodeId"].as_str().unwrap_or_default();
+    let episodes = doc["episodes"].as_array().expect("snapshot 缺少 episodes");
+    episodes
+        .iter()
+        .find(|episode| episode["id"].as_str() == Some(active))
+        .unwrap_or_else(|| &episodes[0])
+}
+
+
 /// 这些用例会跑真模型：视频/音频 AI 各自有"同一时刻只跑一个任务"的全局互斥，
 /// 所以整组串行执行（否则并行跑会互相抢占）。
 fn serial() -> std::sync::MutexGuard<'static, ()> {
@@ -152,7 +163,7 @@ fn separate_stems_end_to_end() {
     assert_eq!(result["model"], "uvr-mdx-voc-ft");
 
     let snapshot = fixture.snapshot();
-    let tracks = snapshot["tracks"].as_array().unwrap();
+    let tracks = active_episode(&snapshot)["tracks"].as_array().unwrap();
     assert_eq!(tracks.len(), 3, "原声 + 两条分轨");
     assert_eq!(tracks[0]["clips"][0]["muted"], true, "源片段必须静音");
 }
@@ -171,7 +182,7 @@ fn process_audio_replaces_clip_in_place() {
         .expect("process_audio");
 
     let snapshot = fixture.snapshot();
-    let tracks = snapshot["tracks"].as_array().unwrap();
+    let tracks = active_episode(&snapshot)["tracks"].as_array().unwrap();
     assert_eq!(tracks.len(), 1, "纯音频片段就地换素材，不另开轨");
     assert_ne!(tracks[0]["clips"][0]["assetId"], "a1");
 }
@@ -214,7 +225,7 @@ fn upscale_video_replaces_the_clip() {
         .expect("upscale_video");
 
     let snapshot = fixture.snapshot();
-    let clips = snapshot["tracks"][0]["clips"].as_array().unwrap();
+    let clips = active_episode(&snapshot)["tracks"][0]["clips"].as_array().unwrap();
     assert_eq!(clips.len(), 1);
     assert_ne!(clips[0]["assetId"], "v1");
     assert_eq!(clips[0]["in"], 0.0);
@@ -275,7 +286,7 @@ fn synthesize_voiceover_lands_a_track() {
     assert_eq!(result["count"], 1);
 
     let snapshot = fixture.snapshot();
-    let tracks = snapshot["tracks"].as_array().unwrap();
+    let tracks = active_episode(&snapshot)["tracks"].as_array().unwrap();
     assert_eq!(tracks.len(), 2, "原声 + 朗读");
     assert_eq!(tracks[1]["clips"][0]["start"], 0.5);
 }
@@ -441,7 +452,7 @@ fn editing_macros_drive_the_timeline() {
         .call("set_clip_speed", json!({ "clipId": clip_id, "speed": 2.0 }))
         .expect("set_clip_speed");
     let snapshot_value = snapshot();
-    let clip = &snapshot_value["tracks"][0]["clips"][0];
+    let clip = &active_episode(&snapshot_value)["tracks"][0]["clips"][0];
     assert_eq!(clip["speed"], 2.0);
 
     // 4) 标记
@@ -449,24 +460,24 @@ fn editing_macros_drive_the_timeline() {
         .call("add_marker", json!({ "time": 1.0, "name": "重点" }))
         .expect("add_marker");
     let snapshot_value = snapshot();
-    let marker_id = snapshot_value["markers"][0]["id"].as_str().unwrap().to_string();
-    assert_eq!(snapshot_value["markers"][0]["name"], "重点");
+    let marker_id = active_episode(&snapshot_value)["markers"][0]["id"].as_str().unwrap().to_string();
+    assert_eq!(active_episode(&snapshot_value)["markers"][0]["name"], "重点");
 
     fixture
         .call("update_marker", json!({ "markerId": marker_id, "name": "改名" }))
         .expect("update_marker");
-    assert_eq!(snapshot()["markers"][0]["name"], "改名");
+    assert_eq!(active_episode(&snapshot())["markers"][0]["name"], "改名");
     fixture
         .call("remove_marker", json!({ "markerId": marker_id }))
         .expect("remove_marker");
-    assert!(snapshot()["markers"].as_array().unwrap().is_empty());
+    assert!(active_episode(&snapshot())["markers"].as_array().unwrap().is_empty());
 
     // 5) 复制 + 波纹删除
     fixture
         .call("duplicate_clips", json!({ "clipIds": [clip_id], "offset": 10.0 }))
         .expect("duplicate_clips");
     let snapshot_value = snapshot();
-    let clips = snapshot_value["tracks"][0]["clips"].as_array().unwrap();
+    let clips = active_episode(&snapshot_value)["tracks"][0]["clips"].as_array().unwrap();
     assert_eq!(clips.len(), 2, "复制后应有两条片段");
     let duplicate_id = clips[1]["id"].as_str().unwrap().to_string();
 
@@ -475,7 +486,7 @@ fn editing_macros_drive_the_timeline() {
         .expect("ripple_delete");
     let snapshot_value = snapshot();
     assert_eq!(
-        snapshot_value["tracks"][0]["clips"].as_array().unwrap().len(),
+        active_episode(&snapshot_value)["tracks"][0]["clips"].as_array().unwrap().len(),
         1
     );
 
@@ -616,7 +627,7 @@ fn session_history_and_review_tools_work() {
     let snapshot_value = snapshot();
     assert_eq!(snapshot_value["name"], "空工程");
     assert_eq!(snapshot_value["fps"], 25.0);
-    assert!(snapshot_value["tracks"].as_array().unwrap().is_empty());
+    assert!(active_episode(&snapshot_value)["tracks"].as_array().unwrap().is_empty());
 
     // 2) 命令 + 撤销 / 重做
     let track = fixture
@@ -624,12 +635,12 @@ fn session_history_and_review_tools_work() {
             "kind": "track.add", "payload": { "type": "audio", "name": "A" }
         }}))
         .expect("track.add");
-    assert_eq!(snapshot()["tracks"].as_array().unwrap().len(), 1);
+    assert_eq!(active_episode(&snapshot())["tracks"].as_array().unwrap().len(), 1);
     let undone = fixture.call("undo", json!({})).expect("undo");
     assert_eq!(undone["changed"], true);
-    assert!(snapshot()["tracks"].as_array().unwrap().is_empty(), "撤销应移除轨道");
+    assert!(active_episode(&snapshot())["tracks"].as_array().unwrap().is_empty(), "撤销应移除轨道");
     fixture.call("redo", json!({})).expect("redo");
-    assert_eq!(snapshot()["tracks"].as_array().unwrap().len(), 1, "重做应恢复轨道");
+    assert_eq!(active_episode(&snapshot())["tracks"].as_array().unwrap().len(), 1, "重做应恢复轨道");
     let _ = track;
 
     // 3) 审片批注
@@ -651,14 +662,14 @@ fn session_history_and_review_tools_work() {
     fixture
         .call("remove_review_note", json!({ "markerId": marker_id }))
         .expect("remove_review_note");
-    assert!(snapshot()["markers"].as_array().unwrap().is_empty());
+    assert!(active_episode(&snapshot())["markers"].as_array().unwrap().is_empty());
 
     // 4) 文字片段 → 导出 SRT → 再导入
     fixture
         .call("apply_command", json!({ "command": {
             "kind": "clip.add",
             "payload": {
-                "trackId": snapshot()["tracks"][0]["id"],
+                "trackId": active_episode(&snapshot())["tracks"][0]["id"],
                 "clip": { "assetId": "", "start": 0.0, "duration": 1.0, "text": "第一句" }
             }
         }}))

@@ -409,7 +409,12 @@ describe("applyCommandsToDoc", () => {
 describe("diffAffected", () => {
   it("returns empty for the same document", () => {
     const { doc } = fixture();
-    expect(diffAffected(doc, doc)).toEqual({ clipIds: [], trackIds: [], assetIds: [] });
+    expect(diffAffected(doc, doc)).toEqual({
+      clipIds: [],
+      trackIds: [],
+      assetIds: [],
+      episodeId: doc.activeEpisodeId,
+    });
   });
 
   it("detects added tracks and clips", () => {

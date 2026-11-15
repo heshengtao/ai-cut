@@ -80,10 +80,125 @@ impl Default for Session {
     }
 }
 
+/// 从 `affected` 里取一个 id 列表。
+fn affected_ids(affected: &serde_json::Map<String, Value>, key: &str) -> Vec<String> {
+    affected
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 把受影响的轨道替换进 `base_tracks`，顺序跟随 `next_tracks`。
+fn merge_track_list(base_tracks: Vec<Value>, next_tracks: &[Value], track_ids: &[String]) -> Vec<Value> {
+    let mut merged: Vec<Value> = base_tracks
+        .into_iter()
+        .filter(|track| {
+            let id = track.get("id").and_then(Value::as_str).unwrap_or("");
+            !track_ids.iter().any(|wanted| wanted == id)
+                || next_tracks
+                    .iter()
+                    .any(|candidate| candidate.get("id").and_then(Value::as_str) == Some(id))
+        })
+        .collect();
+    for (index, track) in next_tracks.iter().enumerate() {
+        let Some(id) = track.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        if !track_ids.iter().any(|wanted| wanted == id) {
+            continue;
+        }
+        match merged
+            .iter()
+            .position(|candidate| candidate.get("id").and_then(Value::as_str) == Some(id))
+        {
+            Some(local) => merged[local] = track.clone(),
+            None => {
+                let at = index.min(merged.len());
+                merged.insert(at, track.clone());
+            }
+        }
+    }
+    merged
+}
+
+/// 把受影响的素材替换进 `base_assets`，顺序跟随 `next_assets`。
+fn merge_asset_list(base_assets: Vec<Value>, next_assets: &[Value], asset_ids: &[String]) -> Vec<Value> {
+    let mut merged: Vec<Value> = base_assets
+        .into_iter()
+        .filter(|asset| {
+            let id = asset.get("id").and_then(Value::as_str).unwrap_or("");
+            !asset_ids.iter().any(|wanted| wanted == id)
+                || next_assets
+                    .iter()
+                    .any(|candidate| candidate.get("id").and_then(Value::as_str) == Some(id))
+        })
+        .collect();
+    for (index, asset) in next_assets.iter().enumerate() {
+        let Some(id) = asset.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        if !asset_ids.iter().any(|wanted| wanted == id) {
+            continue;
+        }
+        match merged
+            .iter()
+            .position(|candidate| candidate.get("id").and_then(Value::as_str) == Some(id))
+        {
+            Some(local) => merged[local] = asset.clone(),
+            None => {
+                let at = index.min(merged.len());
+                merged.insert(at, asset.clone());
+            }
+        }
+    }
+    merged
+}
+
+/// 在文档里按 id 找分P。
+fn episode_of<'a>(doc: &'a Value, episode_id: &str) -> Option<&'a Value> {
+    doc.get("episodes")?
+        .as_array()?
+        .iter()
+        .find(|episode| episode.get("id").and_then(Value::as_str) == Some(episode_id))
+}
+
+/// 把「片段所在的轨道」补进受影响轨道列表。
+fn add_clip_owners(tracks: &[Value], clip_ids: &[String], track_ids: &mut Vec<String>) {
+    for track in tracks {
+        let Some(clips) = track.get("clips").and_then(Value::as_array) else {
+            continue;
+        };
+        let hit = clips.iter().any(|clip| {
+            clip.get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| clip_ids.iter().any(|wanted| wanted == id))
+        });
+        if !hit {
+            continue;
+        }
+        let Some(id) = track.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        if !track_ids.iter().any(|wanted| wanted == id) {
+            track_ids.push(id.to_string());
+        }
+    }
+}
+
 /// 把一次增量补丁合并进当前工程：只替换受影响轨道 / 素材，工程级字段取新快照。
 ///
 /// 服务端在这里做合并（而不是让各客户端各自合并），是为了让所有客户端最终看到**同一份**
 /// 文档：两边同时改不同轨道不会互相覆盖，同一条轨道按服务端收到的顺序取后者。
+///
+/// 工程文档 v2（多分P）：时间线在 `episodes[activeEpisodeId]` 里。补丁只作用于
+/// `affected.episodeId` 指向的分P，**当前分P 始终由本地（base）决定**——远端不会把
+/// 你从正在剪的那一集踢走；远端新建的分P 会被追加进来。
 fn merge_project(current: &str, incoming: &str, affected: &Value) -> String {
     let (Ok(mut base), Ok(next)) = (
         serde_json::from_str::<Value>(current),
@@ -94,80 +209,108 @@ fn merge_project(current: &str, incoming: &str, affected: &Value) -> String {
     let Some(affected) = affected.as_object() else {
         return incoming.to_string();
     };
-    let ids = |key: &str| -> Vec<String> {
-        affected
-            .get(key)
-            .and_then(Value::as_array)
-            .map(|list| {
-                list.iter()
-                    .filter_map(Value::as_str)
-                    .map(ToString::to_string)
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let clip_ids = ids("clipIds");
-    let mut track_ids = ids("trackIds");
-    let asset_ids = ids("assetIds");
 
-    let add_owners = |doc: &Value, track_ids: &mut Vec<String>| {
-        let Some(tracks) = doc.get("tracks").and_then(Value::as_array) else {
-            return;
-        };
-        for track in tracks {
-            let Some(clips) = track.get("clips").and_then(Value::as_array) else {
-                continue;
-            };
-            if clips.iter().any(|clip| {
-                clip.get("id")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| clip_ids.iter().any(|wanted| wanted == id))
-            }) {
-                if let Some(id) = track.get("id").and_then(Value::as_str) {
-                    if !track_ids.iter().any(|wanted| wanted == id) {
-                        track_ids.push(id.to_string());
+    let clip_ids = affected_ids(affected, "clipIds");
+    let mut track_ids = affected_ids(affected, "trackIds");
+    let asset_ids = affected_ids(affected, "assetIds");
+
+    let is_episode_doc = base.get("episodes").and_then(Value::as_array).is_some()
+        && next.get("episodes").and_then(Value::as_array).is_some();
+
+    if !is_episode_doc {
+        // ---- 旧（v1）文档：时间线在根级 tracks ----
+        if let (Some(base_tracks), Some(next_tracks)) = (
+            base.get("tracks").and_then(Value::as_array).cloned(),
+            next.get("tracks").and_then(Value::as_array).cloned(),
+        ) {
+            add_clip_owners(&base_tracks, &clip_ids, &mut track_ids);
+            add_clip_owners(&next_tracks, &clip_ids, &mut track_ids);
+            let merged = merge_track_list(base_tracks, &next_tracks, &track_ids);
+            if let Some(object) = base.as_object_mut() {
+                object.insert("tracks".into(), Value::Array(merged));
+            }
+        }
+        if let (Some(base_assets), Some(next_assets)) = (
+            base.get("assets").and_then(Value::as_array).cloned(),
+            next.get("assets").and_then(Value::as_array).cloned(),
+        ) {
+            let merged = merge_asset_list(base_assets, &next_assets, &asset_ids);
+            if let Some(object) = base.as_object_mut() {
+                object.insert("assets".into(), Value::Array(merged));
+            }
+        }
+        if let (Some(base_object), Some(next_object)) = (base.as_object_mut(), next.as_object()) {
+            for (key, value) in next_object {
+                if key == "tracks" || key == "assets" {
+                    continue;
+                }
+                base_object.insert(key.clone(), value.clone());
+            }
+        }
+        return serde_json::to_string(&base).unwrap_or_else(|_| incoming.to_string());
+    }
+
+    let patch_episode_id = affected
+        .get("episodeId")
+        .and_then(Value::as_str)
+        .or_else(|| next.get("activeEpisodeId").and_then(Value::as_str))
+        .unwrap_or_default()
+        .to_string();
+    let base_episode = episode_of(&base, &patch_episode_id).cloned();
+    let next_episode = episode_of(&next, &patch_episode_id).cloned();
+
+    if let (Some(base_episode), Some(next_episode)) = (&base_episode, &next_episode) {
+        let base_tracks = base_episode
+            .get("tracks")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let next_tracks = next_episode
+            .get("tracks")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        add_clip_owners(&base_tracks, &clip_ids, &mut track_ids);
+        add_clip_owners(&next_tracks, &clip_ids, &mut track_ids);
+        let merged_tracks = merge_track_list(base_tracks, &next_tracks, &track_ids);
+
+        if let Some(episodes) = base.get_mut("episodes").and_then(Value::as_array_mut) {
+            for episode in episodes.iter_mut() {
+                if episode.get("id").and_then(Value::as_str) != Some(patch_episode_id.as_str()) {
+                    continue;
+                }
+                if let Some(object) = episode.as_object_mut() {
+                    object.insert("tracks".into(), Value::Array(merged_tracks.clone()));
+                    // 标记是分P 级的：同一分P 内以后到者为准（与 v1 的标记语义一致）。
+                    if let Some(markers) = next_episode.get("markers") {
+                        object.insert("markers".into(), markers.clone());
+                    }
+                    for key in ["name", "order", "updatedAt"] {
+                        if let Some(value) = next_episode.get(key) {
+                            object.insert(key.into(), value.clone());
+                        }
                     }
                 }
             }
         }
-    };
-    add_owners(&base, &mut track_ids);
-    add_owners(&next, &mut track_ids);
+    }
 
-    if let (Some(base_tracks), Some(next_tracks)) = (
-        base.get("tracks").and_then(Value::as_array).cloned(),
-        next.get("tracks").and_then(Value::as_array).cloned(),
-    ) {
-        let mut merged: Vec<Value> = base_tracks
-            .into_iter()
-            .filter(|track| {
-                let id = track.get("id").and_then(Value::as_str).unwrap_or("");
-                !track_ids.iter().any(|wanted| wanted == id)
-                    || next_tracks.iter().any(|candidate| {
-                        candidate.get("id").and_then(Value::as_str) == Some(id)
-                    })
-            })
+    // 远端新建的分P 带过来（本地没有的 id 才追加）。
+    if let Some(episodes) = base.get_mut("episodes").and_then(Value::as_array_mut) {
+        let existing: std::collections::HashSet<String> = episodes
+            .iter()
+            .filter_map(|episode| episode.get("id").and_then(Value::as_str).map(str::to_string))
             .collect();
-        for (index, track) in next_tracks.iter().enumerate() {
-            let Some(id) = track.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            if !track_ids.iter().any(|wanted| wanted == id) {
-                continue;
-            }
-            match merged
-                .iter()
-                .position(|candidate| candidate.get("id").and_then(Value::as_str) == Some(id))
-            {
-                Some(local) => merged[local] = track.clone(),
-                None => {
-                    let at = index.min(merged.len());
-                    merged.insert(at, track.clone());
+        if let Some(next_episodes) = next.get("episodes").and_then(Value::as_array) {
+            for episode in next_episodes {
+                let Some(id) = episode.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                if existing.contains(id) {
+                    continue;
                 }
+                episodes.push(episode.clone());
             }
-        }
-        if let Some(object) = base.as_object_mut() {
-            object.insert("tracks".into(), Value::Array(merged));
         }
     }
 
@@ -175,43 +318,20 @@ fn merge_project(current: &str, incoming: &str, affected: &Value) -> String {
         base.get("assets").and_then(Value::as_array).cloned(),
         next.get("assets").and_then(Value::as_array).cloned(),
     ) {
-        let mut merged: Vec<Value> = base_assets
-            .into_iter()
-            .filter(|asset| {
-                let id = asset.get("id").and_then(Value::as_str).unwrap_or("");
-                !asset_ids.iter().any(|wanted| wanted == id)
-                    || next_assets.iter().any(|candidate| {
-                        candidate.get("id").and_then(Value::as_str) == Some(id)
-                    })
-            })
-            .collect();
-        for (index, asset) in next_assets.iter().enumerate() {
-            let Some(id) = asset.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            if !asset_ids.iter().any(|wanted| wanted == id) {
-                continue;
-            }
-            match merged
-                .iter()
-                .position(|candidate| candidate.get("id").and_then(Value::as_str) == Some(id))
-            {
-                Some(local) => merged[local] = asset.clone(),
-                None => {
-                    let at = index.min(merged.len());
-                    merged.insert(at, asset.clone());
-                }
-            }
-        }
+        let merged = merge_asset_list(base_assets, &next_assets, &asset_ids);
         if let Some(object) = base.as_object_mut() {
             object.insert("assets".into(), Value::Array(merged));
         }
     }
 
-    // 工程级字段（名称 / 帧率 / 尺寸 / 标记 / 剪口组）以后到者为准。
+    // 工程级字段（名称 / 帧率 / 尺寸 / 剪口组）以后到者为准；
+    // 时间线与分P 结构保持本地，避免远端把当前分P 或别人的分P 覆盖掉。
     if let (Some(base_object), Some(next_object)) = (base.as_object_mut(), next.as_object()) {
         for (key, value) in next_object {
-            if key == "tracks" || key == "assets" {
+            if matches!(
+                key.as_str(),
+                "tracks" | "markers" | "assets" | "episodes" | "activeEpisodeId"
+            ) {
                 continue;
             }
             base_object.insert(key.clone(), value.clone());
@@ -388,9 +508,9 @@ mod tests {
     }
 
     #[test]
-    fn merge_only_replaces_affected_track() {
-        let current = r#"{"version":1,"name":"local","tracks":[{"id":"t1","clips":[{"id":"c1","v":1}]},{"id":"t2","clips":[{"id":"c2","v":1}]}],"assets":[]}"#;
-        let incoming = r#"{"version":1,"name":"remote","tracks":[{"id":"t1","clips":[{"id":"c1","v":2}]},{"id":"t2","clips":[{"id":"c2","v":2}]}],"assets":[]}"#;
+    fn merge_only_replaces_affected_track_in_current_episode() {
+        let current = r#"{"version":2,"name":"local","activeEpisodeId":"e1","episodes":[{"id":"e1","name":"第一集","tracks":[{"id":"t1","clips":[{"id":"c1","v":1}]},{"id":"t2","clips":[{"id":"c2","v":1}]}],"markers":[]}],"assets":[]}"#;
+        let incoming = r#"{"version":2,"name":"remote","activeEpisodeId":"e1","episodes":[{"id":"e1","name":"第一集","tracks":[{"id":"t1","clips":[{"id":"c1","v":2}]},{"id":"t2","clips":[{"id":"c2","v":2}]}],"markers":[]}],"assets":[]}"#;
         let merged = super::merge_project(
             current,
             incoming,
@@ -398,7 +518,27 @@ mod tests {
         );
         let value: serde_json::Value = serde_json::from_str(&merged).unwrap();
         assert_eq!(value["name"], "remote");
-        assert_eq!(value["tracks"][0]["clips"][0]["v"], 2);
-        assert_eq!(value["tracks"][1]["clips"][0]["v"], 1);
+        assert_eq!(value["episodes"][0]["tracks"][0]["clips"][0]["v"], 2);
+        assert_eq!(value["episodes"][0]["tracks"][1]["clips"][0]["v"], 1);
+        // 根级不再有时间线：v2 只写 episodes。
+        assert!(value.get("tracks").is_none());
+    }
+
+    #[test]
+    fn merge_keeps_local_episode_and_appends_remote_one() {
+        let current = r#"{"version":2,"name":"local","activeEpisodeId":"e1","episodes":[{"id":"e1","name":"第一集","tracks":[{"id":"t1","clips":[]}],"markers":[]}],"assets":[]}"#;
+        let incoming = r#"{"version":2,"name":"remote","activeEpisodeId":"e2","episodes":[{"id":"e1","name":"第一集","tracks":[{"id":"t1","clips":[{"id":"c9","v":9}]}],"markers":[]},{"id":"e2","name":"第二集","tracks":[{"id":"t9","clips":[{"id":"c7","v":7}]}],"markers":[]}],"assets":[]}"#;
+        let merged = super::merge_project(
+            current,
+            incoming,
+            &serde_json::json!({"episodeId": "e2", "trackIds": [], "clipIds": [], "assetIds": []}),
+        );
+        let value: serde_json::Value = serde_json::from_str(&merged).unwrap();
+        // 远端不能把当前分P 换掉。
+        assert_eq!(value["activeEpisodeId"], "e1");
+        // 补丁打的是 e2，e1 的轨道不能被污染。
+        assert_eq!(value["episodes"][0]["tracks"][0]["clips"].as_array().unwrap().len(), 0);
+        // 远端新建的分P 要带过来。
+        assert_eq!(value["episodes"][1]["id"], "e2");
     }
 }

@@ -266,7 +266,7 @@ function mergeAffected(items: Affected[]): Affected {
 
 /** 对比两份文档，算出受影响的对象与时间区间。 */
 export function diffAffected(before: Project, after: Project): Affected {
-  if (before === after) return EMPTY_AFFECTED;
+  if (before === after) return { ...EMPTY_AFFECTED, episodeId: after.activeEpisodeId };
 
   const clipIds = new Set<string>();
   const trackIds = new Set<string>();
@@ -320,6 +320,8 @@ export function diffAffected(before: Project, after: Project): Affected {
     trackIds: [...trackIds],
     assetIds: [...assetIds],
     ...(range ? { range } : {}),
+    // 会话广播靠它把补丁打到同一分P（工程文档 v2）。
+    episodeId: after.activeEpisodeId,
   };
 }
 

@@ -13,6 +13,17 @@ fn json(text: &str) -> serde_json::Value {
     serde_json::from_str(text).unwrap_or_else(|e| panic!("不是合法 JSON：{e}\n{text}"))
 }
 
+/// 当前分P（工程文档 v2：时间线在 `episodes[activeEpisodeId]` 里，根级不再有 tracks）。
+fn active_episode(doc: &serde_json::Value) -> &serde_json::Value {
+    let active = doc["activeEpisodeId"].as_str().unwrap_or_default();
+    let episodes = doc["episodes"].as_array().expect("snapshot 缺少 episodes");
+    episodes
+        .iter()
+        .find(|episode| episode["id"].as_str() == Some(active))
+        .unwrap_or_else(|| &episodes[0])
+}
+
+
 #[test]
 fn quickjs_matches_v8_golden() {
     let engine = DocEngine::new(IdSource::Deterministic).expect("创建引擎");
@@ -141,9 +152,9 @@ fn op_subtitle_track_puts_captions_on_top() {
 
     let snapshot = json(&engine.snapshot().unwrap());
     // 字幕轨必须在最上方（预览按轨道顺序叠层）。
-    assert_eq!(snapshot["tracks"][0]["name"], "字幕");
-    assert_eq!(snapshot["tracks"][0]["clips"].as_array().unwrap().len(), 2);
-    assert_eq!(snapshot["tracks"][0]["clips"][0]["text"], "第一句");
+    assert_eq!(active_episode(&snapshot)["tracks"][0]["name"], "字幕");
+    assert_eq!(active_episode(&snapshot)["tracks"][0]["clips"].as_array().unwrap().len(), 2);
+    assert_eq!(active_episode(&snapshot)["tracks"][0]["clips"][0]["text"], "第一句");
 }
 
 #[test]
@@ -173,9 +184,9 @@ fn op_processed_audio_replaces_audio_in_place() {
 
     let snapshot = json(&engine.snapshot().unwrap());
     // 桌面对纯音频片段是"就地换素材"，不是另开一轨。
-    assert_eq!(snapshot["tracks"].as_array().unwrap().len(), 1);
-    assert_eq!(snapshot["tracks"][0]["id"], track_id.as_str());
-    assert_eq!(snapshot["tracks"][0]["clips"][0]["assetId"], "a2");
+    assert_eq!(active_episode(&snapshot)["tracks"].as_array().unwrap().len(), 1);
+    assert_eq!(active_episode(&snapshot)["tracks"][0]["id"], track_id.as_str());
+    assert_eq!(active_episode(&snapshot)["tracks"][0]["clips"][0]["assetId"], "a2");
     assert_eq!(outcome["result"]["tracks"].as_array().unwrap().len(), 0);
 }
 
@@ -209,7 +220,7 @@ fn op_stem_tracks_mute_source_and_insert_below() {
     assert_eq!(outcome["ok"], true);
 
     let snapshot = json(&engine.snapshot().unwrap());
-    let tracks = snapshot["tracks"].as_array().unwrap();
+    let tracks = active_episode(&snapshot)["tracks"].as_array().unwrap();
     assert_eq!(tracks.len(), 3);
     // 分轨插在源轨道下方，源片段静音。
     assert_eq!(tracks[0]["id"], track_id.as_str());
@@ -261,7 +272,7 @@ fn op_replace_video_resets_clip_in_point() {
     assert_eq!(outcome["ok"], true);
 
     let snapshot = json(&engine.snapshot().unwrap());
-    let clip = &snapshot["tracks"][0]["clips"][0];
+    let clip = &active_episode(&snapshot)["tracks"][0]["clips"][0];
     assert_eq!(clip["assetId"], "v2");
     assert_eq!(clip["in"], 0.0);
     assert_eq!(clip["duration"], 4.0);
