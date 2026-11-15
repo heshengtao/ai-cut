@@ -20,6 +20,7 @@ import {
   ArrowsPointingOutIcon,
   ArrowUturnLeftIcon,
   ArrowUturnRightIcon,
+  Bars3Icon,
   CursorArrowRaysIcon,
   MinusIcon,
   PlusIcon,
@@ -32,6 +33,7 @@ import BoardNodeCard from "./BoardNode.vue";
 import { useI18n } from "@/i18n";
 import { useBoardStore } from "@/stores/board";
 import { useLayoutStore } from "@/stores/layout";
+import { useBoardRun } from "@/composables/useBoardRun";
 import { portsCompatible } from "@/core/board/schema";
 import { nodeDefinition, nodesByCategory, portSpecOf } from "@/core/board/registry";
 import type { BoardNode } from "@/types/board";
@@ -39,6 +41,7 @@ import type { BoardNode } from "@/types/board";
 const i18n = useI18n();
 const board = useBoardStore();
 const layout = useLayoutStore();
+const run = useBoardRun();
 
 const nodeTypes = { board: BoardNodeCard } as unknown as NodeTypesObject;
 
@@ -46,6 +49,7 @@ const nodeTypes = { board: BoardNodeCard } as unknown as NodeTypesObject;
 const flowNodes = shallowRef<Node[]>([]);
 const flowEdges = shallowRef<Edge[]>([]);
 const addOpen = ref(false);
+const runMenuOpen = ref(false);
 const addAnchor = ref<HTMLElement | null>(null);
 
 const { fitView, zoomIn, zoomOut, setViewport, screenToFlowCoordinate, onNodeDragStop, onMoveEnd } =
@@ -177,6 +181,18 @@ onUnmounted(() => {
   window.removeEventListener("keydown", onKeyDown);
 });
 
+const runModes = [
+  { value: "manual", labelKey: "board.run.manual" },
+  { value: "always", labelKey: "board.run.always" },
+  { value: "repeat", labelKey: "board.run.repeat" },
+  { value: "none", labelKey: "board.run.none" },
+] as const;
+
+function setRunMode(value: "manual" | "always" | "repeat" | "none"): void {
+  run.mode.value = value;
+  runMenuOpen.value = false;
+}
+
 function toggleAdd(event: MouseEvent): void {
   addAnchor.value = event.currentTarget as HTMLElement;
   addOpen.value = !addOpen.value;
@@ -233,6 +249,24 @@ function toggleAdd(event: MouseEvent): void {
     </div>
 
     <div class="board-toolbar" role="toolbar" :aria-label="i18n.t('board.toolbar')">
+      <button
+        class="board-run"
+        type="button"
+        :class="{ running: run.running.value }"
+        @click="run.running.value ? run.stop() : run.runSelection()"
+      >
+        {{ run.running.value ? i18n.t("board.run.stop") : i18n.t("board.run.run") }}
+        <span v-if="run.queue.value.length > 0" class="board-run-count">{{ run.queue.value.length }}</span>
+      </button>
+      <button
+        class="board-tool"
+        type="button"
+        :title="i18n.t('board.run.mode')"
+        @click="runMenuOpen = !runMenuOpen"
+      >
+        <Bars3Icon />
+      </button>
+      <span class="board-sep" aria-hidden="true" />
       <button class="board-tool" type="button" :title="i18n.t('board.addNode')" @click="toggleAdd">
         <PlusIcon />
       </button>
@@ -271,6 +305,31 @@ function toggleAdd(event: MouseEvent): void {
         <CursorArrowRaysIcon />
         {{ i18n.t("board.panHint") }}
       </span>
+    </div>
+
+    <div v-if="runMenuOpen" class="board-menu run-menu">
+      <p class="board-menu-group">{{ i18n.t("board.run.mode") }}</p>
+      <button
+        v-for="option in runModes"
+        :key="option.value"
+        class="board-menu-item"
+        type="button"
+        :class="{ on: run.mode.value === option.value }"
+        @click="setRunMode(option.value)"
+      >
+        {{ i18n.t(option.labelKey) }}
+      </button>
+      <template v-if="run.mode.value === 'repeat'">
+        <p class="board-menu-group">{{ i18n.t("board.run.repeat") }}</p>
+        <input
+          class="board-menu-number"
+          type="number"
+          min="1"
+          max="99"
+          :value="run.repeatCount.value"
+          @change="run.repeatCount.value = Math.max(1, Math.min(99, Number(($event.target as HTMLInputElement).value) || 1))"
+        />
+      </template>
     </div>
 
     <div v-if="addOpen" class="board-menu" :style="{ left: '50%', bottom: '64px' }">
@@ -373,6 +432,53 @@ function toggleAdd(event: MouseEvent): void {
   border-radius: 999px;
   background-color: rgb(var(--md-surface-container-high) / 0.94);
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
+}
+.board-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgb(var(--md-on-primary));
+  background-color: rgb(var(--md-primary));
+  cursor: pointer;
+}
+.board-run.running {
+  color: rgb(var(--md-on-secondary-container));
+  background-color: rgb(var(--md-secondary-container));
+}
+.board-run-count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  color: rgb(var(--md-on-primary));
+  background-color: rgb(var(--md-on-primary) / 0.22);
+}
+.run-menu {
+  bottom: 64px;
+  min-width: 170px;
+}
+.board-menu-item.on {
+  background-color: rgb(var(--md-secondary-container));
+  color: rgb(var(--md-on-secondary-container));
+}
+.board-menu-number {
+  width: calc(100% - 16px);
+  margin: 0 8px 6px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.7);
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(var(--md-on-surface));
 }
 .board-tool {
   width: 30px;

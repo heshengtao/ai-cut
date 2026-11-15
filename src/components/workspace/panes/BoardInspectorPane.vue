@@ -5,7 +5,7 @@
  * 输入节点：选本地文件 / 从素材库挑；显示节点：插入当前分P 时间线。
  * 参数按注册表的 ParamSpec 渲染，模型节点的模型下拉在模型节点阶段接入。
  */
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
   ArrowDownTrayIcon,
   FolderOpenIcon,
@@ -18,7 +18,13 @@ import { useBoardStore } from "@/stores/board";
 import { useProjectStore } from "@/stores/project";
 import { usePlaybackStore } from "@/stores/playback";
 import { useLayoutStore } from "@/stores/layout";
+import { useModelsStore } from "@/stores/models";
+import { useBoardRun } from "@/composables/useBoardRun";
 import { nodeDefinition } from "@/core/board/registry";
+import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
+import { providersForCapability } from "@/utils/cloudGen";
+import type { CloudGenPreset, CloudGenProvider } from "@/types/cloudGen";
+import type { ModelFeature } from "@/types/models";
 import { importAssetAt, pickMediaFiles } from "@/core/media";
 import { addAsset } from "@/core/ops";
 import { insertImportedAssets } from "@/core/importInsert";
@@ -32,6 +38,58 @@ const board = useBoardStore();
 const project = useProjectStore();
 const playback = usePlaybackStore();
 const layout = useLayoutStore();
+const models = useModelsStore();
+const run = useBoardRun();
+
+const cloudProviders = ref<CloudGenProvider[]>([]);
+const cloudPresets = ref<CloudGenPreset[]>([]);
+
+onMounted(() => {
+  void models.load();
+  void loadCloudProviders();
+});
+
+async function loadCloudProviders(): Promise<void> {
+  try {
+    const config = await cloudGenConfig();
+    cloudProviders.value = config.providers.filter((provider) => provider.enabled);
+    cloudPresets.value = await cloudGenPresets();
+  } catch {
+    cloudProviders.value = [];
+  }
+}
+
+/** 动态模型下拉：本地模型 + 云端服务并排，值形如 local:/cloud:。 */
+function modelOptions(spec: BoardParamSpec): { value: string; label: string }[] {
+  if (!spec.model) return [];
+  const options: { value: string; label: string }[] = [];
+  for (const model of models.ofFeature(spec.model.feature as ModelFeature)) {
+    options.push({
+      value: `local:${model.id}`,
+      label: model.installed ? model.name : `${model.name} · ${i18n.t("board.inspect.missing")}`,
+    });
+  }
+  if (spec.model.capability) {
+    for (const provider of providersForCapability(
+      cloudProviders.value,
+      spec.model.capability as never,
+      cloudPresets.value,
+    )) {
+      options.push({ value: `cloud:${provider.id}`, label: `${provider.name} · ${i18n.t("board.inspect.cloud")}` });
+    }
+  }
+  return options;
+}
+
+function paramOptions(spec: BoardParamSpec): { value: string; label: string }[] {
+  if (spec.model) return modelOptions(spec);
+  return (spec.options ?? []).map((option) => ({ value: option.value, label: i18n.t(option.labelKey) }));
+}
+
+function runNode(): void {
+  if (!node.value) return;
+  run.runNode(node.value.id);
+}
 
 const node = computed(() => board.nodes.find((item) => item.id === board.selection[0]) ?? null);
 const definition = computed(() => (node.value ? nodeDefinition(node.value.type) : null));
@@ -193,8 +251,9 @@ function remove(): void {
             :value="paramValue(spec)"
             @change="setParam(spec, ($event.target as HTMLSelectElement).value)"
           >
-            <option v-for="option in spec.options ?? []" :key="option.value" :value="option.value">
-              {{ i18n.t(option.labelKey) }}
+            <option value="">{{ i18n.t("board.inspect.pickModel") }}</option>
+            <option v-for="option in paramOptions(spec)" :key="option.value" :value="option.value">
+              {{ option.label }}
             </option>
           </select>
           <input
@@ -218,9 +277,30 @@ function remove(): void {
       </section>
 
       <section class="bi-section">
+        <p class="bi-label">{{ i18n.t("board.inspect.output") }}</p>
+        <div class="bi-row wrap">
+          <span class="bi-status" :data-state="node.data.status ?? 'idle'">
+            {{ i18n.t(`board.status.${node.data.status ?? "idle"}`) }}
+          </span>
+          <span v-if="node.data.outputText" class="bi-output-chars">
+            {{ i18n.t("board.inspect.chars", { count: node.data.outputText.length }) }}
+          </span>
+          <span v-else-if="!asset" class="bi-output-empty">{{ i18n.t("board.inspect.outputEmpty") }}</span>
+        </div>
+      </section>
+
+      <section class="bi-section">
         <p class="bi-label">{{ i18n.t("board.inspect.actions") }}</p>
         <div class="bi-row wrap">
-          <button v-if="asset" class="bi-btn primary" type="button" @click="insertToTimeline">
+          <button
+            v-if="definition.category === 'model'"
+            class="bi-btn primary"
+            type="button"
+            @click="runNode"
+          >
+            {{ i18n.t("board.inspect.run") }}
+          </button>
+          <button v-if="asset" class="bi-btn" type="button" @click="insertToTimeline">
             <ArrowDownTrayIcon />{{ i18n.t("board.inspect.insertTimeline") }}
           </button>
           <button v-if="asset" class="bi-btn" type="button" @click="copyPath">
@@ -401,6 +481,11 @@ function remove(): void {
   width: 16px;
   height: 16px;
   accent-color: rgb(var(--md-primary));
+}
+.bi-output-chars,
+.bi-output-empty {
+  font-size: 11.5px;
+  color: rgb(var(--md-on-surface-variant));
 }
 .bi-empty {
   margin-top: 40px;

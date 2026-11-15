@@ -162,6 +162,42 @@ export const useBoardStore = defineStore("board", () => {
     });
   }
 
+  /** 运行时状态（进度 / 状态 / 输出）：不记撤销栈，只落盘。 */
+  function setNodeRuntime(nodeId: string, patch: Partial<BoardNodeData>): void {
+    nodes.value = nodes.value.map((node) =>
+      node.id === nodeId ? { ...node, data: { ...node.data, ...patch } } : node,
+    );
+    schedule();
+  }
+
+  /**
+   * 上游变了：把下游节点标成"过期"（不自动执行）。
+   *
+   * 过期只是提示——`dispatch` 语义仍然是手动运行，避免拖一次滑杆就重跑整条链。
+   */
+  function markDownstreamStale(nodeId: string): void {
+    const stale = new Set<string>();
+    let frontier = [nodeId];
+    while (frontier.length > 0) {
+      const next: string[] = [];
+      for (const id of frontier) {
+        for (const edge of edges.value) {
+          if (edge.source !== id || stale.has(edge.target)) continue;
+          stale.add(edge.target);
+          next.push(edge.target);
+        }
+      }
+      frontier = next;
+    }
+    if (stale.size === 0) return;
+    nodes.value = nodes.value.map((node) =>
+      stale.has(node.id)
+        ? { ...node, data: { ...node.data, status: "stale" as const } }
+        : node,
+    );
+    schedule();
+  }
+
   /** 拖拽过程中只改本地坐标；松手时把坐标写回节点（不额外记快照）。 */
   function applyPositions(positions: Record<string, { x: number; y: number }>): void {
     let changed = false;
@@ -261,6 +297,8 @@ export const useBoardStore = defineStore("board", () => {
     addNode,
     updateNode,
     updateNodeData,
+    setNodeRuntime,
+    markDownstreamStale,
     syncPositions,
     applyPositions,
     removeNodes,

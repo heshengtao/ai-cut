@@ -78,6 +78,12 @@ const textHtml = computed(() => {
     .replace(/\n/g, "<br />");
 });
 
+/** 模型节点的实时文本输出（截断，完整内容在检查器里）。 */
+const outputBrief = computed(() => {
+  const text = node.value?.data.outputText ?? "";
+  return text.length > 400 ? `${text.slice(0, 400)}…` : text;
+});
+
 const status = computed(() => node.value?.data.status ?? "idle");
 const progress = computed(() => node.value?.data.progress ?? null);
 const error = computed(() => node.value?.data.error ?? null);
@@ -111,7 +117,9 @@ function handleTop(index: number, count: number): string {
       </template>
 
       <div v-else class="board-node-model">
-        <span class="board-node-model-hint">{{ i18n.t("board.node.modelHint") }}</span>
+        <img v-if="preview" class="board-node-image" :src="preview" :alt="title" />
+        <div v-else-if="outputBrief" class="board-node-text mode-plain">{{ outputBrief }}</div>
+        <span v-else class="board-node-model-hint">{{ i18n.t("board.node.modelHint") }}</span>
       </div>
     </div>
 

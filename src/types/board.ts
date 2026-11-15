@@ -37,6 +37,11 @@ export interface BoardParamSpec {
   default?: unknown;
   /** 有值时表示该参数的输入端口类型，可被上游绑定。 */
   bind?: BoardPortType;
+  /**
+   * 动态模型下拉：本地模型按 `feature` 列（`models.byFeature`），
+   * 云端服务按 `capability` 列（`providersForCapability`）。值形如 `local:<id>` / `cloud:<id>`。
+   */
+  model?: { feature: string; capability?: string };
 }
 
 /** 一个节点的静态定义（注册表项）。 */
