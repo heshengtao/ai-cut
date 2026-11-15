@@ -202,6 +202,7 @@ export type CloudTtsKind =
   | "baidu"
   | "minimax"
   | "volcengine"
+  | "deepseek"
   | "custom";
 
 /** 一个已配置的 TTS 服务。字段按接口类型取用。 */

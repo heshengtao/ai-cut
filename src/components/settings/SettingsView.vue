@@ -747,6 +747,7 @@ const TTS_KINDS: CloudTtsKind[] = [
   "baidu",
   "minimax",
   "volcengine",
+  "deepseek",
   "custom",
 ];
 const TTS_FORMATS = ["mp3", "wav", "opus", "aac", "flac", "pcm"];
@@ -967,6 +968,28 @@ const TTS_FIELDS: Record<CloudTtsKind, ProviderField[]> = {
     },
     { key: "speed", labelKey: "settings.tts.speed", hintKey: "settings.tts.speedHint", placeholder: "1.0" },
   ],
+  deepseek: [
+    {
+      key: "base_url",
+      labelKey: "settings.tts.baseUrl",
+      hintKey: "settings.tts.baseUrlDeepseekHint",
+      placeholder: "https://api.deepseek.com",
+    },
+    {
+      key: "api_key",
+      labelKey: "settings.tts.apiKey",
+      hintKey: "settings.tts.apiKeyHint",
+      placeholder: "sk-…",
+      sensitive: true,
+    },
+    {
+      key: "voice",
+      labelKey: "settings.tts.voice",
+      hintKey: "settings.tts.voiceDeepseekHint",
+      placeholder: "stella",
+    },
+    { key: "format", labelKey: "settings.tts.format", hintKey: "settings.tts.formatHint" },
+  ],
   custom: [
     {
       key: "base_url",
@@ -1085,6 +1108,8 @@ function kindDefaults(kind: CloudTtsKind): Partial<ProviderDraft> {
       return { model: "speech-01", voice: "male-qn-qingse" };
     case "volcengine":
       return { model: "volc_tts_release", voice: "zh_female_cancan_mars_bigtts" };
+    case "deepseek":
+      return { voice: "stella", format: "wav" };
     case "custom":
       return { method: "POST" };
   }
