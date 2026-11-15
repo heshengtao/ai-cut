@@ -116,6 +116,7 @@ dependencies = [
  "ttf-parser",
  "uuid",
  "walkdir",
+ "windows-registry",
  "xz2",
  "zip 2.6.1",
 ]

@@ -87,6 +87,11 @@ ort = { version = "=2.0.0-rc.13", default-features = false, features = [
     "cuda",
     "directml",
 ] }
+# `network.rs` 读 `Internet Settings` 里的系统代理（ProxyEnable / ProxyServer /
+# ProxyOverride），和桌面壳的 `paths.rs` 用的是同一个 crate、同一个版本。
+# 桌面壳那份一直有，daemon 下沉时漏了这行：macOS 上 `cfg(windows)` 不编译，
+# 直到打 Windows 安装包才报 `cannot find module or crate windows_registry`。
+windows-registry = "0.6"
 
 [target.'cfg(all(not(target_os = "macos"), not(target_os = "windows")))'.dependencies]
 ort = { version = "=2.0.0-rc.13", default-features = false, features = [
