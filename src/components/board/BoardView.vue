@@ -39,6 +39,7 @@ import { useProjectStore } from "@/stores/project";
 import { addAsset } from "@/core/ops";
 import { importAssetAt, kindFromPath } from "@/core/media";
 import { toast } from "@/composables/useToast";
+import { useAssetDownload } from "@/composables/useAssetDownload";
 import { portsCompatible } from "@/core/board/schema";
 import { nodeDefinition, nodesByCategory, portOf } from "@/core/board/registry";
 import type { BoardNode } from "@/types/board";
@@ -48,6 +49,7 @@ const board = useBoardStore();
 const layout = useLayoutStore();
 const run = useBoardRun();
 const project = useProjectStore();
+const { download } = useAssetDownload();
 
 const nodeTypes = { board: BoardNodeCard } as unknown as NodeTypesObject;
 
@@ -209,6 +211,19 @@ function removeCtx(): void {
   if (!node) return;
   board.removeNodes([node.id]);
   closeCtx();
+}
+
+/** 右键菜单能拿到素材时才显示「下载到本地」。 */
+const ctxAsset = computed(() => {
+  const id = ctxNode.value?.data.outputAssetId ?? ctxNode.value?.data.assetId;
+  if (!id) return null;
+  return project.doc.assets.find((item) => item.id === id) ?? null;
+});
+
+async function downloadCtx(): Promise<void> {
+  const current = ctxAsset.value;
+  closeCtx();
+  if (current) await download(current);
 }
 
 function addCtxNode(type: string): void {
@@ -456,6 +471,9 @@ function toggleAdd(event: MouseEvent): void {
           {{ ctxIgnored ? i18n.t("board.ctx.enable") : i18n.t("board.ctx.ignore") }}
         </button>
         <button type="button" @click="duplicateCtx">{{ i18n.t("board.ctx.duplicate") }}</button>
+        <button v-if="ctxAsset" type="button" @click="downloadCtx">
+          {{ i18n.t("board.ctx.download") }}
+        </button>
         <button class="danger" type="button" @click="removeCtx">
           {{ i18n.t("common.delete") }}
         </button>

@@ -20,6 +20,7 @@ import { usePlaybackStore } from "@/stores/playback";
 import { useLayoutStore } from "@/stores/layout";
 import { useModelsStore } from "@/stores/models";
 import { useBoardRun } from "@/composables/useBoardRun";
+import { useAssetDownload } from "@/composables/useAssetDownload";
 import { nodeDefinition } from "@/core/board/registry";
 import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
 import { providersForCapability } from "@/utils/cloudGen";
@@ -40,6 +41,7 @@ const playback = usePlaybackStore();
 const layout = useLayoutStore();
 const models = useModelsStore();
 const run = useBoardRun();
+const { download } = useAssetDownload();
 
 const cloudProviders = ref<CloudGenProvider[]>([]);
 const cloudPresets = ref<CloudGenPreset[]>([]);
@@ -176,6 +178,11 @@ function insertToTimeline(): void {
   else toast(i18n.t("board.inspect.insertFailed"), "error");
 }
 
+async function downloadAsset(): Promise<void> {
+  const current = asset.value;
+  if (current) await download(current);
+}
+
 async function copyPath(): Promise<void> {
   const current = asset.value;
   if (!current) return;
@@ -302,6 +309,9 @@ function remove(): void {
           </button>
           <button v-if="asset" class="bi-btn" type="button" @click="insertToTimeline">
             <ArrowDownTrayIcon />{{ i18n.t("board.inspect.insertTimeline") }}
+          </button>
+          <button v-if="asset" class="bi-btn" type="button" @click="downloadAsset">
+            {{ i18n.t("board.inspect.download") }}
           </button>
           <button v-if="asset" class="bi-btn" type="button" @click="copyPath">
             {{ i18n.t("board.inspect.copyPath") }}

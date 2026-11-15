@@ -14,3 +14,8 @@ pub fn write_project(path: String, json: String) -> Result<(), String> {
 pub fn path_exists(path: String) -> bool {
     aicut_daemon::project::path_exists(&path)
 }
+
+#[tauri::command]
+pub fn copy_file(source: String, destination: String) -> Result<(), String> {
+    aicut_daemon::project::copy_file(&source, &destination)
+}

@@ -17,6 +17,23 @@ pub fn path_exists(path: &str) -> bool {
     Path::new(path).exists()
 }
 
+/// 把文件复制到用户选的位置（显示节点的「下载到本地」）。
+pub fn copy_file(source: &str, destination: &str) -> Result<(), String> {
+    let from = Path::new(source);
+    if !from.is_file() {
+        return Err(format!("文件不存在：{source}"));
+    }
+    let to = Path::new(destination);
+    if let Some(dir) = to.parent() {
+        if !dir.as_os_str().is_empty() {
+            std::fs::create_dir_all(dir).map_err(|error| format!("建目录失败：{error}"))?;
+        }
+    }
+    std::fs::copy(from, to)
+        .map(|_| ())
+        .map_err(|error| format!("复制失败：{error}"))
+}
+
 /// 文件名安全化：只留字母数字与 `.` `_` `-`，路径分隔符会被剥掉。
 pub fn safe_file_name(name: &str) -> String {
     let base = name

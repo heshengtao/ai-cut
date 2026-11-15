@@ -2502,6 +2502,10 @@ const zh: Record<string, string> = {
   "board.ctx.enable": "启用节点",
   "board.ctx.duplicate": "复制节点",
   "board.dropHint": "松手导入素材并创建输入节点",
+
+  "board.inspect.download": "下载到本地",
+  "board.ctx.download": "下载到本地",
+  "board.download.done": "已保存 {name}",
 };
 
 export default zh;

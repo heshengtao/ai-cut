@@ -246,6 +246,7 @@ pub fn run() {
             project_io::read_project,
             project_io::write_project,
             project_io::path_exists,
+            project_io::copy_file,
             history::project_history_list,
             history::project_history_record,
             history::project_history_get,

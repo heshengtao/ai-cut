@@ -126,6 +126,13 @@ struct PathArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ExportFileArgs {
+    source: String,
+    destination: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct HistoryRecordArgs {
     /// 工程 JSON 文本（与桌面端 `project_history_record` 同参）。
     project: String,
@@ -1653,6 +1660,11 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
         "path_exists" => {
             let args: PathArgs = from_value(args)?;
             Ok(json!(project::path_exists(&args.path)))
+        }
+        "copy_file" => {
+            let args: ExportFileArgs = from_value(args)?;
+            project::copy_file(&args.source, &args.destination)?;
+            Ok(Value::Null)
         }
         "export_video" => {
             let args: ExportArgs = from_value(args)?;

@@ -179,6 +179,11 @@ export function writeTextFile(path: string, text: string): Promise<void> {
   return invoke<void>("write_project", { path, json: text });
 }
 
+/** 把素材复制到用户选的位置（显示节点的「下载到本地」）。 */
+export function copyFileTo(source: string, destination: string): Promise<void> {
+  return invoke<void>("copy_file", { source, destination });
+}
+
 export function pathExists(path: string): Promise<boolean> {
   return invoke<boolean>("path_exists", { path });
 }

@@ -2502,6 +2502,10 @@ const en: Record<string, string> = {
   "board.ctx.enable": "Enable node",
   "board.ctx.duplicate": "Duplicate node",
   "board.dropHint": "Drop to import and create an input node",
+
+  "board.inspect.download": "Download",
+  "board.ctx.download": "Download",
+  "board.download.done": "Saved {name}",
 };
 
 export default en;
