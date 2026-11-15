@@ -16,6 +16,9 @@
 - Rust tests: `cargo test --lib` (in `src-tauri`). The CUDA session check is opt-in:
   `AICUT_TEST_RUNTIME=<runtime/ort/cuda or cuda13> AICUT_TEST_MODEL=<a .onnx>` then
   `cargo test --lib cuda_runs_a_model -- --ignored --nocapture`.
+- `pnpm tauri dev` 链接时报 `ld: symbol(s) not found … _anon.*.llvm.*` /
+  `precondition_check.llvm.*` 是 rustc 增量缓存坏了（不是代码问题），清掉这两个包重编即可：
+  `cargo clean --manifest-path src-tauri/Cargo.toml -p aicut-daemon -p ai-cut`。
 
 ## Web access / headless daemon
 
