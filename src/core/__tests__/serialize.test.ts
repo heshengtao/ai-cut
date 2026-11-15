@@ -6,13 +6,15 @@ import { parseProject, serializeProject } from "@/core/serialize";
 describe("newProject", () => {
   it("creates a versioned project without tracks", () => {
     const p = newProject("测试");
-    expect(p.version).toBe(1);
+    expect(p.version).toBe(2);
     expect(p.name).toBe("测试");
     expect(p.fps).toBe(30);
     expect(p.width).toBe(1920);
     expect(p.height).toBe(1080);
     expect(p.tracks).toEqual([]);
     expect(p.assets).toEqual([]);
+    expect(p.episodes).toHaveLength(1);
+    expect(p.activeEpisodeId).toBe(p.episodes[0].id);
   });
 
   it("gives every entity a distinct id", () => {
@@ -84,8 +86,15 @@ describe("parseProject validation", () => {
   });
 
   it("rejects a track whose clips are missing", () => {
+    // v1 形态：根级 tracks 才会在校验阶段被检查。
     const p = addTrack(newProject());
-    const broken = JSON.stringify({ ...p, tracks: [{ ...p.tracks[0], clips: undefined }] });
+    const broken = JSON.stringify({
+      ...p,
+      version: 1,
+      episodes: undefined,
+      activeEpisodeId: undefined,
+      tracks: [{ ...p.tracks[0], clips: undefined }],
+    });
     expect(() => parseProject(broken)).toThrow(/clips/i);
   });
 });

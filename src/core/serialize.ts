@@ -1,6 +1,15 @@
 /** 工程文档 ↔ JSON。解析时做结构校验，避免坏文件把内存里的工程搞崩。 */
-import type { Clip, ClipKeyframes, CutRecord, CutScope, Project, Track } from "@/types/project";
+import type {
+  Clip,
+  ClipKeyframes,
+  CutRecord,
+  CutScope,
+  Marker,
+  Project,
+  Track,
+} from "@/types/project";
 import { PROJECT_VERSION } from "@/types/project";
+import { attachEpisodeView, migrateToEpisodes, patchProjectMeta } from "@/core/episodes";
 import { normalizeClipEffects } from "@/core/effects";
 import { normalizeClipTransition } from "@/core/clipTransition";
 import {
@@ -12,7 +21,14 @@ import {
 import { t } from "@/i18n/translate";
 
 export function serializeProject(project: Project): string {
-  return JSON.stringify(project, null, 2);
+  // 折返一次：即使调用方从 ops 拿到的是被展开过的对象，写出前也补回投影。
+  const doc = attachEpisodeView(project);
+  // 投影是**可枚举**访问器（为了 `{...doc}` 展开安全），写盘时要剔除，
+  // 否则 JSON 里会同时出现 episodes 与根级 tracks/markers 两份时间线。
+  const wire: Record<string, unknown> = { ...doc };
+  delete wire.tracks;
+  delete wire.markers;
+  return JSON.stringify(wire, null, 2);
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -23,9 +39,23 @@ function isNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
 
+/** 轨道 / 片段的形状校验（文档 v1 与 v2 共用）。 */
+function assertTracks(tracks: unknown[]): void {
+  for (const track of tracks) {
+    if (!isObject(track)) throw new Error(t("error.serialize.badTrack"));
+    if (!Array.isArray(track.clips)) throw new Error(t("error.serialize.badClips"));
+    for (const clip of track.clips) {
+      if (!isObject(clip)) throw new Error(t("error.serialize.badClip"));
+      if (!isNumber(clip.start) || !isNumber(clip.duration) || !isNumber(clip.in)) {
+        throw new Error(t("error.serialize.badClipTime"));
+      }
+    }
+  }
+}
+
 function assertProjectShape(value: unknown): asserts value is Project {
   if (!isObject(value)) throw new Error(t("error.serialize.notObject"));
-  if (value.version !== PROJECT_VERSION) {
+  if (value.version !== 1 && value.version !== PROJECT_VERSION) {
     throw new Error(
       t("error.serialize.version", {
         expected: PROJECT_VERSION,
@@ -39,17 +69,24 @@ function assertProjectShape(value: unknown): asserts value is Project {
   if (!isNumber(value.width) || !isNumber(value.height))
     throw new Error(t("error.serialize.badResolution"));
   if (!Array.isArray(value.assets)) throw new Error(t("error.serialize.badAssets"));
-  if (!Array.isArray(value.tracks)) throw new Error(t("error.serialize.badTracks"));
 
-  for (const track of value.tracks) {
-    if (!isObject(track)) throw new Error(t("error.serialize.badTrack"));
-    if (!Array.isArray(track.clips)) throw new Error(t("error.serialize.badClips"));
-    for (const clip of track.clips) {
-      if (!isObject(clip)) throw new Error(t("error.serialize.badClip"));
-      if (!isNumber(clip.start) || !isNumber(clip.duration) || !isNumber(clip.in)) {
-        throw new Error(t("error.serialize.badClipTime"));
-      }
-    }
+  // v1：根级 tracks；读入后由 migrateToEpisodes() 包成一个分P。
+  if (value.version === 1) {
+    if (!Array.isArray(value.tracks)) throw new Error(t("error.serialize.badTracks"));
+    assertTracks(value.tracks as unknown[]);
+    return;
+  }
+
+  if (!Array.isArray(value.episodes) || value.episodes.length === 0)
+    throw new Error(t("error.serialize.badEpisodes"));
+  if (typeof value.activeEpisodeId !== "string" || !value.activeEpisodeId)
+    throw new Error(t("error.serialize.badActiveEpisode"));
+  for (const episode of value.episodes) {
+    if (!isObject(episode) || typeof episode.id !== "string" || !episode.id)
+      throw new Error(t("error.serialize.badEpisode"));
+    if (!Array.isArray(episode.tracks) || !Array.isArray(episode.markers))
+      throw new Error(t("error.serialize.badEpisode"));
+    assertTracks(episode.tracks as unknown[]);
   }
 }
 
@@ -188,9 +225,9 @@ function normalizeCutScopes(project: Project): CutScope[] | undefined {
   return scopes.length > 0 ? scopes : undefined;
 }
 
-/** 兼容旧工程：缺省 visible 视为 true，旧的 solo / mask 字段丢弃，迁移关键帧格式。 */
-function normalizeProject(project: Project): Project {
-  const tracks = project.tracks.map((track) => {
+/** 轨道归一化：缺省 visible 视为 true，旧的 solo / mask 字段丢弃，迁移关键帧格式。 */
+function normalizeTracks(source: Track[]): Track[] {
+  return source.map((track) => {
     const record = { ...(track as unknown as Record<string, unknown>) };
     const visible = record.visible !== false;
     delete record.solo;
@@ -218,8 +255,12 @@ function normalizeProject(project: Project): Project {
     });
     return { ...(record as unknown as Track), visible, clips };
   });
-  const markers = Array.isArray(project.markers)
-    ? project.markers
+}
+
+/** 标记归一化：过滤坏条目，补齐 id / 时间与可选字段。 */
+function normalizeMarkers(source: Marker[]): Marker[] {
+  return Array.isArray(source)
+    ? source
         .filter((marker) => isObject(marker) && isNumber(marker.time))
         .map((marker) => {
           const severity =
@@ -274,13 +315,22 @@ function normalizeProject(project: Project): Project {
           };
         })
     : [];
-  const cutScopes = normalizeCutScopes(project);
-  return {
-    ...project,
-    tracks,
-    markers,
-    ...(cutScopes ? { cutScopes } : { cutScopes: undefined }),
-  };
+}
+
+/**
+ * 归一化整份文档：先迁移成多分P，再逐分P 归一化轨道 / 标记，
+ * 最后折返投影（`tracks` / `markers` 访问器）并处理剪口组。
+ */
+function normalizeProject(input: Project): Project {
+  const migrated = attachEpisodeView(migrateToEpisodes(input));
+  const episodes = migrated.episodes.map((episode) => ({
+    ...episode,
+    tracks: normalizeTracks(episode.tracks),
+    markers: normalizeMarkers(episode.markers),
+  }));
+  const doc = patchProjectMeta(migrated, { episodes });
+  const cutScopes = normalizeCutScopes(doc);
+  return patchProjectMeta(doc, { cutScopes });
 }
 
 export function parseProject(json: string): Project {
@@ -291,5 +341,5 @@ export function parseProject(json: string): Project {
     throw new Error(t("error.serialize.badJson"));
   }
   assertProjectShape(raw);
-  return normalizeProject(raw);
+  return normalizeProject(raw as Project);
 }

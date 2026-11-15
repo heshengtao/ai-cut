@@ -142,7 +142,7 @@ describe("clip effects", () => {
     expect(parsed.tracks[0].clips[0].effects?.[0].plugin).toBe("com.example.glow");
 
     const broken = JSON.parse(json);
-    broken.tracks[0].clips[0].effects = [
+    broken.episodes[0].tracks[0].clips[0].effects = [
       { id: "bad" },
       { id: "ok", plugin: "p", bundle: "/tmp/p.ofx", params: { x: 2 } },
     ];

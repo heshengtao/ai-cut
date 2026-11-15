@@ -340,6 +340,20 @@ export interface CutScope {
   timed?: boolean;
 }
 
+/** 一个分P：工程内的一条独立时间线。 */
+export interface Episode {
+  id: string;
+  name: string;
+  /** 在剧集界面里的顺序，从 0 开始。 */
+  order: number;
+  tracks: Track[];
+  markers: Marker[];
+  createdAt: number;
+  updatedAt: number;
+  /** 互动分支预留：本阶段只保留字段，不实现。 */
+  transitions?: { choice: string; toEpisodeId: string }[];
+}
+
 /** 工程文档，可直接序列化为 .json。 */
 export interface Project {
   version: number;
@@ -349,15 +363,24 @@ export interface Project {
   fps: number;
   width: number;
   height: number;
+  /** 素材库：工程级共享，所有分P 共用。 */
   assets: MediaAsset[];
+  /** 分P 列表：时间线数据的唯一真相。 */
+  episodes: Episode[];
+  activeEpisodeId: string;
+  /**
+   * 当前分P 的轨道投影。运行期由 `attachEpisodeView()` 定义为**不可枚举**访问器，
+   * 序列化时不存在——真相永远在 `episodes[activeEpisodeId].tracks` 里。
+   */
   tracks: Track[];
+  /** 当前分P 的标记投影，规则同 `tracks`。 */
   markers: Marker[];
-  /** 剪口组。缺省表示这个工程没剪过口播。 */
+  /** 剪口组。缺省表示这个工程没剪过口播。工程级共享。 */
   cutScopes?: CutScope[];
 }
 
 /** 当前工程文档版本。 */
-export const PROJECT_VERSION = 1;
+export const PROJECT_VERSION = 2;
 
 /** 历史工程卡片：当前工程被替换前留下的一份快照。 */
 export interface ProjectHistoryEntry {

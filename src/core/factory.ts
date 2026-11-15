@@ -2,6 +2,9 @@
 import type { Clip, ClipTextStyle, Marker, MediaAsset, Project, Track } from "@/types/project";
 import { PROJECT_VERSION } from "@/types/project";
 import { t } from "@/i18n/translate";
+import { attachEpisodeView, newEpisode } from "@/core/episodes";
+
+export { newEpisode };
 
 function newId(): string {
   return crypto.randomUUID();
@@ -66,10 +69,11 @@ export function createAsset(
   return { ...rest, id: id ?? newId(), addedAt: addedAt ?? Date.now() };
 }
 
-/** 新建空工程：不预置轨道，拖入素材时再自动创建。 */
+/** 新建空工程：不预置轨道，拖入素材时再自动创建；自带一个空白分P。 */
 export function newProject(name = "untitled"): Project {
   const now = Date.now();
-  return {
+  const episode = newEpisode(t("episode.defaultName", { index: 1 }), 0);
+  return attachEpisodeView({
     version: PROJECT_VERSION,
     name,
     createdAt: now,
@@ -78,7 +82,9 @@ export function newProject(name = "untitled"): Project {
     width: 1920,
     height: 1080,
     assets: [],
-    tracks: [],
-    markers: [],
-  };
+    episodes: [episode],
+    activeEpisodeId: episode.id,
+    tracks: episode.tracks,
+    markers: episode.markers,
+  });
 }

@@ -1,9 +1,16 @@
 /** ops 的内部助手：不可变地替换轨道/片段，并统一维护 updatedAt。 */
 import type { Clip, Project, Track } from "@/types/project";
+import { attachEpisodeView } from "@/core/episodes";
 
-/** 更新时间戳并覆盖指定字段。 */
+/**
+ * 更新时间戳并覆盖指定字段。
+ *
+ * 所有 ops 都经过这里，所以这里也是分P 投影的**唯一折返点**：`{ ...doc }` 展开会
+ * 丢掉 `tracks` / `markers` 的访问器，必须在返回前重新挂上，否则调用方拿到的
+ * 文档 `doc.tracks` 会是 `undefined`。
+ */
 export function withTouch(doc: Project, patch: Partial<Project>): Project {
-  return { ...doc, ...patch, updatedAt: Date.now() };
+  return attachEpisodeView({ ...doc, ...patch, updatedAt: Date.now() });
 }
 
 /** 按 id 替换整条轨道；找不到或引用未变时返回原 doc。 */
