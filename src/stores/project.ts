@@ -20,6 +20,7 @@ import type {
 import type { Project } from "@/types/project";
 import { newProject as makeProject } from "@/core/factory";
 import { parseProject, serializeProject } from "@/core/serialize";
+import { attachEpisodeView, switchActiveEpisode } from "@/core/episodes";
 import { applyCommandToDoc, applyCommandsToDoc, diffAffected } from "@/core/commands";
 import { recordProjectHistory, getProjectHistory, flushHistoryRecords } from "@/core/history";
 import { updateAsset } from "@/core/ops";
@@ -210,7 +211,7 @@ export const useProjectStore = defineStore("project", () => {
     durationMs: number,
   ): void {
     pushHistory(makeStep(command, affected, durationMs, before, after));
-    doc.value = after;
+    doc.value = attachEpisodeView(after);
     dirty.value = true;
     revision.value += 1;
   }
@@ -325,7 +326,7 @@ export const useProjectStore = defineStore("project", () => {
       );
       coalesceKey.value = key;
     }
-    doc.value = next;
+    doc.value = attachEpisodeView(next);
     dirty.value = true;
     revision.value = baseRevision + 1;
     // 步骤的最终快照与影响范围在 `flushCoalesce` 时一次写入：拖动过程中不重复复制历史数组。
@@ -528,7 +529,7 @@ export const useProjectStore = defineStore("project", () => {
     const startedAt = Date.now();
     undoStack.value = stack;
     redoStack.value = [...redoStack.value, step];
-    doc.value = step.before;
+    doc.value = attachEpisodeView(step.before);
     dirty.value = true;
     revision.value = baseRevision + 1;
 
@@ -562,7 +563,7 @@ export const useProjectStore = defineStore("project", () => {
     const startedAt = Date.now();
     redoStack.value = stack;
     undoStack.value = [...undoStack.value, step];
-    doc.value = step.after;
+    doc.value = attachEpisodeView(step.after);
     dirty.value = true;
     revision.value = baseRevision + 1;
 
@@ -631,7 +632,7 @@ export const useProjectStore = defineStore("project", () => {
     recordProjectHistory(doc.value, filePath.value, dirty.value);
     pendingCoalesce = null;
     coalesceKey.value = null;
-    doc.value = project;
+    doc.value = attachEpisodeView(project);
     filePath.value = path;
     dirty.value = false;
     undoStack.value = [];
@@ -675,11 +676,32 @@ export const useProjectStore = defineStore("project", () => {
   }
 
   /**
+   * 切到另一个分P。
+   *
+   * 只换 `activeEpisodeId`：时间线真相在 `episodes` 里，素材 / 画布 / 输出设置都是
+   * 工程级的，切分P 不复制也不移动它们。
+   *
+   * 撤销栈按分P 隔离：切分P 时清空撤销 / 重做，避免「撤销上一集的操作」把当前集
+   * 改坏。播放头 / 选择的复位由 UI 层负责（P1 接入视图切换时再做）。
+   */
+  function switchEpisode(episodeId: string): boolean {
+    if (readOnly.value) return false;
+    const next = switchActiveEpisode(doc.value, episodeId);
+    if (!next) return false;
+    flushCoalesce();
+    undoStack.value = [];
+    redoStack.value = [];
+    doc.value = next;
+    dirty.value = true;
+    return true;
+  }
+
+  /**
    * 写入素材的波形缓存。波形是派生数据，不进撤销栈、不置 dirty、不产生事件。
    */
   function setAssetWaveform(assetId: string, wave: number[]): void {
     const next = updateAsset(doc.value, assetId, { wave });
-    if (next !== doc.value) doc.value = next;
+    if (next !== doc.value) doc.value = attachEpisodeView(next);
   }
 
   /**
@@ -687,7 +709,7 @@ export const useProjectStore = defineStore("project", () => {
    */
   function setAssetThumbnail(assetId: string, thumb: string): void {
     const next = updateAsset(doc.value, assetId, { thumb });
-    if (next !== doc.value) doc.value = next;
+    if (next !== doc.value) doc.value = attachEpisodeView(next);
   }
 
   /**
@@ -842,7 +864,7 @@ export const useProjectStore = defineStore("project", () => {
     remoteDirty = true,
     remotePath?: string | null,
   ): void {
-    doc.value = mergeRemoteProject(doc.value, project, affected, full);
+    doc.value = attachEpisodeView(mergeRemoteProject(doc.value, project, affected, full));
     applyRemoteMeta(remoteRevision, remoteDirty);
     if (remotePath !== undefined) filePath.value = remotePath;
   }
@@ -887,6 +909,7 @@ export const useProjectStore = defineStore("project", () => {
     newProject,
     rename,
     markSaved,
+    switchEpisode,
     markOfflineAssets,
     setReadOnly,
     applyRemote,
