@@ -27,6 +27,10 @@ It is a real editor: a multi-track timeline, a media library, an inspector, text
 
 Everything runs on your own machine. No account, no uploads, and no API key needed for the editor itself.
 
+<p align="center">
+  <img src="./assets/screenshots/00-editor.jpg" width="100%" alt="The AI Cut workspace with a three-scene launch film on the timeline, title and caption tracks, a music score, and the text inspector open on a title clip">
+</p>
+
 ## Why this matters
 
 Models got good at writing code because they could **run** it through a coding-agent framework; models got good at 3D modelling because they could drive real modelling software through Blender MCP. In both cases the model gets a real tool, a real result, and a real feedback loop — and that is what makes fast iteration possible.
@@ -88,7 +92,7 @@ Lay out a video the way you hear it. Drag clips across tracks, split them where 
 - **Text on the timeline** — title and subtitle clips with editable styling
 
 <p align="center">
-  <img src="./assets/screenshots/01-timeline.png" width="100%" alt="The timeline with video clips, a subtitle track, voiceover and music, and the inspector showing text styling">
+  <img src="./assets/screenshots/01-timeline.jpg" width="100%" alt="The timeline with three video scenes, title and caption tracks and a music score; the selected clip shows transform, timing and color controls in the inspector">
 </p>
 
 ### Media & inspector — Read the material, shape the shot
@@ -102,6 +106,10 @@ Import a file and AI Cut probes it immediately: duration, resolution, frame rate
 - **Project output** — resolution and frame rate changes re-fit clips proportionally
 - **Delivery helpers** — collect media into `<project>-media/` next to the project
 
+<p align="center">
+  <img src="./assets/screenshots/02-media.jpg" width="100%" alt="The media library with three video scenes, a poster and a music score, plus thumbnails, metadata and a text preset">
+</p>
+
 ### OFX plugins — Bring your own effects
 
 AI Cut hosts **OpenFX (OFX) 1.5.1** plugins, so the finishing tools you already own come with you: colour correction, blurs, glows, keyers, warps, transitions. A plugin manager browses the [AI Cut OFX Registry](https://github.com/heshengtao/ai-cut-ofx-registry) with SHA-256 verification, and also picks up plugins installed elsewhere on disk.
@@ -111,6 +119,10 @@ AI Cut hosts **OpenFX (OFX) 1.5.1** plugins, so the finishing tools you already 
 - **Preview stays live** — mounting an effect starts a background pre-bake, so video and image previews keep the look during playback
 - **Baked on export** — the render applies every effect at final size (paint is parameter-driven, retimer asks the plugin for `SourceTime`)
 - **Registry + local import** — search, one-click install / update / remove, or point it at a local bundle
+
+<p align="center">
+  <img src="./assets/screenshots/03-ofx.jpg" width="100%" alt="The OFX download manager listing available OpenFX plugins with licenses, platform support and one-click install">
+</p>
 
 ### AI & automation — Turn footage into material you can keep editing
 
@@ -125,6 +137,10 @@ The AI features are built for real sessions, not demos. Point them at a clip and
 - **Review loop** — `film.json` import, structured review notes (`severity`, `sceneId`, `resolved`), dirty-segment detection, range re-rendering with a content-hash cache, take comparison (SSIM + side-by-side frames), and contact sheets
 - **Offline by design** — the editor and its local models need no account and no upload
 
+<p align="center">
+  <img src="./assets/screenshots/04-ai.jpg" width="100%" alt="AI features: local caption generation, AI voiceover, and local image / video generation with their installed models">
+</p>
+
 ### MCP server & clip agent — Let an AI agent work in your session
 
 Flip one switch and your project becomes something an AI assistant can operate. The built-in **MCP (Model Context Protocol)** server exposes the session over HTTP bound to `127.0.0.1` — connect your agent, hand it a task, and watch it add tracks, place clips, or rewrite text while the UI updates in real time. The same tool definitions also power the built-in **clip agent**, an OpenAI-compatible chat panel with streaming, tool calls, and a branching session tree.
@@ -137,6 +153,10 @@ Flip one switch and your project becomes something an AI assistant can operate. 
 - **Clip agent** — OpenAI-compatible endpoint, streaming answers, tool cards, session branches
 - **Skills** — editing and production docs loaded on demand by the agent
 
+<p align="center">
+  <img src="./assets/screenshots/05-mcp.jpg" width="100%" alt="The MCP server enabled with its loopback endpoint, the clip agent entry and the aicut CLI, next to the timeline">
+</p>
+
 ### Export & updates — Finish and ship
 
 When the cut is right, render it. Pick a delivery format and AI Cut writes a release-ready file in the background while you keep working. Installed apps check GitHub Releases for signed updates, so a new version is one click away.
@@ -148,7 +168,7 @@ When the cut is right, render it. Pick a delivery format and AI Cut writes a rel
 - **Verified bundles** — the updater public key is embedded; the private key lives only in the release environment
 
 <p align="center">
-  <img src="./assets/screenshots/02-export.png" width="100%" alt="The export dialog with MP4, ProRes and GIF presets, resolution, frame rate, quality and audio settings">
+  <img src="./assets/screenshots/06-export.jpg" width="100%" alt="The export dialog with MP4, ProRes and GIF presets, resolution, frame rate, fit, quality and audio settings">
 </p>
 
 ## Installation
@@ -244,7 +264,22 @@ MCP binds `0.0.0.0` inside the container (the `--lan` semantics), so after publi
 | OFX effects | ✅ including whole-clip bakes | ✅ frame / image / transition previews **and** whole-clip + transition baking (single-process sequential bake) |
 | Plugin install / import / remove | ✅ | ✅ (`reveal in file manager` needs the desktop) |
 | Native plugin GUIs, system dialogs / browser launch | ✅ | ⛔ no window system / desktop session |
-| Local image / video generation (sd.cpp) | ✅ | ◐ generator is desktop-only (cloud generation works); a container **can** have a GPU on Linux hosts with the NVIDIA runtime (not Docker Desktop on macOS), but the generator would need porting |
+| Local image / video generation (sd.cpp) | ✅ | ✅ same daemon implementation: engine and weights download on demand; containers use CPU / Vulkan / ROCm (upstream has no Linux CUDA build) |
+
+**Plugin binaries must match the image architecture.** The image is built for the
+build machine's architecture (arm64 on Apple Silicon), and OFX plugins are native
+binaries: a plugin that only ships an x86_64 build (e.g. Flame LTX AlphaGen) cannot
+load in an arm64 container. The editor now says "plugin binary architecture
+mismatch" instead of the cryptic `cannot open shared object file`; run such plugins
+in an amd64 image instead:
+
+```bash
+docker build --platform linux/amd64 -t ai-cut .
+docker run -d --platform linux/amd64 -p 28440:28440 -v aicut-data:/data ai-cut
+```
+
+(On Apple Silicon this goes through Rosetta emulation and is slower; on an x86_64
+Linux host nothing changes.)
 
 Models are downloaded on first use (Settings → Models) through the configured proxy; the 5 bundled models work out of the box.
 

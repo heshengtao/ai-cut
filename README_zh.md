@@ -27,6 +27,10 @@
 
 一切都在你自己的电脑上运行。不要账号、不上传素材，编辑器本身也不需要 API Key。
 
+<p align="center">
+  <img src="./assets/screenshots/00-editor.jpg" width="100%" alt="AI Cut 工作区：时间线上是一部三段式概念片，带标题、字幕与音乐轨，右侧检查器正在编辑标题文字样式">
+</p>
+
 ## 为什么这件事值得做
 
 模型之所以学会写代码，是因为它们能通过编程智能体框架**真的把代码跑起来**；模型之所以学会 3D 建模，是因为它们能通过 Blender MCP 操控真实的建模软件。这两者都让模型拿到了真实的工具、真实的结果和真实的反馈闭环——快速迭代正是从这里来的。
@@ -88,7 +92,7 @@ aicut call get_project
 - **时间线上的文字** —— 标题与字幕片段，样式可编辑
 
 <p align="center">
-  <img src="./assets/screenshots/01-timeline.png" width="100%" alt="时间线：视频、字幕、旁白与音乐轨，右侧检查器显示文字样式">
+  <img src="./assets/screenshots/01-timeline.jpg" width="100%" alt="时间线：三段视频、标题与字幕轨、音乐轨；选中的视频片段在右侧显示变换、时长与调色控制">
 </p>
 
 ### 素材与检查器 —— 读懂素材，塑造镜头
@@ -102,6 +106,10 @@ aicut call get_project
 - **工程输出** —— 修改分辨率与帧率时，片段按比例重新适配
 - **交付辅助** —— 一键整理工程素材到 `<工程名>-media/`，工程换机器也能打开
 
+<p align="center">
+  <img src="./assets/screenshots/02-media.jpg" width="100%" alt="素材库：三段视频、一张海报与一段音乐，带缩略图、元数据与文字预设">
+</p>
+
 ### OFX 插件 —— 带你自己的特效
 
 AI Cut 支持 **OpenFX（OFX）1.5.1** 插件，你已有的调色、模糊、辉光、抠像、变形、转场工具都能直接带过来：既可以从 [AI Cut OFX Registry](https://github.com/heshengtao/ai-cut-ofx-registry) 搜索安装（带 SHA-256 校验），也能直接用本机别处装好的插件。
@@ -111,6 +119,10 @@ AI Cut 支持 **OpenFX（OFX）1.5.1** 插件，你已有的调色、模糊、�
 - **预览常驻** —— 挂上特效即开始后台预烘焙，视频与图片预览在播放中也能保留效果
 - **导出时烘焙** —— 渲染按最终尺寸应用全部特效（paint 只支持参数驱动，retimer 通过 `SourceTime` 询问插件源时间）
 - **注册表 + 本地导入** —— 搜索、一键安装 / 更新 / 删除，或指向本地插件包
+
+<p align="center">
+  <img src="./assets/screenshots/03-ofx.jpg" width="100%" alt="OFX 下载管理器：列出可安装的 OpenFX 插件，附许可证、平台支持与一键安装">
+</p>
 
 ### AI 与自动化 —— 把素材变成还能继续改的东西
 
@@ -125,6 +137,10 @@ AI Cut 支持 **OpenFX（OFX）1.5.1** 插件，你已有的调色、模糊、�
 - **审片闭环** —— `film.json` 导入、结构化审片批注（`severity` / `sceneId` / `resolved`）、脏段检测、带内容哈希缓存的区间重渲、take 对比（SSIM + 并排帧）与接触表
 - **生来离线** —— 编辑器与本地模型不要账号、不上传素材
 
+<p align="center">
+  <img src="./assets/screenshots/04-ai.jpg" width="100%" alt="AI 功能：本地字幕生成、AI 朗读，以及带模型的本地出图 / 出视频">
+</p>
+
 ### MCP 服务器与剪辑智能体 —— 让智能体在你的工程里干活
 
 打开一个开关，你的工程就变成 AI 助手可以操作的对象。内置的 **MCP（Model Context Protocol）服务器**把会话通过只监听 `127.0.0.1` 的 HTTP 端点开放出去——接上你的代理、给它一个任务，就能看它建轨、放片段、改文字，界面实时跟着变。同一套工具定义也驱动内置的**剪辑智能体**：一个 OpenAI 兼容的对话面板，支持流式回答、工具调用与会话树分支。
@@ -137,6 +153,10 @@ AI Cut 支持 **OpenFX（OFX）1.5.1** 插件，你已有的调色、模糊、�
 - **剪辑智能体** —— OpenAI 兼容端点、流式回答、工具卡片、会话分支
 - **Skills** —— 剪辑与生产文档，由智能体按需加载
 
+<p align="center">
+  <img src="./assets/screenshots/05-mcp.jpg" width="100%" alt="MCP 服务器已启用并显示回环端点，旁边是剪辑智能体入口与 aicut 命令行">
+</p>
+
 ### 导出与更新 —— 完成并交付
 
 剪好了就渲染。选一个交付格式，AI Cut 在后台写出可发布的文件，你可以继续干活。已安装的应用会检查 GitHub Releases 上的签名更新，新版本一键即达。
@@ -148,7 +168,7 @@ AI Cut 支持 **OpenFX（OFX）1.5.1** 插件，你已有的调色、模糊、�
 - **更新包校验** —— 公钥内置于应用，私钥只存在于发布环境
 
 <p align="center">
-  <img src="./assets/screenshots/02-export.png" width="100%" alt="导出对话框：MP4、ProRes 与 GIF 预设，以及分辨率、帧率、质量与音频设置">
+  <img src="./assets/screenshots/06-export.jpg" width="100%" alt="导出对话框：MP4、ProRes 与 GIF 预设，以及分辨率、帧率、画面适配、质量与音频设置">
 </p>
 
 ## 安装
@@ -241,7 +261,19 @@ MCP 在容器里绑 `0.0.0.0`（`--lan` 的语义），所以把 `50563` 一起�
 | OFX 效果 | ✅ 含整段烘焙 | ✅ 单帧 / 图片 / 转场预览 + **整段烘焙**（片段与转场，单进程顺序烘焙） |
 | 插件安装 / 导入 / 删除 | ✅ | ✅（「在文件管理器里显示」需要桌面） |
 | 原生插件 GUI、系统级文件框 / 浏览器拉起 | ✅ | ⛔ 物理上没有窗口系统 / 桌面会话 |
-| 本地出图 / 出视频（sd.cpp） | ✅ | ◐ 生成器只有桌面实现（云端出图可用）；容器**可以**有 GPU（Linux 宿主 + NVIDIA 容器运行时，macOS 的 Docker Desktop 除外），但需要把生成器下沉 |
+| 本地出图 / 出视频（sd.cpp） | ✅ | ✅ 同一份 daemon 实现：引擎与权重按需下载，容器里可用 CPU / Vulkan / ROCm（上游没有 Linux 的 CUDA 构建） |
+
+**插件二进制必须和镜像架构一致。** 镜像按构建机架构产出（Apple Silicon 上默认 arm64），
+而 OFX 插件是原生二进制：只提供 x86_64 构建的插件（例如 Flame LTX AlphaGen）在 arm64
+容器里加载不了，界面会直接提示「插件二进制架构不匹配」，而不是含糊的
+`cannot open shared object file`。这类插件请改用 amd64 镜像：
+
+```bash
+docker build --platform linux/amd64 -t ai-cut .
+docker run -d --platform linux/amd64 -p 28440:28440 -v aicut-data:/data ai-cut
+```
+
+（在 Apple Silicon 上走 Rosetta 模拟，会慢一些；x86_64 Linux 宿主上则不需要。）
 
 模型第一次使用时才下载（设置 → 模型），下载会走网络代理配置；随包的 5 个模型开箱可用。
 
