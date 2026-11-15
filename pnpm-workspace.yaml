@@ -9,3 +9,4 @@ allowBuilds:
   '@ffprobe-installer/linux-x64': true
   '@ffprobe-installer/win32-ia32': true
   '@ffprobe-installer/win32-x64': true
+  vue-demi: true

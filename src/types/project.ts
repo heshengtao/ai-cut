@@ -1,4 +1,5 @@
 /** AI Cut 的领域类型：工程文档及其组成部分。 */
+import type { BoardDoc } from "@/types/board";
 
 /** 素材类型。 */
 export type AssetKind = "video" | "audio" | "image";
@@ -377,6 +378,8 @@ export interface Project {
   markers: Marker[];
   /** 剪口组。缺省表示这个工程没剪过口播。工程级共享。 */
   cutScopes?: CutScope[];
+  /** 无限画布文档。工程级共享，所有分P 共用一张画布。 */
+  board?: BoardDoc;
 }
 
 /** 当前工程文档版本。 */

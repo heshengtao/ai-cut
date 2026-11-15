@@ -20,7 +20,8 @@ import type {
 import type { Project } from "@/types/project";
 import { newProject as makeProject } from "@/core/factory";
 import { parseProject, serializeProject } from "@/core/serialize";
-import { attachEpisodeView, switchActiveEpisode } from "@/core/episodes";
+import { attachEpisodeView, patchProjectMeta, switchActiveEpisode } from "@/core/episodes";
+import type { BoardDoc } from "@/types/board";
 import { applyCommandToDoc, applyCommandsToDoc, diffAffected } from "@/core/commands";
 import { recordProjectHistory, getProjectHistory, flushHistoryRecords } from "@/core/history";
 import { updateAsset } from "@/core/ops";
@@ -676,6 +677,19 @@ export const useProjectStore = defineStore("project", () => {
   }
 
   /**
+   * 写入画布文档。
+   *
+   * 画布是工程级共享的一份文档，有自己的撤销栈，所以**不进时间线历史**；
+   * 只置 dirty 并推进 revision（自动保存与会话快照都会带上它）。
+   */
+  function updateBoard(board: BoardDoc): void {
+    if (readOnly.value) return;
+    doc.value = patchProjectMeta(doc.value, { board });
+    dirty.value = true;
+    revision.value += 1;
+  }
+
+  /**
    * 切到另一个分P。
    *
    * 只换 `activeEpisodeId`：时间线真相在 `episodes` 里，素材 / 画布 / 输出设置都是
@@ -910,6 +924,7 @@ export const useProjectStore = defineStore("project", () => {
     rename,
     markSaved,
     switchEpisode,
+    updateBoard,
     markOfflineAssets,
     setReadOnly,
     applyRemote,

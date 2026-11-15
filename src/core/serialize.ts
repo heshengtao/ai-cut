@@ -10,6 +10,7 @@ import type {
 } from "@/types/project";
 import { PROJECT_VERSION } from "@/types/project";
 import { attachEpisodeView, migrateToEpisodes, patchProjectMeta } from "@/core/episodes";
+import { normalizeBoard } from "@/core/board/schema";
 import { normalizeClipEffects } from "@/core/effects";
 import { normalizeClipTransition } from "@/core/clipTransition";
 import {
@@ -330,7 +331,8 @@ function normalizeProject(input: Project): Project {
   }));
   const doc = patchProjectMeta(migrated, { episodes });
   const cutScopes = normalizeCutScopes(doc);
-  return patchProjectMeta(doc, { cutScopes });
+  const board = doc.board === undefined ? undefined : normalizeBoard(doc.board);
+  return patchProjectMeta(doc, { cutScopes, board });
 }
 
 export function parseProject(json: string): Project {
