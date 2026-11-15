@@ -230,6 +230,50 @@ export interface CloudTtsProvider {
   audio_path: string;
 }
 
+/** 云端 / 自定义 ASR 的接口类型（与 daemon 的 CloudAsrKind 一一对应）。 */
+export type CloudAsrKind =
+  | "openai"
+  | "deepseek"
+  | "azure"
+  | "google"
+  | "aliyun"
+  | "tencent"
+  | "volcengine"
+  | "baidu"
+  | "custom";
+
+/** 一个已配置的云端识别服务。字段按接口类型取用。 */
+export interface CloudAsrProvider {
+  id: string;
+  name: string;
+  kind: CloudAsrKind;
+  enabled: boolean;
+  base_url: string;
+  api_key: string;
+  api_secret: string;
+  app_id: string;
+  region: string;
+  model: string;
+  language: string;
+  /** 单请求音频秒数上限；0 = 用该接口的预置值。 */
+  max_seconds: number;
+  /** 以下仅 custom 使用。 */
+  method: string;
+  headers: string;
+  body: string;
+  text_path: string;
+  words_path: string;
+}
+
+export interface CloudAsrConfig {
+  providers: CloudAsrProvider[];
+}
+
+export interface CloudAsrTest {
+  text: string;
+  duration: number;
+}
+
 export interface CloudTtsConfig {
   providers: CloudTtsProvider[];
 }

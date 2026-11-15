@@ -2,13 +2,28 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { asrCancel, asrTranscribe, onAsrProgress } from "@/core/modelApi";
-import type { AsrProgress, SubtitleCue } from "@/types/models";
+import { cloudAsrConfig } from "@/core/cloudAsrApi";
+import type { AsrProgress, CloudAsrProvider, SubtitleCue } from "@/types/models";
 
 export const useAsrStore = defineStore("asr", () => {
   const running = ref(false);
   const progress = ref(0);
   const state = ref<AsrProgress["state"] | "idle">("idle");
   const message = ref<string | null>(null);
+
+  /** 已配置并启用的云端识别服务；AiPane 的下拉与设置页共用这一份。 */
+  const providers = ref<CloudAsrProvider[]>([]);
+  const providersLoaded = ref(false);
+
+  async function loadProviders(force = false): Promise<void> {
+    if (providersLoaded.value && !force) return;
+    try {
+      providers.value = (await cloudAsrConfig()).providers;
+      providersLoaded.value = true;
+    } catch {
+      providers.value = [];
+    }
+  }
 
   let stopProgress: (() => void) | null = null;
   let subscribing: Promise<void> | null = null;
@@ -70,6 +85,9 @@ export const useAsrStore = defineStore("asr", () => {
     progressPct,
     state,
     message,
+    providers,
+    providersLoaded,
+    loadProviders,
     watch,
     generate,
     cancel,
