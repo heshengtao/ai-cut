@@ -1405,6 +1405,38 @@ async function relink(): Promise<void> {
                 />
               </div>
             </template>
+            <div class="prop-row">
+              <span>{{ i18n.t("inspector.stroke") }}</span>
+              <ToggleSwitch
+                :model-value="stroke?.enabled ?? false"
+                :label="i18n.t('inspector.stroke')"
+                @update:model-value="onStroke({ enabled: $event })"
+              />
+            </div>
+            <template v-if="stroke?.enabled">
+              <div class="prop-row">
+                <span>{{ i18n.t("inspector.color") }}</span>
+                <ColorField
+                  :model-value="stroke?.color ?? '#000000'"
+                  :label="i18n.t('inspector.strokeColor')"
+                  @update:model-value="onStroke({ color: $event }, true)"
+                  @commit="project.endCoalesce()"
+                />
+              </div>
+              <div class="prop-row">
+                <span>{{ i18n.t("inspector.strokeWidth") }}</span>
+                <NumberField
+                  :model-value="stroke?.width ?? 4"
+                  :min="0"
+                  :max="80"
+                  :step="1"
+                  :decimals="1"
+                  :sr-label="i18n.t('inspector.strokeWidth')"
+                  input-width="44px"
+                  @update:model-value="onStroke({ width: $event })"
+                />
+              </div>
+            </template>
           </div>
 
           <div class="section-label">{{ i18n.t("inspector.textPreset") }}</div>
@@ -1802,41 +1834,43 @@ async function relink(): Promise<void> {
           </div>
         </template>
 
-        <div class="section-label">{{ i18n.t("inspector.stroke") }}</div>
-        <div class="group">
-          <div class="prop-row">
-            <span>{{ i18n.t("inspector.stroke") }}</span>
-            <ToggleSwitch
-              :model-value="stroke?.enabled ?? false"
-              :label="i18n.t('inspector.stroke')"
-              @update:model-value="onStroke({ enabled: $event })"
-            />
+        <template v-if="!isText">
+          <div class="section-label">{{ i18n.t("inspector.stroke") }}</div>
+          <div class="group">
+            <div class="prop-row">
+              <span>{{ i18n.t("inspector.stroke") }}</span>
+              <ToggleSwitch
+                :model-value="stroke?.enabled ?? false"
+                :label="i18n.t('inspector.stroke')"
+                @update:model-value="onStroke({ enabled: $event })"
+              />
+            </div>
+            <template v-if="stroke?.enabled">
+              <div class="prop-row">
+                <span>{{ i18n.t("inspector.color") }}</span>
+                <ColorField
+                  :model-value="stroke?.color ?? '#000000'"
+                  :label="i18n.t('inspector.strokeColor')"
+                  @update:model-value="onStroke({ color: $event }, true)"
+                  @commit="project.endCoalesce()"
+                />
+              </div>
+              <div class="prop-row">
+                <span>{{ i18n.t("inspector.strokeWidth") }}</span>
+                <NumberField
+                  :model-value="stroke?.width ?? 4"
+                  :min="0"
+                  :max="80"
+                  :step="1"
+                  :decimals="1"
+                  :sr-label="i18n.t('inspector.strokeWidth')"
+                  input-width="44px"
+                  @update:model-value="onStroke({ width: $event })"
+                />
+              </div>
+            </template>
           </div>
-          <template v-if="stroke?.enabled">
-            <div class="prop-row">
-              <span>{{ i18n.t("inspector.color") }}</span>
-              <ColorField
-                :model-value="stroke?.color ?? '#000000'"
-                :label="i18n.t('inspector.strokeColor')"
-                @update:model-value="onStroke({ color: $event }, true)"
-                @commit="project.endCoalesce()"
-              />
-            </div>
-            <div class="prop-row">
-              <span>{{ i18n.t("inspector.strokeWidth") }}</span>
-              <NumberField
-                :model-value="stroke?.width ?? 4"
-                :min="0"
-                :max="80"
-                :step="1"
-                :decimals="1"
-                :sr-label="i18n.t('inspector.strokeWidth')"
-                input-width="44px"
-                @update:model-value="onStroke({ width: $event })"
-              />
-            </div>
-          </template>
-        </div>
+        </template>
 
         <div class="section-label">{{ i18n.t("inspector.shadow") }}</div>
         <div class="group">

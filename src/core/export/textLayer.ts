@@ -8,6 +8,7 @@ import type { Clip } from "@/types/project";
 import {
   fontStackOf,
   hexToRgba,
+  outerStrokeWidth,
   resolveShadow,
   resolveStroke,
   resolveTextStyle,
@@ -160,11 +161,13 @@ export function renderTextLayerPng(
     ctx.restore();
   }
 
-  // 描边先画，再用实色填充，保证文字内部干净。
-  if (stroke.enabled && stroke.width > 0) {
+  // 描边是**外描边**：Canvas 的 strokeText 以字形轮廓为中心，线宽取两倍再从上面
+  // 填充实色，内侧那一半被盖住，露出来的外侧正好等于 stroke.width。
+  const strokeWidth = outerStrokeWidth(stroke, scale);
+  if (strokeWidth > 0) {
     ctx.save();
     ctx.strokeStyle = stroke.color;
-    ctx.lineWidth = stroke.width * scale;
+    ctx.lineWidth = strokeWidth;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     drawLines(false);

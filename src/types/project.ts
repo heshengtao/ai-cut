@@ -85,7 +85,7 @@ export interface ClipTextStyle {
   glowOpacity: number;
 }
 
-/** 描边（文字用 -webkit-text-stroke，图片 / 视频用外圈阴影近似）。 */
+/** 描边（文字用外描边：字形轮廓外侧；图片 / 视频用外圈阴影近似）。 */
 export interface ClipStroke {
   enabled: boolean;
   color: string;

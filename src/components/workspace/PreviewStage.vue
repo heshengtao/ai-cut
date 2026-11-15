@@ -44,6 +44,7 @@ import {
 import {
   fontStackOf,
   hexToRgba,
+  outerStrokeWidth,
   resolveBlendMode,
   resolveCornerRadius,
   resolveShadow,
@@ -1138,12 +1139,19 @@ function textStyle(item: VisualItem): Record<string, string | number> {
     result.padding = "0";
   }
 
-  result.WebkitTextStroke =
-    stroke.enabled && stroke.width > 0
-      ? `${stroke.width * scale}px ${stroke.color}`
-      : "0 transparent";
+  // 外描边：`-webkit-text-stroke` 以字形轮廓为中心画，内半边会盖住填充色。这里把
+  // 描边交给一层透明填充的 `::before`（宽度取两倍），实色文字压在上面，只露外侧。
+  const strokeWidth = outerStrokeWidth(stroke, scale);
+  if (strokeWidth > 0) {
+    result["--text-stroke"] = `${strokeWidth}px ${stroke.color}`;
+  }
 
   return result;
+}
+
+/** 文字片段是否有描边（决定要不要铺那层外描边）。 */
+function hasTextStroke(item: VisualItem): boolean {
+  return outerStrokeWidth(resolveStroke(item.clip)) > 0;
 }
 
 const videoLayerStyle = computed<Record<string, string | number>>(() => {
@@ -1741,6 +1749,8 @@ watch(
             :ref="(el) => setTextEl(item.clip.id, el)"
             class="overlay-text"
             :style="textStyle(item)"
+            :data-text="item.clip.text"
+            :data-stroke="hasTextStroke(item) ? '' : null"
             @pointerdown="onElementPointerDown(item, $event)"
           >
             {{ item.clip.text }}
@@ -2124,6 +2134,20 @@ watch(
   -webkit-user-drag: none;
   will-change: transform;
 }
+/* 外描边层：只画轮廓、不画填充，由实质文字盖住内侧的一半。
+   放在 z-index:-1 让它落在文字的填充色下面（父级有 transform，已经是层叠上下文）。 */
+.overlay-text[data-stroke]::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  padding: inherit;
+  z-index: -1;
+  color: transparent;
+  -webkit-text-stroke: var(--text-stroke);
+  text-shadow: none;
+  pointer-events: none;
+}
+
 .overlay-text {
   position: absolute;
   left: 50%;

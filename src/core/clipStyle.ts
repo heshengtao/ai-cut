@@ -242,6 +242,17 @@ export function resolveStroke(clip: Clip): ClipStroke {
   return normalizeStroke(clip.stroke ?? {});
 }
 
+/**
+ * 外描边实际要用的线宽。
+ *
+ * Canvas 的 `strokeText` 与 CSS 的 `-webkit-text-stroke` 都沿字形轮廓**居中**描边：
+ * 线宽 N 会有一半压在笔画内部。想要外侧露出 `stroke.width`，线宽必须取两倍，
+ * 再用实色填充盖住内侧那一半（预览与导出共用这条规则）。
+ */
+export function outerStrokeWidth(stroke: ClipStroke, scale = 1): number {
+  return stroke.enabled && stroke.width > 0 ? stroke.width * scale * 2 : 0;
+}
+
 export function resolveShadow(clip: Clip): ClipShadow {
   if (clip.shadow) return normalizeShadow(clip.shadow);
   return isTextClip(clip) ? DEFAULT_TEXT_SHADOW : DEFAULT_SHADOW;
