@@ -1148,3 +1148,55 @@ git commit -m "test(project): 分P 文档 v2 回归与 spec 措辞校正"
 **3. 类型一致性**：`attachEpisodeView` / `switchActiveEpisode` / `newEpisode` / `activeEpisode` / `isEpisodeViewAttached` 五个名字在 Task 1 定义、Task 2/3 原样引用；`Affected.episodeId` 在 Task 3 定义并在测试中使用；store 的 `switchEpisode` 在 Task 2 定义并被测试调用。
 
 **4. 已知取舍**：切分P 清空撤销栈（而非分P 维度栈）——实现成本低、语义安全，代价是跨集不可撤销；已在 Task 5 Step 4 回写 spec。
+
+---
+
+## 实现回写（执行后修正）
+
+P0 已按本计划执行完毕（分支 `feat/project-episodes-v2`，5 个提交）。执行中发现了 4 处计划本身的问题，已按下述方式修正；后续任务以**这里**为准。
+
+### 1. 投影从「不可枚举」改成「可枚举」访问器
+
+计划原方案是 `enumerable: false`，实测会崩：`{ ...doc }` 只复制自有**可枚举**属性，不可枚举访问器会被丢掉，于是 `addAsset(doc)` 这类不改时间线的 op 返回后 `doc.tracks` 是 `undefined`，现有测试成片失败（`activeClips` / `effects` / `plan` 等）。
+
+改为 `enumerable: true` 后：展开时 getter 求值，数组值被拷成普通字段，外部代码零改动。
+
+代价与配套：JSON 里会出现根级 `tracks/markers` 副本，所以 `serializeProject()` 必须先展开再 `delete` 这两个键（见 `src/core/serialize.ts`）。
+
+### 2. 新增 `patchProjectMeta(doc, patch)`
+
+只改工程级字段（改名 / 剪口组 / `episodes` / `activeEpisodeId`）时，**不能**用 `{ ...doc, patch }` 再折返：展开会把当前分P 的轨道拷成自有字段，折返时灌进**新的**当前分P。实测表现为"切分P 后上一集的轨道出现在新分P"，以及 `normalizeProject` 里刚归一化好的轨道被旧数组覆盖。
+
+`patchProjectMeta()` 先剔除投影键再折返，`switchActiveEpisode` / `normalizeProject` / 会话合并都用它。
+
+### 3. `Affected` 增加 `episodeId`，并在 `diffAffected` 里填入
+
+会话广播要告诉服务端"这个补丁打在哪一集"。`diffAffected(before, after)` 现在返回 `episodeId: after.activeEpisodeId`（同文档短路时也带）。
+
+### 4. Rust 侧会话合并同步改造（计划里漏了）
+
+`crates/daemon/src/session.rs::merge_project` 是服务端广播前的合并实现（AGENTS.md 要求两侧同步）。原实现只认根级 `tracks`，v2 文档会导致"远端时间线编辑全部丢失 + 远端把当前分P 换掉"。
+
+已重写为：按 `affected.episodeId`（缺省取发送方 `activeEpisodeId`）只合并该分P 的轨道；`activeEpisodeId` 始终保留本地；远端新建的分P 追加进来；标记按分P 后到者为准；v1 文档仍走原根级路径。
+
+### 5. 执行中修改的既有测试
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/core/__tests__/smoke.test.ts` | `PROJECT_VERSION` 断言 1 → 2 |
+| `src/core/__tests__/serialize.test.ts` | 版本断言、`episodes` 存在性；"clips 缺失"用例改为 v1 形态（根级校验） |
+| `src/core/__tests__/effects.test.ts` | 坏数据注入从根级 `tracks` 改为 `episodes[0].tracks` |
+| `src/core/__tests__/sessionMerge.test.ts` | 重写为 v2，并加「投影 == 当前分P 轨道」一致性断言 |
+| `src/core/commands/__tests__/commands.test.ts` | `diffAffected` 期望值补 `episodeId` |
+| `crates/daemon/tests/parity.rs`、`tools_e2e.rs` | 新增 `active_episode()` 助手，快照断言从根级改为当前分P |
+| `crates/daemon/src/session.rs`（单测） | 合并用例改为 v2，并新增"远端不能换当前分P / 新分P 要带过来" |
+
+### 6. 验收证据（执行时实际输出）
+
+```
+pnpm test        → 563 passed
+pnpm build       → vue-tsc + vite build 通过
+pnpm domain:golden → domain bundle 483.7 KiB / 46 inputs；golden 13 commands
+cargo test --manifest-path crates/daemon/Cargo.toml
+                 → 281 passed + 11 passed + 11 passed（0 failed）
+```

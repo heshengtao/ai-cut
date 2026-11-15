@@ -126,18 +126,21 @@ interface Episode {
 
 ### 4.2 非枚举投影（本设计的核心纪律）
 
-`src/core/serialize.ts` 的 `normalizeProject()` 在解析完成后，于 doc 上挂两个**不可枚举**访问器：
+`src/core/serialize.ts` 的 `normalizeProject()` 在解析完成后，于 doc 上挂两个**可枚举**访问器：
 
 - `doc.tracks` → getter 返回 `episodes[active].tracks` 的**真实数组引用**；setter 整体替换该数组。
 - `doc.markers` → 同上。
 
 为什么可行：308 处 `doc.tracks` 调用里绝大多数是只读遍历与原地修改（`push/splice/sort`），拿到真实引用后全部自然正确；只有整体赋值会走 setter，而 setter 会写进当前分P。
 
+**为什么必须是可枚举**（实现期修正）：`{ ...doc }` 这种展开只复制自有可枚举属性。不可枚举访问器会被展开丢掉，于是 `addAsset(doc)` 这类"不改时间线"的 op 返回后 `doc.tracks` 变成 `undefined`，现有调用点会成片崩。改成可枚举后，展开会把数组值拷过去，外部代码零改动。
+
 纪律（必须由测试锁死）：
 
 1. 所有外部 JSON 入口（打开工程、历史恢复、会话 `full` 快照、domain 引擎、MCP/agent 桥）统一走 `normalizeProject`，不允许裸 `JSON.parse` 直接进 store。
-2. `JSON.stringify(project)` 不会写出 `tracks/markers`（不可枚举），只写 `episodes` —— 序列化天然正确。
+2. `serializeProject()` 负责在写盘前把根级 `tracks/markers` 剔除（它们是可枚举的，否则 JSON 里会出现两份时间线）。
 3. 任何 `structuredClone` 之后必须重新 `normalizeProject`（clone 不复制访问器）。
+4. **改工程级字段/分P 列表必须走 `patchProjectMeta(doc, patch)`**，不能裸 `{ ...doc, patch }`：展开会把当前分P 的 `tracks` 拷成自有字段，折返时灌进新的当前分P（切分P 会把上一集的轨道带过去）。
 
 ### 4.3 迁移与兼容
 
@@ -385,7 +388,7 @@ Vue Flow 重写（已确认方案 A）：`@vue-flow/core` + `@vue-flow/backgroun
 
 ## 11. 风险与取舍
 
-1. **投影的隐式性**：`doc.tracks` 变成访问器后，任何绕过 `normalizeProject` 的入口都会拿到 `undefined`。缓解：唯一入口 + round-trip 测试 + domain 入口强制归一化。
+1. **投影的隐式性**：`doc.tracks` 变成访问器后，任何绕过 `normalizeProject` 的入口都会拿到 `undefined`。缓解：唯一入口 + round-trip 测试 + domain 入口强制归一化；改工程级字段只允许走 `patchProjectMeta`。
 2. **文档版本迁移**：v1 工程被静默改写为 v2 后不可回退。缓解：首次保存前保留一份 v1 备份在历史索引里（现有 `project_history_record` 已经做了这件事，无需新增机制）。
 3. **画布与时间线的双写**：画布防抖写回与自动保存可能互相覆盖。缓解：统一走 `project.touch()` 与单个保存入口，不允许 board store 自己 `invoke` 保存。
 4. **串行队列**：云端任务本可并行，串行会拖慢。v1 接受（本地 GPU 是瓶颈，且串行让取消语义简单），后续按 provider 分流。
