@@ -18,6 +18,7 @@ pub mod audio_ai;
 pub mod audio_analysis;
 pub mod capabilities;
 pub mod cloud_gen;
+pub mod cloud_asr;
 pub mod cloud_tts;
 pub mod doc_actor;
 pub mod doc_ops;
