@@ -1154,11 +1154,20 @@ async fn baidu_token(
     client: &reqwest::Client,
     provider: &CloudTtsProvider,
 ) -> Result<String, String> {
-    if provider.api_key.trim().is_empty() || provider.api_secret.trim().is_empty() {
+    baidu_token_for(client, &provider.api_key, &provider.api_secret).await
+}
+
+/// 按字段取百度 OAuth token；云端 ASR 与 TTS 共用同一份缓存。
+pub(crate) async fn baidu_token_for(
+    client: &reqwest::Client,
+    api_key: &str,
+    api_secret: &str,
+) -> Result<String, String> {
+    if api_key.trim().is_empty() || api_secret.trim().is_empty() {
         return Err("百度语音需要填写 API Key 和 Secret Key".into());
     }
-    let key = provider.api_key.trim();
-    let secret = provider.api_secret.trim();
+    let key = api_key.trim();
+    let secret = api_secret.trim();
     if let Some(token) = cached_baidu_token(key) {
         return Ok(token);
     }
