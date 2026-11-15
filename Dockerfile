@@ -51,6 +51,9 @@ COPY crates/daemon ./crates/daemon
 # - sherpa-onnx-sys：ASR / TTS / UVR 的静态库绑定（预编译包在 build 时下载，走代理）
 # - sherpa-separation：UVR 音源分离的 C API 封装
 # - ofx-host：OpenFX 效果宿主（C++ 静态链接，纯计算，不需要窗口）
+#   注意 OFX 插件是原生二进制，必须和镜像架构一致：arm64 镜像加载不了只发
+#   x86_64 的插件（host.c 会在 dlopen 前报「架构不兼容」，不会含糊地说找不到文件）。
+#   这类插件请用 `--platform linux/amd64` 构建/运行镜像。
 COPY crates/sherpa-onnx-sys ./crates/sherpa-onnx-sys
 COPY crates/sherpa-separation ./crates/sherpa-separation
 COPY crates/ofx-host ./crates/ofx-host

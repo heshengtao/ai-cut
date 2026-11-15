@@ -98,9 +98,16 @@ to any Mach-O/PE/ELF executable under the usual `Contents/*` folders when the
 binary is not named `*.ofx`.
 
 The host runs inside the app process, so the plugin's CPU architecture must
-match the app's. On Apple Silicon, x86_64-only bundles (for example Natron
-2.5.0) fail with a clear "架构不兼容" message instead of a generic load error;
-use a universal/arm64 build, or an x86_64 build of the app under Rosetta.
+match the app's. On macOS dyld already says so ("incompatible architecture"),
+but glibc reports a foreign-architecture ELF as
+`cannot open shared object file: No such file or directory` — indistinguishable
+from a missing file. The host therefore reads the ELF header (`e_machine`)
+before `dlopen` and rejects a foreign binary with a clear "架构不兼容" message
+that names both architectures. A bundle that ships several builds
+(`Contents/Linux-x86-64` + `Contents/Linux-aarch64`) prefers the host's own
+directory instead of whichever folder happens to come first. Apple Silicon
+keeps working for x86_64-only bundles only under an x86_64 build of the app
+(for the Docker image: `--platform linux/amd64`).
 
 Not implemented: interactive overlays / painting, OpenGL/OpenCL/CUDA/Metal,
 half-float pixel depths, custom interact UI, and arbitrary temporal clip access

@@ -2225,13 +2225,152 @@ static char *plist_executable(const char *bundle)
   return NULL;
 }
 
+/* -------------------------------------------------------------------------
+ * 架构检测
+ *
+ * glibc 把「架构不对的 ELF」也报成 "cannot open shared object file: No such
+ * file or directory"，和「文件真的不存在」一字不差。Apple Silicon 上的 arm64
+ * 容器加载 x86_64 插件就是这条报错，用户只会以为插件没装好。这里自己读 ELF 头，
+ * 在 dlopen 之前把话说清楚。
+ * ---------------------------------------------------------------------- */
+
+static const char *host_arch_name(void)
+{
+#if defined(__x86_64__) || defined(_M_X64)
+  return "x86_64";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+  return "aarch64";
+#elif defined(__i386__) || defined(_M_IX86)
+  return "x86";
+#elif defined(__arm__) || defined(_M_ARM)
+  return "arm";
+#else
+  return "unknown";
+#endif
+}
+
+static int host_elf_machine(void)
+{
+#if defined(__x86_64__) || defined(_M_X64)
+  return 62;
+#elif defined(__aarch64__) || defined(_M_ARM64)
+  return 183;
+#elif defined(__i386__) || defined(_M_IX86)
+  return 3;
+#elif defined(__arm__) || defined(_M_ARM)
+  return 40;
+#else
+  return -1;
+#endif
+}
+
+static const char *elf_machine_name(int machine)
+{
+  switch (machine) {
+  case 3:
+    return "x86";
+  case 40:
+    return "arm";
+  case 62:
+    return "x86_64";
+  case 183:
+    return "aarch64";
+  case 243:
+    return "riscv64";
+  case 258:
+    return "loongarch64";
+  default:
+    return NULL;
+  }
+}
+
+/* 读 ELF 头的 e_machine；不是 ELF（Mach-O / PE 等）时返回 -1，交给 dlopen 自己报。 */
+static int file_elf_machine(const char *path)
+{
+  unsigned char header[20];
+  FILE *file = fopen(path, "rb");
+  if (!file) {
+    return -1;
+  }
+  size_t read = fread(header, 1, sizeof(header), file);
+  fclose(file);
+  if (read < sizeof(header) || header[0] != 0x7f || header[1] != 'E' ||
+      header[2] != 'L' || header[3] != 'F') {
+    return -1;
+  }
+  if (header[5] == 2) { /* EI_DATA = ELFDATA2MSB */
+    return (header[18] << 8) | header[19];
+  }
+  return header[18] | (header[19] << 8);
+}
+
+/* 插件二进制是不是给别的架构编的；是的话把插件架构名写到 *other。 */
+static int binary_is_foreign_arch(const char *path, const char **other)
+{
+  int machine = file_elf_machine(path);
+  int host = host_elf_machine();
+  if (machine < 0 || host < 0 || machine == host) {
+    return 0;
+  }
+  const char *name = elf_machine_name(machine);
+  if (!name) {
+    return 0; /* 不认识的架构：别挡住以后的新平台，让 dlopen 自己报 */
+  }
+  if (other) {
+    *other = name;
+  }
+  return 1;
+}
+
+static void set_arch_mismatch_error(char **error, const char *other)
+{
+  const char *host = host_arch_name();
+  if (strcmp(host, "aarch64") == 0 && strcmp(other, "x86_64") == 0) {
+    /* Apple Silicon 上最常见的一种：桌面要换 arm64/universal 构建，容器要靠
+     * amd64 镜像（见 README 的 Docker 一节）。 */
+    set_error(error,
+              "插件二进制架构不兼容：插件是 %s 构建，当前运行环境是 %s，"
+              "该插件没有 %s 构建。在 Apple Silicon 上跑 Docker 时需要用 amd64 "
+              "镜像（docker build --platform linux/amd64）；桌面版请换用 arm64 / "
+              "universal 构建的插件。",
+              other, host, host);
+    return;
+  }
+  set_error(error,
+            "插件二进制架构不兼容：插件是 %s 构建，当前运行环境是 %s，"
+            "该插件没有为 %s 提供构建。",
+            other, host, host);
+}
+
+/* 本机该优先看的 bundle 子目录，避免 x86_64 / aarch64 都有的包里挑错。 */
+static const char *native_content_dir(void)
+{
+#if defined(_WIN32)
+  return sizeof(void *) == 8 ? "Contents/Win64" : "Contents/Win32";
+#elif defined(__APPLE__)
+  return "Contents/MacOS";
+#elif defined(__aarch64__) || defined(_M_ARM64)
+  return "Contents/Linux-aarch64";
+#else
+  return "Contents/Linux-x86-64";
+#endif
+}
+
 static char *resolve_bundle(const char *bundle, char **error)
 {
   if (!bundle || !bundle[0]) {
     set_error(error, "插件路径为空");
     return NULL;
   }
+
+  /* 找到过、但架构不对的二进制。优先继续找本机架构的，都找不到时才报它。 */
+  const char *foreign = NULL;
+
   if (is_file(bundle)) {
+    if (binary_is_foreign_arch(bundle, &foreign)) {
+      set_arch_mismatch_error(error, foreign);
+      return NULL;
+    }
     return dup_text(bundle);
   }
   if (!is_dir(bundle)) {
@@ -2241,10 +2380,13 @@ static char *resolve_bundle(const char *bundle, char **error)
 
   char *declared = plist_executable(bundle);
   if (declared) {
-    return declared;
+    if (!binary_is_foreign_arch(declared, &foreign)) {
+      return declared;
+    }
+    free(declared);
   }
 
-  const char *candidates[] = {
+  const char *base_candidates[] = {
       "Contents/MacOS",
       "Contents/Linux-x86-64",
       "Contents/Linux-aarch64",
@@ -2257,29 +2399,53 @@ static char *resolve_bundle(const char *bundle, char **error)
       "lib",
       ".",
   };
+  const size_t base_count = sizeof(base_candidates) / sizeof(base_candidates[0]);
+  /* base_count + 1 个候选项；数组固定开大一点，别用变长数组。 */
+  const char *candidates[16];
+  size_t candidate_count = 0;
+  candidates[candidate_count++] = native_content_dir();
+  for (size_t i = 0; i < base_count; i++) {
+    if (strcmp(base_candidates[i], native_content_dir()) != 0) {
+      candidates[candidate_count++] = base_candidates[i];
+    }
+  }
+
   /* Prefer an explicitly named .ofx file, then any executable-looking file
    * (macOS bundles usually carry their CFBundleExecutable here). */
   for (int want_ofx = 1; want_ofx >= 0; want_ofx--) {
-    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+    for (size_t i = 0; i < candidate_count; i++) {
       char *dir = join_path(bundle, candidates[i]);
       if (!dir) {
         continue;
       }
       char *found = find_entry_recursive(dir, 2, want_ofx);
       free(dir);
-      if (found) {
-        return found;
+      if (!found) {
+        continue;
       }
+      if (binary_is_foreign_arch(found, &foreign)) {
+        free(found);
+        continue;
+      }
+      return found;
     }
   }
   char *found = find_ofx_recursive(bundle, 6);
   if (!found) {
     found = find_binary_recursive(bundle, 6);
   }
-  if (!found) {
+  if (found) {
+    if (!binary_is_foreign_arch(found, &foreign)) {
+      return found;
+    }
+    free(found);
+  }
+  if (foreign) {
+    set_arch_mismatch_error(error, foreign);
+  } else {
     set_error(error, "没有在 %s 里找到 OFX 二进制", bundle);
   }
-  return found;
+  return NULL;
 }
 
 static void free_plugin_info(OfxHostPluginInfo *info);

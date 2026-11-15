@@ -1752,6 +1752,40 @@ mod tests {
         assert!(!file_matches(&windows_only, "mac", "arm64"));
     }
 
+    /// An x86_64-only Linux build must not be offered to an arm64 host — that is
+    /// how an arm64 container ended up downloading a plugin `dlopen` can never
+    /// load (see the Flame LTX AlphaGen report).
+    #[test]
+    fn x64_only_linux_build_does_not_match_arm64() {
+        let file = RegistryFile {
+            systems: vec!["linux".into()],
+            arch: vec!["x64".into()],
+            ..archive_file()
+        };
+        assert!(file_matches(&file, "linux", "x64"));
+        assert!(!file_matches(&file, "linux", "arm64"));
+    }
+
+    /// Every Linux archive in the bundled snapshot must name its architecture:
+    /// an empty `arch` means "any", which silently hands x86_64 builds to arm64.
+    #[test]
+    fn bundled_linux_archives_declare_their_architecture() {
+        let doc = parse_registry(bundled_registry_text()).expect("bundled registry must parse");
+        let mut missing = Vec::new();
+        for plugin in &doc.plugins {
+            for file in &plugin.files {
+                let linux = file.systems.iter().any(|system| system == "linux");
+                if linux && file.install == "archive" && file.arch.is_empty() {
+                    missing.push(format!("{} -> {}", plugin.slug, file.url));
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "Linux archives without an architecture: {missing:?}"
+        );
+    }
+
     #[test]
     fn slug_directory_is_safe() {
         assert_eq!(safe_slug_dir("vendor/plugin"), "vendor_plugin");

@@ -1788,6 +1788,9 @@
           "systems": [
             "linux"
           ],
+          "arch": [
+            "x64"
+          ],
           "contains": [
             "ofx"
           ],

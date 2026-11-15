@@ -771,4 +771,68 @@ mod tests {
         let tint = params.iter().find(|p| p.name == "tint").unwrap();
         assert_eq!(tint.doubles, [1.0, 0.5, 0.25, 1.0]);
     }
+
+    /// A 64-byte ELF header is enough for the architecture check: it only reads
+    /// `e_ident` and `e_machine` before deciding whether to call `dlopen`.
+    fn fake_elf(machine: u16) -> Vec<u8> {
+        let mut header = vec![0u8; 64];
+        header[0..4].copy_from_slice(&[0x7f, b'E', b'L', b'F']);
+        header[4] = 2; // ELFCLASS64
+        header[5] = 1; // little endian
+        header[6] = 1; // EV_CURRENT
+        header[18..20].copy_from_slice(&machine.to_le_bytes());
+        header
+    }
+
+    fn host_machine() -> Option<u16> {
+        match std::env::consts::ARCH {
+            "x86_64" => Some(62),
+            "aarch64" => Some(183),
+            _ => None,
+        }
+    }
+
+    fn fake_bundle(name: &str, machine: u16) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("ofx-host-{name}-{}", std::process::id()));
+        let contents = root.join("Fake.ofx.bundle/Contents/Linux-x86-64");
+        std::fs::create_dir_all(&contents).unwrap();
+        std::fs::write(contents.join("Fake.ofx"), fake_elf(machine)).unwrap();
+        root
+    }
+
+    /// A foreign-architecture ELF must be reported as such, not as the cryptic
+    /// "cannot open shared object file" that glibc's dlopen produces.
+    #[test]
+    fn foreign_architecture_is_reported_clearly() {
+        let Some(host) = host_machine() else {
+            return;
+        };
+        let foreign = if host == 62 { 183 } else { 62 };
+        let bundle = fake_bundle("foreign", foreign);
+        let error = probe(bundle.join("Fake.ofx.bundle").to_str().unwrap(), None, None)
+            .expect_err("a foreign-architecture binary cannot be probed");
+        assert!(error.contains("架构不兼容"), "unexpected error: {error}");
+        assert!(
+            error.contains(if foreign == 62 { "x86_64" } else { "aarch64" }),
+            "the plugin architecture should be named: {error}"
+        );
+        std::fs::remove_dir_all(&bundle).ok();
+    }
+
+    /// A same-architecture binary must still reach `dlopen` (here it fails for a
+    /// different reason), i.e. the new check does not reject native plugins.
+    #[test]
+    fn native_architecture_reaches_dlopen() {
+        let Some(host) = host_machine() else {
+            return;
+        };
+        let bundle = fake_bundle("native", host);
+        let error = probe(bundle.join("Fake.ofx.bundle").to_str().unwrap(), None, None)
+            .expect_err("a 64-byte ELF header is not a loadable plugin");
+        assert!(
+            !error.contains("架构不兼容"),
+            "a native binary must not be reported as foreign: {error}"
+        );
+        std::fs::remove_dir_all(&bundle).ok();
+    }
 }
