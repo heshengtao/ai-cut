@@ -25,6 +25,7 @@ export type SettingsSection =
   | "layout"
   | "ai"
   | "gen"
+  | "asr"
   | "tts"
   | "network"
   | "cli"
