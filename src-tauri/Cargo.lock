@@ -94,6 +94,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
+ "hmac",
  "ofx-host",
  "ort",
  "plist",

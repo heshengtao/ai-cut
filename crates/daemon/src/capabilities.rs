@@ -93,6 +93,8 @@ pub const HEADLESS: &[Capability] = &[
     ok("cloud_gen"),
     // 云端朗读已下沉（只依赖 HTTP + 配置 + ffmpeg 探测），浏览器与容器都能用。
     ok("cloud_tts"),
+    // 云端语音识别同层：配置在 asr.json，识别走同一套 HTTP + ffmpeg 解码。
+    ok("cloud_asr"),
     ok("network"),
     // ---- 插件 / OFX ----
     // OFX：探测 / 单帧预览 / 图片烘焙 / 转场预览 / **整段烘焙（片段与转场）** 都已下沉。

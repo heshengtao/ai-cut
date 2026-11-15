@@ -70,6 +70,9 @@ async fn run() -> Result<(), String> {
     let cloud_tts = Arc::new(aicut_daemon::cloud_tts::CloudTtsRuntime::load(Some(
         host.config_dir().join("tts.json"),
     )));
+    let cloud_asr = Arc::new(aicut_daemon::cloud_asr::CloudAsrRuntime::load(Some(
+        host.config_dir().join("asr.json"),
+    )));
     // 执行后端偏好只影响"装/删运行库是否需要重启"的提示，从同一份 network.json 读。
     aicut_daemon::runtime_ort::set_preference(network.get().backend_preference);
     // sd.cpp 引擎的下载暂存目录（`.download`）可能是上次异常退出留下的：启动时清掉。
@@ -129,6 +132,7 @@ async fn run() -> Result<(), String> {
         doc,
         network,
         cloud_tts,
+        cloud_asr,
         cloud_gen,
         video_dsp,
         agent,

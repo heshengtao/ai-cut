@@ -126,6 +126,11 @@ pub async fn asr_transcribe_words(
     })
 }
 
+/// 云端服务的模型 id 前缀：`cloud:<provider_id>`。
+pub(crate) fn cloud_provider_id(model_id: &str) -> Option<&str> {
+    model_id.strip_prefix("cloud:")
+}
+
 async fn transcribe_file(
     host: &Arc<dyn Host>,
     path: &str,
@@ -133,6 +138,33 @@ async fn transcribe_file(
     language: Option<String>,
     want_words: bool,
 ) -> Result<Transcript, String> {
+    if let Some(provider_id) = cloud_provider_id(model_id) {
+        let state = crate::doc_ops::cloud_asr_of(host.as_ref());
+        let provider = state
+            .provider(provider_id)
+            .ok_or_else(|| format!("未找到语音识别服务：{provider_id}"))?;
+        if !provider.enabled {
+            return Err(format!("识别服务已停用：{}", provider.name));
+        }
+        let runtime = runtime();
+        if runtime.running.swap(true, Ordering::SeqCst) {
+            return Err("已有字幕任务正在运行".into());
+        }
+        runtime.cancel.store(false, Ordering::Relaxed);
+        let network = crate::doc_ops::network_of(host.as_ref());
+        let result = crate::cloud_asr::transcribe(
+            host.as_ref(),
+            &network,
+            &provider,
+            path,
+            language,
+            want_words,
+        )
+        .await;
+        runtime.running.store(false, Ordering::SeqCst);
+        return result;
+    }
+
     let entry = models::by_id(model_id).ok_or_else(|| format!("未知模型：{model_id}"))?;
     if entry.feature != "asr" {
         return Err(format!("{} 不是语音识别模型", entry.name));
@@ -1039,6 +1071,12 @@ pub(crate) fn emit(host: &dyn Host, state: &str, progress: f32, message: Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cloud_model_ids_are_detected() {
+        assert_eq!(cloud_provider_id("cloud:abc"), Some("abc"));
+        assert_eq!(cloud_provider_id("paraformer"), None);
+    }
 
     #[test]
     fn splits_on_chinese_punctuation() {
