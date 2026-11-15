@@ -186,7 +186,7 @@ const sourceSegOptions = computed(() =>
   MODEL_SOURCE_PREFS.map((pref) => ({ value: pref.id, label: i18n.t(pref.labelKey) })),
 );
 
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.1.0";
 
 const i18n = useI18n();
 const layout = useLayoutStore();
