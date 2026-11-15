@@ -36,7 +36,11 @@
   `<config dir>/tts.json` and `asr.json`. Their capabilities are `cloud_tts` / `cloud_asr` in the
   headless table. `asr_transcribe` routes any `cloud:<provider_id>` model id to
   `cloud_asr::transcribe`; the local model path is untouched, so subtitle / cut-review /
-  reference-audio callers never branch on it.
+  reference-audio callers never branch on it. Cut review needs **word-level** times: providers
+  without them (DeepSeek / Aliyun / Baidu / custom) are aligned locally by the Qwen3 aligner
+  (`asr::align_cues`), and the UI's `useAlignerSetup` installs that model plus any missing ORT
+  runtime components in one dialog. `kind_native_words` (daemon) and `NATIVE_WORD_KINDS`
+  (frontend) must stay in sync.
 - Browser transport lives in `src/platform/tauri.ts` (`invoke` / `listen` / `convertFileSrc`
   switch between Tauri and HTTP). Command names and argument names stay identical to Rust.
 - Access token is `<data dir>/web-token`, passed as `?token=` (WS/SSE/`<video>` cannot send
