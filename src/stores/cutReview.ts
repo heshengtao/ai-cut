@@ -7,6 +7,8 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { asrCancel, asrTranscribeWords, onAsrProgress } from "@/core/modelApi";
+import { hasNativeWordTimes, parseAsrModelId } from "@/core/asrSources";
+import { useAsrStore } from "@/stores/asr";
 import { useModelsStore } from "@/stores/models";
 import { useProjectStore } from "@/stores/project";
 import {
@@ -89,6 +91,7 @@ export const useCutReviewStore = defineStore("cutReview", () => {
   let stopProgress: (() => void) | null = null;
   let subscribing: Promise<void> | null = null;
 
+  const asr = useAsrStore();
   const progressPct = computed(() => Math.min(100, Math.round(progress.value * 100)));
   const paragraphs = computed(() => buildParagraphs(words.value));
 
@@ -184,6 +187,31 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     return model?.installed ? model : null;
   }
 
+  /** 选中的是不是云端服务（`cloud:<provider_id>`）。 */
+  const cloudProvider = computed(() => {
+    const ref = parseAsrModelId(asrModelId.value);
+    if (ref?.kind !== "cloud") return null;
+    return useAsrStore().providers.find((provider) => provider.id === ref.id) ?? null;
+  });
+  const usingCloud = computed(() => parseAsrModelId(asrModelId.value)?.kind === "cloud");
+
+  /**
+   * 这次识别需不需要本地对齐器：本地模型永远需要；
+   * 云端服务只在它自己不返回词时间时才需要（DeepSeek / 阿里 / 百度 / 自定义）。
+   */
+  const alignerRequired = computed(() =>
+    usingCloud.value ? !hasNativeWordTimes(cloudProvider.value?.kind) : true,
+  );
+
+  /** 现在能不能直接跑（不看下载体积，只看装没装 / 启没启用）。 */
+  function readyNow(): boolean {
+    if (usingCloud.value) {
+      if (!cloudProvider.value?.enabled) return false;
+      return alignerRequired.value ? alignerReady() : true;
+    }
+    return Boolean(pickModel()) && alignerReady();
+  }
+
   /** 对齐器：剪口播必选，没装就不给跑（否则只有估算时间）。 */
   function alignerModel(): ModelStatus | null {
     return useModelsStore().byId(ALIGNER_ID);
@@ -193,10 +221,13 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     return Boolean(alignerModel()?.installed);
   }
 
-  /** 跑一次还差多少下载量（识别模型 + 对齐器）。 */
+  /** 跑一次还差多少下载量（识别模型 + 对齐器；云端只算对齐器）。 */
   function missingBytesNow(): number {
     let total = 0;
-    for (const model of [candidateModel(), alignerModel()]) {
+    const targets = usingCloud.value
+      ? [alignerRequired.value ? alignerModel() : null]
+      : [candidateModel(), alignerModel()];
+    for (const model of targets) {
       if (model && !model.installed) {
         total += model.files
           .filter((file) => !file.installed)
@@ -232,9 +263,16 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     // 面板可能比模型清单加载得更早；先确保清单到位再判断「装没装」。
     const models = useModelsStore();
     if (models.catalog.length === 0) await models.load();
+    if (usingCloud.value && asr.providers.length === 0) await asr.loadProviders();
     const model = pickModel();
-    if (!model) throw new Error(t("cutReview.noModel"));
-    if (!alignerReady()) throw new Error(t("cutReview.noAligner"));
+    const provider = cloudProvider.value;
+    if (usingCloud.value) {
+      if (!provider?.enabled) throw new Error(t("cutReview.noCloudService"));
+    } else if (!model) {
+      throw new Error(t("cutReview.noModel"));
+    }
+    if (alignerRequired.value && !alignerReady()) throw new Error(t("cutReview.noAligner"));
+    const targetId = usingCloud.value ? `cloud:${provider!.id}` : model!.id;
 
     watch();
     running.value = true;
@@ -242,10 +280,10 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     message.value = null;
     assetId.value = asset.id;
     clipId.value = clip.id;
-    modelId.value = model.id;
+    modelId.value = targetId;
 
     try {
-      const result = await asrTranscribeWords(asset.src, model.id);
+      const result = await asrTranscribeWords(asset.src, targetId);
       words.value = withWordIds(result.words);
       timed.value = result.timed;
       if (words.value.length === 0) return 0;
@@ -461,6 +499,10 @@ export const useCutReviewStore = defineStore("cutReview", () => {
     setAsrModel,
     candidateModel,
     pickModel,
+    cloudProvider,
+    usingCloud,
+    alignerRequired,
+    readyNow,
     alignerModel,
     alignerReady,
     missingBytesNow,

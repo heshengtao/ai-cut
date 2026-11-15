@@ -9,6 +9,7 @@ mod backend;
 mod bridge;
 mod cli;
 mod cloud_gen;
+mod cloud_asr;
 mod cloud_tts;
 mod export;
 mod fonts;
@@ -108,6 +109,7 @@ fn start_local_daemon(app: &tauri::AppHandle) {
         .inner()
         .clone();
     let cloud_tts = app.state::<Arc<cloud_tts::CloudTtsRuntime>>().inner().clone();
+    let cloud_asr = app.state::<Arc<cloud_asr::CloudAsrRuntime>>().inner().clone();
     let cloud_gen = app.state::<Arc<cloud_gen::CloudGenRuntime>>().inner().clone();
     let video_dsp = app.state::<Arc<video_dsp::VideoDspState>>().inner().clone();
     // 浏览器端的智能体：与浏览器编辑共用同一份文档引擎；配置/会话落在桌面配置目录。
@@ -137,6 +139,7 @@ fn start_local_daemon(app: &tauri::AppHandle) {
         doc,
         network,
         cloud_tts,
+        cloud_asr,
         cloud_gen,
         video_dsp,
         agent,
@@ -347,6 +350,9 @@ pub fn run() {
             tts::tts_synthesize,
             tts::tts_cancel,
             cloud_tts::cloud_tts_config,
+            cloud_asr::cloud_asr_config,
+            cloud_asr::cloud_asr_set_config,
+            cloud_asr::cloud_asr_test,
             cloud_tts::cloud_tts_set_config,
             cloud_tts::cloud_tts_voices,
             cloud_tts::cloud_tts_test,
@@ -408,6 +414,11 @@ pub fn run() {
                 config_dir.as_ref().map(|dir| dir.join("tts.json")),
             ));
             app.manage(cloud_tts);
+
+            let cloud_asr = Arc::new(cloud_asr::CloudAsrRuntime::load(
+                config_dir.as_ref().map(|dir| dir.join("asr.json")),
+            ));
+            app.manage(cloud_asr);
 
             let cloud_gen = Arc::new(cloud_gen::CloudGenRuntime::load(
                 config_dir.as_ref().map(|dir| dir.join("cloud-gen.json")),

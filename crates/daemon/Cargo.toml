@@ -25,6 +25,8 @@ tar = "0.4"
 flate2 = "1"
 xz2 = "0.1"
 sha2 = "0.10"
+# 腾讯云 TC3 签名（HMAC-SHA256）。
+hmac = "0.12"
 # 字体库：注册表 / 字库文件下载，以及本地字体的 family/字重解析。
 # 用 rustls 而不是 native-tls：无头镜像跑在 Alpine（musl）上，不想为字体下载
 # 拉进 openssl-dev / libssl3 一套系统库。桌面端自己那份 reqwest 仍是 native-tls

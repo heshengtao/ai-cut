@@ -57,6 +57,8 @@ import type {
   ProxyStatus,
 } from "@/types/agent";
 import type {
+  CloudAsrKind,
+  CloudAsrProvider,
   CloudTtsKind,
   CloudTtsProvider,
   CloudTtsTest,
@@ -81,6 +83,7 @@ import {
   setMcpConfig,
   uninstallCli,
 } from "@/core/agentApi";
+import { cloudAsrConfig, cloudAsrSetConfig, cloudAsrTest } from "@/core/cloudAsrApi";
 import {
   cloudTtsConfig,
   cloudTtsSetConfig,
@@ -150,6 +153,7 @@ const SECTIONS: { id: Section; labelKey: string; captionKey: string }[] = [
   { id: "network", labelKey: "settings.section.network", captionKey: "settings.section.network.caption" },
   { id: "ai", labelKey: "settings.section.ai", captionKey: "settings.section.ai.caption" },
   { id: "gen", labelKey: "settings.section.gen", captionKey: "settings.section.gen.caption" },
+  { id: "asr", labelKey: "settings.section.asr", captionKey: "settings.section.asr.caption" },
   { id: "tts", labelKey: "settings.section.tts", captionKey: "settings.section.tts.caption" },
   { id: "cli", labelKey: "settings.section.cli", captionKey: "settings.section.cli.caption" },
   { id: "about", labelKey: "settings.section.about", captionKey: "settings.section.about.caption" },
@@ -743,6 +747,7 @@ const TTS_KINDS: CloudTtsKind[] = [
   "baidu",
   "minimax",
   "volcengine",
+  "deepseek",
   "custom",
 ];
 const TTS_FORMATS = ["mp3", "wav", "opus", "aac", "flac", "pcm"];
@@ -963,6 +968,28 @@ const TTS_FIELDS: Record<CloudTtsKind, ProviderField[]> = {
     },
     { key: "speed", labelKey: "settings.tts.speed", hintKey: "settings.tts.speedHint", placeholder: "1.0" },
   ],
+  deepseek: [
+    {
+      key: "base_url",
+      labelKey: "settings.tts.baseUrl",
+      hintKey: "settings.tts.baseUrlDeepseekHint",
+      placeholder: "https://api.deepseek.com",
+    },
+    {
+      key: "api_key",
+      labelKey: "settings.tts.apiKey",
+      hintKey: "settings.tts.apiKeyHint",
+      placeholder: "sk-…",
+      sensitive: true,
+    },
+    {
+      key: "voice",
+      labelKey: "settings.tts.voice",
+      hintKey: "settings.tts.voiceDeepseekHint",
+      placeholder: "stella",
+    },
+    { key: "format", labelKey: "settings.tts.format", hintKey: "settings.tts.formatHint" },
+  ],
   custom: [
     {
       key: "base_url",
@@ -1081,6 +1108,8 @@ function kindDefaults(kind: CloudTtsKind): Partial<ProviderDraft> {
       return { model: "speech-01", voice: "male-qn-qingse" };
     case "volcengine":
       return { model: "volc_tts_release", voice: "zh_female_cancan_mars_bigtts" };
+    case "deepseek":
+      return { voice: "stella", format: "wav" };
     case "custom":
       return { method: "POST" };
   }
@@ -1327,6 +1356,376 @@ watch(
     ttsVoiceError.value = "";
     ttsTestResult.value = null;
     ttsTestAudio.value = null;
+  },
+);
+
+
+// ---- 云端语音识别服务 ----
+type AsrFieldKey =
+  | "base_url"
+  | "api_key"
+  | "api_secret"
+  | "app_id"
+  | "region"
+  | "model"
+  | "language"
+  | "max_seconds"
+  | "method"
+  | "headers"
+  | "body"
+  | "text_path"
+  | "words_path";
+
+interface AsrField {
+  key: AsrFieldKey;
+  labelKey: string;
+  hintKey?: string;
+  placeholder?: string;
+  sensitive?: boolean;
+  multiline?: boolean;
+}
+
+interface AsrDraft {
+  id: string;
+  name: string;
+  kind: CloudAsrKind;
+  enabled: boolean;
+  base_url: string;
+  api_key: string;
+  api_secret: string;
+  app_id: string;
+  region: string;
+  model: string;
+  language: string;
+  max_seconds: string;
+  method: string;
+  headers: string;
+  body: string;
+  text_path: string;
+  words_path: string;
+}
+
+const ASR_KINDS: CloudAsrKind[] = [
+  "deepseek",
+  "openai",
+  "azure",
+  "google",
+  "aliyun",
+  "tencent",
+  "volcengine",
+  "baidu",
+  "custom",
+];
+
+const ASR_FIELDS: Record<CloudAsrKind, AsrField[]> = {
+  deepseek: [
+    {
+      key: "base_url",
+      labelKey: "settings.asr.baseUrl",
+      hintKey: "settings.asr.baseUrlDeepseekHint",
+      placeholder: "https://api.deepseek.com",
+    },
+    {
+      key: "api_key",
+      labelKey: "settings.asr.apiKey",
+      hintKey: "settings.asr.apiKeyHint",
+      placeholder: "sk-…",
+      sensitive: true,
+    },
+  ],
+  openai: [
+    {
+      key: "base_url",
+      labelKey: "settings.asr.baseUrl",
+      hintKey: "settings.asr.baseUrlOpenaiHint",
+      placeholder: "https://api.openai.com/v1",
+    },
+    {
+      key: "api_key",
+      labelKey: "settings.asr.apiKey",
+      hintKey: "settings.asr.apiKeyHint",
+      placeholder: "sk-…",
+      sensitive: true,
+    },
+    {
+      key: "model",
+      labelKey: "settings.asr.model",
+      hintKey: "settings.asr.modelHint",
+      placeholder: "whisper-1",
+    },
+    {
+      key: "language",
+      labelKey: "settings.asr.language",
+      hintKey: "settings.asr.languageHint",
+      placeholder: "zh",
+    },
+  ],
+  azure: [
+    { key: "api_key", labelKey: "settings.asr.apiKey", hintKey: "settings.asr.azureKeyHint", sensitive: true },
+    { key: "region", labelKey: "settings.asr.region", hintKey: "settings.asr.regionHint", placeholder: "eastasia" },
+    {
+      key: "language",
+      labelKey: "settings.asr.language",
+      hintKey: "settings.asr.azureLanguageHint",
+      placeholder: "zh-CN",
+    },
+  ],
+  google: [
+    { key: "api_key", labelKey: "settings.asr.apiKey", hintKey: "settings.asr.googleKeyHint", sensitive: true },
+    {
+      key: "language",
+      labelKey: "settings.asr.language",
+      hintKey: "settings.asr.azureLanguageHint",
+      placeholder: "zh-CN",
+    },
+  ],
+  aliyun: [
+    { key: "api_key", labelKey: "settings.asr.apiKey", hintKey: "settings.asr.aliyunKeyHint", sensitive: true },
+    {
+      key: "model",
+      labelKey: "settings.asr.model",
+      hintKey: "settings.asr.aliyunModelHint",
+      placeholder: "qwen3-asr-flash",
+    },
+  ],
+  tencent: [
+    { key: "app_id", labelKey: "settings.asr.appId", hintKey: "settings.asr.appIdHint", placeholder: "1300000000" },
+    { key: "api_key", labelKey: "settings.asr.secretId", hintKey: "settings.asr.secretIdHint", placeholder: "AKID…", sensitive: true },
+    { key: "api_secret", labelKey: "settings.asr.secretKey", hintKey: "settings.asr.secretKeyHint", sensitive: true },
+    { key: "model", labelKey: "settings.asr.engine", hintKey: "settings.asr.engineHint", placeholder: "16k_zh" },
+  ],
+  volcengine: [
+    { key: "app_id", labelKey: "settings.asr.appId", hintKey: "settings.asr.volcAppIdHint" },
+    { key: "api_key", labelKey: "settings.asr.accessKey", hintKey: "settings.asr.accessKeyHint", sensitive: true },
+    {
+      key: "region",
+      labelKey: "settings.asr.resourceId",
+      hintKey: "settings.asr.resourceIdHint",
+      placeholder: "volc.bigasr.auc_turbo",
+    },
+  ],
+  baidu: [
+    { key: "api_key", labelKey: "settings.asr.apiKey", hintKey: "settings.asr.baiduKeyHint", sensitive: true },
+    { key: "api_secret", labelKey: "settings.asr.secretKey", hintKey: "settings.asr.baiduSecretHint", sensitive: true },
+    { key: "model", labelKey: "settings.asr.devPid", hintKey: "settings.asr.devPidHint", placeholder: "1537" },
+  ],
+  custom: [
+    {
+      key: "base_url",
+      labelKey: "settings.asr.url",
+      hintKey: "settings.asr.urlHint",
+      placeholder: "http://127.0.0.1:9000/asr",
+    },
+    { key: "method", labelKey: "settings.asr.method", hintKey: "settings.asr.methodHint" },
+    { key: "api_key", labelKey: "settings.asr.apiKey", hintKey: "settings.asr.customKeyHint", sensitive: true },
+    { key: "headers", labelKey: "settings.asr.headers", hintKey: "settings.asr.headersHint", multiline: true },
+    { key: "body", labelKey: "settings.asr.body", hintKey: "settings.asr.bodyHint", multiline: true },
+    { key: "text_path", labelKey: "settings.asr.textPath", hintKey: "settings.asr.textPathHint", placeholder: "text" },
+    { key: "words_path", labelKey: "settings.asr.wordsPath", hintKey: "settings.asr.wordsPathHint", placeholder: "words" },
+  ],
+};
+
+const asrProviders = ref<CloudAsrProvider[]>([]);
+const asrDraft = ref<AsrDraft | null>(null);
+const editingAsrId = ref<string | null>(null);
+const asrLoading = ref(false);
+const asrSaving = ref(false);
+const asrTesting = ref(false);
+const asrTestResult = ref<{ ok: boolean; detail: string } | null>(null);
+
+const asrKindOptions = computed<SelectOption[]>(() =>
+  ASR_KINDS.map((kind) => ({ id: kind, label: i18n.t(`settings.asr.kind.${kind}`) })),
+);
+const asrFields = computed<AsrField[]>(() =>
+  asrDraft.value ? ASR_FIELDS[asrDraft.value.kind] : [],
+);
+
+function asrDefaults(kind: CloudAsrKind): Partial<AsrDraft> {
+  switch (kind) {
+    case "deepseek":
+      return {};
+    case "openai":
+      return { base_url: "https://api.openai.com/v1", model: "whisper-1" };
+    case "azure":
+      return { region: "eastasia", language: "zh-CN" };
+    case "google":
+      return { language: "zh-CN" };
+    case "aliyun":
+      return { model: "qwen3-asr-flash" };
+    case "tencent":
+      return { model: "16k_zh" };
+    case "volcengine":
+      return { region: "volc.bigasr.auc_turbo" };
+    case "baidu":
+      return { model: "1537" };
+    case "custom":
+      return { method: "POST", text_path: "text" };
+  }
+}
+
+function blankAsrDraft(kind: CloudAsrKind): AsrDraft {
+  return {
+    id: crypto.randomUUID(),
+    name: i18n.t(`settings.asr.kind.${kind}`),
+    kind,
+    enabled: true,
+    base_url: "",
+    api_key: "",
+    api_secret: "",
+    app_id: "",
+    region: "",
+    model: "",
+    language: "",
+    max_seconds: "0",
+    method: "POST",
+    headers: "",
+    body: "",
+    text_path: "",
+    words_path: "",
+    ...asrDefaults(kind),
+  };
+}
+
+function toAsrDraft(provider: CloudAsrProvider): AsrDraft {
+  return {
+    ...provider,
+    max_seconds: String(provider.max_seconds ?? 0),
+  };
+}
+
+function fromAsrDraft(draft: AsrDraft): CloudAsrProvider {
+  return {
+    ...draft,
+    max_seconds: toNumber(draft.max_seconds, 0),
+  };
+}
+
+async function loadCloudAsr(): Promise<void> {
+  asrLoading.value = true;
+  try {
+    asrProviders.value = (await cloudAsrConfig()).providers;
+    if (!asrDraft.value && asrProviders.value[0]) {
+      editAsrProvider(asrProviders.value[0]);
+    }
+  } catch {
+    asrProviders.value = [];
+  } finally {
+    asrLoading.value = false;
+  }
+}
+
+function newAsr(): void {
+  editingAsrId.value = null;
+  asrDraft.value = blankAsrDraft("deepseek");
+  asrTestResult.value = null;
+}
+
+function editAsrProvider(provider: CloudAsrProvider): void {
+  editingAsrId.value = provider.id;
+  asrDraft.value = toAsrDraft(provider);
+  asrTestResult.value = null;
+}
+
+function discardAsrDraft(): void {
+  editingAsrId.value = null;
+  asrDraft.value = null;
+  asrTestResult.value = null;
+}
+
+async function saveAsrProvider(): Promise<void> {
+  if (!asrDraft.value || asrSaving.value) return;
+  asrSaving.value = true;
+  asrTestResult.value = null;
+  try {
+    const provider = fromAsrDraft(asrDraft.value);
+    const next = [...asrProviders.value];
+    const index = next.findIndex((item) => item.id === provider.id);
+    if (index >= 0) next[index] = provider;
+    else next.push(provider);
+    asrProviders.value = (await cloudAsrSetConfig(next)).providers;
+    const saved = asrProviders.value.find((item) => item.id === provider.id) ?? provider;
+    editingAsrId.value = saved.id;
+    asrDraft.value = toAsrDraft(saved);
+    toast(i18n.t("settings.asr.saved"));
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    asrSaving.value = false;
+  }
+}
+
+async function removeAsrProvider(provider: CloudAsrProvider): Promise<void> {
+  if (asrSaving.value) return;
+  const accepted = await confirm({
+    title: i18n.t("settings.asr.deleteTitle"),
+    message: i18n.t("settings.asr.deleteMessage", { name: provider.name }),
+    confirmText: i18n.t("common.delete"),
+    cancelText: i18n.t("common.cancel"),
+  });
+  if (!accepted) return;
+  asrSaving.value = true;
+  try {
+    const next = asrProviders.value.filter((item) => item.id !== provider.id);
+    asrProviders.value = (await cloudAsrSetConfig(next)).providers;
+    if (editingAsrId.value === provider.id) discardAsrDraft();
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    asrSaving.value = false;
+  }
+}
+
+async function testAsrProvider(): Promise<void> {
+  if (!asrDraft.value || asrTesting.value) return;
+  const sample = project.doc.assets.find(
+    (asset) => !asset.offline && (asset.kind === "audio" || asset.kind === "video"),
+  );
+  if (!sample) {
+    asrTestResult.value = { ok: false, detail: i18n.t("settings.asr.testNoMedia") };
+    return;
+  }
+  asrTesting.value = true;
+  asrTestResult.value = null;
+  try {
+    const result = await cloudAsrTest(fromAsrDraft(asrDraft.value), sample.src);
+    asrTestResult.value = {
+      ok: true,
+      detail: i18n.t("settings.asr.testOk", { text: result.text }),
+    };
+  } catch (error) {
+    asrTestResult.value = {
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    asrTesting.value = false;
+  }
+}
+
+watch(
+  () => asrDraft.value?.kind,
+  (kind, previous) => {
+    if (!asrDraft.value || !kind || !previous || previous === kind) return;
+    const oldName = i18n.t(`settings.asr.kind.${previous}`);
+    asrDraft.value = {
+      ...asrDraft.value,
+      name: asrDraft.value.name === oldName ? i18n.t(`settings.asr.kind.${kind}`) : asrDraft.value.name,
+      base_url: "",
+      api_key: "",
+      api_secret: "",
+      app_id: "",
+      region: "",
+      model: "",
+      language: "",
+      max_seconds: "0",
+      method: "POST",
+      headers: "",
+      body: "",
+      text_path: "",
+      words_path: "",
+      ...asrDefaults(kind),
+    };
+    asrTestResult.value = null;
   },
 );
 
@@ -2076,6 +2475,7 @@ onMounted(() => {
   void loadModelSources();
   void loadPluginRegistry();
   void loadCloudTts();
+  void loadCloudAsr();
   void loadCloudGen();
   void loadCli();
   void loadDataDir();
@@ -3131,6 +3531,174 @@ onUnmounted(() => {
         </template>
 
         <!-- 语音合成 -->
+        <template v-else-if="active === 'asr'">
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.asr.providers") }}</div>
+            <div class="card">
+              <p v-if="asrLoading" class="probe">{{ i18n.t("common.loading") }}</p>
+              <p v-else-if="asrProviders.length === 0" class="probe">
+                {{ i18n.t("settings.asr.empty") }}
+              </p>
+              <div
+                v-for="provider in asrProviders"
+                :key="provider.id"
+                class="row provider-row"
+                :class="{ on: editingAsrId === provider.id }"
+                @click="editAsrProvider(provider)"
+              >
+                <div class="row-text">
+                  <span class="row-title">{{ provider.name }}</span>
+                  <span class="row-sub">
+                    {{ i18n.t(`settings.asr.kind.${provider.kind}`) }} ·
+                    {{ provider.model || i18n.t("settings.asr.model") }}
+                  </span>
+                </div>
+                <span class="row-value" :class="{ 'status-on': provider.enabled }">
+                  {{
+                    i18n.t(
+                      provider.enabled
+                        ? "settings.tts.enabledOn"
+                        : "settings.tts.enabledOff",
+                    )
+                  }}
+                </span>
+                <button
+                  class="scan-btn"
+                  :disabled="asrSaving"
+                  @click.stop="removeAsrProvider(provider)"
+                >
+                  {{ i18n.t("settings.asr.delete") }}
+                </button>
+              </div>
+              <div class="row actions-row">
+                <button class="scan-btn primary" @click="newAsr">
+                  {{ i18n.t("settings.asr.add") }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="asrDraft" class="group">
+            <div class="group-title">
+              {{ i18n.t(editingAsrId ? "settings.asr.edit" : "settings.asr.new") }}
+            </div>
+            <div class="card">
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.asr.name") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.asr.nameHint") }}</span>
+                </div>
+                <input
+                  v-model="asrDraft.name"
+                  class="md3-field net-input"
+                  spellcheck="false"
+                />
+              </div>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.asr.kind") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.asr.kindHint") }}</span>
+                </div>
+                <Md3Select
+                  v-model="asrDraft.kind"
+                  :options="asrKindOptions"
+                  :label="i18n.t('settings.asr.kind')"
+                />
+              </div>
+              <p v-if="asrDraft.kind === 'custom'" class="probe">
+                {{ i18n.t("settings.asr.customHint") }}
+              </p>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.asr.enabled") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.asr.enabledHint") }}</span>
+                </div>
+                <button
+                  class="m3-switch"
+                  :class="{ on: asrDraft.enabled }"
+                  role="switch"
+                  :aria-checked="asrDraft.enabled"
+                  :aria-label="i18n.t('settings.asr.enabled')"
+                  @click="asrDraft.enabled = !asrDraft.enabled"
+                />
+              </div>
+
+              <div v-for="field in asrFields" :key="field.key" class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t(field.labelKey) }}</span>
+                  <span v-if="field.hintKey" class="row-sub">
+                    {{ i18n.t(field.hintKey) }}
+                  </span>
+                </div>
+                <Md3Select
+                  v-if="field.key === 'method'"
+                  v-model="asrDraft.method"
+                  :options="ttsMethodOptions"
+                  :label="i18n.t(field.labelKey)"
+                />
+                <textarea
+                  v-else-if="field.multiline"
+                  v-model="asrDraft[field.key]"
+                  class="md3-field mirror-field"
+                  rows="3"
+                  spellcheck="false"
+                  :placeholder="field.placeholder"
+                />
+                <input
+                  v-else
+                  v-model="asrDraft[field.key]"
+                  class="md3-field net-input"
+                  :type="field.sensitive ? 'password' : 'text'"
+                  :placeholder="field.placeholder"
+                  spellcheck="false"
+                />
+              </div>
+
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.asr.maxSeconds") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.asr.maxSecondsHint") }}</span>
+                </div>
+                <input
+                  v-model="asrDraft.max_seconds"
+                  class="md3-field net-input"
+                  type="number"
+                  min="0"
+                  spellcheck="false"
+                />
+              </div>
+
+              <p v-if="asrTestResult" class="probe" :class="{ error: !asrTestResult.ok }">
+                {{ asrTestResult.detail }}
+              </p>
+
+              <div class="row actions-row">
+                <button
+                  class="scan-btn danger"
+                  :disabled="asrSaving || asrTesting"
+                  @click="discardAsrDraft"
+                >
+                  {{ i18n.t(editingAsrId ? "common.cancel" : "common.delete") }}
+                </button>
+                <button class="scan-btn" :disabled="asrTesting" @click="testAsrProvider">
+                  {{
+                    asrTesting
+                      ? i18n.t("settings.asr.testing")
+                      : i18n.t("settings.asr.test")
+                  }}
+                </button>
+                <button class="scan-btn primary" :disabled="asrSaving" @click="saveAsrProvider">
+                  {{
+                    asrSaving
+                      ? i18n.t("settings.asr.saving")
+                      : i18n.t("settings.asr.save")
+                  }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+
         <template v-else-if="active === 'tts'">
           <div class="group">
             <div class="group-title">{{ i18n.t("settings.tts.providers") }}</div>

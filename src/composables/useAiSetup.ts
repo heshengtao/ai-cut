@@ -670,3 +670,123 @@ export function useVoiceSetup(modelId: () => string = () => "meanvc2-int8") {
     setDone: session.setDone,
   };
 }
+
+/**
+ * 剪口播的「对齐器准备」：**模型 + 当前后端缺的运行时组件**一起补。
+ *
+ * 云端识别只给文本时，词时间完全依赖本地 Qwen3 对齐器；所以第一次用
+ * AI 剪口播（无论选的是本地模型还是云端服务）缺对齐器都要能在这里一键装好，
+ * 而不是只装权重、回头因为 ORT 运行时缺失再失败一次。
+ */
+export function useAlignerSetup(modelId = "qwen3-aligner-0.6b-q4") {
+  const i18n = useI18n();
+  const device = useDeviceStore();
+  const runtimes = useRuntimesStore();
+  const models = useModelsStore();
+  const pending = ref<string | null>(null);
+  let runtimePending = false;
+
+  function optionOf(kind: string) {
+    return device.info?.options.find((option) => option.kind === kind) ?? null;
+  }
+
+  function defaultKind(): string {
+    const info = device.info;
+    if (!info) return "cpu";
+    const preferred = info.options.find((option) => option.kind === info.preference);
+    return preferred?.available ? preferred.kind : info.recommended;
+  }
+
+  function build(override?: string): SetupPlan | null {
+    const kind = override ?? pending.value ?? defaultKind();
+    const option = optionOf(kind);
+    const model = models.byId(modelId);
+    const deps: SetupDep[] = [];
+    if (option?.available) {
+      deps.push(...runtimeDeps(option, runtimes.items, (key) => i18n.t(key)));
+    }
+    if (model && !model.installed) deps.push(modelDep(model));
+    if (deps.length === 0) {
+      runtimePending = false;
+      return null;
+    }
+
+    runtimePending = deps.some((dep) => dep.kind !== "model");
+    const reason = reasonFor(i18n, device.device, kind);
+    return {
+      title: i18n.t("setup.title.aligner"),
+      lead: option && runtimePending
+        ? i18n.t("setup.lead", { backend: option.label, reason })
+        : i18n.t("setup.leadModel"),
+      deps,
+      totalBytes: totalBytes(deps),
+      backend:
+        runtimePending && option?.available
+          ? {
+              kind,
+              label: option.label,
+              reason,
+              recommended: device.info?.recommended === kind,
+              choices: (device.info?.options ?? [])
+                .filter((item) => item.available)
+                .map((item) => ({ kind: item.kind, label: item.label })),
+            }
+          : null,
+      restartAfter: runtimePending,
+    };
+  }
+
+  const session = useSetupSession({
+    feature: "aligner",
+    build: () => build(),
+    applyBackend: async () => {
+      if (!runtimePending) return false;
+      const kind = pending.value ?? defaultKind();
+      const info = await aiSetBackend(kind as BackendPreference);
+      device.info = info;
+      return info.restart_required;
+    },
+  });
+
+  async function ensure(): Promise<boolean> {
+    if (models.catalog.length === 0) await models.load();
+    if (device.info === null) await device.load();
+    const info = device.info;
+    const current = info?.options.find((option) => option.kind === info.preference);
+    if (
+      current?.available &&
+      (!current.runtime_installed || current.missing.length > 0) &&
+      runtimes.items.length === 0
+    ) {
+      await runtimes.load();
+    }
+    const ready = session.ensure();
+    if (!ready) pending.value = session.plan.value?.backend?.kind ?? defaultKind();
+    return ready;
+  }
+
+  function choose(kind: string): void {
+    pending.value = kind;
+    const next = build(kind);
+    session.plan.value = next;
+    session.open.value = next !== null;
+  }
+
+  return {
+    open: session.open,
+    plan: session.plan,
+    running: session.running,
+    forced: session.forced,
+    failed: session.failed,
+    progress: session.progress,
+    ensure,
+    cancel: session.cancel,
+    confirm: () => session.confirmRun(true),
+    confirmBackground: () => session.confirmRun(false),
+    cancelDownload: session.cancelDownload,
+    retry: session.retry,
+    choose,
+    setDone: session.setDone,
+  };
+}
+

@@ -3,7 +3,7 @@
 //! 识别结果按标点切成字幕条目返回给前端；前端再把它们作为文字片段插进一条新轨道
 //! （一次事务、可撤销）。后端不持有工程文档，保持与 AI Cut 其余架构一致。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -62,10 +62,10 @@ pub struct Transcription {
 }
 
 /// 识别结果：字幕与词时间同源，避免跑两遍模型。
-struct Transcript {
-    cues: Vec<SubtitleCue>,
-    words: Vec<TranscriptWord>,
-    timed: bool,
+pub(crate) struct Transcript {
+    pub(crate) cues: Vec<SubtitleCue>,
+    pub(crate) words: Vec<TranscriptWord>,
+    pub(crate) timed: bool,
 }
 
 struct AsrRuntime {
@@ -126,6 +126,11 @@ pub async fn asr_transcribe_words(
     })
 }
 
+/// 云端服务的模型 id 前缀：`cloud:<provider_id>`。
+pub(crate) fn cloud_provider_id(model_id: &str) -> Option<&str> {
+    model_id.strip_prefix("cloud:")
+}
+
 async fn transcribe_file(
     host: &Arc<dyn Host>,
     path: &str,
@@ -133,6 +138,33 @@ async fn transcribe_file(
     language: Option<String>,
     want_words: bool,
 ) -> Result<Transcript, String> {
+    if let Some(provider_id) = cloud_provider_id(model_id) {
+        let state = crate::doc_ops::cloud_asr_of(host.as_ref());
+        let provider = state
+            .provider(provider_id)
+            .ok_or_else(|| format!("未找到语音识别服务：{provider_id}"))?;
+        if !provider.enabled {
+            return Err(format!("识别服务已停用：{}", provider.name));
+        }
+        let runtime = runtime();
+        if runtime.running.swap(true, Ordering::SeqCst) {
+            return Err("已有字幕任务正在运行".into());
+        }
+        runtime.cancel.store(false, Ordering::Relaxed);
+        let network = crate::doc_ops::network_of(host.as_ref());
+        let result = crate::cloud_asr::transcribe(
+            host.as_ref(),
+            &network,
+            &provider,
+            path,
+            language,
+            want_words,
+        )
+        .await;
+        runtime.running.store(false, Ordering::SeqCst);
+        return result;
+    }
+
     let entry = models::by_id(model_id).ok_or_else(|| format!("未知模型：{model_id}"))?;
     if entry.feature != "asr" {
         return Err(format!("{} 不是语音识别模型", entry.name));
@@ -204,7 +236,145 @@ async fn run(
     result
 }
 
-fn temp_wav_path(host: &dyn Host) -> Result<PathBuf, String> {
+/// 取消标志（云端识别与本地识别共用）。
+pub(crate) fn cancelled() -> bool {
+    runtime().cancel.load(Ordering::Relaxed)
+}
+
+/// WAV 时长（秒）。
+pub(crate) fn wav_duration(wav: &Path) -> Result<f64, String> {
+    let wave = Wave::read(&wav.to_string_lossy()).ok_or_else(|| "读取音频失败（WAV 可能损坏）".to_string())?;
+    Ok(wave.samples().len() as f64 / SAMPLE_RATE as f64)
+}
+
+/// 读出语音段；VAD 模型未安装时返回 `Ok(None)`，调用方自行退化成定长切片。
+pub(crate) fn speech_spans(
+    host: &dyn Host,
+    wav: &Path,
+) -> Result<Option<Vec<crate::cloud_asr::SpeechSpan>>, String> {
+    let Some(entry) = models::by_id("silero-vad") else {
+        return Ok(None);
+    };
+    let Some(dir) = models::installed_dir(host, entry) else {
+        return Ok(None);
+    };
+    let wave = Wave::read(&wav.to_string_lossy()).ok_or_else(|| "读取音频失败（WAV 可能损坏）".to_string())?;
+    let samples = wave.samples();
+    if samples.is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+
+    let mut vad_config = VadModelConfig::default();
+    vad_config.silero_vad = SileroVadModelConfig {
+        model: Some(dir.join("silero_vad_v5.onnx").to_string_lossy().into_owned()),
+        threshold: 0.5,
+        min_silence_duration: 0.35,
+        min_speech_duration: 0.25,
+        window_size: VAD_WINDOW as i32,
+        max_speech_duration: 15.0,
+    };
+    vad_config.sample_rate = SAMPLE_RATE;
+    vad_config.num_threads = 1;
+    let vad = VoiceActivityDetector::create(&vad_config, 30.0)
+        .ok_or_else(|| "无法创建语音检测器（VAD 模型可能损坏）".to_string())?;
+
+    let mut spans = Vec::new();
+    let mut drain = |vad: &VoiceActivityDetector, spans: &mut Vec<crate::cloud_asr::SpeechSpan>| {
+        while let Some(segment) = vad.front() {
+            let start = (segment.start().max(0) as f64) / SAMPLE_RATE as f64;
+            let seconds = segment.samples().len() as f64 / SAMPLE_RATE as f64;
+            spans.push(crate::cloud_asr::SpeechSpan {
+                start,
+                end: start + seconds,
+            });
+            vad.pop();
+        }
+    };
+
+    let mut offset = 0usize;
+    while offset < samples.len() {
+        let end = (offset + VAD_WINDOW).min(samples.len());
+        vad.accept_waveform(&samples[offset..end]);
+        offset = end;
+        drain(&vad, &mut spans);
+    }
+    vad.flush();
+    drain(&vad, &mut spans);
+    Ok(Some(spans))
+}
+
+/// 读出整段 16 kHz 单声道样本（云端切块时只读一次）。
+pub(crate) fn read_samples(wav: &Path) -> Result<Vec<f32>, String> {
+    let wave = Wave::read(&wav.to_string_lossy()).ok_or_else(|| "读取音频失败（WAV 可能损坏）".to_string())?;
+    Ok(wave.samples().to_vec())
+}
+
+/// 用本地对齐器把「云端只给了文本」的字幕补成词级时间。
+///
+/// 按 cue 分窗：窗口来自云端句级时间（或 VAD 段），每窗 ≤28 秒；某一窗对不上就退回按字数估算，
+/// 整个函数只在**对齐器没装**时返回 `Err`——那是剪口播真的跑不了的情况。
+pub(crate) fn align_cues(
+    host: &dyn Host,
+    samples: &[f32],
+    cues: &[SubtitleCue],
+) -> Result<Vec<TranscriptWord>, String> {
+    let entry = models::by_id("qwen3-aligner-0.6b-q4").ok_or("清单里缺少对齐器模型")?;
+    let dir = models::installed_dir(host, entry).ok_or("对齐器模型尚未安装：qwen3-aligner-0.6b-q4")?;
+    let sample_rate = SAMPLE_RATE as f64;
+    let total = samples.len() as f64 / sample_rate;
+    let mut words: Vec<TranscriptWord> = Vec::new();
+
+    for cue in cues {
+        let text = clean_text(&cue.text);
+        if text.is_empty() {
+            continue;
+        }
+        let start = cue.start.max(0.0);
+        let end = cue.end.max(start + 0.05).min(total);
+        // 超出一窗的（长句 / 无 VAD 的定长块）不做强制对齐，直接按字数估。
+        if end - start > 28.0 {
+            words.extend(estimate_words(&text, start, end));
+            continue;
+        }
+        let from = (((start - 0.1).max(0.0)) * sample_rate) as usize;
+        let to = (((end + 0.1) * sample_rate) as usize).min(samples.len());
+        if to <= from + SAMPLE_RATE as usize / 20 {
+            words.extend(estimate_words(&text, start, end));
+            continue;
+        }
+        let offset = from as f64 / sample_rate;
+        match with_aligner(&dir, |aligner| aligner.align(&samples[from..to], &text)) {
+            Ok(hits) if !hits.is_empty() => {
+                for hit in hits {
+                    words.push(TranscriptWord {
+                        text: hit.text,
+                        start: (offset + hit.start as f64).max(0.0),
+                        end: (offset + hit.end as f64).max(offset + hit.start as f64 + 0.02),
+                    });
+                }
+            }
+            _ => words.extend(estimate_words(&text, start, end)),
+        }
+    }
+    Ok(words)
+}
+
+/// 从已读出的样本里截 `[start, end]` 秒，拼成带 44 字节头的 WAV。
+pub(crate) fn samples_to_wav(samples: &[f32], start: f64, end: f64) -> Result<Vec<u8>, String> {
+    let from = ((start * SAMPLE_RATE as f64).floor().max(0.0) as usize).min(samples.len());
+    let to = ((end * SAMPLE_RATE as f64).ceil().max(0.0) as usize).min(samples.len());
+    if to <= from {
+        return Err("音频切段为空".into());
+    }
+    let mut pcm = Vec::with_capacity((to - from) * 2);
+    for sample in &samples[from..to] {
+        let value = (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        pcm.extend_from_slice(&value.to_le_bytes());
+    }
+    Ok(crate::cloud_tts::wrap_pcm_wav(&pcm, SAMPLE_RATE as u32))
+}
+
+pub(crate) fn temp_wav_path(host: &dyn Host) -> Result<PathBuf, String> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
@@ -212,7 +382,7 @@ fn temp_wav_path(host: &dyn Host) -> Result<PathBuf, String> {
     Ok(cache_dir(host)?.join(format!("asr-{stamp}.wav")))
 }
 
-async fn extract_wav(host: &dyn Host, source: &str, output: &PathBuf) -> Result<(), String> {
+pub(crate) async fn extract_wav(host: &dyn Host, source: &str, output: &PathBuf) -> Result<(), String> {
     let args: Vec<String> = vec![
         "-y".into(),
         "-i".into(),
@@ -940,7 +1110,7 @@ fn round(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
 }
 
-fn emit(host: &dyn Host, state: &str, progress: f32, message: Option<String>) {
+pub(crate) fn emit(host: &dyn Host, state: &str, progress: f32, message: Option<String>) {
     let payload = AsrProgress {
         state: state.to_string(),
         progress: progress.clamp(0.0, 1.0),
@@ -955,6 +1125,12 @@ fn emit(host: &dyn Host, state: &str, progress: f32, message: Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cloud_model_ids_are_detected() {
+        assert_eq!(cloud_provider_id("cloud:abc"), Some("abc"));
+        assert_eq!(cloud_provider_id("paraformer"), None);
+    }
 
     #[test]
     fn splits_on_chinese_punctuation() {

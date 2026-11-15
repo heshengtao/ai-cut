@@ -34,6 +34,8 @@ pub struct RpcCtx {
     pub network: Arc<crate::network::NetworkRuntime>,
     /// 云端 TTS 服务配置（provider 列表）。
     pub cloud_tts: Arc<crate::cloud_tts::CloudTtsRuntime>,
+    /// 云端 ASR 服务配置（provider 列表）。
+    pub cloud_asr: Arc<crate::cloud_asr::CloudAsrRuntime>,
     /// 云端出图 / 出视频的服务配置。
     pub cloud_gen: Arc<crate::cloud_gen::CloudGenRuntime>,
     /// 无模型视频处理的运行状态（互斥 + 取消）。
@@ -573,6 +575,21 @@ struct CloudTtsSynthArgs {
     items: Vec<crate::tts_core::TtsItem>,
     #[serde(default)]
     voice: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AsrProvidersArgs {
+    #[serde(default)]
+    providers: Vec<crate::cloud_asr::CloudAsrProvider>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AsrTestArgs {
+    provider: crate::cloud_asr::CloudAsrProvider,
+    #[serde(default)]
+    path: String,
 }
 
 #[derive(Deserialize)]
@@ -1392,6 +1409,22 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
                     args.voice,
                 )
                 .await?
+            ))
+        }
+        // ---- 云端 ASR（只依赖 HTTP + 配置，浏览器与容器同样可用） ----
+        "cloud_asr_config" => Ok(json!(crate::cloud_asr::cloud_asr_config(&ctx.cloud_asr))),
+        "cloud_asr_set_config" => {
+            let args: AsrProvidersArgs = from_value(args)?;
+            Ok(json!(crate::cloud_asr::cloud_asr_set_config(
+                &ctx.cloud_asr,
+                args.providers,
+            )))
+        }
+        "cloud_asr_test" => {
+            let args: AsrTestArgs = from_value(args)?;
+            Ok(json!(
+                crate::cloud_asr::cloud_asr_test(host, &ctx.network, &args.provider, &args.path)
+                    .await?
             ))
         }
         // ---- 网络配置（与桌面共用 `aicut_daemon::network` 同一份实现） ----

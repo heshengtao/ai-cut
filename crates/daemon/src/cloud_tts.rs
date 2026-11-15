@@ -45,6 +45,7 @@ pub enum CloudTtsKind {
     Baidu,
     Minimax,
     Volcengine,
+    Deepseek,
     Custom,
 }
 
@@ -290,6 +291,7 @@ pub fn default_name(kind: CloudTtsKind) -> &'static str {
         CloudTtsKind::Baidu => "Baidu TTS",
         CloudTtsKind::Minimax => "MiniMax",
         CloudTtsKind::Volcengine => "Volcengine",
+        CloudTtsKind::Deepseek => "DeepSeek",
         CloudTtsKind::Custom => "Custom HTTP",
     }
 }
@@ -384,6 +386,7 @@ impl<'a> Call<'a> {
             CloudTtsKind::Baidu => self.baidu(text).await,
             CloudTtsKind::Minimax => self.minimax(text).await,
             CloudTtsKind::Volcengine => self.volcengine(text).await,
+            CloudTtsKind::Deepseek => self.deepseek(text).await,
             CloudTtsKind::Custom => self.custom(text).await,
         }
     }
@@ -399,6 +402,51 @@ impl<'a> Call<'a> {
 
     fn timeout(&self) -> std::time::Duration {
         std::time::Duration::from_secs(120)
+    }
+
+    /// DeepSeek TTS：官方只支持 wav / pcm，音色只有 stella / tide。
+    ///
+    /// 单次上限 10 000 计费字符（中文按 2 计），超长文本按句切成多次请求，
+    /// 内部统一取 24 kHz PCM 再拼成一段 WAV，避免拼接 WAV 头。
+    async fn deepseek(&self, text: &str) -> Result<(Vec<u8>, String), String> {
+        let base = if self.provider.base_url.trim().is_empty() {
+            "https://api.deepseek.com"
+        } else {
+            self.provider.base_url.trim_end_matches('/')
+        };
+        let url = format!("{base}/v1/tools/tts");
+        let mut pcm = Vec::new();
+        for piece in split_for_limit(text, 3000) {
+            let body = deepseek_body(&piece, &self.voice, "pcm");
+            let response = self
+                .client
+                .post(&url)
+                .bearer_auth(&self.provider.api_key)
+                .header("Content-Type", "application/json")
+                .body(body)
+                .timeout(self.timeout())
+                .send()
+                .await
+                .map_err(|error| format!("请求失败：{error}"))?;
+            let status = response.status();
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|error| format!("读取响应失败：{error}"))?
+                .to_vec();
+            if !status.is_success() {
+                return Err(crate::cloud_asr::describe_status(status.as_u16(), &bytes));
+            }
+            if bytes.is_empty() {
+                return Err("DeepSeek 返回了空音频".into());
+            }
+            pcm.extend_from_slice(&bytes);
+        }
+        if pcm.is_empty() {
+            return Err("DeepSeek 返回了空音频".into());
+        }
+        // 官方 pcm 是 24 kHz 16-bit 单声道裸流。
+        Ok((wrap_pcm_wav(&pcm, 24_000), "wav".into()))
     }
 
     async fn openai(&self, text: &str) -> Result<(Vec<u8>, String), String> {
@@ -884,6 +932,10 @@ async fn list_voices(
     }
 
     match provider.kind {
+        CloudTtsKind::Deepseek => {
+            push_voice(&mut voices, "stella", "Stella", "DeepSeek");
+            push_voice(&mut voices, "tide", "Tide", "DeepSeek");
+        }
         CloudTtsKind::Elevenlabs => {
             if !provider.api_key.trim().is_empty() {
                 let base = if provider.base_url.trim().is_empty() {
@@ -1154,11 +1206,20 @@ async fn baidu_token(
     client: &reqwest::Client,
     provider: &CloudTtsProvider,
 ) -> Result<String, String> {
-    if provider.api_key.trim().is_empty() || provider.api_secret.trim().is_empty() {
+    baidu_token_for(client, &provider.api_key, &provider.api_secret).await
+}
+
+/// 按字段取百度 OAuth token；云端 ASR 与 TTS 共用同一份缓存。
+pub(crate) async fn baidu_token_for(
+    client: &reqwest::Client,
+    api_key: &str,
+    api_secret: &str,
+) -> Result<String, String> {
+    if api_key.trim().is_empty() || api_secret.trim().is_empty() {
         return Err("百度语音需要填写 API Key 和 Secret Key".into());
     }
-    let key = provider.api_key.trim();
-    let secret = provider.api_secret.trim();
+    let key = api_key.trim();
+    let secret = api_secret.trim();
     if let Some(token) = cached_baidu_token(key) {
         return Ok(token);
     }
@@ -1477,6 +1538,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn deepseek_body_carries_voice_and_format() {
+        let body = deepseek_body("你好", "stella", "pcm");
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value["text"], "你好");
+        assert_eq!(value["voice_id"], "stella");
+        assert_eq!(value["format"], "pcm");
+        assert_eq!(value["filter_markdown"], true);
+    }
+
+    #[test]
+    fn deepseek_body_defaults_to_stella_wav() {
+        let value: serde_json::Value = serde_json::from_str(&deepseek_body("hi", "", "")).unwrap();
+        assert_eq!(value["voice_id"], "stella");
+        assert_eq!(value["format"], "wav");
+    }
+
+    #[test]
     fn encodes_url_components() {
         assert_eq!(url_encode("hello world"), "hello%20world");
         assert_eq!(url_encode("你好"), "%E4%BD%A0%E5%A5%BD");
@@ -1546,7 +1624,50 @@ mod tests {
     }
 }
 
-fn wrap_pcm_wav(pcm: &[u8], sample_rate: u32) -> Vec<u8> {
+/// 按长度切分文本，尽量停在句子边界。
+fn split_for_limit(text: &str, limit: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    for sentence in text.split_inclusive(['。', '！', '？', '!', '?', '；', ';', '\n']) {
+        if current.chars().count() + sentence.chars().count() > limit && !current.is_empty() {
+            out.push(std::mem::take(&mut current));
+        }
+        current.push_str(sentence);
+        // 单句本身超限：硬切。
+        while current.chars().count() > limit {
+            let head: String = current.chars().take(limit).collect();
+            let tail: String = current.chars().skip(limit).collect();
+            out.push(head);
+            current = tail;
+        }
+    }
+    if !current.trim().is_empty() {
+        out.push(current);
+    }
+    out
+}
+
+/// DeepSeek TTS 的请求体：音色只有 stella / tide，格式只有 wav / pcm。
+fn deepseek_body(text: &str, voice: &str, format: &str) -> String {
+    let voice = match voice.trim() {
+        "" => "stella",
+        other => other,
+    };
+    let format = if format.trim().eq_ignore_ascii_case("pcm") {
+        "pcm"
+    } else {
+        "wav"
+    };
+    serde_json::json!({
+        "text": text,
+        "voice_id": voice,
+        "format": format,
+        "filter_markdown": true,
+    })
+    .to_string()
+}
+
+pub(crate) fn wrap_pcm_wav(pcm: &[u8], sample_rate: u32) -> Vec<u8> {
     let channels: u16 = 1;
     let bits: u16 = 16;
     let data_len = pcm.len() as u32;

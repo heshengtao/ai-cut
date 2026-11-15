@@ -46,6 +46,13 @@ import { addAsset, setClipMuted } from "@/core/ops";
 import { insertCueTrack } from "@/core/subtitleTrack";
 import { placeVoiceover } from "@/core/voiceover";
 import { useAsrStore } from "@/stores/asr";
+import {
+  ASR_SETTINGS_ACTION,
+  CLOUD_ASR_PREFIX,
+  buildAsrOptions,
+  hasNativeWordTimes,
+  parseAsrModelId,
+} from "@/core/asrSources";
 import { useAudioAiStore } from "@/stores/audioAi";
 import { useAiLaunchStore, type AiLaunchRequest } from "@/stores/aiLaunch";
 import { useCutReviewStore } from "@/stores/cutReview";
@@ -60,7 +67,12 @@ import { useSelectionStore } from "@/stores/selection";
 import { useI18n } from "@/i18n";
 import { useModelChoice } from "@/composables/useModelChoice";
 import { useImageModelSource } from "@/composables/useImageModelSource";
-import { useEngineSetup, useRuntimeSetup, useVoiceSetup } from "@/composables/useAiSetup";
+import {
+  useAlignerSetup,
+  useEngineSetup,
+  useRuntimeSetup,
+  useVoiceSetup,
+} from "@/composables/useAiSetup";
 import { useModelChoiceStore } from "@/stores/modelChoice";
 import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
 import type { CloudGenPreset, CloudGenProvider } from "@/types/cloudGen";
@@ -142,21 +154,51 @@ const cutTarget = computed(() => {
 
 /** 剪口播：识别模型（下拉框，默认 SenseVoice）+ 必选的对齐器。 */
 const cutModel = computed(() => cutReview.candidateModel());
-const cutModelReady = computed(
-  () => Boolean(cutModel.value?.installed) && cutReview.alignerReady(),
-);
+const cutModelReady = computed(() => cutReview.readyNow());
 const cutMissing = computed(() => cutReview.missingBytesNow());
 const cutAsrOptions = computed<SelectOption[]>(() =>
-  models
-    .ofFeature("asr")
-    .map((model) => ({
-      id: model.id,
-      label: model.installed ? model.name : `${model.name} · ${humanSize(missingBytes(model))}`,
-    })),
+  buildAsrOptions(
+    [
+      ...models.ofFeature("asr").map((model) => ({
+        id: model.id,
+        label: model.installed ? model.name : `${model.name} · ${humanSize(missingBytes(model))}`,
+        group: i18n.t("ai.asrLocalGroup"),
+      })),
+      ...cloudAsrProviders.value.map((provider) => ({
+        id: `${CLOUD_ASR_PREFIX}${provider.id}`,
+        label: provider.name,
+        group: i18n.t("ai.asrCloudGroup"),
+        hint: hasNativeWordTimes(provider.kind)
+          ? i18n.t(`settings.asr.kind.${provider.kind}`)
+          : i18n.t("ai.cutCloudNeedsAligner"),
+      })),
+    ],
+    { label: i18n.t("ai.asrSettings"), hint: i18n.t("ai.asrSettingsHint") },
+  ),
 );
 
 /** 缺的模型一次性确认、按顺序下载。 */
-async function downloadCutModels(): Promise<boolean> {
+/**
+ * 缺什么补什么。
+ *
+ * 对齐器（以及它需要的 ORT 运行时组件）走统一的「准备」向导：钩子会先算体积、
+ * 弹 `AiSetupDialog`，确认后并行下载并在需要时切后端 / 提示重启。
+ * 本地识别模型仍走下载管理器，保持原有行为。
+ */
+async function ensureCutDeps(): Promise<boolean> {
+  const alignerMissing = cutReview.alignerRequired && !cutReview.alignerModel()?.installed;
+  const localMissing = !cutReview.usingCloud && Boolean(cutModel.value && !cutModel.value.installed);
+  if (!alignerMissing && !localMissing) return true;
+
+  if (alignerMissing) {
+    alignerSetup.setDone(() => {
+      void startCutReview();
+    });
+    const ready = await alignerSetup.ensure();
+    if (!ready) return false;
+  }
+  if (!localMissing) return true;
+
   const targets = [cutModel.value, cutReview.alignerModel()].filter(
     (model): model is ModelStatus => Boolean(model) && !model!.installed,
   );
@@ -189,13 +231,18 @@ async function startCutReview(): Promise<void> {
     toast(i18n.t("cutReview.selectClip"));
     return;
   }
-  if (!cutModel.value) {
+  if (cutReview.usingCloud && !cutReview.cloudProvider) {
+    toast(i18n.t("cutReview.noCloudService"), "error");
+    layout.openSettings("asr");
+    return;
+  }
+  if (!cutReview.usingCloud && !cutModel.value) {
     toast(i18n.t("cutReview.noModel"), "error");
     layout.openTab("models");
     return;
   }
-  // 与其它卡片一致：缺模型时按钮就是「下载 XX MB」，点一下先下再跑。
-  if (!cutModelReady.value && !(await downloadCutModels())) return;
+  // 与其它卡片一致：缺模型 / 缺对齐器时按钮就是「下载 XX MB」，点一下先下再跑。
+  if (!cutModelReady.value && !(await ensureCutDeps())) return;
   layout.openTab("cutReview");
   try {
     const count = await cutReview.run(target.asset, target.clip);
@@ -344,45 +391,94 @@ const sourceLabel = computed(() => {
 // ---- 字幕模型 ----
 
 const vadModel = computed(() => models.catalog.find((model) => model.feature === "vad") ?? null);
-/**
- * 字幕用 ASR：选过哪一档跨会话记住。
- * 「已装的 → 推荐的 → 第一个」只是**没选过**时的默认，不再覆盖用户的选择。
- */
-const {
-  list: asrModels,
-  current: selectedModel,
-  id: selectedModelId,
-} = useModelChoice(
-  "asr",
-  () => models.catalog.filter((model) => model.feature === "asr"),
-  (list) =>
-    list.find((model) => model.installed) ?? list.find((model) => model.recommended) ?? list[0] ?? null,
-);
 
-const modelOptions = computed<SelectOption[]>(() =>
-  asrModels.value.map((model) => {
-    const source = regionsLabel(i18n.t, model.regions);
-    return {
-      id: model.id,
-      label: model.name,
-      hint: model.installed
-        ? `${i18n.t("ai.modelReady")} · ${source}`
-        : `${i18n.t("ai.modelNeedsDownload", {
-            size: humanSize(missingBytes(model)),
-          })} · ${source}`,
-    };
-  }),
-);
+const asrModels = computed(() => models.catalog.filter((model) => model.feature === "asr"));
+const cloudAsrProviders = computed(() => asr.providers.filter((provider) => provider.enabled));
+
+onMounted(() => {
+  void asr.loadProviders();
+});
+
+/**
+ * 字幕用 ASR：本地模型与云端服务共用一份 id 列表，选过哪个跨会话记住。
+ * 云端服务用 `cloud:` 前缀区分，与 daemon 的分流规则一致。
+ */
+const asrOptionIds = computed(() => [
+  ...asrModels.value.map((model) => model.id),
+  ...cloudAsrProviders.value.map((provider) => `${CLOUD_ASR_PREFIX}${provider.id}`),
+]);
+
+const selectedModelId = computed<string | null>({
+  get: () => {
+    const saved = modelChoice.get("asr");
+    if (saved && asrOptionIds.value.includes(saved)) return saved;
+    const installed = asrModels.value.find((model) => model.installed);
+    if (installed) return installed.id;
+    const cloud = cloudAsrProviders.value[0];
+    if (cloud) return `${CLOUD_ASR_PREFIX}${cloud.id}`;
+    return asrModels.value[0]?.id ?? null;
+  },
+  set: (value) => {
+    if (value) modelChoice.set("asr", value);
+  },
+});
+
+const selectedAsrRef = computed(() => parseAsrModelId(selectedModelId.value));
+const selectedModel = computed(() => {
+  const ref = selectedAsrRef.value;
+  if (ref?.kind !== "local") return null;
+  return asrModels.value.find((model) => model.id === ref.id) ?? null;
+});
+const selectedCloudAsr = computed(() => {
+  const ref = selectedAsrRef.value;
+  if (ref?.kind !== "cloud") return null;
+  return cloudAsrProviders.value.find((provider) => provider.id === ref.id) ?? null;
+});
+const usingCloudAsr = computed(() => selectedAsrRef.value?.kind === "cloud");
+
+const modelOptions = computed<SelectOption[]>(() => {
+  const rows = [
+    ...asrModels.value.map((model) => {
+      const source = regionsLabel(i18n.t, model.regions);
+      return {
+        id: model.id,
+        label: model.name,
+        group: i18n.t("ai.asrLocalGroup"),
+        hint: model.installed
+          ? `${i18n.t("ai.modelReady")} · ${source}`
+          : `${i18n.t("ai.modelNeedsDownload", {
+              size: humanSize(missingBytes(model)),
+            })} · ${source}`,
+      };
+    }),
+    ...cloudAsrProviders.value.map((provider) => ({
+      id: `${CLOUD_ASR_PREFIX}${provider.id}`,
+      label: provider.name,
+      group: i18n.t("ai.asrCloudGroup"),
+      hint: i18n.t(`settings.asr.kind.${provider.kind}`),
+    })),
+  ];
+  return buildAsrOptions(rows, {
+    label: i18n.t("ai.asrSettings"),
+    hint: i18n.t("ai.asrSettingsHint"),
+  });
+});
+
+function onAsrSelectAction(id: string): void {
+  if (id === ASR_SETTINGS_ACTION) layout.openSettings("asr");
+}
 
 const missing = computed(() => {
+  if (usingCloudAsr.value) return 0;
   const modelMissing = selectedModel.value ? missingBytes(selectedModel.value) : 0;
   const vadMissing = vadModel.value ? missingBytes(vadModel.value) : 0;
   return modelMissing + vadMissing;
 });
 
-const ready = computed(
-  () => Boolean(selectedModel.value?.installed && vadModel.value?.installed),
-);
+const ready = computed(() => {
+  if (usingCloudAsr.value) return Boolean(selectedCloudAsr.value);
+  return Boolean(selectedModel.value?.installed && vadModel.value?.installed);
+});
 
 /** 只有「生成字幕」这一项在跑；参考音频转写用自己的进度条，不能串到字幕上。 */
 const subtitleRunning = ref(false);
@@ -400,6 +496,7 @@ const downloadSource = computed(() =>
  * 下载完成后用户回到这里再点「生成字幕」，不在后台偷偷串起识别。
  */
 async function requestModelDownload(): Promise<void> {
+  if (usingCloudAsr.value) return;
   const model = selectedModel.value;
   if (!model) return;
   const vad = vadModel.value;
@@ -435,8 +532,8 @@ async function generateSubtitles(): Promise<void> {
     return;
   }
 
-  const model = selectedModel.value;
-  if (!model) {
+  const modelId = selectedModelId.value;
+  if (!modelId) {
     toast(i18n.t("ai.subtitleNoModel"));
     layout.openTab("models");
     return;
@@ -454,7 +551,7 @@ async function generateSubtitles(): Promise<void> {
 
   subtitleRunning.value = true;
   try {
-    const cues = await asr.generate(current.asset.src, model.id, "auto");
+    const cues = await asr.generate(current.asset.src, modelId, "auto");
     if (cues.length === 0) {
       toast(i18n.t("ai.subtitleEmpty"));
       return;
@@ -1189,8 +1286,8 @@ async function generateTranslation(): Promise<void> {
     toast(i18n.t("audio.selectClip"));
     return;
   }
-  const model = selectedModel.value;
-  if (!model) {
+  const modelId = selectedModelId.value;
+  if (!modelId) {
     toast(i18n.t("ai.subtitleNoModel"));
     layout.openTab("models");
     return;
@@ -1208,7 +1305,7 @@ async function generateTranslation(): Promise<void> {
 
   translationRunning.value = true;
   try {
-    const cues = await asr.generate(current.asset.src, model.id, "auto");
+    const cues = await asr.generate(current.asset.src, modelId, "auto");
     const fps = project.doc.fps;
     const mapped = cues
       .map((cue) => mapCueToTimeline(cue, current.clip, fps))
@@ -1929,6 +2026,7 @@ function openImageEdit(): void {
 
 // ---- AI 变声：缺运行时 / 缺模型先弹「准备」向导，装完自动进变声页 ----
 const voiceSetup = useVoiceSetup(() => voiceChange.modelId);
+const alignerSetup = useAlignerSetup();
 const voiceSetupOpen = voiceSetup.open;
 const voiceSetupPlan = voiceSetup.plan;
 const voiceSetupForced = voiceSetup.forced;
@@ -2196,6 +2294,7 @@ onMounted(() => {
             :options="modelOptions"
             :label="i18n.t('ai.subtitleModel')"
             :disabled="asr.running"
+            @action="onAsrSelectAction"
           />
         </div>
 
@@ -2916,6 +3015,7 @@ onMounted(() => {
             :label="i18n.t('cutReview.asrModel')"
             :disabled="cutReview.running"
             @update:model-value="cutReview.setAsrModel(String($event))"
+            @action="onAsrSelectAction"
           />
         </div>
 

@@ -251,6 +251,11 @@ pub fn cloud_tts_of(host: &dyn Host) -> crate::cloud_tts::CloudTtsRuntime {
     crate::cloud_tts::CloudTtsRuntime::load(Some(host.config_dir().join("tts.json")))
 }
 
+/// `asr.json`（云端语音识别服务）。
+pub fn cloud_asr_of(host: &dyn Host) -> crate::cloud_asr::CloudAsrRuntime {
+    crate::cloud_asr::CloudAsrRuntime::load(Some(host.config_dir().join("asr.json")))
+}
+
 /// `ai.json`（OpenAI 兼容端点）：翻译复用智能体那一份配置。
 #[derive(Debug, Default, serde::Deserialize)]
 #[serde(default)]
