@@ -162,7 +162,19 @@ export const useBoardStore = defineStore("board", () => {
     });
   }
 
-  /** 拖拽过程中只改本地坐标；松手时调用它落盘（不额外记快照）。 */
+  /** 拖拽过程中只改本地坐标；松手时把坐标写回节点（不额外记快照）。 */
+  function applyPositions(positions: Record<string, { x: number; y: number }>): void {
+    let changed = false;
+    nodes.value = nodes.value.map((node) => {
+      const next = positions[node.id];
+      if (!next || (next.x === node.position.x && next.y === node.position.y)) return node;
+      changed = true;
+      return { ...node, position: { x: next.x, y: next.y } };
+    });
+    if (changed) schedule();
+  }
+
+  /** 拖拽结束：把当前坐标落盘。 */
   function syncPositions(): void {
     schedule();
   }
@@ -250,6 +262,7 @@ export const useBoardStore = defineStore("board", () => {
     updateNode,
     updateNodeData,
     syncPositions,
+    applyPositions,
     removeNodes,
     connect,
     removeEdges,

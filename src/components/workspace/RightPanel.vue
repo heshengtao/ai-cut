@@ -14,6 +14,7 @@ import {
   PuzzlePieceIcon,
   ScissorsIcon,
   ChevronRightIcon,
+  Squares2X2Icon,
 } from "@heroicons/vue/24/outline";
 import MediaPane from "./panes/MediaPane.vue";
 import InspectorPane from "./panes/InspectorPane.vue";
@@ -24,6 +25,7 @@ import PluginsPane from "./panes/PluginsPane.vue";
 import PluginEditorPane from "./panes/PluginEditorPane.vue";
 import ClipAgentPanel from "./agent/ClipAgentPanel.vue";
 import CutReviewPane from "./panes/CutReviewPane.vue";
+import BoardInspectorPane from "./panes/BoardInspectorPane.vue";
 import EmptyPanels from "@/components/onboarding/EmptyPanels.vue";
 import { PANES, useLayoutStore, type PaneId } from "@/stores/layout";
 import { useI18n } from "@/i18n";
@@ -41,6 +43,7 @@ const ICONS: Record<PaneId, unknown> = {
   plugins: PuzzlePieceIcon,
   cutReview: ScissorsIcon,
   pluginEditor: AdjustmentsHorizontalIcon,
+  boardInspector: Squares2X2Icon,
 };
 
 const panes = computed(() => PANES.filter((pane) => !pane.hidden));
@@ -90,6 +93,7 @@ const activeKey = computed(() =>
           <PluginsPane v-else-if="layout.activeTab === 'plugins'" />
           <CutReviewPane v-else-if="layout.activeTab === 'cutReview'" />
           <PluginEditorPane v-else-if="layout.activeTab === 'pluginEditor'" />
+          <BoardInspectorPane v-else-if="layout.activeTab === 'boardInspector'" />
         </div>
       </Transition>
     </div>

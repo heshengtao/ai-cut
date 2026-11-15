@@ -15,7 +15,8 @@ export type PaneId =
   | "models"
   | "plugins"
   | "cutReview"
-  | "pluginEditor";
+  | "pluginEditor"
+  | "boardInspector";
 
 /** 设置页分区。 */
 export type SettingsSection =
@@ -83,6 +84,7 @@ export const PANES: {
   { id: "models", labelKey: "panel.models", hintKey: "panel.modelsHint" },
   { id: "plugins", labelKey: "panel.plugins", hintKey: "panel.pluginsHint" },
   { id: "cutReview", labelKey: "panel.cutReview", hintKey: "panel.cutReviewHint" },
+  { id: "boardInspector", labelKey: "panel.boardInspector", hintKey: "panel.boardInspectorHint" },
   {
     id: "pluginEditor",
     labelKey: "panel.pluginEditor",

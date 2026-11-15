@@ -15,6 +15,7 @@ import {
   ListBulletIcon,
   PuzzlePieceIcon,
   ScissorsIcon,
+  Squares2X2Icon,
 } from "@heroicons/vue/24/outline";
 import Tooltip from "@/components/common/Tooltip.vue";
 import { PANES, useLayoutStore, type PaneId } from "@/stores/layout";
@@ -56,6 +57,7 @@ const ICONS: Record<PaneId, unknown> = {
   plugins: PuzzlePieceIcon,
   cutReview: ScissorsIcon,
   pluginEditor: AdjustmentsHorizontalIcon,
+  boardInspector: Squares2X2Icon,
 };
 
 function labelOf(id: PaneId): string {
