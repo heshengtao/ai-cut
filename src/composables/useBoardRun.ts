@@ -83,6 +83,28 @@ function upstreamAsset(nodeId: string, portId: string): { path: string; duration
   return { path: asset.src, duration: asset.duration };
 }
 
+/** 收集形如 `refImage3` 的多路输入，按序号排序（对应提示词里的 `<Picture N>`）。 */
+function collectRefs(nodeId: string, kind: "image" | "audio" | "video"): string[] {
+  const board = useBoardStore();
+  const project = useProjectStore();
+  const prefix = `ref${kind[0].toUpperCase()}${kind.slice(1)}`;
+  const edges = board.edges
+    .filter((edge) => edge.target === nodeId && edge.targetPort.startsWith(prefix))
+    .sort((a, b) => {
+      const na = Number(a.targetPort.slice(prefix.length)) || 0;
+      const nb = Number(b.targetPort.slice(prefix.length)) || 0;
+      return na - nb;
+    });
+  const paths: string[] = [];
+  for (const edge of edges) {
+    const source = board.nodes.find((item) => item.id === edge.source);
+    const assetId = source?.data.outputAssetId ?? source?.data.assetId;
+    const asset = assetId ? project.doc.assets.find((item) => item.id === assetId) : null;
+    if (asset) paths.push(asset.src);
+  }
+  return paths;
+}
+
 /** `local:<id>` / `cloud:<id>`。 */
 function splitModel(value: unknown): { kind: "local" | "cloud"; id: string } | null {
   if (typeof value !== "string" || !value.includes(":")) return null;
@@ -146,8 +168,9 @@ async function runAdapter(node: BoardNode): Promise<AdapterResult> {
       const seconds = numberParam(node, "seconds", 5);
       const init = upstreamAsset(node.id, "init");
       const end = upstreamAsset(node.id, "end");
-      const refImage = upstreamAsset(node.id, "refImage");
-      const refAudio = upstreamAsset(node.id, "refAudio");
+      const refImages = collectRefs(node.id, "image");
+      const refAudios = collectRefs(node.id, "audio");
+      const refVideos = collectRefs(node.id, "video");
       if (model?.kind === "cloud") {
         const result = await cloudGen.startVideo({
           providerId: model.id,
@@ -156,6 +179,9 @@ async function runAdapter(node: BoardNode): Promise<AdapterResult> {
           height,
           seconds,
           initImage: init?.path,
+          refImages,
+          refAudios,
+          refVideos,
         });
         if (!result) throw new Error(cloudGen.error ?? "云端视频生成失败");
         return { paths: [result.path], kind: "video" };
@@ -173,8 +199,9 @@ async function runAdapter(node: BoardNode): Promise<AdapterResult> {
         flowShift: 12,
         initImage: init?.path ?? null,
         endImage: end?.path ?? null,
-        refImages: refImage ? [refImage.path] : [],
-        refAudios: refAudio ? [refAudio.path] : [],
+        refImages,
+        refAudios,
+        refVideos,
       });
       if (!result) throw new Error(videoGen.error ?? "视频生成失败");
       return { paths: [result.path], kind: "video" };

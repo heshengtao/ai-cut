@@ -4,7 +4,7 @@
  * 一种能力一个节点；模型节点不区分本地/云端，模型下拉在检查器里切。
  * 本阶段先落 4 个输入 + 4 个显示节点，模型节点在后续阶段补齐。
  */
-import type { BoardNodeDefinition } from "@/types/board";
+import type { BoardNode, BoardNodeDefinition, BoardPortSpec } from "@/types/board";
 
 const IMAGE_OUT = [{ id: "image", type: "image", labelKey: "board.port.image" }] as const;
 const IMAGE_IN = [{ id: "image", type: "image", labelKey: "board.port.image" }] as const;
@@ -146,6 +146,55 @@ export function portSpecOf(
   return ports.find((port) => port.id === portId) ?? null;
 }
 
+/** MiniMax-H3 的多模态参考端口：9 图 + 3 音频 + 3 视频。 */
+const H3_REF_INPUTS: BoardPortSpec[] = [
+  ...Array.from({ length: 9 }, (_, index) => ({
+    id: `refImage${index + 1}`,
+    type: "image" as const,
+    labelKey: "board.port.refImage",
+  })),
+  ...Array.from({ length: 3 }, (_, index) => ({
+    id: `refAudio${index + 1}`,
+    type: "audio" as const,
+    labelKey: "board.port.refAudio",
+  })),
+  ...Array.from({ length: 3 }, (_, index) => ({
+    id: `refVideo${index + 1}`,
+    type: "video" as const,
+    labelKey: "board.port.refVideo",
+  })),
+];
+
+/**
+ * 视频节点选的是不是多模态参考模型（H3 Ref2VA / 云端 H3）。
+ *
+ * 本地按模型 id 认，云端按"选了云端视频服务"认——云端各家参考能力不同，
+ * 多出来的端口连了也不会被静默丢掉（后端会明确报"不支持参考视频"）。
+ */
+export function isReferenceVideoModel(node: BoardNode): boolean {
+  const value = node.data.params.model;
+  if (typeof value !== "string" || !value) return false;
+  if (value.startsWith("cloud:")) return true;
+  return /h3.*ref2va|ref2va/i.test(value);
+}
+
+/** 节点实际渲染的端口：视频节点在 H3 模型下换成 9 图 / 3 音频 / 3 视频。 */
+export function portsOf(node: BoardNode): { inputs: BoardPortSpec[]; outputs: BoardPortSpec[] } {
+  const definition = nodeDefinition(node.type);
+  if (!definition) return { inputs: [], outputs: [] };
+  if (definition.type === "model.video" && isReferenceVideoModel(node)) {
+    return { inputs: H3_REF_INPUTS, outputs: definition.outputs };
+  }
+  return { inputs: definition.inputs, outputs: definition.outputs };
+}
+
+/** 某个端口在**这个节点实例**上的声明（动态端口也算，连线校验用）。 */
+export function portOf(node: BoardNode, portId: string, side: "in" | "out"): BoardPortSpec | null {
+  const ports = portsOf(node);
+  const list = side === "in" ? ports.inputs : ports.outputs;
+  return list.find((port) => port.id === portId) ?? null;
+}
+
 /** 按分类分组的节点（添加菜单用）。 */
 export function nodesByCategory(): Record<string, BoardNodeDefinition[]> {
   const grouped: Record<string, BoardNodeDefinition[]> = { input: [], display: [], model: [] };
@@ -195,9 +244,6 @@ const MODEL_VIDEO: BoardNodeDefinition = {
   inputs: [
     { id: "init", type: "image", labelKey: "board.port.firstFrame" },
     { id: "end", type: "image", labelKey: "board.port.lastFrame" },
-    { id: "refImage", type: "image", labelKey: "board.port.refImage" },
-    { id: "refAudio", type: "audio", labelKey: "board.port.refAudio" },
-    { id: "refVideo", type: "video", labelKey: "board.port.refVideo" },
   ],
   outputs: [{ id: "video", type: "video", labelKey: "board.port.video" }],
   params: [

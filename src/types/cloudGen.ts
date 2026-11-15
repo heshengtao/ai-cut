@@ -75,6 +75,10 @@ export interface CloudVideoRequest {
   height: number;
   seconds: number;
   initImage?: string;
+  /** 多模态参考（MiniMax H3）：本地文件路径，后端转 data URI 上传。 */
+  refImages?: string[];
+  refAudios?: string[];
+  refVideos?: string[];
 }
 
 export interface CloudImageResult {

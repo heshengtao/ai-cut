@@ -8,7 +8,7 @@
 import { computed } from "vue";
 import { Handle, Position } from "@vue-flow/core";
 import { useI18n } from "@/i18n";
-import { nodeDefinition } from "@/core/board/registry";
+import { nodeDefinition, portsOf } from "@/core/board/registry";
 import { useBoardStore } from "@/stores/board";
 import { useProjectStore } from "@/stores/project";
 import { assetThumbnailUrl } from "@/core/thumbnails";
@@ -24,6 +24,8 @@ const node = computed<BoardNode | undefined>(() =>
   board.nodes.find((item) => item.id === props.nodeId),
 );
 const definition = computed(() => (node.value ? nodeDefinition(node.value.type) : null));
+
+const ports = computed(() => (node.value ? portsOf(node.value) : { inputs: [], outputs: [] }));
 
 const title = computed(() => {
   const current = node.value;
@@ -128,37 +130,37 @@ function handleTop(index: number, count: number): string {
     </div>
 
     <Handle
-      v-for="(port, index) in definition.inputs"
+      v-for="(port, index) in ports.inputs"
       :id="port.id"
       :key="`in-${port.id}`"
       type="target"
       :position="Position.Left"
       class="board-handle board-handle-in"
-      :style="{ top: handleTop(index, definition.inputs.length) }"
+      :style="{ top: handleTop(index, ports.inputs.length) }"
     />
     <span
-      v-for="(port, index) in definition.inputs"
+      v-for="(port, index) in ports.inputs"
       :key="`in-label-${port.id}`"
       class="board-port-label in"
-      :style="{ top: handleTop(index, definition.inputs.length) }"
+      :style="{ top: handleTop(index, ports.inputs.length) }"
     >
       {{ i18n.t(port.labelKey) }}
     </span>
 
     <Handle
-      v-for="(port, index) in definition.outputs"
+      v-for="(port, index) in ports.outputs"
       :id="port.id"
       :key="`out-${port.id}`"
       type="source"
       :position="Position.Right"
       class="board-handle board-handle-out"
-      :style="{ top: handleTop(index, definition.outputs.length) }"
+      :style="{ top: handleTop(index, ports.outputs.length) }"
     />
     <span
-      v-for="(port, index) in definition.outputs"
+      v-for="(port, index) in ports.outputs"
       :key="`out-label-${port.id}`"
       class="board-port-label out"
-      :style="{ top: handleTop(index, definition.outputs.length) }"
+      :style="{ top: handleTop(index, ports.outputs.length) }"
     >
       {{ i18n.t(port.labelKey) }}
     </span>

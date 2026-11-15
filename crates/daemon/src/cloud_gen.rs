@@ -424,6 +424,13 @@ pub struct CloudVideoRequest {
     pub seconds: f32,
     /// 首帧参考图（图生视频）。
     pub init_image: Option<String>,
+    /// 多模态参考（MiniMax H3）：本地文件路径，后端转成 data URI / 上传。
+    #[serde(default)]
+    pub ref_images: Vec<String>,
+    #[serde(default)]
+    pub ref_audios: Vec<String>,
+    #[serde(default)]
+    pub ref_videos: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -800,6 +807,9 @@ pub async fn cloud_gen_video(
         seconds: request.seconds.clamp(1.0, 30.0),
         init: init_path.clone(),
         model: model.clone(),
+        ref_images: to_paths(&request.ref_images),
+        ref_audios: to_paths(&request.ref_audios),
+        ref_videos: to_paths(&request.ref_videos),
     };
     let result = async {
         emit(
@@ -1028,6 +1038,42 @@ fn file_b64(path: &Path) -> Result<String, String> {
 
 fn file_data_url(path: &Path) -> Result<String, String> {
     Ok(format!("data:image/png;base64,{}", file_b64(path)?))
+}
+
+/// 按扩展名给 data URI 配 MIME（H3 的音频 / 视频参考都要带对类型）。
+fn file_data_url_mime(path: &Path) -> Result<String, String> {
+    let ext = path
+        .extension()
+        .map(|value| value.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "wav" => "audio/wav",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "webm" => "video/webm",
+        _ => "application/octet-stream",
+    };
+    Ok(format!("data:{mime};base64,{}", file_b64(path)?))
+}
+
+/// 只保留真实存在的参考文件（缺失的静默跳过，避免一次参考图丢失就整单失败）。
+fn to_paths(sources: &[String]) -> Vec<PathBuf> {
+    sources
+        .iter()
+        .map(|source| PathBuf::from(source))
+        .filter(|path| path.is_file())
+        .collect()
+}
+
+/// MiniMax 的 v2 端点在根上（不带 `/v1`）。
+fn minimax_root(base: &str) -> String {
+    let trimmed = base.trim_end_matches('/');
+    trimmed.strip_suffix("/v1").unwrap_or(trimmed).to_string()
 }
 
 fn file_name(path: &Path) -> String {
@@ -1291,6 +1337,10 @@ struct VideoInput {
     seconds: f32,
     init: Option<PathBuf>,
     model: String,
+    /// 参考图 / 音频 / 视频（MiniMax H3 多模态参考）。
+    ref_images: Vec<PathBuf>,
+    ref_audios: Vec<PathBuf>,
+    ref_videos: Vec<PathBuf>,
 }
 
 /// 视频结果的来源：多数供应商给 URL；Veo 需要带 Key 下载，已经落成临时文件。
@@ -2339,7 +2389,100 @@ impl<'a> Call<'a> {
 
     // -- 官方：MiniMax -----------------------------------------------------
 
+    /// MiniMax-H3 多模态参考（v2）：9 图 + 3 音频 + 3 视频，content 数组按类型排。
+    async fn minimax_h3_video(&self, input: &VideoInput) -> Result<String, String> {
+        let root = minimax_root(&self.base);
+        let url = format!("{root}/v2/video_generation");
+        let model = if input.model.starts_with("MiniMax-H3") {
+            input.model.clone()
+        } else {
+            "MiniMax-H3".to_string()
+        };
+
+        let mut content: Vec<Value> = Vec::new();
+        if !input.prompt.trim().is_empty() {
+            content.push(json!({ "type": "text", "text": input.prompt }));
+        }
+        for image in &input.ref_images {
+            content.push(json!({
+                "type": "image_url",
+                "image_url": { "url": file_data_url_mime(image)? },
+                "role": "reference_image",
+            }));
+        }
+        for audio in &input.ref_audios {
+            content.push(json!({
+                "type": "audio_url",
+                "audio_url": { "url": file_data_url_mime(audio)? },
+                "role": "reference_audio",
+            }));
+        }
+        for video in &input.ref_videos {
+            content.push(json!({
+                "type": "video_url",
+                "video_url": { "url": file_data_url_mime(video)? },
+                "role": "reference_video",
+            }));
+        }
+
+        let body = json!({
+            "model": model,
+            "content": content,
+            "duration": input.seconds.round().clamp(1.0, 10.0) as i64,
+            "ratio": "adaptive",
+            "resolution": "768P",
+        });
+        let value = send_json(
+            self.client.post(&url).bearer_auth(&self.key).json(&body),
+            "MiniMax H3 视频生成",
+        )
+        .await?;
+        let task = dig_str_first(&value, &["task_id", "task.id"])
+            .ok_or_else(|| {
+                format!(
+                    "MiniMax H3 没有返回 task_id：{}",
+                    truncate(&value.to_string(), 300)
+                )
+            })?
+            .to_string();
+
+        let query_url = format!("{root}/v2/query/video_generation/{}", url_encode(&task));
+        loop {
+            self.tick(VIDEO_TIMEOUT)?;
+            tokio::time::sleep(POLL_INTERVAL).await;
+            let value = send_json(
+                self.client.get(&query_url).bearer_auth(&self.key),
+                "MiniMax H3 任务查询",
+            )
+            .await?;
+            match dig_str_first(&value, &["status", "task.status"]) {
+                Some("succeeded") | Some("Success") | Some("SUCCESS") => {
+                    return dig_str_first(&value, &["content.url", "task.content.url"])
+                        .map(str::to_string)
+                        .ok_or_else(|| {
+                            format!(
+                                "MiniMax H3 任务没有返回视频地址：{}",
+                                truncate(&value.to_string(), 300)
+                            )
+                        });
+                }
+                Some("failed") | Some("Fail") | Some("FAIL") => {
+                    return Err(format!(
+                        "MiniMax H3 任务失败：{}",
+                        truncate(&value.to_string(), 300)
+                    ));
+                }
+                _ => self.note("MiniMax H3 正在生成视频…", 0.4),
+            }
+        }
+    }
+
     async fn minimax_video(&self, input: &VideoInput) -> Result<String, String> {
+        // H3 多模态参考走 v2 端点（content 数组 + 轮询 v2 query）。
+        if !input.ref_images.is_empty() || !input.ref_audios.is_empty() || !input.ref_videos.is_empty()
+        {
+            return self.minimax_h3_video(input).await;
+        }
         let mut url = format!("{}/video_generation", minimax_base(&self.base));
         let query = minimax_query(self.provider);
         if !query.is_empty() {

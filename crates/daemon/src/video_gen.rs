@@ -96,6 +96,8 @@ pub struct VideoSpec {
     pub ref_image: bool,
     /// 是否支持参考音频（`--ref-audio`，MiniMax-H3 Ref2VA）。
     pub ref_audio: bool,
+    /// 是否支持参考视频（`--ref-video`，MiniMax-H3 Ref2VA）：传图片帧目录 + 配对音轨。
+    pub ref_video: bool,
     /// 权重文件角色。
     pub roles: &'static [FileRole],
 }
@@ -303,6 +305,7 @@ impl VideoSpec {
                 end_image: false,
                 ref_image: false,
                 ref_audio: false,
+                ref_video: false,
                 roles: WAN_FILES,
             }),
             models::ModelFamily::Wan22Ti2v => Some(Self {
@@ -319,6 +322,7 @@ impl VideoSpec {
                 end_image: false,
                 ref_image: false,
                 ref_audio: false,
+                ref_video: false,
                 roles: WAN22_TI2V_FILES,
             }),
             models::ModelFamily::Wan22T2vA14b => Some(Self {
@@ -335,6 +339,7 @@ impl VideoSpec {
                 end_image: false,
                 ref_image: false,
                 ref_audio: false,
+                ref_video: false,
                 roles: WAN22_A14B_FILES,
             }),
             models::ModelFamily::HunyuanVideo15 => Some(Self {
@@ -351,6 +356,7 @@ impl VideoSpec {
                 end_image: false,
                 ref_image: false,
                 ref_audio: false,
+                ref_video: false,
                 roles: HUNYUAN_FILES,
             }),
             models::ModelFamily::Ltx23 => Some(Self {
@@ -367,6 +373,7 @@ impl VideoSpec {
                 end_image: true,
                 ref_image: false,
                 ref_audio: false,
+                ref_video: false,
                 roles: LTX_FILES,
             }),
             models::ModelFamily::Ltx25 => Some(Self {
@@ -383,6 +390,7 @@ impl VideoSpec {
                 end_image: true,
                 ref_image: false,
                 ref_audio: false,
+                ref_video: false,
                 roles: LTX25_FILES,
             }),
             models::ModelFamily::MiniMaxH3 => Some(Self {
@@ -399,6 +407,7 @@ impl VideoSpec {
                 end_image: true,
                 ref_image: false,
                 ref_audio: false,
+                ref_video: false,
                 roles: H3_FILES,
             }),
             // Ref2VA 用参考条件（`-r` / `--ref-audio`）代替首尾帧；帧率 / 网格与 FL2VA 相同。
@@ -416,6 +425,7 @@ impl VideoSpec {
                 end_image: false,
                 ref_image: true,
                 ref_audio: true,
+                ref_video: true,
                 roles: H3_REF2VA_FILES,
             }),
             _ => None,
@@ -518,6 +528,9 @@ pub struct VideoGenRequest {
     pub ref_images: Option<Vec<String>>,
     /// 参考音频（可多条）：MiniMax-H3 Ref2VA 接到 `--ref-audio`。
     pub ref_audios: Option<Vec<String>>,
+    /// 参考视频（可多条）：MiniMax-H3 Ref2VA 抽成图片帧目录接到 `--ref-video`，
+    /// 自带音轨再抽 WAV 接到 `--ref-video-audio`。
+    pub ref_videos: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -613,7 +626,11 @@ async fn prepare_ref_audio(host: &dyn Host, source: &str) -> Result<PathBuf, Str
 
 fn cleanup_paths(paths: &[PathBuf]) {
     for path in paths {
-        let _ = std::fs::remove_file(path);
+        if path.is_dir() {
+            let _ = std::fs::remove_dir_all(path);
+        } else {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 
@@ -658,6 +675,94 @@ async fn prepare_image_list(
                 temp.push(path.clone());
                 out.push(path);
             }
+            Err(error) => {
+                cleanup_paths(temp);
+                return Err(error);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// 参考视频：抽成图片帧目录（24fps、字典序）+ 配对音轨。
+///
+/// sd.cpp 的 H3 Ref2VA 用 `--ref-video <dir>` 读帧序列、`--ref-video-audio <wav>`
+/// 按顺序配对音轨；参考视频可以没有音轨（纯画面参考）。
+async fn prepare_ref_video(
+    host: &dyn Host,
+    source: &str,
+    temp: &mut Vec<PathBuf>,
+) -> Result<(PathBuf, Option<PathBuf>), String> {
+    if cancelled() {
+        return Err("已取消".into());
+    }
+    if !Path::new(source).is_file() {
+        return Err(format!("参考视频不存在：{source}"));
+    }
+    let dir = media::cache_dir(host)?.join(format!(
+        "video-gen-ref-video-{}-{}",
+        std::process::id(),
+        stamp()
+    ));
+    std::fs::create_dir_all(&dir).map_err(|error| format!("建参考视频目录失败：{error}"))?;
+    temp.push(dir.clone());
+
+    let pattern = dir.join("%06d.png");
+    let args = vec![
+        "-y".into(),
+        "-i".into(),
+        source.into(),
+        "-vf".into(),
+        "fps=24".into(),
+        "-q:v".into(),
+        "2".into(),
+        pattern.to_string_lossy().into_owned(),
+    ];
+    let out = host.run("ffmpeg", &args, RunOptions::default()).await?;
+    if cancelled() {
+        cleanup_paths(temp);
+        return Err("已取消".into());
+    }
+    if out.code != Some(0) {
+        return Err(format!("参考视频抽帧失败：{}", out.stderr.trim()));
+    }
+
+    // 有音轨就抽出来配对；没有音轨也不影响（参考视频允许纯画面）。
+    let audio_target = dir.join("ref-audio.wav");
+    let audio_args = vec![
+        "-y".into(),
+        "-i".into(),
+        source.into(),
+        "-vn".into(),
+        "-ac".into(),
+        "2".into(),
+        "-ar".into(),
+        "32000".into(),
+        "-c:a".into(),
+        "pcm_s16le".into(),
+        audio_target.to_string_lossy().into_owned(),
+    ];
+    let audio = match host.run("ffmpeg", &audio_args, RunOptions::default()).await {
+        Ok(result) if result.code == Some(0) && audio_target.is_file() => Some(audio_target),
+        _ => None,
+    };
+    Ok((dir, audio))
+}
+
+/// 批量准备参考视频（保持顺序：提示词里的 `<Video N>` 靠它对齐）。
+async fn prepare_video_list(
+    host: &dyn Host,
+    sources: &[String],
+    temp: &mut Vec<PathBuf>,
+) -> Result<Vec<(PathBuf, Option<PathBuf>)>, String> {
+    let mut out = Vec::with_capacity(sources.len());
+    for source in sources {
+        if cancelled() {
+            cleanup_paths(temp);
+            return Err("已取消".into());
+        }
+        match prepare_ref_video(host, source, temp).await {
+            Ok(pair) => out.push(pair),
             Err(error) => {
                 cleanup_paths(temp);
                 return Err(error);
@@ -822,6 +927,7 @@ fn run(
     end_image: Option<&Path>,
     ref_images: &[PathBuf],
     ref_audios: &[PathBuf],
+    ref_videos: &[(PathBuf, Option<PathBuf>)],
 ) -> Result<(), String> {
     let mut command = Command::new(cli);
     command
@@ -901,6 +1007,13 @@ fn run(
     }
     for audio in ref_audios {
         command.arg("--ref-audio").arg(audio);
+    }
+    // Ref2VA 的参考视频：sd.cpp 吃"图片帧目录 + 配对 WAV"，顺序对应 `<Video N>`。
+    for (dir, audio) in ref_videos {
+        command.arg("--ref-video").arg(dir);
+        if let Some(audio) = audio {
+            command.arg("--ref-video-audio").arg(audio);
+        }
     }
     // 双专家：界面只给一个步数滑块，high noise 跑前 80% 的步数（官方示例 10 / 8）。
     if files.dit_high.is_some() {
@@ -1100,14 +1213,18 @@ pub async fn video_gen_start(
     }
     let ref_images = request.ref_images.unwrap_or_default();
     let ref_audios = request.ref_audios.unwrap_or_default();
+    let ref_videos = request.ref_videos.unwrap_or_default();
     if !ref_images.is_empty() && !spec.ref_image {
         return Err(format!("{} 不支持参考图", entry.name));
     }
     if !ref_audios.is_empty() && !spec.ref_audio {
         return Err(format!("{} 不支持参考音频", entry.name));
     }
+    if !ref_videos.is_empty() && !spec.ref_video {
+        return Err(format!("{} 不支持参考视频", entry.name));
+    }
     let keyframes = request.init_image.is_some() || request.end_image.is_some();
-    if keyframes && (!ref_images.is_empty() || !ref_audios.is_empty()) {
+    if keyframes && (!ref_images.is_empty() || !ref_audios.is_empty() || !ref_videos.is_empty()) {
         return Err("参考图 / 参考音频不能和首帧 / 尾帧同时使用".into());
     }
 
@@ -1142,10 +1259,18 @@ pub async fn video_gen_start(
             prepare_image_list(host.as_ref(), &ref_images, &mut temp_inputs).await?;
         let ref_audio_paths =
             prepare_audio_list(host.as_ref(), &ref_audios, &mut temp_inputs).await?;
-        Ok::<_, String>((init_image, end_image, ref_image_paths, ref_audio_paths))
+        let ref_video_paths =
+            prepare_video_list(host.as_ref(), &ref_videos, &mut temp_inputs).await?;
+        Ok::<_, String>((
+            init_image,
+            end_image,
+            ref_image_paths,
+            ref_audio_paths,
+            ref_video_paths,
+        ))
     }
     .await;
-    let (init_image, end_image, ref_image_paths, ref_audio_paths) = match prepared {
+    let (init_image, end_image, ref_image_paths, ref_audio_paths, ref_video_paths) = match prepared {
         Ok(prepared) => prepared,
         Err(error) => {
             end_task();
@@ -1190,6 +1315,7 @@ pub async fn video_gen_start(
     let end_for_task = end_image.clone();
     let ref_images_for_task = ref_image_paths.clone();
     let ref_audios_for_task = ref_audio_paths.clone();
+    let ref_videos_for_task = ref_video_paths.clone();
     let result = tokio::task::spawn_blocking(move || {
         run(
             host_for_task.as_ref(),
@@ -1212,6 +1338,7 @@ pub async fn video_gen_start(
             end_for_task.as_deref(),
             &ref_images_for_task,
             &ref_audios_for_task,
+            &ref_videos_for_task,
         )
     })
     .await;

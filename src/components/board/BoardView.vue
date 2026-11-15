@@ -35,7 +35,7 @@ import { useBoardStore } from "@/stores/board";
 import { useLayoutStore } from "@/stores/layout";
 import { useBoardRun } from "@/composables/useBoardRun";
 import { portsCompatible } from "@/core/board/schema";
-import { nodeDefinition, nodesByCategory, portSpecOf } from "@/core/board/registry";
+import { nodeDefinition, nodesByCategory, portOf } from "@/core/board/registry";
 import type { BoardNode } from "@/types/board";
 
 const i18n = useI18n();
@@ -108,8 +108,8 @@ function isValidConnection(connection: Connection): boolean {
   const source = board.nodes.find((node) => node.id === connection.source);
   const target = board.nodes.find((node) => node.id === connection.target);
   if (!source || !target || source.id === target.id) return false;
-  const from = portSpecOf(source.type, connection.sourceHandle ?? "", "out");
-  const to = portSpecOf(target.type, connection.targetHandle ?? "", "in");
+  const from = portOf(source, connection.sourceHandle ?? "", "out");
+  const to = portOf(target, connection.targetHandle ?? "", "in");
   if (!from || !to) return false;
   return portsCompatible(from.type, to.type);
 }

@@ -21,6 +21,8 @@ export interface VideoGenRequest {
   refImages?: string[];
   /** 参考音频（可多条）：MiniMax-H3 Ref2VA 接到 `--ref-audio`。 */
   refAudios?: string[];
+  /** 参考视频（可多条）：MiniMax-H3 Ref2VA 抽帧后接到 `--ref-video`。 */
+  refVideos?: string[];
 }
 
 export interface VideoGenProgress {
@@ -74,6 +76,8 @@ export interface VideoModelSpec extends VideoFrameSpec {
   refImage: boolean;
   /** 是否支持参考音频（`--ref-audio`，Ref2VA）。 */
   refAudio: boolean;
+  /** 是否支持参考视频（`--ref-video`，Ref2VA）。 */
+  refVideo: boolean;
 }
 
 /**
@@ -102,6 +106,7 @@ const SPECS: Record<string, VideoModelSpec> = {
     endImage: false,
     refImage: false,
     refAudio: false,
+    refVideo: false,
   },
   wan22_ti2v: {
     fps: 24,
@@ -117,6 +122,7 @@ const SPECS: Record<string, VideoModelSpec> = {
     endImage: false,
     refImage: false,
     refAudio: false,
+    refVideo: false,
   },
   wan22_t2v_a14b: {
     fps: 16,
@@ -132,6 +138,7 @@ const SPECS: Record<string, VideoModelSpec> = {
     endImage: false,
     refImage: false,
     refAudio: false,
+    refVideo: false,
   },
   hunyuan_video_15: {
     fps: 24,
@@ -147,6 +154,7 @@ const SPECS: Record<string, VideoModelSpec> = {
     endImage: false,
     refImage: false,
     refAudio: false,
+    refVideo: false,
   },
   ltx_23: {
     fps: 24,
@@ -162,6 +170,7 @@ const SPECS: Record<string, VideoModelSpec> = {
     endImage: true,
     refImage: false,
     refAudio: false,
+    refVideo: false,
   },
   minimax_h3: {
     fps: 24,
@@ -177,6 +186,7 @@ const SPECS: Record<string, VideoModelSpec> = {
     endImage: true,
     refImage: false,
     refAudio: false,
+    refVideo: false,
   },
   minimax_h3_ref2va: {
     fps: 24,
@@ -192,6 +202,7 @@ const SPECS: Record<string, VideoModelSpec> = {
     endImage: false,
     refImage: true,
     refAudio: true,
+    refVideo: true,
   },
   ltx_25: {
     fps: 24,
@@ -207,6 +218,7 @@ const SPECS: Record<string, VideoModelSpec> = {
     endImage: true,
     refImage: false,
     refAudio: false,
+    refVideo: false,
   },
 };
 
