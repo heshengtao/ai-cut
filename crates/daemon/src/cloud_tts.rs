@@ -1555,7 +1555,7 @@ mod tests {
     }
 }
 
-fn wrap_pcm_wav(pcm: &[u8], sample_rate: u32) -> Vec<u8> {
+pub(crate) fn wrap_pcm_wav(pcm: &[u8], sample_rate: u32) -> Vec<u8> {
     let channels: u16 = 1;
     let bits: u16 = 16;
     let data_len = pcm.len() as u32;

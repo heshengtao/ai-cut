@@ -3,7 +3,7 @@
 //! 识别结果按标点切成字幕条目返回给前端；前端再把它们作为文字片段插进一条新轨道
 //! （一次事务、可撤销）。后端不持有工程文档，保持与 AI Cut 其余架构一致。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -62,10 +62,10 @@ pub struct Transcription {
 }
 
 /// 识别结果：字幕与词时间同源，避免跑两遍模型。
-struct Transcript {
-    cues: Vec<SubtitleCue>,
-    words: Vec<TranscriptWord>,
-    timed: bool,
+pub(crate) struct Transcript {
+    pub(crate) cues: Vec<SubtitleCue>,
+    pub(crate) words: Vec<TranscriptWord>,
+    pub(crate) timed: bool,
 }
 
 struct AsrRuntime {
@@ -204,7 +204,91 @@ async fn run(
     result
 }
 
-fn temp_wav_path(host: &dyn Host) -> Result<PathBuf, String> {
+/// 取消标志（云端识别与本地识别共用）。
+pub(crate) fn cancelled() -> bool {
+    runtime().cancel.load(Ordering::Relaxed)
+}
+
+/// WAV 时长（秒）。
+pub(crate) fn wav_duration(wav: &Path) -> Result<f64, String> {
+    let wave = Wave::read(&wav.to_string_lossy()).ok_or_else(|| "读取音频失败（WAV 可能损坏）".to_string())?;
+    Ok(wave.samples().len() as f64 / SAMPLE_RATE as f64)
+}
+
+/// 读出语音段；VAD 模型未安装时返回 `Ok(None)`，调用方自行退化成定长切片。
+pub(crate) fn speech_spans(
+    host: &dyn Host,
+    wav: &Path,
+) -> Result<Option<Vec<crate::cloud_asr::SpeechSpan>>, String> {
+    let Some(entry) = models::by_id("silero-vad") else {
+        return Ok(None);
+    };
+    let Some(dir) = models::installed_dir(host, entry) else {
+        return Ok(None);
+    };
+    let wave = Wave::read(&wav.to_string_lossy()).ok_or_else(|| "读取音频失败（WAV 可能损坏）".to_string())?;
+    let samples = wave.samples();
+    if samples.is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+
+    let mut vad_config = VadModelConfig::default();
+    vad_config.silero_vad = SileroVadModelConfig {
+        model: Some(dir.join("silero_vad_v5.onnx").to_string_lossy().into_owned()),
+        threshold: 0.5,
+        min_silence_duration: 0.35,
+        min_speech_duration: 0.25,
+        window_size: VAD_WINDOW as i32,
+        max_speech_duration: 15.0,
+    };
+    vad_config.sample_rate = SAMPLE_RATE;
+    vad_config.num_threads = 1;
+    let vad = VoiceActivityDetector::create(&vad_config, 30.0)
+        .ok_or_else(|| "无法创建语音检测器（VAD 模型可能损坏）".to_string())?;
+
+    let mut spans = Vec::new();
+    let mut drain = |vad: &VoiceActivityDetector, spans: &mut Vec<crate::cloud_asr::SpeechSpan>| {
+        while let Some(segment) = vad.front() {
+            let start = (segment.start().max(0) as f64) / SAMPLE_RATE as f64;
+            let seconds = segment.samples().len() as f64 / SAMPLE_RATE as f64;
+            spans.push(crate::cloud_asr::SpeechSpan {
+                start,
+                end: start + seconds,
+            });
+            vad.pop();
+        }
+    };
+
+    let mut offset = 0usize;
+    while offset < samples.len() {
+        let end = (offset + VAD_WINDOW).min(samples.len());
+        vad.accept_waveform(&samples[offset..end]);
+        offset = end;
+        drain(&vad, &mut spans);
+    }
+    vad.flush();
+    drain(&vad, &mut spans);
+    Ok(Some(spans))
+}
+
+/// 截取 `[start, end]` 秒，重新拼成带 44 字节头的 WAV。
+pub(crate) fn slice_wav(wav: &Path, start: f64, end: f64) -> Result<Vec<u8>, String> {
+    let wave = Wave::read(&wav.to_string_lossy()).ok_or_else(|| "读取音频失败（WAV 可能损坏）".to_string())?;
+    let samples = wave.samples();
+    let from = ((start * SAMPLE_RATE as f64).floor().max(0.0) as usize).min(samples.len());
+    let to = ((end * SAMPLE_RATE as f64).ceil().max(0.0) as usize).min(samples.len());
+    if to <= from {
+        return Err("音频切段为空".into());
+    }
+    let mut pcm = Vec::with_capacity((to - from) * 2);
+    for sample in &samples[from..to] {
+        let value = (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        pcm.extend_from_slice(&value.to_le_bytes());
+    }
+    Ok(crate::cloud_tts::wrap_pcm_wav(&pcm, SAMPLE_RATE as u32))
+}
+
+pub(crate) fn temp_wav_path(host: &dyn Host) -> Result<PathBuf, String> {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
@@ -212,7 +296,7 @@ fn temp_wav_path(host: &dyn Host) -> Result<PathBuf, String> {
     Ok(cache_dir(host)?.join(format!("asr-{stamp}.wav")))
 }
 
-async fn extract_wav(host: &dyn Host, source: &str, output: &PathBuf) -> Result<(), String> {
+pub(crate) async fn extract_wav(host: &dyn Host, source: &str, output: &PathBuf) -> Result<(), String> {
     let args: Vec<String> = vec![
         "-y".into(),
         "-i".into(),
@@ -940,7 +1024,7 @@ fn round(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
 }
 
-fn emit(host: &dyn Host, state: &str, progress: f32, message: Option<String>) {
+pub(crate) fn emit(host: &dyn Host, state: &str, progress: f32, message: Option<String>) {
     let payload = AsrProgress {
         state: state.to_string(),
         progress: progress.clamp(0.0, 1.0),

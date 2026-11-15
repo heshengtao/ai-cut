@@ -11,13 +11,19 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
+use crate::asr::Transcript;
+use crate::host::Host;
+use crate::network::NetworkRuntime;
+
 mod chunk;
 mod errors;
+mod merge;
 mod parse;
 mod request;
 pub use chunk::{fixed_chunks, plan_chunks, SpeechSpan};
 pub use parse::{parse_body, parse_custom, ParsedChunk};
 pub use request::endpoint;
+pub use merge::Merged;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -226,6 +232,110 @@ pub fn cloud_asr_set_config(
         normalize(provider);
     }
     state.set(CloudAsrConfig { providers })
+}
+
+// ---------------------------------------------------------------------------
+// 识别
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CloudAsrTest {
+    pub text: String,
+    pub duration: f64,
+}
+
+/// 设置页的「测试」：用一段素材跑完整链路，只回显前 40 字。
+pub async fn cloud_asr_test(
+    host: &dyn Host,
+    network: &NetworkRuntime,
+    provider: &CloudAsrProvider,
+    path: &str,
+) -> Result<CloudAsrTest, String> {
+    let result = transcribe(host, network, provider, path, None, false).await?;
+    let text: String = result
+        .cues
+        .iter()
+        .map(|cue| cue.text.as_str())
+        .collect::<Vec<&str>>()
+        .join("");
+    if text.trim().is_empty() {
+        return Err("没有识别到语音，换一个更清晰的素材试试".into());
+    }
+    Ok(CloudAsrTest {
+        text: text.chars().take(40).collect(),
+        duration: result.cues.last().map(|cue| cue.end).unwrap_or(0.0),
+    })
+}
+
+/// 云端转写：解码 → VAD 切段 → 合并成块 → 逐块识别 → 合并时间轴。
+pub async fn transcribe(
+    host: &dyn Host,
+    network: &NetworkRuntime,
+    provider: &CloudAsrProvider,
+    path: &str,
+    language: Option<String>,
+    want_words: bool,
+) -> Result<Transcript, String> {
+    if provider.api_key.trim().is_empty() && provider.kind != CloudAsrKind::Custom {
+        return Err(format!("{} 还没有填写 API Key", provider.name));
+    }
+    let client = network.client()?;
+    let wav = crate::asr::temp_wav_path(host)?;
+    crate::asr::extract_wav(host, path, &wav).await?;
+    let duration = crate::asr::wav_duration(&wav)?;
+
+    let spans = crate::asr::speech_spans(host, &wav)?;
+    let limit = if provider.max_seconds > 0.0 {
+        provider.max_seconds
+    } else {
+        kind_max_seconds(provider.kind)
+    };
+    // 16 kHz 单声道 WAV ≈ 32 KB/s，字节上限再收一次口，避免只按秒数切导致超限。
+    let byte_limit = (kind_max_bytes(provider.kind) as f64 * 0.9 / 32_000.0) as f32;
+    let limit = limit.min(byte_limit.max(5.0));
+    let blocks = match &spans {
+        Some(spans) if !spans.is_empty() => plan_chunks(spans, limit),
+        _ => fixed_chunks(duration, limit.min(30.0)),
+    };
+
+    let mut merged = Merged::default();
+    let total = blocks.len().max(1);
+    for (index, (start, end)) in blocks.iter().enumerate() {
+        if crate::asr::cancelled() {
+            let _ = std::fs::remove_file(&wav);
+            return Err("已取消".into());
+        }
+        crate::asr::emit(
+            host,
+            "transcribing",
+            0.1 + 0.85 * (index as f32 / total as f32),
+            Some(format!("正在识别第 {}/{} 段", index + 1, total)),
+        );
+        let slice = crate::asr::slice_wav(&wav, *start, *end)?;
+        let encoded =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &slice);
+        let audio = request::AudioPart {
+            wav: &slice,
+            b64: &encoded,
+            mime: "audio/wav",
+        };
+        let body = request::call(&client, provider, &audio, language.as_deref()).await?;
+        let parsed = parse::parse_body(provider.kind, provider, &body)?;
+        merge::append_chunk(&mut merged, parsed, *start, (*start, *end));
+    }
+    let _ = std::fs::remove_file(&wav);
+
+    if merged.cues.is_empty() {
+        return Err("没有识别到语音".into());
+    }
+    if !want_words {
+        merged.words.clear();
+    }
+    Ok(Transcript {
+        cues: merged.cues,
+        words: merged.words,
+        timed: merged.timed && want_words,
+    })
 }
 
 #[cfg(test)]
