@@ -32,6 +32,11 @@
   `video_gen`) also live in `crates/daemon`; the desktop commands are thin wrappers. Their
   capabilities are `ok` in the headless table — do not mark them desktop-only, and keep
   download / install / generation logic in the daemon.
+- Cloud TTS / cloud ASR live in `crates/daemon` too (`cloud_tts.rs`, `cloud_asr/`), with config in
+  `<config dir>/tts.json` and `asr.json`. Their capabilities are `cloud_tts` / `cloud_asr` in the
+  headless table. `asr_transcribe` routes any `cloud:<provider_id>` model id to
+  `cloud_asr::transcribe`; the local model path is untouched, so subtitle / cut-review /
+  reference-audio callers never branch on it.
 - Browser transport lives in `src/platform/tauri.ts` (`invoke` / `listen` / `convertFileSrc`
   switch between Tauri and HTTP). Command names and argument names stay identical to Rust.
 - Access token is `<data dir>/web-token`, passed as `?token=` (WS/SSE/`<video>` cannot send

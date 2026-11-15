@@ -252,7 +252,7 @@ pub async fn cloud_asr_test(
     provider: &CloudAsrProvider,
     path: &str,
 ) -> Result<CloudAsrTest, String> {
-    let result = transcribe(host, network, provider, path, None, false).await?;
+    let result = transcribe_inner(host, network, provider, path, None, false, Some(30.0)).await?;
     let text: String = result
         .cues
         .iter()
@@ -277,6 +277,19 @@ pub async fn transcribe(
     language: Option<String>,
     want_words: bool,
 ) -> Result<Transcript, String> {
+    transcribe_inner(host, network, provider, path, language, want_words, None).await
+}
+
+/// `total_limit` 只给设置页的「测试」用：只跑前 N 秒，别为一次测试把整段素材传上去。
+async fn transcribe_inner(
+    host: &dyn Host,
+    network: &NetworkRuntime,
+    provider: &CloudAsrProvider,
+    path: &str,
+    language: Option<String>,
+    want_words: bool,
+    total_limit: Option<f64>,
+) -> Result<Transcript, String> {
     if provider.api_key.trim().is_empty() && provider.kind != CloudAsrKind::Custom {
         return Err(format!("{} 还没有填写 API Key", provider.name));
     }
@@ -284,6 +297,7 @@ pub async fn transcribe(
     let wav = crate::asr::temp_wav_path(host)?;
     crate::asr::extract_wav(host, path, &wav).await?;
     let duration = crate::asr::wav_duration(&wav)?;
+    let samples = crate::asr::read_samples(&wav)?;
 
     let spans = crate::asr::speech_spans(host, &wav)?;
     let limit = if provider.max_seconds > 0.0 {
@@ -294,10 +308,17 @@ pub async fn transcribe(
     // 16 kHz 单声道 WAV ≈ 32 KB/s，字节上限再收一次口，避免只按秒数切导致超限。
     let byte_limit = (kind_max_bytes(provider.kind) as f64 * 0.9 / 32_000.0) as f32;
     let limit = limit.min(byte_limit.max(5.0));
-    let blocks = match &spans {
+    let duration = total_limit.map(|limit| duration.min(limit)).unwrap_or(duration);
+    let mut blocks = match &spans {
         Some(spans) if !spans.is_empty() => plan_chunks(spans, limit),
         _ => fixed_chunks(duration, limit.min(30.0)),
     };
+    if let Some(limit) = total_limit {
+        blocks.retain(|(start, _)| *start < limit);
+        for block in &mut blocks {
+            block.1 = block.1.min(limit);
+        }
+    }
 
     let mut merged = Merged::default();
     let total = blocks.len().max(1);
@@ -312,7 +333,7 @@ pub async fn transcribe(
             0.1 + 0.85 * (index as f32 / total as f32),
             Some(format!("正在识别第 {}/{} 段", index + 1, total)),
         );
-        let slice = crate::asr::slice_wav(&wav, *start, *end)?;
+        let slice = crate::asr::samples_to_wav(&samples, *start, *end)?;
         let encoded =
             base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &slice);
         let audio = request::AudioPart {

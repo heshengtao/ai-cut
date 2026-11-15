@@ -303,10 +303,14 @@ pub(crate) fn speech_spans(
     Ok(Some(spans))
 }
 
-/// 截取 `[start, end]` 秒，重新拼成带 44 字节头的 WAV。
-pub(crate) fn slice_wav(wav: &Path, start: f64, end: f64) -> Result<Vec<u8>, String> {
+/// 读出整段 16 kHz 单声道样本（云端切块时只读一次）。
+pub(crate) fn read_samples(wav: &Path) -> Result<Vec<f32>, String> {
     let wave = Wave::read(&wav.to_string_lossy()).ok_or_else(|| "读取音频失败（WAV 可能损坏）".to_string())?;
-    let samples = wave.samples();
+    Ok(wave.samples().to_vec())
+}
+
+/// 从已读出的样本里截 `[start, end]` 秒，拼成带 44 字节头的 WAV。
+pub(crate) fn samples_to_wav(samples: &[f32], start: f64, end: f64) -> Result<Vec<u8>, String> {
     let from = ((start * SAMPLE_RATE as f64).floor().max(0.0) as usize).min(samples.len());
     let to = ((end * SAMPLE_RATE as f64).ceil().max(0.0) as usize).min(samples.len());
     if to <= from {
