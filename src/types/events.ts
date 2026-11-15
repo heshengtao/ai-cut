@@ -68,6 +68,8 @@ export interface Affected {
   assetIds: string[];
   /** 受影响的时间区间（秒）。 */
   range?: [number, number];
+  /** 受影响的分P；缺省视为发送方的当前分P。 */
+  episodeId?: string;
 }
 
 /** 一条已执行（或失败）的命令事件。 */
