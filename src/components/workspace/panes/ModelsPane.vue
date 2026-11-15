@@ -579,7 +579,6 @@ onUnmounted(() => {
         <span class="runtime-title">{{ i18n.t("sdcpp.group") }}</span>
         <span class="runtime-hint">{{ i18n.t("sdcpp.groupHint") }}</span>
       </div>
-      <p class="policy">{{ i18n.t("sdcpp.officialOnly") }}</p>
       <p v-if="sdcpp.error" class="runtime-error">{{ sdcpp.error }}</p>
       <ul v-if="sdcppPacks.length > 0" class="list">
         <li

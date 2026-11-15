@@ -25,6 +25,10 @@
   image depend on it compiling without GTK/WebKit.
 - `src-tauri` commands are thin wrappers that build `TauriHost` and call the daemon functions;
   keep media/project/export implementations in one place only.
+- sd.cpp engine management (`sdcpp`) and local image / video generation (`image_gen`,
+  `video_gen`) also live in `crates/daemon`; the desktop commands are thin wrappers. Their
+  capabilities are `ok` in the headless table — do not mark them desktop-only, and keep
+  download / install / generation logic in the daemon.
 - Browser transport lives in `src/platform/tauri.ts` (`invoke` / `listen` / `convertFileSrc`
   switch between Tauri and HTTP). Command names and argument names stay identical to Rust.
 - Access token is `<data dir>/web-token`, passed as `?token=` (WS/SSE/`<video>` cannot send

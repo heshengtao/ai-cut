@@ -72,6 +72,8 @@ async fn run() -> Result<(), String> {
     )));
     // 执行后端偏好只影响"装/删运行库是否需要重启"的提示，从同一份 network.json 读。
     aicut_daemon::runtime_ort::set_preference(network.get().backend_preference);
+    // sd.cpp 引擎的下载暂存目录（`.download`）可能是上次异常退出留下的：启动时清掉。
+    aicut_daemon::sdcpp::init(host.as_ref());
     // 会话创建（EP 注册 / 运行时懒加载）用同一份偏好：容器里就是随包 CPU 那份，
     // 桌面装过 CUDA 的话也能在网页模式里用上（同一台机器、同一个进程）。
     aicut_daemon::ai_session::set_preference(network.get().backend_preference);

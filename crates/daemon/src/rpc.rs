@@ -740,6 +740,31 @@ struct BackendArgs {
     preference: crate::ai_backend::BackendPreference,
 }
 
+/// `sdcpp_set_backend` 的参数（与桌面命令同名同形）。
+#[derive(Deserialize)]
+struct SdcppBackendArgs {
+    backend: crate::ai_backend::SdcppBackend,
+}
+
+/// `sdcpp_install` 的参数：`{ id, force }`。
+#[derive(Deserialize)]
+struct SdcppInstallArgs {
+    id: String,
+    #[serde(default)]
+    force: Option<bool>,
+}
+
+/// `image_gen_start` / `video_gen_start` 的参数：整个请求对象塞在 `request` 里。
+#[derive(Deserialize)]
+struct ImageGenStartArgs {
+    request: crate::image_gen::ImageGenRequest,
+}
+
+#[derive(Deserialize)]
+struct VideoGenStartArgs {
+    request: crate::video_gen::VideoGenRequest,
+}
+
 /// `asr_*` 把宿主按 `Arc` 拿走（要在阻塞线程里继续用），这里做一次浅拷贝。
 fn host_arc(ctx: &RpcCtx) -> &std::sync::Arc<dyn Host> {
     &ctx.host
@@ -812,6 +837,62 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
             Ok(Value::Null)
         }
         "model_reveal" => Err("在文件管理器中显示模型需要桌面应用".to_string()),
+        // ---- sd.cpp 引擎（stable-diffusion.cpp）与本地出图 / 出视频 ----
+        "sdcpp_catalog" => Ok(json!(crate::sdcpp::sdcpp_catalog(host, &ctx.network))),
+        "sdcpp_info" => Ok(json!(crate::sdcpp::sdcpp_info(host, &ctx.network))),
+        "sdcpp_set_backend" => {
+            let args: SdcppBackendArgs = from_value(args)?;
+            Ok(json!(crate::sdcpp::sdcpp_set_backend(
+                host,
+                &ctx.network,
+                args.backend
+            )?))
+        }
+        "sdcpp_select" => {
+            let args: OptionalIdArgs = from_value(args)?;
+            crate::sdcpp::sdcpp_select(host, &ctx.network, args.id)?;
+            Ok(Value::Null)
+        }
+        "sdcpp_remove" => {
+            let args: IdArgs = from_value(args)?;
+            crate::sdcpp::sdcpp_remove(host, args.id)?;
+            Ok(Value::Null)
+        }
+        "sdcpp_cancel" => {
+            crate::sdcpp::sdcpp_cancel();
+            Ok(Value::Null)
+        }
+        "sdcpp_busy" => Ok(json!(crate::sdcpp::sdcpp_busy())),
+        "sdcpp_install" => {
+            let args: SdcppInstallArgs = from_value(args)?;
+            crate::sdcpp::sdcpp_install(host, &ctx.network, args.id, args.force).await?;
+            Ok(Value::Null)
+        }
+        "sdcpp_reveal" => Err("在文件管理器中显示引擎需要桌面应用".to_string()),
+        "image_gen_start" => {
+            let args: ImageGenStartArgs = from_value(args)?;
+            Ok(json!(
+                crate::image_gen::image_gen_start(host_arc(&ctx), &ctx.network, args.request)
+                    .await?
+            ))
+        }
+        "image_gen_cancel" => {
+            crate::image_gen::image_gen_cancel();
+            Ok(Value::Null)
+        }
+        "image_gen_busy" => Ok(json!(crate::image_gen::image_gen_busy())),
+        "video_gen_start" => {
+            let args: VideoGenStartArgs = from_value(args)?;
+            Ok(json!(
+                crate::video_gen::video_gen_start(host_arc(&ctx), &ctx.network, args.request)
+                    .await?
+            ))
+        }
+        "video_gen_cancel" => {
+            crate::video_gen::video_gen_cancel();
+            Ok(Value::Null)
+        }
+        "video_gen_busy" => Ok(json!(crate::video_gen::video_gen_busy())),
         // ---- 无模型视频处理（滤镜链 + 一次 ffmpeg 转码） ----
         "video_dsp_process" => {
             let args: VideoDspArgs = from_value(args)?;

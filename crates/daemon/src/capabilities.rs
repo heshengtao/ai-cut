@@ -58,15 +58,6 @@ const fn desktop(key: &'static str, reason: &'static str, fallback: &'static str
     }
 }
 
-const fn unsupported(key: &'static str, reason: &'static str) -> Capability {
-    Capability {
-        key,
-        state: State::Unsupported,
-        reason,
-        fallback: "",
-    }
-}
-
 /// 无头（浏览器 / 容器）形态的能力表。
 ///
 /// 桌面壳**不走这张表**：它没有 HTTP 命令面，前端直接 `invoke`，全部能力都在。
@@ -126,15 +117,14 @@ pub const HEADLESS: &[Capability] = &[
     // ---- 系统级 ----
     desktop("cli", "caps.reason.needsPath", ""),
     desktop("data_dir", "caps.reason.needsPath", ""),
-    // ---- 未下沉（不是"容器没有 GPU"）----
-    // 本地出图 / 出视频由 sd.cpp 生成器完成，这份生成器只有桌面实现；云端出图三形态都可用。
-    // 容器**可以**拿到 GPU：Linux 宿主 + NVIDIA 容器运行时（`--gpus all` / CDI）即可，
-    // ORT 的 CUDA EP 在本 daemon 里就有对应的 Linux 运行库包（见 `runtime_catalog`）。
-    // macOS 上的 Docker Desktop 例外——它的 Linux 虚拟机不透传 Apple GPU。
-    // 所以这里标的是"生成器没搬过来"，不是"物理上不可能"。
-    unsupported("image_gen", "caps.reason.localGenDesktopOnly"),
-    unsupported("video_gen", "caps.reason.localGenDesktopOnly"),
-    unsupported("sdcpp", "caps.reason.localGenDesktopOnly"),
+    // ---- 本地生成（sd.cpp）----
+    // 引擎管理（下载 / 安装 / 选择 / 删除）与本地出图 / 出视频都已下沉到 daemon，
+    // 桌面与浏览器共用同一份实现；容器**可以**拿到 GPU（Linux 宿主 + NVIDIA 容器运行时
+    // `--gpus all` / CDI），没有 GPU 时 sd.cpp 也会退回 CPU 跑。
+    // 没装引擎 / 权重时缺的是「组件」而不是「能力」，由引擎层给出"先下载 xxx"的明确错误。
+    ok("image_gen"),
+    ok("video_gen"),
+    ok("sdcpp"),
 ];
 
 /// 查一条能力；未知 key 返回 `None`（前端据此保留旧行为，而不是误判为不可用）。
