@@ -830,11 +830,6 @@ onUnmounted(() => {
       <button class="board-tool" type="button" :title="i18n.t('board.zoomIn')" @click="zoomIn({ duration: 160 })">
         <PlusIcon />
       </button>
-      <span class="board-sep" aria-hidden="true" />
-      <span class="board-hint">
-        <CursorArrowRaysIcon />
-        {{ i18n.t("board.panHint") }}
-      </span>
     </div>
 
     <div v-if="dropActive" class="board-drop" aria-hidden="true">{{ i18n.t("board.dropHint") }}</div>
@@ -1048,20 +1043,6 @@ onUnmounted(() => {
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   color: rgb(var(--md-on-surface-variant));
-}
-.board-hint {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px;
-  white-space: nowrap;
-  font-size: 11px;
-  color: rgb(var(--md-on-surface-variant) / 0.8);
-}
-.board-hint :deep(svg) {
-  width: 14px;
-  height: 14px;
 }
 .board-drop {
   position: absolute;

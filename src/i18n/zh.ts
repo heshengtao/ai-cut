@@ -2525,6 +2525,19 @@ const zh: Record<string, string> = {
   "board.gridSnap": "网格吸附",
 
   "board.connect.title": "连接到新节点",
+
+  "board.node.dropImage": "拖入或点击选择图片",
+  "board.node.dropVideo": "拖入或点击选择视频",
+  "board.node.dropAudio": "拖入或点击选择音频",
+  "board.node.dropHint": "支持一次选多张图片",
+  "board.node.nextImage": "下一张",
+  "board.inspect.addImages": "添加图片",
+
+  "board.inspect.runSection": "运行",
+  "board.inspect.stackCount": "{count} 张",
+
+  "board.node.waitingMedia": "等待上游素材",
+  "board.node.waitingHint": "把输入节点或模型节点的输出连到这里",
 };
 
 export default zh;

@@ -1,14 +1,18 @@
 <script setup lang="ts">
 /**
- * 画布检查器：节点的所有操作都在这里（卡片上只做展示）。
+ * 画布检查器（MD3）：节点的所有编辑都在这里。
  *
- * 输入节点：选本地文件 / 从素材库挑；显示节点：插入当前分P 时间线。
- * 参数按注册表的 ParamSpec 渲染，模型节点的模型下拉在模型节点阶段接入。
+ * 版式对齐 ai-board 的 inspector：节点标题条 → 分区小标题（大写小字）→ 字段
+ * （标签 + MD3 输入框）→ 媒体预览卡 → 操作按钮。图片输入支持多张（牌堆），
+ * 这里用缩略图网格管理。
  */
 import { computed, onMounted, ref } from "vue";
 import {
   ArrowDownTrayIcon,
+  CheckIcon,
+  DocumentDuplicateIcon,
   FolderOpenIcon,
+  PlusIcon,
   RectangleStackIcon,
   TrashIcon,
   XMarkIcon,
@@ -22,17 +26,19 @@ import { useModelsStore } from "@/stores/models";
 import { useBoardRun } from "@/composables/useBoardRun";
 import { useAssetDownload } from "@/composables/useAssetDownload";
 import { nodeDefinition } from "@/core/board/registry";
+import { nodeIcon } from "@/components/board/nodeIcons";
 import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
 import { providersForCapability } from "@/utils/cloudGen";
-import type { CloudGenPreset, CloudGenProvider } from "@/types/cloudGen";
-import type { ModelFeature } from "@/types/models";
 import { importAssetAt, pickMediaFiles } from "@/core/media";
 import { addAsset } from "@/core/ops";
 import { insertImportedAssets } from "@/core/importInsert";
 import { assetThumbnailUrl } from "@/core/thumbnails";
 import { copyText } from "@/utils/clipboard";
 import { toast } from "@/composables/useToast";
+import type { CloudGenPreset, CloudGenProvider } from "@/types/cloudGen";
+import type { ModelFeature } from "@/types/models";
 import type { BoardParamSpec } from "@/types/board";
+import type { MediaAsset } from "@/types/project";
 
 const i18n = useI18n();
 const board = useBoardStore();
@@ -45,6 +51,46 @@ const { download } = useAssetDownload();
 
 const cloudProviders = ref<CloudGenProvider[]>([]);
 const cloudPresets = ref<CloudGenPreset[]>([]);
+
+const node = computed(() => board.nodes.find((item) => item.id === board.selection[0]) ?? null);
+const definition = computed(() => (node.value ? nodeDefinition(node.value.type) : null));
+const title = computed(() => {
+  if (!node.value) return "";
+  if (node.value.data.title) return node.value.data.title;
+  return definition.value ? i18n.t(definition.value.titleKey) : node.value.type;
+});
+const isModel = computed(() => definition.value?.category === "model");
+const isImageNode = computed(() => definition.value?.assetKind === "image");
+
+/** 图片牌堆（图片输入可放多张）。 */
+const stack = computed<MediaAsset[]>(() => {
+  const current = node.value;
+  if (!current) return [];
+  const ids = current.data.assetIds ?? (current.data.assetId ? [current.data.assetId] : []);
+  return ids
+    .map((id) => project.doc.assets.find((asset) => asset.id === id))
+    .filter((asset): asset is MediaAsset => Boolean(asset));
+});
+const stackIndex = computed(() =>
+  Math.min(Math.max(0, node.value?.data.stackIndex ?? 0), Math.max(0, stack.value.length - 1)),
+);
+
+const asset = computed(() => {
+  const current = node.value;
+  if (!current) return null;
+  if (isImageNode.value) return stack.value[stackIndex.value] ?? null;
+  const id = current.data.assetId ?? current.data.outputAssetId;
+  return id ? project.doc.assets.find((item) => item.id === id) ?? null : null;
+});
+const outputAsset = computed(() => {
+  const id = node.value?.data.outputAssetId;
+  return id ? project.doc.assets.find((item) => item.id === id) ?? null : null;
+});
+const assetOptions = computed(() => {
+  const kind = definition.value?.assetKind;
+  return project.doc.assets.filter((item) => !kind || item.kind === kind);
+});
+const params = computed<BoardParamSpec[]>(() => definition.value?.params ?? []);
 
 onMounted(() => {
   void models.load();
@@ -61,60 +107,6 @@ async function loadCloudProviders(): Promise<void> {
   }
 }
 
-/** 动态模型下拉：本地模型 + 云端服务并排，值形如 local:/cloud:。 */
-function modelOptions(spec: BoardParamSpec): { value: string; label: string }[] {
-  if (!spec.model) return [];
-  const options: { value: string; label: string }[] = [];
-  for (const model of models.ofFeature(spec.model.feature as ModelFeature)) {
-    options.push({
-      value: `local:${model.id}`,
-      label: model.installed ? model.name : `${model.name} · ${i18n.t("board.inspect.missing")}`,
-    });
-  }
-  if (spec.model.capability) {
-    for (const provider of providersForCapability(
-      cloudProviders.value,
-      spec.model.capability as never,
-      cloudPresets.value,
-    )) {
-      options.push({ value: `cloud:${provider.id}`, label: `${provider.name} · ${i18n.t("board.inspect.cloud")}` });
-    }
-  }
-  return options;
-}
-
-function paramOptions(spec: BoardParamSpec): { value: string; label: string }[] {
-  if (spec.model) return modelOptions(spec);
-  return (spec.options ?? []).map((option) => ({ value: option.value, label: i18n.t(option.labelKey) }));
-}
-
-function runNode(): void {
-  if (!node.value) return;
-  run.runNode(node.value.id);
-}
-
-const node = computed(() => board.nodes.find((item) => item.id === board.selection[0]) ?? null);
-const definition = computed(() => (node.value ? nodeDefinition(node.value.type) : null));
-
-const title = computed(() => {
-  if (!node.value) return "";
-  if (node.value.data.title) return node.value.data.title;
-  return definition.value ? i18n.t(definition.value.titleKey) : node.value.type;
-});
-
-const asset = computed(() => {
-  const id = node.value?.data.assetId ?? node.value?.data.outputAssetId;
-  if (!id) return null;
-  return project.doc.assets.find((item) => item.id === id) ?? null;
-});
-
-const assetOptions = computed(() => {
-  const kind = definition.value?.assetKind;
-  return project.doc.assets.filter((item) => !kind || item.kind === kind);
-});
-
-const params = computed<BoardParamSpec[]>(() => definition.value?.params ?? []);
-
 function setTitle(event: Event): void {
   if (!node.value) return;
   const value = (event.target as HTMLInputElement).value.trim();
@@ -123,9 +115,7 @@ function setTitle(event: Event): void {
 
 function setParam(spec: BoardParamSpec, value: unknown): void {
   if (!node.value) return;
-  board.updateNodeData(node.value.id, {
-    params: { ...node.value.data.params, [spec.id]: value },
-  });
+  board.updateNodeData(node.value.id, { params: { ...node.value.data.params, [spec.id]: value } });
 }
 
 function paramValue(spec: BoardParamSpec): string {
@@ -139,34 +129,103 @@ function paramBool(spec: BoardParamSpec): boolean {
   return typeof current === "boolean" ? current : spec.default === true;
 }
 
+/** 动态模型下拉：本地模型 + 云端服务并排，值形如 local: / cloud:。 */
+function paramOptions(spec: BoardParamSpec): { value: string; label: string }[] {
+  if (spec.model) {
+    const options: { value: string; label: string }[] = [];
+    for (const model of models.ofFeature(spec.model.feature as ModelFeature)) {
+      options.push({
+        value: `local:${model.id}`,
+        label: model.installed ? model.name : `${model.name} · ${i18n.t("board.inspect.missing")}`,
+      });
+    }
+    if (spec.model.capability) {
+      for (const provider of providersForCapability(
+        cloudProviders.value,
+        spec.model.capability as never,
+        cloudPresets.value,
+      )) {
+        options.push({
+          value: `cloud:${provider.id}`,
+          label: `${provider.name} · ${i18n.t("board.inspect.cloud")}`,
+        });
+      }
+    }
+    return options;
+  }
+  return (spec.options ?? []).map((option) => ({ value: option.value, label: i18n.t(option.labelKey) }));
+}
+
+/* ---------- 素材 ---------- */
+
 async function pickFiles(): Promise<void> {
-  if (!node.value) return;
+  const current = node.value;
+  if (!current) return;
   const files = await pickMediaFiles();
   for (const path of files) {
     try {
       const imported = await importAssetAt(path);
       project.dispatch((doc) => addAsset(doc, imported));
-      board.updateNodeData(node.value.id, { assetId: imported.id });
+      if (isImageNode.value) appendToStack(imported.id);
+      else board.updateNodeData(current.id, { assetId: imported.id, assetIds: undefined });
     } catch (error) {
       toast(String(error), "error");
     }
   }
 }
 
+function appendToStack(assetId: string): void {
+  const current = node.value;
+  if (!current) return;
+  const ids = [...stack.value.map((item) => item.id), assetId];
+  board.updateNodeData(current.id, {
+    assetIds: ids,
+    stackIndex: ids.length - 1,
+    assetId,
+  });
+}
+
 function pickAsset(event: Event): void {
-  if (!node.value) return;
+  const current = node.value;
+  if (!current) return;
   const id = (event.target as HTMLSelectElement).value;
-  board.updateNodeData(node.value.id, { assetId: id || undefined });
+  (event.target as HTMLSelectElement).value = "";
+  if (!id) return;
+  if (isImageNode.value) appendToStack(id);
+  else board.updateNodeData(current.id, { assetId: id, assetIds: undefined });
+}
+
+function showInStack(index: number): void {
+  const current = node.value;
+  if (!current) return;
+  board.updateNodeData(current.id, { stackIndex: index, assetId: stack.value[index]?.id });
+}
+
+function removeFromStack(assetId: string): void {
+  const current = node.value;
+  if (!current) return;
+  const ids = stack.value.map((item) => item.id).filter((id) => id !== assetId);
+  board.updateNodeData(current.id, {
+    assetIds: ids.length > 0 ? ids : undefined,
+    stackIndex: 0,
+    assetId: ids[0],
+  });
 }
 
 function clearAsset(): void {
   if (!node.value) return;
-  board.updateNodeData(node.value.id, { assetId: undefined });
+  board.updateNodeData(node.value.id, { assetId: undefined, assetIds: undefined, stackIndex: 0 });
 }
 
-/** 显示节点的"一键导出"：把素材插到当前分P 的播放头处。 */
+/* ---------- 动作 ---------- */
+
+function runNode(): void {
+  if (node.value) run.runNode(node.value.id);
+}
+
+/** 显示节点的"一键导出"：插到当前分P 的播放头处。 */
 function insertToTimeline(): void {
-  const current = asset.value;
+  const current = asset.value ?? outputAsset.value;
   if (!current) return;
   let placed = 0;
   project.dispatch((doc) => {
@@ -179,15 +238,19 @@ function insertToTimeline(): void {
 }
 
 async function downloadAsset(): Promise<void> {
-  const current = asset.value;
+  const current = asset.value ?? outputAsset.value;
   if (current) await download(current);
 }
 
 async function copyPath(): Promise<void> {
-  const current = asset.value;
+  const current = asset.value ?? outputAsset.value;
   if (!current) return;
   await copyText(current.src);
   toast(i18n.t("board.inspect.pathCopied"));
+}
+
+function duplicate(): void {
+  if (node.value) board.duplicateNode(node.value.id);
 }
 
 function remove(): void {
@@ -201,60 +264,110 @@ function remove(): void {
 <template>
   <div class="board-inspector">
     <template v-if="node && definition">
-      <section class="bi-section">
-        <p class="bi-label">{{ i18n.t("board.inspect.node") }}</p>
-        <input class="bi-input" type="text" :value="title" @change="setTitle" />
-        <div class="bi-meta">
-          <span class="bi-status" :data-state="node.data.status ?? 'idle'">
-            {{ i18n.t(`board.status.${node.data.status ?? "idle"}`) }}
-          </span>
-          <span class="bi-type">{{ node.type }}</span>
+      <!-- 节点标题条 -->
+      <div class="insp-node">
+        <span class="insp-node-icon">
+          <component :is="nodeIcon(node.type)" />
+        </span>
+        <div class="insp-node-copy">
+          <input class="insp-node-title" :value="title" @change="setTitle" />
+          <span class="insp-node-type">{{ node.type }}</span>
         </div>
-        <p v-if="node.data.error" class="bi-error">{{ node.data.error }}</p>
+        <span class="insp-node-status" :data-state="node.data.status ?? 'idle'">
+          {{ i18n.t(`board.status.${node.data.status ?? "idle"}`) }}
+        </span>
+      </div>
+
+      <!-- 运行（模型节点） -->
+      <section v-if="isModel" class="insp-section">
+        <p class="insp-title">{{ i18n.t("board.inspect.runSection") }}</p>
+        <div class="insp-actions">
+          <button class="md-btn filled" type="button" @click="runNode">
+            {{ i18n.t("board.inspect.run") }}
+          </button>
+          <button class="md-btn text" type="button" @click="duplicate">
+            <DocumentDuplicateIcon />{{ i18n.t("board.ctx.duplicate") }}
+          </button>
+        </div>
+        <p v-if="node.data.error" class="insp-error">{{ node.data.error }}</p>
+        <div v-if="node.data.outputText" class="insp-output-text">{{ node.data.outputText }}</div>
       </section>
 
-      <section v-if="definition.category !== 'model'" class="bi-section">
-        <p class="bi-label">{{ i18n.t("board.inspect.media") }}</p>
-        <div class="bi-asset">
-          <img v-if="asset && assetThumbnailUrl(asset)" class="bi-thumb" :src="assetThumbnailUrl(asset)!" :alt="asset.name" />
-          <div class="bi-asset-copy">
-            <span class="bi-asset-name">{{ asset?.name ?? i18n.t("board.node.noAsset") }}</span>
-            <span v-if="asset" class="bi-asset-src" :title="asset.src">{{ asset.src }}</span>
-          </div>
+      <!-- 素材 -->
+      <section v-if="!isModel" class="insp-section">
+        <p class="insp-title">
+          {{ i18n.t("board.inspect.media") }}
+          <span v-if="isImageNode && stack.length > 1" class="insp-count">
+            {{ i18n.t("board.inspect.stackCount", { count: stack.length }) }}
+          </span>
+        </p>
+
+        <!-- 图片：牌堆缩略图网格 -->
+        <div v-if="isImageNode" class="insp-stack">
+          <button
+            v-for="(item, index) in stack"
+            :key="item.id"
+            type="button"
+            class="insp-stack-item"
+            :class="{ on: index === stackIndex }"
+            :title="item.name"
+            @click="showInStack(index)"
+          >
+            <img v-if="assetThumbnailUrl(item)" :src="assetThumbnailUrl(item)!" :alt="item.name" />
+            <span class="insp-stack-index">{{ index + 1 }}</span>
+            <span class="insp-stack-remove" role="button" :title="i18n.t('common.remove')" @click.stop="removeFromStack(item.id)">
+              <XMarkIcon />
+            </span>
+            <span v-if="index === stackIndex" class="insp-stack-check"><CheckIcon /></span>
+          </button>
+          <button class="insp-stack-add" type="button" :title="i18n.t('board.inspect.addImages')" @click="pickFiles">
+            <PlusIcon />
+          </button>
         </div>
-        <div class="bi-row">
-          <button class="bi-btn" type="button" @click="pickFiles">
+
+        <!-- 视频 / 音频：单张媒体卡 -->
+        <div v-else-if="asset" class="insp-media">
+          <img v-if="assetThumbnailUrl(asset)" :src="assetThumbnailUrl(asset)!" :alt="asset.name" />
+          <div class="insp-media-copy">
+            <strong>{{ asset.name }}</strong>
+            <span>{{ asset.src }}</span>
+          </div>
+          <button class="insp-media-x" type="button" :title="i18n.t('board.inspect.clearMedia')" @click="clearAsset">
+            <XMarkIcon />
+          </button>
+        </div>
+        <p v-else class="insp-hint">{{ i18n.t("board.node.noAsset") }}</p>
+
+        <div class="insp-actions">
+          <button class="md-btn tonal" type="button" @click="pickFiles">
             <FolderOpenIcon />{{ i18n.t("board.inspect.pickFile") }}
           </button>
-          <button v-if="asset" class="bi-btn" type="button" @click="clearAsset">
-            <XMarkIcon />{{ i18n.t("board.inspect.clearMedia") }}
-          </button>
+          <label v-if="assetOptions.length > 0" class="md-btn outlined file-btn">
+            <RectangleStackIcon />
+            <span>{{ i18n.t("board.inspect.pickAsset") }}</span>
+            <select class="insp-asset-select" :value="''" @change="pickAsset">
+              <option value="">{{ i18n.t("board.inspect.pickAsset") }}</option>
+              <option v-for="item in assetOptions" :key="item.id" :value="item.id">{{ item.name }}</option>
+            </select>
+          </label>
         </div>
-        <label v-if="assetOptions.length > 0" class="bi-select-row">
-          <RectangleStackIcon />
-          <select class="bi-select" :value="node.data.assetId ?? ''" @change="pickAsset">
-            <option value="">{{ i18n.t("board.inspect.pickAsset") }}</option>
-            <option v-for="item in assetOptions" :key="item.id" :value="item.id">
-              {{ item.name }}
-            </option>
-          </select>
-        </label>
       </section>
 
-      <section v-if="params.length > 0" class="bi-section">
-        <p class="bi-label">{{ i18n.t("board.inspect.params") }}</p>
-        <label v-for="spec in params" :key="spec.id" class="bi-field">
+      <!-- 参数 -->
+      <section v-if="params.length > 0" class="insp-section">
+        <p class="insp-title">{{ i18n.t("board.inspect.params") }}</p>
+        <label v-for="spec in params" :key="spec.id" class="md-field">
           <span>{{ i18n.t(spec.labelKey) }}</span>
           <textarea
             v-if="spec.kind === 'longtext'"
-            class="bi-textarea"
+            class="md-textarea"
             rows="4"
             :value="paramValue(spec)"
             @input="setParam(spec, ($event.target as HTMLTextAreaElement).value)"
           />
           <select
             v-else-if="spec.kind === 'select'"
-            class="bi-select"
+            class="md-select"
             :value="paramValue(spec)"
             @change="setParam(spec, ($event.target as HTMLSelectElement).value)"
           >
@@ -263,69 +376,80 @@ function remove(): void {
               {{ option.label }}
             </option>
           </select>
-          <input
+          <button
             v-else-if="spec.kind === 'toggle'"
-            class="bi-check"
-            type="checkbox"
-            :checked="paramBool(spec)"
-            @change="setParam(spec, ($event.target as HTMLInputElement).checked)"
-          />
+            class="md-switch"
+            type="button"
+            role="switch"
+            :aria-checked="paramBool(spec)"
+            :data-on="paramBool(spec) ? 'true' : 'false'"
+            @click="setParam(spec, !paramBool(spec))"
+          >
+            <span class="md-switch-thumb" />
+          </button>
           <input
             v-else
-            class="bi-input"
+            class="md-input"
             :type="spec.kind === 'number' || spec.kind === 'seed' ? 'number' : 'text'"
             :min="spec.min"
             :max="spec.max"
             :step="spec.step"
             :value="paramValue(spec)"
-            @change="setParam(spec, spec.kind === 'number' || spec.kind === 'seed' ? Number(($event.target as HTMLInputElement).value) : ($event.target as HTMLInputElement).value)"
+            @change="
+              setParam(
+                spec,
+                spec.kind === 'number' || spec.kind === 'seed'
+                  ? Number(($event.target as HTMLInputElement).value)
+                  : ($event.target as HTMLInputElement).value,
+              )
+            "
           />
         </label>
       </section>
 
-      <section class="bi-section">
-        <p class="bi-label">{{ i18n.t("board.inspect.output") }}</p>
-        <div class="bi-row wrap">
-          <span class="bi-status" :data-state="node.data.status ?? 'idle'">
-            {{ i18n.t(`board.status.${node.data.status ?? "idle"}`) }}
-          </span>
-          <span v-if="node.data.outputText" class="bi-output-chars">
-            {{ i18n.t("board.inspect.chars", { count: node.data.outputText.length }) }}
-          </span>
-          <span v-else-if="!asset" class="bi-output-empty">{{ i18n.t("board.inspect.outputEmpty") }}</span>
+      <!-- 输出 -->
+      <section class="insp-section">
+        <p class="insp-title">{{ i18n.t("board.inspect.output") }}</p>
+        <div class="insp-output">
+          <img
+            v-if="outputAsset && assetThumbnailUrl(outputAsset)"
+            class="insp-output-thumb"
+            :src="assetThumbnailUrl(outputAsset)!"
+            :alt="outputAsset.name"
+          />
+          <div class="insp-output-copy">
+            <strong>{{ outputAsset?.name ?? i18n.t("board.inspect.outputEmpty") }}</strong>
+            <span v-if="node.data.outputText">
+              {{ i18n.t("board.inspect.chars", { count: node.data.outputText.length }) }}
+            </span>
+            <span v-else-if="outputAsset" class="insp-mono">{{ outputAsset.kind }}</span>
+          </div>
         </div>
       </section>
 
-      <section class="bi-section">
-        <p class="bi-label">{{ i18n.t("board.inspect.actions") }}</p>
-        <div class="bi-row wrap">
-          <button
-            v-if="definition.category === 'model'"
-            class="bi-btn primary"
-            type="button"
-            @click="runNode"
-          >
-            {{ i18n.t("board.inspect.run") }}
-          </button>
-          <button v-if="asset" class="bi-btn" type="button" @click="insertToTimeline">
+      <!-- 操作 -->
+      <section class="insp-section">
+        <p class="insp-title">{{ i18n.t("board.inspect.actions") }}</p>
+        <div class="insp-actions wrap">
+          <button v-if="asset || outputAsset" class="md-btn tonal" type="button" @click="insertToTimeline">
             <ArrowDownTrayIcon />{{ i18n.t("board.inspect.insertTimeline") }}
           </button>
-          <button v-if="asset" class="bi-btn" type="button" @click="downloadAsset">
+          <button v-if="asset || outputAsset" class="md-btn text" type="button" @click="downloadAsset">
             {{ i18n.t("board.inspect.download") }}
           </button>
-          <button v-if="asset" class="bi-btn" type="button" @click="copyPath">
+          <button v-if="asset || outputAsset" class="md-btn text" type="button" @click="copyPath">
             {{ i18n.t("board.inspect.copyPath") }}
           </button>
-          <button class="bi-btn danger" type="button" @click="remove">
+          <button class="md-btn text danger" type="button" @click="remove">
             <TrashIcon />{{ i18n.t("common.delete") }}
           </button>
         </div>
       </section>
     </template>
 
-    <div v-else class="bi-empty">
-      <p class="bi-empty-title">{{ i18n.t("board.inspect.empty") }}</p>
-      <p class="bi-empty-hint">{{ i18n.t("board.inspect.emptyHint") }}</p>
+    <div v-else class="insp-empty">
+      <p class="insp-empty-title">{{ i18n.t("board.inspect.empty") }}</p>
+      <p class="insp-empty-hint">{{ i18n.t("board.inspect.emptyHint") }}</p>
     </div>
   </div>
 </template>
@@ -337,178 +461,455 @@ function remove(): void {
   padding: 12px 14px 24px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
-.bi-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.bi-label {
-  margin: 0;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: rgb(var(--md-on-surface-variant) / 0.85);
-}
-.bi-input,
-.bi-textarea,
-.bi-select {
-  width: 100%;
-  padding: 7px 9px;
-  border: 1px solid rgb(var(--md-outline-variant) / 0.7);
-  border-radius: 8px;
-  background-color: rgb(var(--md-surface-container-high) / 0.6);
-  font-size: 12.5px;
-  color: rgb(var(--md-on-surface));
-  outline: none;
-}
-.bi-input:focus,
-.bi-textarea:focus,
-.bi-select:focus {
-  border-color: rgb(var(--md-primary));
-}
-.bi-textarea {
-  resize: vertical;
-  min-height: 68px;
-  font-family: inherit;
-  line-height: 1.5;
-}
-.bi-meta {
+
+/* 节点标题条（ai-board 的 inspector-node-title） */
+.insp-node {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: var(--app-inset);
+  border: 1px solid rgb(var(--md-outline-variant) / 0.3);
+}
+.insp-node-icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: rgb(var(--md-primary-container) / 0.7);
+  color: rgb(var(--md-on-primary-container));
+}
+.insp-node-icon :deep(svg) {
+  width: 16px;
+  height: 16px;
+}
+.insp-node-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.insp-node-title {
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 650;
+  color: rgb(var(--md-on-surface));
+  padding: 0;
+}
+.insp-node-type {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8.5px;
+  color: rgb(var(--md-on-surface-variant));
+}
+.insp-node-status {
+  flex: 0 0 auto;
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: rgb(var(--md-on-surface-variant));
+  background: rgb(var(--md-on-surface-variant) / 0.12);
+}
+.insp-node-status[data-state="done"] {
+  color: rgb(var(--md-primary));
+  background: rgb(var(--md-primary) / 0.14);
+}
+.insp-node-status[data-state="error"] {
+  color: rgb(var(--md-error));
+  background: rgb(var(--md-error) / 0.14);
+}
+
+/* 分区 */
+.insp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.insp-title {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgb(var(--md-on-surface-variant) / 0.9);
+}
+.insp-count {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgb(var(--md-on-surface-variant) / 0.75);
+}
+.insp-hint {
+  margin: 0;
   font-size: 11px;
   color: rgb(var(--md-on-surface-variant));
 }
-.bi-status[data-state="done"] {
-  color: rgb(var(--md-primary));
+
+/* MD3 字段 */
+.md-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
-.bi-status[data-state="error"] {
+.md-field > span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: rgb(var(--md-on-surface-variant));
+}
+.md-input,
+.md-textarea,
+.md-select {
+  width: 100%;
+  border: 1px solid rgb(var(--md-outline) / 0.45);
+  border-radius: 12px;
+  background: rgb(var(--md-surface-container-lowest) / 0.55);
+  color: rgb(var(--md-on-surface));
+  padding: 9px 11px;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.md-textarea {
+  resize: vertical;
+  min-height: 84px;
+  line-height: 1.55;
+}
+.md-input:focus,
+.md-textarea:focus,
+.md-select:focus {
+  border-color: rgb(var(--md-primary) / 0.8);
+  box-shadow: 0 0 0 3px rgb(var(--md-primary) / 0.12);
+}
+.md-select {
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgb(var(--md-on-surface-variant)) 50%),
+    linear-gradient(135deg, rgb(var(--md-on-surface-variant)) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* MD3 按钮 */
+.insp-actions {
+  display: flex;
+  gap: 7px;
+}
+.insp-actions.wrap {
+  flex-wrap: wrap;
+}
+.md-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: rgb(var(--md-primary));
+  background: transparent;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.md-btn :deep(svg) {
+  width: 15px;
+  height: 15px;
+}
+.md-btn.filled {
+  color: rgb(var(--md-on-primary));
+  background: rgb(var(--md-primary));
+}
+.md-btn.tonal {
+  color: rgb(var(--md-on-secondary-container));
+  background: rgb(var(--md-secondary-container));
+}
+.md-btn.outlined {
+  border-color: rgb(var(--md-outline) / 0.55);
+  color: rgb(var(--md-on-surface-variant));
+}
+.md-btn.text:hover,
+.md-btn.outlined:hover,
+.md-btn.tonal:hover {
+  background: rgb(var(--md-on-surface-variant) / 0.1);
+}
+.md-btn.filled:hover {
+  filter: brightness(1.06);
+}
+.md-btn.danger {
   color: rgb(var(--md-error));
 }
-.bi-type {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 10.5px;
-  opacity: 0.7;
+.file-btn {
+  position: relative;
+  overflow: hidden;
 }
-.bi-error {
-  margin: 0;
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-size: 11.5px;
-  color: rgb(var(--md-on-error));
-  background-color: rgb(var(--md-error) / 0.9);
+.insp-asset-select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
-.bi-asset {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+
+/* MD3 开关 */
+.md-switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgb(var(--md-outline) / 0.6);
+  border-radius: 999px;
+  background: rgb(var(--md-surface-container-highest));
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
 }
-.bi-thumb {
-  width: 72px;
-  height: 46px;
+.md-switch[data-on="true"] {
+  background: rgb(var(--md-primary));
+  border-color: transparent;
+}
+.md-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgb(var(--md-outline));
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.18s ease;
+}
+.md-switch[data-on="true"] .md-switch-thumb {
+  transform: translateX(18px);
+  background: rgb(var(--md-on-primary));
+}
+
+/* 图片牌堆 */
+.insp-stack {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 8px;
+}
+.insp-stack-item,
+.insp-stack-add {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.5);
+  background: rgb(var(--md-surface-container-high) / 0.6);
+  padding: 0;
+  cursor: pointer;
+}
+.insp-stack-item img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: 6px;
-  flex: 0 0 auto;
-  background-color: rgb(var(--md-surface-container-highest));
+  display: block;
 }
-.bi-asset-copy {
+.insp-stack-item.on {
+  border-color: rgb(var(--md-primary));
+  box-shadow: 0 0 0 2px rgb(var(--md-primary) / 0.35);
+}
+.insp-stack-index {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 9px;
+  line-height: 15px;
+  text-align: center;
+  color: #fff;
+  background: rgb(0 0 0 / 0.55);
+}
+.insp-stack-remove {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.55);
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+.insp-stack-item:hover .insp-stack-remove {
+  opacity: 1;
+}
+.insp-stack-remove :deep(svg),
+.insp-stack-check :deep(svg) {
+  width: 11px;
+  height: 11px;
+}
+.insp-stack-check {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: rgb(var(--md-on-primary));
+  background: rgb(var(--md-primary));
+}
+.insp-stack-add {
+  display: grid;
+  place-items: center;
+  border-style: dashed;
+  color: rgb(var(--md-on-surface-variant));
+}
+.insp-stack-add :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
+
+/* 媒体卡 */
+.insp-media {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px;
+  border-radius: 12px;
+  background: rgb(var(--md-surface-container-low) / 0.65);
+  border: 1px solid rgb(var(--md-outline-variant) / 0.35);
+}
+.insp-media img {
+  width: 64px;
+  height: 52px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #000;
+}
+.insp-media-copy {
+  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.bi-asset-name {
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
+.insp-media-copy strong {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.bi-asset-src {
-  font-size: 10.5px;
-  color: rgb(var(--md-on-surface-variant) / 0.8);
   white-space: nowrap;
+  font-size: 11px;
+}
+.insp-media-copy span {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8.5px;
+  color: rgb(var(--md-on-surface-variant));
 }
-.bi-row {
-  display: flex;
-  gap: 6px;
-}
-.bi-row.wrap {
-  flex-wrap: wrap;
-}
-.bi-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid rgb(var(--md-outline-variant) / 0.7);
+.insp-media-x {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 0;
   border-radius: 999px;
   background: transparent;
-  font-size: 12px;
-  color: rgb(var(--md-on-surface));
+  color: rgb(var(--md-on-surface-variant));
   cursor: pointer;
 }
-.bi-btn:hover {
-  background-color: rgb(var(--md-on-surface-variant) / 0.1);
+.insp-media-x:hover {
+  background: rgb(var(--md-on-surface-variant) / 0.12);
+  color: rgb(var(--md-on-surface));
 }
-.bi-btn.primary {
-  border-color: transparent;
-  color: rgb(var(--md-on-primary));
-  background-color: rgb(var(--md-primary));
-}
-.bi-btn.danger:hover {
-  color: rgb(var(--md-error));
-}
-.bi-btn :deep(svg) {
+.insp-media-x :deep(svg) {
   width: 14px;
   height: 14px;
 }
-.bi-select-row {
+
+/* 输出 */
+.insp-output {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: rgb(var(--md-on-surface-variant));
+  gap: 10px;
+  padding: 9px;
+  border-radius: 12px;
+  background: rgb(var(--md-surface-container-low) / 0.5);
+  border: 1px solid rgb(var(--md-outline-variant) / 0.3);
 }
-.bi-select-row :deep(svg) {
-  width: 15px;
-  height: 15px;
+.insp-output-thumb {
+  width: 64px;
+  height: 52px;
   flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #000;
 }
-.bi-field {
+.insp-output-copy {
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+  gap: 2px;
+}
+.insp-output-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.insp-output-copy span {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8.5px;
   color: rgb(var(--md-on-surface-variant));
 }
-.bi-check {
-  width: 16px;
-  height: 16px;
-  accent-color: rgb(var(--md-primary));
+.insp-output-text {
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgb(var(--md-surface-container-low) / 0.55);
+  border: 1px solid rgb(var(--md-outline-variant) / 0.3);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: rgb(var(--md-on-surface));
 }
-.bi-output-chars,
-.bi-output-empty {
-  font-size: 11.5px;
-  color: rgb(var(--md-on-surface-variant));
+.insp-error {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: rgb(var(--md-on-error));
+  background: rgb(var(--md-error) / 0.9);
 }
-.bi-empty {
+
+/* 空态 */
+.insp-empty {
   margin-top: 40px;
   text-align: center;
   padding: 0 12px;
 }
-.bi-empty-title {
+.insp-empty-title {
   margin: 0 0 6px;
   font-size: 13px;
   font-weight: 600;
-  color: rgb(var(--md-on-surface));
 }
-.bi-empty-hint {
+.insp-empty-hint {
   margin: 0;
   font-size: 12px;
   line-height: 1.6;

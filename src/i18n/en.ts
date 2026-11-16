@@ -2525,6 +2525,19 @@ const en: Record<string, string> = {
   "board.gridSnap": "Snap to grid",
 
   "board.connect.title": "Connect to a new node",
+
+  "board.node.dropImage": "Drop or pick images",
+  "board.node.dropVideo": "Drop or pick a video",
+  "board.node.dropAudio": "Drop or pick audio",
+  "board.node.dropHint": "Multiple images are supported",
+  "board.node.nextImage": "Next image",
+  "board.inspect.addImages": "Add images",
+
+  "board.inspect.runSection": "Run",
+  "board.inspect.stackCount": "{count} images",
+
+  "board.node.waitingMedia": "Waiting for upstream",
+  "board.node.waitingHint": "Connect an input or model output here",
 };
 
 export default en;

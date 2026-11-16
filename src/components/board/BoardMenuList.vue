@@ -5,7 +5,7 @@
  * 行为对齐 ai-board 的 MenuPanel：分组标签 / 分隔线 / 图标 / 快捷键提示 /
  * 危险项 / 勾选态 / 子菜单 / 可搜索。子菜单位置按触发行的实际矩形算，并夹在视口内。
  */
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { CheckIcon, ChevronRightIcon, MagnifyingGlassIcon } from "@heroicons/vue/24/outline";
 
 export interface BoardMenuAction {
@@ -110,7 +110,26 @@ function setRow(id: string, el: Element | null): void {
   else rowEls.delete(id);
 }
 
+/** 子菜单关闭延迟：鼠标从行移到浮层要跨过 2px 间隙，立即关会点不到。 */
+let closeTimer: number | null = null;
+
+function cancelClose(): void {
+  if (closeTimer !== null) {
+    window.clearTimeout(closeTimer);
+    closeTimer = null;
+  }
+}
+
+function scheduleClose(): void {
+  cancelClose();
+  closeTimer = window.setTimeout(() => {
+    closeTimer = null;
+    submenu.value = null;
+  }, 220);
+}
+
 function openSubmenu(item: BoardMenuSubmenu): void {
+  cancelClose();
   const el = rowEls.get(item.id);
   if (!el) return;
   const rect = el.getBoundingClientRect();
@@ -124,6 +143,7 @@ function openSubmenu(item: BoardMenuSubmenu): void {
 }
 
 function closeSubmenu(): void {
+  cancelClose();
   submenu.value = null;
 }
 
@@ -134,12 +154,20 @@ function run(item: BoardMenuAction): void {
 }
 
 watch(query, () => {
-  submenu.value = null;
+  closeSubmenu();
 });
+
+onBeforeUnmount(() => cancelClose());
 </script>
 
 <template>
-  <div class="board-menu-list" :style="minWidth ? { minWidth: `${minWidth}px` } : undefined" @contextmenu.prevent>
+  <div
+    class="board-menu-list"
+    :style="minWidth ? { minWidth: `${minWidth}px` } : undefined"
+    @contextmenu.prevent
+    @mouseenter="cancelClose"
+    @mouseleave="scheduleClose"
+  >
     <label v-if="searchable" class="bm-search">
       <MagnifyingGlassIcon />
       <input
@@ -178,7 +206,7 @@ watch(query, () => {
         :class="{ danger: item.danger, checked: item.checked }"
         :disabled="item.disabled"
         :title="item.hint"
-        @mouseenter="closeSubmenu"
+        @mouseenter="scheduleClose"
         @click="run(item)"
       >
         <component :is="item.icon" v-if="item.icon" class="bm-icon" />
@@ -195,7 +223,8 @@ watch(query, () => {
         v-if="submenu"
         class="board-menu-floating"
         :style="{ left: `${submenu.left}px`, top: `${submenu.top}px` }"
-        @mouseleave="closeSubmenu"
+        @mouseenter="cancelClose"
+        @mouseleave="scheduleClose"
       >
         <BoardMenuList
           :items="submenu.items"

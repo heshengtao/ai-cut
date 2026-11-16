@@ -74,6 +74,18 @@ function normalizeNode(raw: unknown): BoardNode | null {
   };
   if (typeof rawData.title === "string" && rawData.title) data.title = rawData.title;
   if (typeof rawData.assetId === "string" && rawData.assetId) data.assetId = rawData.assetId;
+  if (Array.isArray(rawData.assetIds)) {
+    const ids = rawData.assetIds.filter(
+      (id): id is string => typeof id === "string" && id.length > 0,
+    );
+    if (ids.length > 0) {
+      data.assetIds = ids;
+      if (!data.assetId) data.assetId = ids[0];
+    }
+  }
+  if (typeof rawData.stackIndex === "number" && Number.isFinite(rawData.stackIndex)) {
+    data.stackIndex = Math.max(0, Math.floor(rawData.stackIndex));
+  }
   if (typeof rawData.outputAssetId === "string" && rawData.outputAssetId) {
     data.outputAssetId = rawData.outputAssetId;
   }

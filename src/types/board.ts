@@ -77,6 +77,10 @@ export interface BoardNodeData {
   bindings: Record<string, BoardBinding>;
   /** 输入 / 显示节点引用的素材。 */
   assetId?: string;
+  /** 图片输入可以放多张（牌堆）；`assetId` 始终等于当前展示那张。 */
+  assetIds?: string[];
+  /** 牌堆当前展示的下标。 */
+  stackIndex?: number;
   /** 最近一次运行的产物（素材 id，产物运行完自动入库）。 */
   outputAssetId?: string;
   status?: BoardNodeStatus;

@@ -43,6 +43,26 @@ describe("normalizeBoard", () => {
     });
   });
 
+  it("图片牌堆：assetIds 过滤坏值，stackIndex 夹到非负", () => {
+    const board = normalizeBoard({
+      nodes: [
+        {
+          ...node("a"),
+          data: {
+            params: {},
+            bindings: {},
+            assetId: "img-1",
+            assetIds: ["img-1", "", 42, "img-2"],
+            stackIndex: -3,
+          },
+        },
+      ],
+    });
+    expect(board.nodes[0].data.assetIds).toEqual(["img-1", "img-2"]);
+    expect(board.nodes[0].data.stackIndex).toBe(0);
+    expect(board.nodes[0].data.assetId).toBe("img-1");
+  });
+
   it("节点参数只保留可序列化的标量", () => {
     const board = normalizeBoard({
       nodes: [

@@ -18,7 +18,7 @@ const INPUT_IMAGE: BoardNodeDefinition = {
   inputs: [],
   outputs: [...IMAGE_OUT],
   params: [],
-  defaultSize: { width: 240, height: 170 },
+  defaultSize: { width: 340, height: 260 },
   assetKind: "image",
 };
 
@@ -30,7 +30,7 @@ const INPUT_VIDEO: BoardNodeDefinition = {
   inputs: [],
   outputs: [{ id: "video", type: "video", labelKey: "board.port.video" }],
   params: [],
-  defaultSize: { width: 250, height: 170 },
+  defaultSize: { width: 340, height: 240 },
   assetKind: "video",
 };
 
@@ -42,7 +42,7 @@ const INPUT_AUDIO: BoardNodeDefinition = {
   inputs: [],
   outputs: [{ id: "audio", type: "audio", labelKey: "board.port.audio" }],
   params: [],
-  defaultSize: { width: 250, height: 120 },
+  defaultSize: { width: 340, height: 150 },
   assetKind: "audio",
 };
 
@@ -54,7 +54,7 @@ const INPUT_TEXT: BoardNodeDefinition = {
   inputs: [],
   outputs: [{ id: "text", type: "text", labelKey: "board.port.text" }],
   params: [{ id: "text", labelKey: "board.param.text", kind: "longtext", default: "" }],
-  defaultSize: { width: 260, height: 180 },
+  defaultSize: { width: 320, height: 220 },
 };
 
 /** 显示节点：只做中间展示，不消费下游。 */
@@ -66,7 +66,7 @@ const DISPLAY_IMAGE: BoardNodeDefinition = {
   inputs: [...IMAGE_IN],
   outputs: [],
   params: [],
-  defaultSize: { width: 320, height: 230 },
+  defaultSize: { width: 340, height: 270 },
   assetKind: "image",
 };
 
@@ -78,7 +78,7 @@ const DISPLAY_VIDEO: BoardNodeDefinition = {
   inputs: [{ id: "video", type: "video", labelKey: "board.port.video" }],
   outputs: [],
   params: [],
-  defaultSize: { width: 330, height: 240 },
+  defaultSize: { width: 340, height: 260 },
   assetKind: "video",
 };
 
@@ -90,7 +90,7 @@ const DISPLAY_AUDIO: BoardNodeDefinition = {
   inputs: [{ id: "audio", type: "audio", labelKey: "board.port.audio" }],
   outputs: [],
   params: [],
-  defaultSize: { width: 330, height: 140 },
+  defaultSize: { width: 340, height: 150 },
   assetKind: "audio",
 };
 
@@ -113,7 +113,7 @@ const DISPLAY_TEXT: BoardNodeDefinition = {
       ],
     },
   ],
-  defaultSize: { width: 330, height: 220 },
+  defaultSize: { width: 340, height: 240 },
 };
 
 export const BOARD_NODES: BoardNodeDefinition[] = [
