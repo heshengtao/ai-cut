@@ -12,6 +12,7 @@ import { nodeDefinition, portsOf } from "@/core/board/registry";
 import { useBoardStore } from "@/stores/board";
 import { useProjectStore } from "@/stores/project";
 import { assetThumbnailUrl } from "@/core/thumbnails";
+import { nodeIcon } from "./nodeIcons";
 import type { BoardNode } from "@/types/board";
 
 const props = defineProps<{ nodeId: string; selected?: boolean }>();
@@ -98,6 +99,7 @@ function handleTop(index: number, count: number): string {
 <template>
   <div v-if="node && definition" class="board-node" :class="[`is-${definition.category}`, { selected }]">
     <header class="board-node-head">
+      <component :is="nodeIcon(node.type)" class="board-node-icon" />
       <span class="board-node-title">{{ title }}</span>
       <span class="board-node-status" :data-state="status" :title="i18n.t(`board.status.${status}`)" />
     </header>
@@ -193,6 +195,12 @@ function handleTop(index: number, count: number): string {
   padding: 7px 10px;
   border-bottom: 1px solid rgb(var(--md-outline-variant) / 0.35);
   background-color: rgb(var(--md-surface-container-high) / 0.7);
+}
+.board-node-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  opacity: 0.8;
 }
 .board-node-title {
   flex: 1 1 auto;

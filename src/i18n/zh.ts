@@ -2506,6 +2506,19 @@ const zh: Record<string, string> = {
   "board.inspect.download": "下载到本地",
   "board.ctx.download": "下载到本地",
   "board.download.done": "已保存 {name}",
+
+  "board.ctx.run": "运行此节点",
+  "board.ctx.runDownstream": "运行此节点及下游",
+  "board.ctx.edit": "在检查器中编辑",
+  "board.ctx.selectAll": "全选",
+  "board.ctx.removeEdge": "删除连线",
+  "board.ctx.clear": "清空画布",
+  "board.clear": "清空",
+  "board.clearTitle": "清空画布",
+  "board.clearMessage": "画布上的节点与连线会全部删除，素材库与时间线不受影响。",
+  "board.addSearch": "搜索节点…",
+  "board.addNoResults": "没有匹配的节点",
+  "board.run.repeatTimes": "重复次数",
 };
 
 export default zh;

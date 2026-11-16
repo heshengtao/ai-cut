@@ -6,6 +6,9 @@
  */
 import type { AssetKind } from "@/types/project";
 
+/** 工具栏运行模式（ComfyUI 式）。 */
+export type BoardRunMode = "manual" | "always" | "repeat" | "none";
+
 /** 端口（连线）的语义类型。 */
 export type BoardPortType = "text" | "image" | "video" | "audio" | "any";
 

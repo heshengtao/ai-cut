@@ -2506,6 +2506,19 @@ const en: Record<string, string> = {
   "board.inspect.download": "Download",
   "board.ctx.download": "Download",
   "board.download.done": "Saved {name}",
+
+  "board.ctx.run": "Run node",
+  "board.ctx.runDownstream": "Run node and downstream",
+  "board.ctx.edit": "Edit in inspector",
+  "board.ctx.selectAll": "Select all",
+  "board.ctx.removeEdge": "Delete connection",
+  "board.ctx.clear": "Clear canvas",
+  "board.clear": "Clear",
+  "board.clearTitle": "Clear canvas",
+  "board.clearMessage": "All nodes and connections will be removed. Media and timeline are untouched.",
+  "board.addSearch": "Search nodes…",
+  "board.addNoResults": "No matching node",
+  "board.run.repeatTimes": "Repeat count",
 };
 
 export default en;

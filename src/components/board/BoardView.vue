@@ -1,16 +1,20 @@
 <script setup lang="ts">
 /**
- * 无限画布：Vue Flow 承载视图，文档真相在 `board` store（最终落进工程 `board` 字段）。
+ * 无限画布（Vue Flow）：视图 + 交互层。
  *
- * 交互按 ai-board 复刻：双层点阵背景、左下小地图、底部浮动工具栏（添加 / 撤销 /
- * 适应视图 / 缩放）、连线校验、框选、删除键、滚轮平移。
+ * 交互按 ai-board 复刻：双层点阵背景、左下小地图、浮动工具栏、右键菜单
+ * （节点 / 连线 / 空白）、文件拖入建输入节点、连线端口类型校验、框选、
+ * Delete 删除、⌘A 全选、⌘D 复制。
+ *
+ * 节点数据真相在 `board` store（最终落进工程 `board` 字段），这里只做映射。
  */
-import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import {
   VueFlow,
   useVueFlow,
   type Connection,
   type Edge,
+  type EdgeMouseEvent,
   type Node,
   type NodeMouseEvent,
   type NodeTypesObject,
@@ -22,33 +26,47 @@ import {
   ArrowUturnLeftIcon,
   ArrowUturnRightIcon,
   Bars3Icon,
+  BoltIcon,
   CursorArrowRaysIcon,
+  DocumentDuplicateIcon,
+  EyeIcon,
+  EyeSlashIcon,
   MinusIcon,
+  PencilSquareIcon,
+  PlayIcon,
   PlusIcon,
+  Squares2X2Icon,
   SquaresPlusIcon,
+  TrashIcon,
+  ArrowDownTrayIcon,
 } from "@heroicons/vue/24/outline";
 import "@vue-flow/core/dist/style.css";
 import "@vue-flow/core/dist/theme-default.css";
 import "@vue-flow/minimap/dist/style.css";
 import BoardNodeCard from "./BoardNode.vue";
+import BoardMenu from "./BoardMenu.vue";
+import type { BoardMenuItem } from "./BoardMenuList.vue";
+import { categoryIcon, nodeIcon } from "./nodeIcons";
 import { useI18n } from "@/i18n";
 import { useBoardStore } from "@/stores/board";
 import { useLayoutStore } from "@/stores/layout";
-import { useBoardRun } from "@/composables/useBoardRun";
 import { useProjectStore } from "@/stores/project";
-import { addAsset } from "@/core/ops";
-import { importAssetAt, kindFromPath } from "@/core/media";
-import { toast } from "@/composables/useToast";
+import { useBoardRun } from "@/composables/useBoardRun";
 import { useAssetDownload } from "@/composables/useAssetDownload";
 import { portsCompatible } from "@/core/board/schema";
 import { nodeDefinition, nodesByCategory, portOf } from "@/core/board/registry";
+import { addAsset } from "@/core/ops";
+import { importAssetAt, kindFromPath } from "@/core/media";
+import { confirm } from "@/composables/useConfirm";
+import { toast } from "@/composables/useToast";
+import type { BoardCategory, BoardRunMode } from "@/types/board";
 import type { BoardNode } from "@/types/board";
 
 const i18n = useI18n();
 const board = useBoardStore();
 const layout = useLayoutStore();
-const run = useBoardRun();
 const project = useProjectStore();
+const run = useBoardRun();
 const { download } = useAssetDownload();
 
 const nodeTypes = { board: BoardNodeCard } as unknown as NodeTypesObject;
@@ -56,20 +74,25 @@ const nodeTypes = { board: BoardNodeCard } as unknown as NodeTypesObject;
 // shallowRef：Vue Flow 的 Node/Edge 泛型嵌套很深，ref 的深度解包会触发 TS 递归上限。
 const flowNodes = shallowRef<Node[]>([]);
 const flowEdges = shallowRef<Edge[]>([]);
-const addOpen = ref(false);
-const runMenuOpen = ref(false);
+const rootEl = ref<HTMLElement | null>(null);
 const dropActive = ref(false);
-const ctx = ref<null | { x: number; y: number; nodeId?: string }>(null);
-const addAnchor = ref<HTMLElement | null>(null);
 
-const { fitView, zoomIn, zoomOut, setViewport, screenToFlowCoordinate, onNodeDragStop, onMoveEnd } =
-  useVueFlow();
+type MenuState =
+  | { kind: "add"; anchor: DOMRect }
+  | { kind: "runMode"; anchor: DOMRect }
+  | { kind: "node"; x: number; y: number; nodeId: string }
+  | { kind: "edge"; x: number; y: number; edgeId: string }
+  | { kind: "pane"; x: number; y: number };
+
+const menu = ref<MenuState | null>(null);
+
+const { fitView, zoomIn, zoomOut, setViewport, onNodeDragStop, onMoveEnd } = useVueFlow();
 
 const groups = computed(() => nodesByCategory());
-
 const zoomLabel = computed(() => `${Math.round((board.viewport.zoom || 1) * 100)}%`);
+const repeatMode = computed(() => run.mode.value === "repeat");
 
-/** 文档节点 → Vue Flow 节点（节点组件自己从 store 取数据）。 */
+/** 文档节点 → Vue Flow 节点（卡片组件自己从 store 取数据）。 */
 function toFlowNode(node: BoardNode): Node {
   const definition = nodeDefinition(node.type);
   const size = node.size ?? definition?.defaultSize ?? { width: 240, height: 160 };
@@ -88,7 +111,6 @@ function syncNodes(): void {
   flowNodes.value = board.nodes.map((node) => {
     const current = existing[node.id];
     if (!current) return toFlowNode(node);
-    // 拖动时本地坐标是新的，别被文档里的旧坐标拉回去。
     const definition = nodeDefinition(node.type);
     const size = node.size ?? definition?.defaultSize ?? { width: 240, height: 160 };
     return {
@@ -106,12 +128,32 @@ function syncEdges(): void {
     sourceHandle: edge.sourcePort,
     target: edge.target,
     targetHandle: edge.targetPort,
-    animated: false,
   }));
 }
 
 watch(() => board.nodes, syncNodes, { deep: false });
 watch(() => board.edges, syncEdges, { deep: false });
+
+/** 屏幕坐标 → 画布坐标（用容器矩形 + 当前 viewport 自己算，不依赖 flow 内部状态）。 */
+function toFlowPoint(clientX: number, clientY: number): { x: number; y: number } {
+  const rect = rootEl.value?.getBoundingClientRect();
+  const zoom = board.viewport.zoom || 1;
+  if (!rect) return { x: 0, y: 0 };
+  return {
+    x: (clientX - rect.left - board.viewport.x) / zoom,
+    y: (clientY - rect.top - board.viewport.y) / zoom,
+  };
+}
+
+function centerPoint(): { x: number; y: number } {
+  const rect = rootEl.value?.getBoundingClientRect();
+  if (!rect) return { x: 0, y: 0 };
+  return toFlowPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+}
+
+function anchorRect(event: MouseEvent): DOMRect {
+  return (event.currentTarget as HTMLElement).getBoundingClientRect();
+}
 
 /** 连线前校验端口类型：不兼容直接拒绝（Vue Flow 会显示禁止光标）。 */
 function isValidConnection(connection: Connection): boolean {
@@ -135,101 +177,24 @@ function onConnect(connection: Connection): void {
   });
 }
 
-function addNode(type: string): void {
+/** 添加节点：默认落在视口中心；右键 / 拖入时落在鼠标处。 */
+function addNode(type: string, at?: { x: number; y: number }): void {
   const definition = nodeDefinition(type);
   if (!definition) return;
-  const center = screenToFlowCoordinate({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+  const point = at ?? centerPoint();
+  const id = crypto.randomUUID();
   board.addNode({
-    id: crypto.randomUUID(),
+    id,
     type,
-    position: { x: Math.round(center.x - definition.defaultSize.width / 2), y: Math.round(center.y - definition.defaultSize.height / 2) },
+    position: {
+      x: Math.round(point.x - definition.defaultSize.width / 2),
+      y: Math.round(point.y - definition.defaultSize.height / 2),
+    },
     data: { params: {}, bindings: {} },
   });
-  addOpen.value = false;
-}
-
-function onSelectNode(event: { node: Node }): void {
-  board.select([event.node.id]);
-}
-
-function onPaneClick(): void {
-  board.select([]);
-  addOpen.value = false;
-}
-
-onNodeDragStop((event) => {
-  const positions: Record<string, { x: number; y: number }> = {};
-  for (const node of event.nodes) positions[node.id] = { x: node.position.x, y: node.position.y };
-  board.applyPositions(positions);
-  board.syncPositions();
-});
-
-onMoveEnd(({ flowTransform }) => {
-  board.setViewport({ x: flowTransform.x, y: flowTransform.y, zoom: flowTransform.zoom });
-});
-
-function onNodeCtx(payload: NodeMouseEvent): void {
-  const event = payload.event as MouseEvent;
-  if (typeof event.clientX !== "number" || typeof event.clientY !== "number") return;
-  event.preventDefault();
-  board.select([payload.node.id]);
-  ctx.value = { x: event.clientX, y: event.clientY, nodeId: payload.node.id };
-}
-
-function onPaneCtx(event: MouseEvent): void {
-  event.preventDefault();
-  board.select([]);
-  ctx.value = { x: event.clientX, y: event.clientY };
-}
-
-function closeCtx(): void {
-  ctx.value = null;
-}
-
-const ctxNode = computed(() => {
-  const id = ctx.value?.nodeId;
-  return id ? board.nodes.find((item) => item.id === id) ?? null : null;
-});
-
-const ctxIgnored = computed(() => ctxNode.value?.data.ignored === true);
-
-function toggleIgnoreCtx(): void {
-  const node = ctxNode.value;
-  if (!node) return;
-  board.updateNodeData(node.id, { ignored: !node.data.ignored });
-  closeCtx();
-}
-
-function duplicateCtx(): void {
-  const node = ctxNode.value;
-  if (!node) return;
-  duplicateNode(node.id);
-}
-
-function removeCtx(): void {
-  const node = ctxNode.value;
-  if (!node) return;
-  board.removeNodes([node.id]);
-  closeCtx();
-}
-
-/** 右键菜单能拿到素材时才显示「下载到本地」。 */
-const ctxAsset = computed(() => {
-  const id = ctxNode.value?.data.outputAssetId ?? ctxNode.value?.data.assetId;
-  if (!id) return null;
-  return project.doc.assets.find((item) => item.id === id) ?? null;
-});
-
-async function downloadCtx(): Promise<void> {
-  const current = ctxAsset.value;
-  closeCtx();
-  if (current) await download(current);
-}
-
-function addCtxNode(type: string): void {
-  const point = ctx.value;
-  if (!point) return;
-  addAtPoint(type, point.x, point.y);
+  void nextTick(() => {
+    if (board.nodes.length === 1) void fitView({ padding: 0.35, duration: 260 });
+  });
 }
 
 function duplicateNode(nodeId: string): void {
@@ -248,24 +213,310 @@ function duplicateNode(nodeId: string): void {
       outputAssetId: undefined,
     },
   });
-  closeCtx();
 }
 
-function addAtPoint(type: string, x: number, y: number): void {
-  const definition = nodeDefinition(type);
-  if (!definition) return;
-  const point = screenToFlowCoordinate({ x, y });
-  board.addNode({
-    id: crypto.randomUUID(),
-    type,
-    position: {
-      x: Math.round(point.x - definition.defaultSize.width / 2),
-      y: Math.round(point.y - definition.defaultSize.height / 2),
-    },
-    data: { params: {}, bindings: {} },
-  });
-  closeCtx();
+/** 下游节点 id（BFS），用于「运行下游」。 */
+function downstreamOf(nodeId: string): string[] {
+  const seen = new Set<string>();
+  let frontier = [nodeId];
+  while (frontier.length > 0) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const edge of board.edges) {
+        if (edge.source !== id || seen.has(edge.target)) continue;
+        seen.add(edge.target);
+        next.push(edge.target);
+      }
+    }
+    frontier = next;
+  }
+  return [...seen];
 }
+
+function runDownstream(nodeId: string): void {
+  run.runNode(nodeId);
+  for (const id of downstreamOf(nodeId)) {
+    const node = board.nodes.find((item) => item.id === id);
+    if (node?.type.startsWith("model.")) run.runNode(id);
+  }
+}
+
+function selectAll(): void {
+  board.select(board.nodes.map((node) => node.id));
+}
+
+function clearBoard(): void {
+  void confirm({
+    title: i18n.t("board.clearTitle"),
+    message: i18n.t("board.clearMessage"),
+    confirmText: i18n.t("board.clear"),
+    destructive: true,
+  }).then((accepted) => {
+    if (accepted) board.clear();
+  });
+}
+
+const nodeMenuTarget = computed(() =>
+  menu.value?.kind === "node"
+    ? board.nodes.find((node) => node.id === (menu.value as { nodeId: string }).nodeId) ?? null
+    : null,
+);
+const nodeMenuAsset = computed(() => {
+  const target = nodeMenuTarget.value;
+  if (!target) return null;
+  const id = target.data.outputAssetId ?? target.data.assetId;
+  return id ? project.doc.assets.find((item) => item.id === id) ?? null : null;
+});
+
+/** 添加节点菜单：按分类做子菜单（节点选项带图标）。 */
+function addSubmenus(): BoardMenuItem[] {
+  const list: BoardMenuItem[] = [];
+  for (const category of ["input", "display", "model"] as BoardCategory[]) {
+    const nodes = groups.value[category];
+    if (!nodes || nodes.length === 0) continue;
+    list.push({
+      kind: "submenu",
+      id: `add-${category}`,
+      label: i18n.t(`board.category.${category}`),
+      icon: categoryIcon(category),
+      items: nodes.map((definition) => ({
+        kind: "action" as const,
+        id: `add-${definition.type}`,
+        label: i18n.t(definition.titleKey),
+        icon: nodeIcon(definition.type),
+        hint: definition.type,
+        searchText: `${definition.type} ${i18n.t(definition.titleKey)}`,
+        run: () => addNode(definition.type),
+      })),
+    });
+  }
+  return list;
+}
+
+const menuItems = computed<BoardMenuItem[]>(() => {
+  const current = menu.value;
+  if (!current) return [];
+
+  if (current.kind === "add") {
+    return [
+      { kind: "label", id: "add-label", label: i18n.t("board.addNode") },
+      ...addSubmenus(),
+    ];
+  }
+
+  if (current.kind === "runMode") {
+    const modes: { value: BoardRunMode; labelKey: string }[] = [
+      { value: "manual", labelKey: "board.run.manual" },
+      { value: "always", labelKey: "board.run.always" },
+      { value: "repeat", labelKey: "board.run.repeat" },
+      { value: "none", labelKey: "board.run.none" },
+    ];
+    return [
+      { kind: "label", id: "mode-label", label: i18n.t("board.run.mode") },
+      ...modes.map((mode) => ({
+        kind: "action" as const,
+        id: `mode-${mode.value}`,
+        label: i18n.t(mode.labelKey),
+        checked: run.mode.value === mode.value,
+        run: () => {
+          run.mode.value = mode.value;
+        },
+      })),
+    ];
+  }
+
+  if (current.kind === "node") {
+    const target = nodeMenuTarget.value;
+    if (!target) return [];
+    const isModel = target.type.startsWith("model.");
+    return [
+      {
+        kind: "action",
+        id: "run",
+        label: i18n.t("board.ctx.run"),
+        icon: PlayIcon,
+        disabled: !isModel || target.data.ignored,
+        keys: ["⌘", "↵"],
+        run: () => run.runNode(target.id),
+      },
+      {
+        kind: "action",
+        id: "run-downstream",
+        label: i18n.t("board.ctx.runDownstream"),
+        icon: BoltIcon,
+        disabled: !isModel || target.data.ignored,
+        run: () => runDownstream(target.id),
+      },
+      { kind: "separator", id: "sep-1" },
+      {
+        kind: "action",
+        id: "edit",
+        label: i18n.t("board.ctx.edit"),
+        icon: PencilSquareIcon,
+        run: () => {
+          layout.openTab("boardInspector");
+          board.select([target.id]);
+        },
+      },
+      {
+        kind: "action",
+        id: "duplicate",
+        label: i18n.t("board.ctx.duplicate"),
+        icon: DocumentDuplicateIcon,
+        keys: ["⌘", "D"],
+        run: () => duplicateNode(target.id),
+      },
+      {
+        kind: "action",
+        id: "toggle",
+        label: target.data.ignored ? i18n.t("board.ctx.enable") : i18n.t("board.ctx.ignore"),
+        icon: target.data.ignored ? EyeIcon : EyeSlashIcon,
+        run: () => board.updateNodeData(target.id, { ignored: !target.data.ignored }),
+      },
+      {
+        kind: "action",
+        id: "download",
+        label: i18n.t("board.ctx.download"),
+        icon: ArrowDownTrayIcon,
+        disabled: !nodeMenuAsset.value,
+        run: () => {
+          const asset = nodeMenuAsset.value;
+          if (asset) void download(asset);
+        },
+      },
+      { kind: "separator", id: "sep-2" },
+      {
+        kind: "action",
+        id: "delete",
+        label: i18n.t("common.delete"),
+        icon: TrashIcon,
+        danger: true,
+        keys: ["Del"],
+        run: () => board.removeNodes([target.id]),
+      },
+    ];
+  }
+
+  if (current.kind === "edge") {
+    const edgeId = current.edgeId;
+    return [
+      {
+        kind: "action",
+        id: "remove-edge",
+        label: i18n.t("board.ctx.removeEdge"),
+        icon: TrashIcon,
+        danger: true,
+        keys: ["Del"],
+        run: () => board.removeEdges([edgeId]),
+      },
+    ];
+  }
+
+  // pane
+  return [
+    {
+      kind: "submenu",
+      id: "pane-add",
+      label: i18n.t("board.addNode"),
+      icon: SquaresPlusIcon,
+      items: addSubmenus(),
+    },
+    { kind: "separator", id: "pane-sep-1" },
+    {
+      kind: "action",
+      id: "select-all",
+      label: i18n.t("board.ctx.selectAll"),
+      icon: Squares2X2Icon,
+      keys: ["⌘", "A"],
+      run: selectAll,
+    },
+    {
+      kind: "action",
+      id: "fit",
+      label: i18n.t("board.fit"),
+      icon: ArrowsPointingOutIcon,
+      run: () => void fitView({ padding: 0.2, duration: 260 }),
+    },
+    { kind: "separator", id: "pane-sep-2" },
+    {
+      kind: "action",
+      id: "clear",
+      label: i18n.t("board.ctx.clear"),
+      icon: TrashIcon,
+      danger: true,
+      run: clearBoard,
+    },
+  ];
+});
+
+const menuPlacement = computed(() =>
+  menu.value?.kind === "add" || menu.value?.kind === "runMode" ? "above" : "point",
+);
+const menuAnchor = computed(() =>
+  menu.value && "anchor" in menu.value ? menu.value.anchor : null,
+);
+const menuPoint = computed(() =>
+  menu.value && "x" in menu.value ? { x: menu.value.x, y: menu.value.y } : { x: 0, y: 0 },
+);
+
+function onSelectNode(event: { node: Node }): void {
+  board.select([event.node.id]);
+}
+
+function onPaneClick(): void {
+  board.select([]);
+  menu.value = null;
+}
+
+function onNodeCtx(payload: NodeMouseEvent): void {
+  const event = payload.event as MouseEvent;
+  if (typeof event.clientX !== "number" || typeof event.clientY !== "number") return;
+  event.preventDefault();
+  board.select([payload.node.id]);
+  menu.value = { kind: "node", x: event.clientX, y: event.clientY, nodeId: payload.node.id };
+}
+
+function onEdgeCtx(payload: EdgeMouseEvent): void {
+  const event = payload.event as MouseEvent;
+  if (typeof event.clientX !== "number" || typeof event.clientY !== "number") return;
+  event.preventDefault();
+  menu.value = { kind: "edge", x: event.clientX, y: event.clientY, edgeId: payload.edge.id };
+}
+
+function onPaneCtx(event: MouseEvent): void {
+  event.preventDefault();
+  board.select([]);
+  menu.value = { kind: "pane", x: event.clientX, y: event.clientY };
+}
+
+function toggleAdd(event: MouseEvent): void {
+  const current = menu.value;
+  if (current?.kind === "add") {
+    menu.value = null;
+    return;
+  }
+  menu.value = { kind: "add", anchor: anchorRect(event) };
+}
+
+function toggleRunMode(event: MouseEvent): void {
+  const current = menu.value;
+  if (current?.kind === "runMode") {
+    menu.value = null;
+    return;
+  }
+  menu.value = { kind: "runMode", anchor: anchorRect(event) };
+}
+
+onNodeDragStop((event) => {
+  const positions: Record<string, { x: number; y: number }> = {};
+  for (const node of event.nodes) positions[node.id] = { x: node.position.x, y: node.position.y };
+  board.applyPositions(positions);
+  board.syncPositions();
+});
+
+onMoveEnd(({ flowTransform }) => {
+  board.setViewport({ x: flowTransform.x, y: flowTransform.y, zoom: flowTransform.zoom });
+});
 
 async function onFileDrop(event: DragEvent): Promise<void> {
   dropActive.value = false;
@@ -279,15 +530,9 @@ async function onFileDrop(event: DragEvent): Promise<void> {
       const asset = await importAssetAt(path);
       project.dispatch((doc) => addAsset(doc, asset));
       const type = kind === "image" ? "input.image" : kind === "video" ? "input.video" : "input.audio";
-      const definition = nodeDefinition(type);
-      if (!definition) continue;
-      const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY });
-      board.addNode({
-        id: crypto.randomUUID(),
-        type,
-        position: { x: Math.round(point.x), y: Math.round(point.y) },
-        data: { params: {}, bindings: {}, assetId: asset.id },
-      });
+      addNode(type, toFlowPoint(event.clientX, event.clientY));
+      const created = board.nodes[board.nodes.length - 1];
+      if (created) board.updateNodeData(created.id, { assetId: asset.id });
     } catch (error) {
       toast(String(error), "error");
     }
@@ -302,48 +547,53 @@ function onDragOver(event: DragEvent): void {
 function onKeyDown(event: KeyboardEvent): void {
   const target = event.target as HTMLElement | null;
   if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
-  if ((event.key === "Delete" || event.key === "Backspace") && board.selection.length > 0) {
+  const mod = event.metaKey || event.ctrlKey;
+
+  if (mod && event.key.toLowerCase() === "a") {
+    event.preventDefault();
+    selectAll();
+    return;
+  }
+  if (mod && event.key.toLowerCase() === "d" && board.selection.length > 0) {
+    event.preventDefault();
+    for (const id of board.selection) duplicateNode(id);
+    return;
+  }
+  if (
+    (event.key === "Delete" || event.key === "Backspace") &&
+    board.selection.length > 0 &&
+    !mod
+  ) {
     event.preventDefault();
     board.removeNodes([...board.selection]);
+    return;
+  }
+  if ((event.key === "Enter" || event.key === "n") && menu.value?.kind === "node") {
+    event.preventDefault();
+    run.runNode(menu.value.nodeId);
   }
 }
 
+function onFlowInit(): void {
+  void setViewport({ x: board.viewport.x, y: board.viewport.y, zoom: board.viewport.zoom });
+}
+
 onMounted(() => {
-  // 进画布就把检查器打开：节点操作只在这里，没有它画布不可用。
   layout.openTab("boardInspector");
   syncNodes();
   syncEdges();
-  void setViewport({ x: board.viewport.x, y: board.viewport.y, zoom: board.viewport.zoom });
   window.addEventListener("keydown", onKeyDown);
-  window.addEventListener("click", closeCtx);
 });
 
 onUnmounted(() => {
   board.flush();
   window.removeEventListener("keydown", onKeyDown);
-  window.removeEventListener("click", closeCtx);
 });
-
-const runModes = [
-  { value: "manual", labelKey: "board.run.manual" },
-  { value: "always", labelKey: "board.run.always" },
-  { value: "repeat", labelKey: "board.run.repeat" },
-  { value: "none", labelKey: "board.run.none" },
-] as const;
-
-function setRunMode(value: "manual" | "always" | "repeat" | "none"): void {
-  run.mode.value = value;
-  runMenuOpen.value = false;
-}
-
-function toggleAdd(event: MouseEvent): void {
-  addAnchor.value = event.currentTarget as HTMLElement;
-  addOpen.value = !addOpen.value;
-}
 </script>
 
 <template>
   <section
+    ref="rootEl"
     class="board-view"
     data-view="board"
     :class="{ 'drop-active': dropActive }"
@@ -353,8 +603,8 @@ function toggleAdd(event: MouseEvent): void {
     @drop.prevent="onFileDrop"
   >
     <VueFlow
-      :nodes="flowNodes"
-      :edges="flowEdges"
+      v-model:nodes="flowNodes"
+      v-model:edges="flowEdges"
       :node-types="nodeTypes"
       :min-zoom="0.15"
       :max-zoom="2.2"
@@ -366,10 +616,12 @@ function toggleAdd(event: MouseEvent): void {
       :delete-key-code="null"
       :default-viewport="{ x: board.viewport.x, y: board.viewport.y, zoom: board.viewport.zoom }"
       :is-valid-connection="isValidConnection"
+      @init="onFlowInit"
       @connect="onConnect"
       @node-click="onSelectNode"
       @pane-click="onPaneClick"
       @node-context-menu="onNodeCtx"
+      @edge-context-menu="onEdgeCtx"
       @pane-context-menu="onPaneCtx"
     >
       <Background
@@ -390,7 +642,7 @@ function toggleAdd(event: MouseEvent): void {
         pannable
         zoomable
         class="board-minimap"
-        :node-color="() => 'rgb(139 111 232 / 0.7)'"
+        node-color="rgb(139 111 232 / 0.7)"
         mask-color="rgb(28 27 31 / 0.5)"
       />
     </VueFlow>
@@ -399,6 +651,10 @@ function toggleAdd(event: MouseEvent): void {
       <div class="board-empty-mark" aria-hidden="true"><SquaresPlusIcon /></div>
       <h2 class="board-empty-title">{{ i18n.t("board.emptyTitle") }}</h2>
       <p class="board-empty-hint">{{ i18n.t("board.emptyHint") }}</p>
+      <button class="board-empty-action" type="button" @click="toggleAdd">
+        <PlusIcon class="board-empty-icon" />
+        <span>{{ i18n.t("board.addNode") }}</span>
+      </button>
     </div>
 
     <div class="board-toolbar" role="toolbar" :aria-label="i18n.t('board.toolbar')">
@@ -415,10 +671,19 @@ function toggleAdd(event: MouseEvent): void {
         class="board-tool"
         type="button"
         :title="i18n.t('board.run.mode')"
-        @click="runMenuOpen = !runMenuOpen"
+        @click="toggleRunMode"
       >
         <Bars3Icon />
       </button>
+      <input
+        v-if="repeatMode"
+        v-model.number="run.repeatCount.value"
+        class="board-repeat"
+        type="number"
+        min="1"
+        max="99"
+        :title="i18n.t('board.run.repeatTimes')"
+      />
       <span class="board-sep" aria-hidden="true" />
       <button class="board-tool" type="button" :title="i18n.t('board.addNode')" @click="toggleAdd">
         <PlusIcon />
@@ -460,83 +725,21 @@ function toggleAdd(event: MouseEvent): void {
       </span>
     </div>
 
-    <div
-      v-if="ctx"
-      class="board-ctx"
-      :style="{ left: `${ctx.x}px`, top: `${ctx.y}px` }"
-      @click.stop
-    >
-      <template v-if="ctx.nodeId">
-        <button type="button" @click="toggleIgnoreCtx">
-          {{ ctxIgnored ? i18n.t("board.ctx.enable") : i18n.t("board.ctx.ignore") }}
-        </button>
-        <button type="button" @click="duplicateCtx">{{ i18n.t("board.ctx.duplicate") }}</button>
-        <button v-if="ctxAsset" type="button" @click="downloadCtx">
-          {{ i18n.t("board.ctx.download") }}
-        </button>
-        <button class="danger" type="button" @click="removeCtx">
-          {{ i18n.t("common.delete") }}
-        </button>
-      </template>
-      <template v-else>
-        <p class="board-menu-group">{{ i18n.t("board.addNode") }}</p>
-        <template v-for="(list, category) in groups" :key="category">
-          <button
-            v-for="definition in list"
-            :key="definition.type"
-            class="board-menu-item"
-            type="button"
-            @click="addCtxNode(definition.type)"
-          >
-            {{ i18n.t(definition.titleKey) }}
-          </button>
-        </template>
-      </template>
-    </div>
+    <div v-if="dropActive" class="board-drop" aria-hidden="true">{{ i18n.t("board.dropHint") }}</div>
 
-    <div v-if="dropActive" class="board-drop" aria-hidden="true">
-      {{ i18n.t("board.dropHint") }}
-    </div>
-
-    <div v-if="runMenuOpen" class="board-menu run-menu">
-      <p class="board-menu-group">{{ i18n.t("board.run.mode") }}</p>
-      <button
-        v-for="option in runModes"
-        :key="option.value"
-        class="board-menu-item"
-        type="button"
-        :class="{ on: run.mode.value === option.value }"
-        @click="setRunMode(option.value)"
-      >
-        {{ i18n.t(option.labelKey) }}
-      </button>
-      <template v-if="run.mode.value === 'repeat'">
-        <p class="board-menu-group">{{ i18n.t("board.run.repeat") }}</p>
-        <input
-          class="board-menu-number"
-          type="number"
-          min="1"
-          max="99"
-          :value="run.repeatCount.value"
-          @change="run.repeatCount.value = Math.max(1, Math.min(99, Number(($event.target as HTMLInputElement).value) || 1))"
-        />
-      </template>
-    </div>
-
-    <div v-if="addOpen" class="board-menu" :style="{ left: '50%', bottom: '64px' }">
-      <template v-for="(list, category) in groups" :key="category">
-        <p v-if="list.length" class="board-menu-group">{{ i18n.t(`board.category.${category}`) }}</p>
-        <button
-          v-for="definition in list"
-          :key="definition.type"
-          class="board-menu-item"
-          type="button"
-          @click="addNode(definition.type)"
-        >
-          {{ i18n.t(definition.titleKey) }}
-        </button>
-      </template>
-    </div>
+    <BoardMenu
+      v-if="menu"
+      :items="menuItems"
+      :anchor="menuAnchor"
+      :x="menuPoint.x"
+      :y="menuPoint.y"
+      :placement="menuPlacement"
+      :searchable="menu.kind === 'add'"
+      :search-placeholder="i18n.t('board.addSearch')"
+      :no-results="i18n.t('board.addNoResults')"
+      :min-width="menu.kind === 'add' ? 220 : 190"
+      @close="menu = null"
+    />
   </section>
 </template>
 
@@ -611,6 +814,25 @@ function toggleAdd(event: MouseEvent): void {
   line-height: 1.6;
   color: rgb(var(--md-on-surface-variant));
 }
+.board-empty-action {
+  pointer-events: auto;
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: rgb(var(--md-on-primary));
+  background-color: rgb(var(--md-primary));
+  cursor: pointer;
+}
+.board-empty-icon {
+  width: 16px;
+  height: 16px;
+}
 .board-toolbar {
   position: absolute;
   left: 50%;
@@ -623,46 +845,7 @@ function toggleAdd(event: MouseEvent): void {
   border-radius: 999px;
   background-color: rgb(var(--md-surface-container-high) / 0.94);
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
-}
-.board-ctx {
-  position: fixed;
-  z-index: 40;
-  min-width: 168px;
-  padding: 6px;
-  border-radius: 12px;
-  background-color: rgb(var(--md-surface-container-high));
-  box-shadow: 0 10px 28px rgb(0 0 0 / 0.22);
-}
-.board-ctx button {
-  display: block;
-  width: 100%;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  text-align: left;
-  font-size: 12.5px;
-  color: rgb(var(--md-on-surface));
-  cursor: pointer;
-}
-.board-ctx button:hover {
-  background-color: rgb(var(--md-on-surface-variant) / 0.12);
-}
-.board-ctx button.danger:hover {
-  color: rgb(var(--md-error));
-}
-.board-drop {
-  position: absolute;
-  inset: 10px;
-  display: grid;
-  place-items: center;
-  border: 2px dashed rgb(var(--md-primary) / 0.6);
-  border-radius: 16px;
-  background-color: rgb(var(--md-primary) / 0.06);
-  font-size: 13px;
-  font-weight: 600;
-  color: rgb(var(--md-primary));
-  pointer-events: none;
+  z-index: 5;
 }
 .board-run {
   display: inline-flex;
@@ -693,23 +876,16 @@ function toggleAdd(event: MouseEvent): void {
   color: rgb(var(--md-on-primary));
   background-color: rgb(var(--md-on-primary) / 0.22);
 }
-.run-menu {
-  bottom: 64px;
-  min-width: 170px;
-}
-.board-menu-item.on {
-  background-color: rgb(var(--md-secondary-container));
-  color: rgb(var(--md-on-secondary-container));
-}
-.board-menu-number {
-  width: calc(100% - 16px);
-  margin: 0 8px 6px;
-  height: 28px;
-  padding: 0 8px;
+.board-repeat {
+  width: 46px;
+  height: 26px;
+  padding: 0 4px;
   border: 1px solid rgb(var(--md-outline-variant) / 0.7);
   border-radius: 8px;
   background: transparent;
   color: rgb(var(--md-on-surface));
+  font-size: 12px;
+  text-align: center;
 }
 .board-tool {
   width: 30px;
@@ -758,39 +934,17 @@ function toggleAdd(event: MouseEvent): void {
   width: 14px;
   height: 14px;
 }
-.board-menu {
+.board-drop {
   position: absolute;
-  z-index: 20;
-  transform: translateX(-50%);
-  min-width: 190px;
-  max-height: 320px;
-  overflow-y: auto;
-  padding: 6px;
-  border-radius: 12px;
-  background-color: rgb(var(--md-surface-container-high));
-  box-shadow: 0 10px 28px rgb(0 0 0 / 0.2);
-}
-.board-menu-group {
-  margin: 6px 8px 4px;
-  font-size: 10.5px;
+  inset: 10px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed rgb(var(--md-primary) / 0.6);
+  border-radius: 16px;
+  background-color: rgb(var(--md-primary) / 0.06);
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: rgb(var(--md-on-surface-variant) / 0.8);
-}
-.board-menu-item {
-  display: block;
-  width: 100%;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  text-align: left;
-  font-size: 12.5px;
-  color: rgb(var(--md-on-surface));
-  cursor: pointer;
-}
-.board-menu-item:hover {
-  background-color: rgb(var(--md-on-surface-variant) / 0.12);
+  color: rgb(var(--md-primary));
+  pointer-events: none;
 }
 </style>

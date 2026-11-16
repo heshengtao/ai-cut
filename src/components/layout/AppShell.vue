@@ -10,17 +10,13 @@ import TopBar from "./TopBar.vue";
 import WindowControls from "./WindowControls.vue";
 import PanelResizer from "@/components/workspace/PanelResizer.vue";
 import RightPanel from "@/components/workspace/RightPanel.vue";
-import PreviewStage from "@/components/workspace/PreviewStage.vue";
+import StageView from "@/components/workspace/StageView.vue";
 import TimelinePane from "@/components/workspace/TimelinePane.vue";
 import SettingsView from "@/components/settings/SettingsView.vue";
-import BoardView from "@/components/board/BoardView.vue";
-import SeriesView from "@/components/series/SeriesView.vue";
 import { useLayoutStore } from "@/stores/layout";
-import { useViewStore } from "@/stores/view";
 import { isLinux, isTauri, isWindows } from "@/utils/platform";
 
 const layout = useLayoutStore();
-const view = useViewStore();
 
 /** 竖屏时间线：面板打开时用持久化高度；只显示时间线时铺满右栏。 */
 const portraitTimelineStyle = computed(() => {
@@ -46,20 +42,10 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
         <SettingsView />
       </div>
 
-      <!-- 画布视图：整块主窗口换成无限画布（无时间线、无预览台） -->
-      <div v-else-if="view.view === 'board'" key="board" class="app-view">
-        <BoardView />
-      </div>
-
-      <!-- 剧集视图：整块主窗口换成分P 总览 -->
-      <div v-else-if="view.view === 'series'" key="series" class="app-view">
-        <SeriesView />
-      </div>
-
       <!-- 竖屏：左侧预览（可拖动），右侧上下分栏（上：标签页面板，下：时间线） -->
       <div v-else-if="layout.layoutMode === 'portrait'" key="portrait" class="app-row portrait">
         <main class="portrait-preview" :style="{ flexBasis: `${layout.previewRatio * 100}%` }">
-          <PreviewStage />
+          <StageView />
         </main>
 
         <PanelResizer side="left" @resize="layout.resizePreview" />
@@ -80,7 +66,7 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
       <div v-else key="workspace" class="app-row">
         <!-- 中：预览（上）+ 时间线（下） -->
         <main class="app-main">
-          <PreviewStage />
+          <StageView />
           <template v-if="layout.showTimeline">
             <PanelResizer side="bottom" @resize="layout.resizeTimeline" />
             <TimelinePane :style="{ height: `${layout.timelineHeight}px` }" />
@@ -126,13 +112,6 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
   min-height: 0;
   min-width: 0;
   display: flex;
-}
-.app-view {
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  display: flex;
-  overflow: hidden;
 }
 .settings-main {
   flex: 1;

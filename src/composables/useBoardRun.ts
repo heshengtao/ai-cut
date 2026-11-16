@@ -20,11 +20,10 @@ import { useCloudGenStore } from "@/stores/cloudGen";
 import { addAsset } from "@/core/ops";
 import { importAssetAt } from "@/core/media";
 import { agentConfig } from "@/core/agentApi";
-import type { BoardNode } from "@/types/board";
+import type { BoardNode, BoardRunMode } from "@/types/board";
 import type { AssetKind } from "@/types/project";
 
-/** 画布运行模式（工具栏运行按钮的下拉）。 */
-export type BoardRunMode = "manual" | "always" | "repeat" | "none";
+export type { BoardRunMode } from "@/types/board";
 
 interface AdapterResult {
   /** 产物路径（会自动入库）。 */

@@ -7,13 +7,18 @@
  */
 import { computed, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { PencilSquareIcon } from "@heroicons/vue/24/outline";
+import {
+  EyeIcon,
+  PencilSquareIcon,
+  QueueListIcon,
+  Squares2X2Icon,
+} from "@heroicons/vue/24/outline";
 import Logo from "@/components/common/Logo.vue";
 import PanelIcon from "@/components/common/PanelIcon.vue";
 import Tooltip from "@/components/common/Tooltip.vue";
 import ProjectDialog from "@/components/common/ProjectDialog.vue";
 import PanelTabs from "@/components/workspace/PanelTabs.vue";
-import SegmentedControl from "@/components/common/SegmentedControl.vue";
+import ViewSwitcher from "./ViewSwitcher.vue";
 import BarActions from "./BarActions.vue";
 import { useLayoutStore } from "@/stores/layout";
 import { useViewStore, type AppView } from "@/stores/view";
@@ -33,9 +38,9 @@ const projectDialogOpen = ref(false);
 
 /** 顶部三视图：只换主窗口内容。 */
 const viewOptions = computed(() => [
-  { value: "preview", label: i18n.t("view.preview"), title: i18n.t("view.previewHint") },
-  { value: "board", label: i18n.t("view.board"), title: i18n.t("view.boardHint") },
-  { value: "series", label: i18n.t("view.series"), title: i18n.t("view.seriesHint") },
+  { value: "preview", label: i18n.t("view.preview"), title: i18n.t("view.previewHint"), icon: EyeIcon },
+  { value: "board", label: i18n.t("view.board"), title: i18n.t("view.boardHint"), icon: Squares2X2Icon },
+  { value: "series", label: i18n.t("view.series"), title: i18n.t("view.seriesHint"), icon: QueueListIcon },
 ]);
 
 function onViewChange(value: string): void {
@@ -137,10 +142,9 @@ function onMouseDown(e: MouseEvent): void {
         </button>
       </Tooltip>
 
-      <SegmentedControl
+      <ViewSwitcher
         v-if="!isPortrait && !layout.settingsOpen"
         class="view-switch"
-        size="sm"
         :model-value="view.view"
         :options="viewOptions"
         :aria-label="i18n.t('view.switch')"
@@ -181,9 +185,8 @@ function onMouseDown(e: MouseEvent): void {
     <!-- 竖屏：标题 → 标签栏 → 动作按钮 → 面板开关 -->
     <template v-else>
       <div v-if="!layout.settingsOpen" class="bar-tabs portrait-tabs">
-        <SegmentedControl
+        <ViewSwitcher
           class="view-switch"
-          size="sm"
           :model-value="view.view"
           :options="viewOptions"
           :aria-label="i18n.t('view.switch')"
