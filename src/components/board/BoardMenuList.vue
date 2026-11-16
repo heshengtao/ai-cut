@@ -6,7 +6,7 @@
  * 危险项 / 勾选态 / 子菜单 / 可搜索。子菜单位置按触发行的实际矩形算，并夹在视口内。
  */
 import { computed, nextTick, ref, watch } from "vue";
-import { ChevronRightIcon, MagnifyingGlassIcon } from "@heroicons/vue/24/outline";
+import { CheckIcon, ChevronRightIcon, MagnifyingGlassIcon } from "@heroicons/vue/24/outline";
 
 export interface BoardMenuAction {
   kind: "action";
@@ -183,6 +183,7 @@ watch(query, () => {
       >
         <component :is="item.icon" v-if="item.icon" class="bm-icon" />
         <span class="bm-text">{{ item.label }}</span>
+        <CheckIcon v-if="item.checked" class="bm-check" />
         <span v-if="item.keys" class="bm-keys">
           <kbd v-for="key in item.keys" :key="key">{{ key }}</kbd>
         </span>
@@ -306,6 +307,12 @@ export default { name: "BoardMenuList" };
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.bm-check {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: rgb(var(--md-primary));
 }
 .bm-chevron {
   width: 13px;

@@ -213,7 +213,7 @@ function remove(): void {
         <p v-if="node.data.error" class="bi-error">{{ node.data.error }}</p>
       </section>
 
-      <section class="bi-section">
+      <section v-if="definition.category !== 'model'" class="bi-section">
         <p class="bi-label">{{ i18n.t("board.inspect.media") }}</p>
         <div class="bi-asset">
           <img v-if="asset && assetThumbnailUrl(asset)" class="bi-thumb" :src="assetThumbnailUrl(asset)!" :alt="asset.name" />

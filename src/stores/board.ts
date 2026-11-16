@@ -146,6 +146,39 @@ export const useBoardStore = defineStore("board", () => {
     selection.value = [node.id];
   }
 
+  /** 复制一个节点（参数 / 绑定深拷贝，状态与产物清空）。 */
+  function duplicateNode(nodeId: string): void {
+    const source = nodes.value.find((node) => node.id === nodeId);
+    if (!source) return;
+    commit(() => {
+      nodes.value = [
+        ...nodes.value,
+        {
+          ...source,
+          id: crypto.randomUUID(),
+          position: { x: source.position.x + 28, y: source.position.y + 28 },
+          data: {
+            ...source.data,
+            params: { ...source.data.params },
+            bindings: { ...source.data.bindings },
+            status: undefined,
+            error: undefined,
+            outputAssetId: undefined,
+          },
+        },
+      ];
+    });
+  }
+
+  /** 改节点尺寸（拖右下角后提交，记一步撤销）。 */
+  function resizeNode(nodeId: string, size: { width: number; height: number }): void {
+    commit(() => {
+      nodes.value = nodes.value.map((node) =>
+        node.id === nodeId ? { ...node, size: { ...size } } : node,
+      );
+    });
+  }
+
   function updateNode(nodeId: string, patch: Partial<BoardNode>): void {
     commit(() => {
       nodes.value = nodes.value.map((node) =>
@@ -296,6 +329,8 @@ export const useBoardStore = defineStore("board", () => {
     flush,
     addNode,
     updateNode,
+    duplicateNode,
+    resizeNode,
     updateNodeData,
     setNodeRuntime,
     markDownstreamStale,

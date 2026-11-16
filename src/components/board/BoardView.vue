@@ -37,6 +37,7 @@ import {
   PlusIcon,
   Squares2X2Icon,
   SquaresPlusIcon,
+  TableCellsIcon,
   TrashIcon,
   ArrowDownTrayIcon,
 } from "@heroicons/vue/24/outline";
@@ -59,7 +60,7 @@ import { addAsset } from "@/core/ops";
 import { importAssetAt, kindFromPath } from "@/core/media";
 import { confirm } from "@/composables/useConfirm";
 import { toast } from "@/composables/useToast";
-import type { BoardCategory, BoardRunMode } from "@/types/board";
+import type { BoardCategory, BoardPortType, BoardRunMode } from "@/types/board";
 import type { BoardNode } from "@/types/board";
 
 const i18n = useI18n();
@@ -79,14 +80,19 @@ const dropActive = ref(false);
 
 type MenuState =
   | { kind: "add"; anchor: DOMRect }
+  | { kind: "connect"; x: number; y: number; sourceNodeId: string; sourcePort: string; portType: BoardPortType }
   | { kind: "runMode"; anchor: DOMRect }
   | { kind: "node"; x: number; y: number; nodeId: string }
   | { kind: "edge"; x: number; y: number; edgeId: string }
   | { kind: "pane"; x: number; y: number };
 
 const menu = ref<MenuState | null>(null);
+/** ai-board 的两种交互模式：拖动画面 / 框选。 */
+const interactionMode = ref<"drag" | "marquee">("drag");
+const gridSnap = ref(true);
 
-const { fitView, zoomIn, zoomOut, setViewport, onNodeDragStop, onMoveEnd } = useVueFlow();
+const { fitView, zoomIn, zoomOut, setViewport, onNodeDragStop, onMoveEnd, onConnectStart, onConnectEnd } =
+  useVueFlow();
 
 const groups = computed(() => nodesByCategory());
 const zoomLabel = computed(() => `${Math.round((board.viewport.zoom || 1) * 100)}%`);
@@ -166,6 +172,62 @@ function isValidConnection(connection: Connection): boolean {
   return portsCompatible(from.type, to.type);
 }
 
+/** 拖线到空白处：记住起点，松手后弹"兼容节点选择器"（ai-board 的核心手感）。 */
+let pendingConnect: { nodeId: string; portId: string; portType: BoardPortType } | null = null;
+
+onConnectStart((payload) => {
+  if (payload.handleType !== "source" || !payload.nodeId) {
+    pendingConnect = null;
+    return;
+  }
+  const node = board.nodes.find((item) => item.id === payload.nodeId);
+  const port = node ? portOf(node, payload.handleId ?? "", "out") : null;
+  pendingConnect =
+    node && port ? { nodeId: node.id, portId: port.id, portType: port.type } : null;
+});
+
+onConnectEnd((event) => {
+  const source = pendingConnect;
+  pendingConnect = null;
+  if (!source || !event) return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest(".vue-flow__node")) return;
+  const point =
+    "clientX" in event
+      ? { x: (event as MouseEvent).clientX, y: (event as MouseEvent).clientY }
+      : null;
+  if (!point) return;
+  menu.value = { kind: "connect", ...point, sourceNodeId: source.nodeId, sourcePort: source.portId, portType: source.portType };
+});
+
+/** 选中兼容节点后：在松手处建节点并连上。 */
+function connectToNew(
+  state: { x: number; y: number; sourceNodeId: string; sourcePort: string },
+  type: string,
+  targetPort: string,
+): void {
+  const definition = nodeDefinition(type);
+  if (!definition) return;
+  const point = toFlowPoint(state.x, state.y);
+  const id = crypto.randomUUID();
+  board.addNode({
+    id,
+    type,
+    position: {
+      x: Math.round(point.x - definition.defaultSize.width / 2),
+      y: Math.round(point.y - definition.defaultSize.height / 2),
+    },
+    data: { params: {}, bindings: {} },
+  });
+  board.connect({
+    id: crypto.randomUUID(),
+    source: state.sourceNodeId,
+    sourcePort: state.sourcePort,
+    target: id,
+    targetPort,
+  });
+}
+
 function onConnect(connection: Connection): void {
   if (!isValidConnection(connection)) return;
   board.connect({
@@ -198,21 +260,7 @@ function addNode(type: string, at?: { x: number; y: number }): void {
 }
 
 function duplicateNode(nodeId: string): void {
-  const node = board.nodes.find((item) => item.id === nodeId);
-  if (!node) return;
-  board.addNode({
-    ...node,
-    id: crypto.randomUUID(),
-    position: { x: node.position.x + 28, y: node.position.y + 28 },
-    data: {
-      ...node.data,
-      params: { ...node.data.params },
-      bindings: { ...node.data.bindings },
-      status: undefined,
-      error: undefined,
-      outputAssetId: undefined,
-    },
-  });
+  board.duplicateNode(nodeId);
 }
 
 /** 下游节点 id（BFS），用于「运行下游」。 */
@@ -301,6 +349,31 @@ const menuItems = computed<BoardMenuItem[]>(() => {
     return [
       { kind: "label", id: "add-label", label: i18n.t("board.addNode") },
       ...addSubmenus(),
+    ];
+  }
+
+  if (current.kind === "connect") {
+    const items: BoardMenuItem[] = [];
+    for (const category of ["input", "display", "model"] as BoardCategory[]) {
+      for (const definition of groups.value[category] ?? []) {
+        const input = definition.inputs.find((port) =>
+          portsCompatible(current.portType, port.type),
+        );
+        if (!input) continue;
+        items.push({
+          kind: "action",
+          id: `connect-${definition.type}`,
+          label: i18n.t(definition.titleKey),
+          icon: nodeIcon(definition.type),
+          hint: definition.type,
+          searchText: `${definition.type} ${i18n.t(definition.titleKey)}`,
+          run: () => connectToNew(current, definition.type, input.id),
+        });
+      }
+    }
+    return [
+      { kind: "label", id: "connect-label", label: i18n.t("board.connect.title") },
+      ...items,
     ];
   }
 
@@ -452,6 +525,9 @@ const menuItems = computed<BoardMenuItem[]>(() => {
 const menuPlacement = computed(() =>
   menu.value?.kind === "add" || menu.value?.kind === "runMode" ? "above" : "point",
 );
+const menuSearchable = computed(
+  () => menu.value?.kind === "add" || menu.value?.kind === "connect",
+);
 const menuAnchor = computed(() =>
   menu.value && "anchor" in menu.value ? menu.value.anchor : null,
 );
@@ -459,13 +535,19 @@ const menuPoint = computed(() =>
   menu.value && "x" in menu.value ? { x: menu.value.x, y: menu.value.y } : { x: 0, y: 0 },
 );
 
+function onNodeDoubleClick(payload: { node: Node }): void {
+  layout.openTab("boardInspector");
+  board.select([payload.node.id]);
+}
+
 function onSelectNode(event: { node: Node }): void {
   board.select([event.node.id]);
 }
 
 function onPaneClick(): void {
+  // 只清选择；菜单由"点外面关闭"负责——否则"拖线到空白松手"弹出来的兼容节点菜单
+  // 会被同一轮鼠标抬起的 pane click 立刻关掉。
   board.select([]);
-  menu.value = null;
 }
 
 function onNodeCtx(payload: NodeMouseEvent): void {
@@ -608,17 +690,19 @@ onUnmounted(() => {
       :node-types="nodeTypes"
       :min-zoom="0.15"
       :max-zoom="2.2"
-      :snap-to-grid="true"
+      :snap-to-grid="gridSnap"
+      :pan-on-drag="interactionMode === 'drag'"
+      :selection-on-drag="interactionMode === 'marquee'"
       :snap-grid="[22, 22]"
       :pan-on-scroll="true"
       :zoom-on-double-click="false"
-      :selection-on-drag="true"
       :delete-key-code="null"
       :default-viewport="{ x: board.viewport.x, y: board.viewport.y, zoom: board.viewport.zoom }"
       :is-valid-connection="isValidConnection"
       @init="onFlowInit"
       @connect="onConnect"
       @node-click="onSelectNode"
+      @node-double-click="onNodeDoubleClick"
       @pane-click="onPaneClick"
       @node-context-menu="onNodeCtx"
       @edge-context-menu="onEdgeCtx"
@@ -647,7 +731,7 @@ onUnmounted(() => {
       />
     </VueFlow>
 
-    <div v-if="board.nodes.length === 0" class="board-empty">
+    <div v-if="board.nodes.length === 0 && menu === null" class="board-empty">
       <div class="board-empty-mark" aria-hidden="true"><SquaresPlusIcon /></div>
       <h2 class="board-empty-title">{{ i18n.t("board.emptyTitle") }}</h2>
       <p class="board-empty-hint">{{ i18n.t("board.emptyHint") }}</p>
@@ -708,6 +792,34 @@ onUnmounted(() => {
         <ArrowUturnRightIcon />
       </button>
       <span class="board-sep" aria-hidden="true" />
+      <button
+        class="board-tool"
+        type="button"
+        :class="{ on: interactionMode === 'drag' }"
+        :title="i18n.t('board.mode.drag')"
+        @click="interactionMode = 'drag'"
+      >
+        <CursorArrowRaysIcon />
+      </button>
+      <button
+        class="board-tool"
+        type="button"
+        :class="{ on: interactionMode === 'marquee' }"
+        :title="i18n.t('board.mode.marquee')"
+        @click="interactionMode = 'marquee'"
+      >
+        <Squares2X2Icon />
+      </button>
+      <button
+        class="board-tool"
+        type="button"
+        :class="{ on: gridSnap }"
+        :title="i18n.t('board.gridSnap')"
+        @click="gridSnap = !gridSnap"
+      >
+        <TableCellsIcon />
+      </button>
+      <span class="board-sep" aria-hidden="true" />
       <button class="board-tool" type="button" :title="i18n.t('board.fit')" @click="fitView({ padding: 0.2 })">
         <ArrowsPointingOutIcon />
       </button>
@@ -734,10 +846,10 @@ onUnmounted(() => {
       :x="menuPoint.x"
       :y="menuPoint.y"
       :placement="menuPlacement"
-      :searchable="menu.kind === 'add'"
+      :searchable="menuSearchable"
       :search-placeholder="i18n.t('board.addSearch')"
       :no-results="i18n.t('board.addNoResults')"
-      :min-width="menu.kind === 'add' ? 220 : 190"
+      :min-width="menuSearchable ? 220 : 190"
       @close="menu = null"
     />
   </section>
@@ -775,6 +887,12 @@ onUnmounted(() => {
   height: 96px;
   border-radius: 10px;
   overflow: hidden;
+  /* Vue Flow 默认给 minimap 白底；这里换成和画布同族的深色卡片，并压暗遮罩。 */
+  background-color: rgb(var(--md-surface-container-high) / 0.92) !important;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.6);
+}
+.board-minimap :deep(.vue-flow__minimap-mask) {
+  fill: rgb(12 12 14 / 0.55);
 }
 .board-empty {
   position: absolute;
@@ -848,11 +966,13 @@ onUnmounted(() => {
   z-index: 5;
 }
 .board-run {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 30px;
   padding: 0 12px;
+  white-space: nowrap;
   border: 0;
   border-radius: 999px;
   font-size: 12.5px;
@@ -888,6 +1008,7 @@ onUnmounted(() => {
   text-align: center;
 }
 .board-tool {
+  flex: 0 0 auto;
   width: 30px;
   height: 30px;
   display: grid;
@@ -897,6 +1018,10 @@ onUnmounted(() => {
   background: transparent;
   color: rgb(var(--md-on-surface-variant));
   cursor: pointer;
+}
+.board-tool.on {
+  color: rgb(var(--md-on-secondary-container));
+  background-color: rgb(var(--md-secondary-container));
 }
 .board-tool:hover:not(:disabled) {
   background-color: rgb(var(--md-on-surface-variant) / 0.12);
@@ -911,11 +1036,13 @@ onUnmounted(() => {
   height: 17px;
 }
 .board-sep {
+  flex: 0 0 auto;
   width: 1px;
   height: 16px;
   background-color: rgb(var(--md-outline-variant) / 0.6);
 }
 .board-zoom {
+  flex: 0 0 auto;
   min-width: 42px;
   text-align: center;
   font-size: 11.5px;
@@ -923,10 +1050,12 @@ onUnmounted(() => {
   color: rgb(var(--md-on-surface-variant));
 }
 .board-hint {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 0 6px;
+  white-space: nowrap;
   font-size: 11px;
   color: rgb(var(--md-on-surface-variant) / 0.8);
 }

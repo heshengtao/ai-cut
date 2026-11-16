@@ -5,24 +5,44 @@
  * 卡片只负责"是什么 + 现在什么样"，所有可编辑的操作都在右侧检查器里。
  * 模型节点会有可展开的实时输出区（`liveOutput`），输入 / 显示节点没有。
  */
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { Handle, Position } from "@vue-flow/core";
 import { useI18n } from "@/i18n";
 import { nodeDefinition, portsOf } from "@/core/board/registry";
 import { useBoardStore } from "@/stores/board";
 import { useProjectStore } from "@/stores/project";
+import { useBoardRun } from "@/composables/useBoardRun";
 import { assetThumbnailUrl } from "@/core/thumbnails";
 import { nodeIcon } from "./nodeIcons";
+import {
+  DocumentDuplicateIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  PlayIcon,
+  TrashIcon,
+} from "@heroicons/vue/24/outline";
 import type { BoardNode } from "@/types/board";
 
-const props = defineProps<{ nodeId: string; selected?: boolean }>();
+const props = defineProps<{
+  /** Vue Flow 会把自己的节点 id 作为 `id` 传进来。 */
+  id?: string;
+  /** 我们自己的节点数据（`data.nodeId`）。 */
+  data?: { nodeId?: string };
+  selected?: boolean;
+}>();
+
+const nodeId = computed(() => props.data?.nodeId ?? props.id ?? "");
 
 const i18n = useI18n();
 const board = useBoardStore();
 const project = useProjectStore();
+const run = useBoardRun();
+const cardEl = ref<HTMLElement | null>(null);
+const resizing = ref(false);
+const size = ref<{ width: number; height: number } | null>(null);
 
 const node = computed<BoardNode | undefined>(() =>
-  board.nodes.find((item) => item.id === props.nodeId),
+  board.nodes.find((item) => item.id === nodeId.value),
 );
 const definition = computed(() => (node.value ? nodeDefinition(node.value.type) : null));
 
@@ -94,10 +114,83 @@ const error = computed(() => node.value?.data.error ?? null);
 function handleTop(index: number, count: number): string {
   return `${((index + 1) / (count + 1)) * 100}%`;
 }
+
+const isModel = computed(() => node.value?.type.startsWith("model.") === true);
+
+/** 卡片悬停控制：只做"最常用的一次点击"，详细操作在右键菜单 / 检查器。 */
+function runNode(): void {
+  if (node.value) run.runNode(node.value.id);
+}
+
+function toggleIgnored(): void {
+  const current = node.value;
+  if (current) board.updateNodeData(current.id, { ignored: !current.data.ignored });
+}
+
+function duplicate(): void {
+  if (node.value) board.duplicateNode(node.value.id);
+}
+
+function remove(): void {
+  if (node.value) board.removeNodes([node.value.id]);
+}
+
+/** 🔻 右下角缩放：拖动时直接改外层节点尺寸，松手提交到 store（记一步撤销）。 */
+function onResizeStart(event: PointerEvent): void {
+  const wrapper = cardEl.value?.closest(".vue-flow__node") as HTMLElement | null;
+  if (!wrapper) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const box = wrapper.getBoundingClientRect();
+  const startX = event.clientX;
+  const startY = event.clientY;
+  resizing.value = true;
+
+  const onMove = (move: PointerEvent): void => {
+    const width = Math.max(150, Math.round(box.width + move.clientX - startX));
+    const height = Math.max(96, Math.round(box.height + move.clientY - startY));
+    wrapper.style.width = `${width}px`;
+    wrapper.style.height = `${height}px`;
+    size.value = { width, height };
+  };
+  const onUp = (): void => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    resizing.value = false;
+    if (node.value && size.value) board.resizeNode(node.value.id, size.value);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+}
 </script>
 
 <template>
-  <div v-if="node && definition" class="board-node" :class="[`is-${definition.category}`, { selected }]">
+  <div
+    v-if="node && definition"
+    ref="cardEl"
+    class="board-node"
+    :class="[`is-${definition.category}`, { selected, ignored: node.data.ignored, resizing }]"
+  >
+    <div class="board-node-controls nodrag" @pointerdown.stop @click.stop>
+      <button
+        v-if="isModel"
+        type="button"
+        :title="i18n.t('board.ctx.run')"
+        @click="runNode"
+      >
+        <PlayIcon />
+      </button>
+      <button type="button" :title="i18n.t('board.ctx.duplicate')" @click="duplicate">
+        <DocumentDuplicateIcon />
+      </button>
+      <button type="button" :title="node.data.ignored ? i18n.t('board.ctx.enable') : i18n.t('board.ctx.ignore')" @click="toggleIgnored">
+        <component :is="node.data.ignored ? EyeIcon : EyeSlashIcon" />
+      </button>
+      <button type="button" class="danger" :title="i18n.t('common.delete')" @click="remove">
+        <TrashIcon />
+      </button>
+    </div>
+
     <header class="board-node-head">
       <component :is="nodeIcon(node.type)" class="board-node-icon" />
       <span class="board-node-title">{{ title }}</span>
@@ -166,6 +259,8 @@ function handleTop(index: number, count: number): string {
     >
       {{ i18n.t(port.labelKey) }}
     </span>
+
+    <span class="board-node-resize nodrag" @pointerdown="onResizeStart" />
   </div>
 </template>
 
@@ -182,6 +277,76 @@ function handleTop(index: number, count: number): string {
   box-shadow: 0 4px 14px rgb(0 0 0 / 0.1);
   font-size: 12px;
   color: rgb(var(--md-on-surface));
+}
+/* 悬停控制条：与 ai-board 一样浮在卡片右上角，只在 hover / 选中时出现。 */
+.board-node-controls {
+  position: absolute;
+  top: -12px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background-color: rgb(var(--md-surface-container-high));
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.2);
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+}
+.board-node:hover .board-node-controls,
+.board-node.selected .board-node-controls {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.board-node-controls button {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--md-on-surface-variant));
+  cursor: pointer;
+}
+.board-node-controls button:hover {
+  background-color: rgb(var(--md-on-surface-variant) / 0.14);
+  color: rgb(var(--md-on-surface));
+}
+.board-node-controls button.danger:hover {
+  color: rgb(var(--md-error));
+}
+.board-node-controls button :deep(svg) {
+  width: 13px;
+  height: 13px;
+}
+/* 禁用态整体压暗，端口仍在（还能连线）。 */
+.board-node.ignored {
+  opacity: 0.55;
+}
+/* 右下角缩放手柄 */
+.board-node-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+  background-image: linear-gradient(
+    135deg,
+    transparent 0 55%,
+    rgb(var(--md-outline) / 0.9) 55% 62%,
+    transparent 62% 74%,
+    rgb(var(--md-outline) / 0.9) 74% 81%,
+    transparent 81%
+  );
+  border-bottom-right-radius: 12px;
+}
+.board-node.resizing .board-node-resize {
+  background-color: rgb(var(--md-primary) / 0.18);
 }
 .board-node.selected {
   border-color: rgb(var(--md-primary));

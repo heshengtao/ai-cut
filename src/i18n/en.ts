@@ -2519,6 +2519,12 @@ const en: Record<string, string> = {
   "board.addSearch": "Search nodes…",
   "board.addNoResults": "No matching node",
   "board.run.repeatTimes": "Repeat count",
+
+  "board.mode.drag": "Pan canvas",
+  "board.mode.marquee": "Marquee select",
+  "board.gridSnap": "Snap to grid",
+
+  "board.connect.title": "Connect to a new node",
 };
 
 export default en;

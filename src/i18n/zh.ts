@@ -2519,6 +2519,12 @@ const zh: Record<string, string> = {
   "board.addSearch": "搜索节点…",
   "board.addNoResults": "没有匹配的节点",
   "board.run.repeatTimes": "重复次数",
+
+  "board.mode.drag": "拖动画面",
+  "board.mode.marquee": "框选",
+  "board.gridSnap": "网格吸附",
+
+  "board.connect.title": "连接到新节点",
 };
 
 export default zh;

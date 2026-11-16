@@ -78,15 +78,25 @@ function onKeyDown(event: KeyboardEvent): void {
   }
 }
 
+let attachTimer: number | null = null;
+
 onMounted(() => {
   place();
   // 延后一拍注册：本次点击（刚打开菜单的那次）不应该立刻把菜单关掉。
-  window.setTimeout(() => window.addEventListener("click", onDocumentClick), 0);
+  attachTimer = window.setTimeout(() => {
+    attachTimer = null;
+    window.addEventListener("click", onDocumentClick);
+  }, 0);
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("resize", place);
 });
 
 onBeforeUnmount(() => {
+  // 必须清掉待注册的定时器：否则旧菜单卸载后才挂上的 listener 会把**下一个**菜单立刻关掉。
+  if (attachTimer !== null) {
+    clearTimeout(attachTimer);
+    attachTimer = null;
+  }
   window.removeEventListener("click", onDocumentClick);
   window.removeEventListener("keydown", onKeyDown);
   window.removeEventListener("resize", place);

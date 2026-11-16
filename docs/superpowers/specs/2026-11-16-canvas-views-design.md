@@ -72,10 +72,11 @@ export type AppView = "preview" | "board" | "series";
 | 视图 | 主窗口内容 |
 | --- | --- |
 | `preview` | 现有 `PreviewStage` + `PanelResizer` + `TimelinePane`（行为完全不变） |
-| `board` | `BoardView`（全高无限画布，隐藏时间线） |
-| `series` | `SeriesView`（全高分P 网格，无预览台无时间线） |
+| `board` | `BoardView` 替换**预览台那一块**（时间线、右侧面板保持原样） |
+| `series` | `SeriesView` 替换**预览台那一块**（时间线、右侧面板保持原样） |
 
-竖屏布局同样三分支；设置页仍是最高优先级（`layout.settingsOpen` 时三视图都让位）。
+实现方式是新增 `StageView.vue`：横屏的 `.app-main` 与竖屏的 `.portrait-preview` 都渲染它，
+由它按 `view` 在 `PreviewStage / BoardView / SeriesView` 之间切换。设置页仍是最高优先级。
 
 ### 3.4 右侧面板
 
@@ -409,12 +410,13 @@ Vue Flow 重写（已确认方案 A）：`@vue-flow/core` + `@vue-flow/backgroun
 | P4 模型节点 | 7 个模型节点（图 / 视 / 音 / 听 / 文 / 增强 / 分离）、节点内本地/云端模型下拉、串行运行队列、运行模式（手动 / 自动重跑 / 重复 N / 仅标记） |
 | P5 H3 多模态 | 视频节点的 9 图 + 3 音频 + 3 视频动态端口；本地 `--ref-video` / `--ref-video-audio`；云端 MiniMax v2 `/v2/video_generation` content 数组 + v2 query 轮询 |
 | P6 / P7 打磨 | 右键菜单下载、拖入建节点、每视图面板记忆、`copy_file` 贯通 daemon/RPC/Tauri |
+| P8 ai-board 复刻 | 轨道槽滑动切换器（对齐 ai-daw `Md3Segmented`）、舞台只替换预览区、分类子菜单 + 搜索摊平、节点/分类图标、锚定弹层（运行模式 / 右键菜单不再偏移）、拖线到空白弹兼容节点、节点悬停控制、节点缩放、双击开检查器、网格吸附 / 交互模式、小地图配色 |
 
 已知限制（后续迭代）：
 
 1. **画布改动暂不进会话广播**：`updateBoard` 只置 dirty、推进 revision，不产生 op 事件；浏览器端要等下一次 full 快照才能看到画布变化。
 2. **`onChange` 运行模式未实现**：现有 `manual / always / repeat / none`，参数变化只标下游 `stale`。
-3. **节点不支持拖拽改尺寸**：固定默认尺寸（模型节点 280×210 左右）。
+3. ~~节点不支持拖拽改尺寸~~ → 已支持右下角拖拽缩放（提交时记一步画布撤销）。
 4. **剧集界面**暂不支持"导出该分P"与视图密度切换。
 5. **侧栏 AI 视频页**没有参考视频 UI：多模态参考目前只在画布节点里可用。
 6. **两处待真机验证**：本地 `--ref-video` 依赖所装 sd.cpp 构建是否包含该参数（按上游 `docs/minimax_h3.md` 接线）；云端 H3 的 v2 请求（`content` 数组、`ratio: adaptive`、`768P`）需真实 key 跑一次确认字段与分辨率枚举。
