@@ -64,6 +64,7 @@ const submenu = ref<{
   top: number;
   left: number;
 } | null>(null);
+const floatingEl = ref<HTMLElement | null>(null);
 const rowEls = new Map<string, HTMLElement>();
 
 function matches(item: BoardMenuItem): boolean {
@@ -133,12 +134,23 @@ function openSubmenu(item: BoardMenuSubmenu): void {
   const el = rowEls.get(item.id);
   if (!el) return;
   const rect = el.getBoundingClientRect();
+  submenu.value = { items: item.items, top: rect.top - 6, left: rect.right + 2 };
+  // 渲染后按浮层真实尺寸再夹一次：贴底/贴右时翻到左/上，避免被视口裁掉。
   void nextTick(() => {
-    submenu.value = {
-      items: item.items,
-      top: Math.min(rect.top - 6, window.innerHeight - 320),
-      left: rect.right + 2,
-    };
+    const panel = floatingEl.value?.getBoundingClientRect();
+    const current = submenu.value;
+    if (!panel || !current) return;
+    const margin = 8;
+    let { top, left } = current;
+    if (panel.bottom > window.innerHeight - margin) {
+      top = Math.max(margin, top - (panel.bottom - (window.innerHeight - margin)));
+    }
+    if (panel.right > window.innerWidth - margin) {
+      left = Math.max(margin, rect.left - panel.width - 2);
+    }
+    if (top !== current.top || left !== current.left) {
+      submenu.value = { ...current, top, left };
+    }
   });
 }
 
@@ -167,6 +179,7 @@ onBeforeUnmount(() => cancelClose());
     @contextmenu.prevent
     @mouseenter="cancelClose"
     @mouseleave="scheduleClose"
+    @scroll.passive="closeSubmenu"
   >
     <label v-if="searchable" class="bm-search">
       <MagnifyingGlassIcon />
@@ -218,21 +231,26 @@ onBeforeUnmount(() => cancelClose());
       </button>
     </template>
 
-    <Teleport to="body">
-      <div
-        v-if="submenu"
-        class="board-menu-floating"
-        :style="{ left: `${submenu.left}px`, top: `${submenu.top}px` }"
-        @mouseenter="cancelClose"
-        @mouseleave="scheduleClose"
-      >
-        <BoardMenuList
-          :items="submenu.items"
-          :searchable="false"
-          @close="emit('close')"
-        />
-      </div>
-    </Teleport>
+    <!--
+      子菜单**不 Teleport**：它必须是父列表的 DOM 后代。
+      否则指针一进浮层，父列表就收到 mouseleave → 上层菜单连同浮层一起关掉
+      （三级菜单点不到就是这个原因）。
+      `position: fixed` 仍然按视口定位，不会被列表的滚动容器裁掉。
+    -->
+    <div
+      v-if="submenu"
+      ref="floatingEl"
+      class="board-menu-floating"
+      :style="{ left: `${submenu.left}px`, top: `${submenu.top}px` }"
+      @mouseenter="cancelClose"
+      @mouseleave="scheduleClose"
+    >
+      <BoardMenuList
+        :items="submenu.items"
+        :searchable="false"
+        @close="emit('close')"
+      />
+    </div>
   </div>
 </template>
 
@@ -368,5 +386,7 @@ export default { name: "BoardMenuList" };
 .board-menu-floating {
   position: fixed;
   z-index: 80;
+  /* 只有浮层自己接收指针事件，避免大面积遮挡下层菜单的行。 */
+  pointer-events: auto;
 }
 </style>
