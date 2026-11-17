@@ -146,6 +146,44 @@ export function nodeDefinition(type: string): BoardNodeDefinition | null {
   return BY_TYPE.get(type) ?? null;
 }
 
+/** 插件节点定义的所有者（type → plugin id），用于冲突报错与注销。 */
+const NODE_OWNERS = new Map<string, string>();
+
+/**
+ * 注册一个节点定义（插件用）。
+ *
+ * 纪律：类型必须以 `ext.` 前缀、不能与已有类型重名、分类必须是内置四类之一。
+ * 返回 disposer；注销后节点定义与菜单项一起消失。
+ *
+ * 插件节点创建时必须在 `data.ports` 写入端口快照（见 `BoardNodeData.ports`），
+ * 这样插件被卸载后，工程里的节点仍能恢复端口与连线。
+ */
+export function registerNodeDefinition(
+  definition: BoardNodeDefinition,
+  owner = "core",
+): () => void {
+  if (!definition.type.startsWith("ext.")) {
+    throw new Error(`插件节点类型必须以 ext. 前缀：${definition.type}`);
+  }
+  if (!["input", "display", "model", "group"].includes(definition.category)) {
+    throw new Error(`插件节点分类必须是内置四类之一：${definition.category}`);
+  }
+  const existing = NODE_OWNERS.get(definition.type);
+  if (existing || BY_TYPE.has(definition.type)) {
+    throw new Error(`节点类型 ${definition.type} 已被 ${existing ?? "内置节点"} 占用`);
+  }
+  NODE_OWNERS.set(definition.type, owner);
+  BOARD_NODES.push(definition);
+  BY_TYPE.set(definition.type, definition);
+  return () => {
+    if (NODE_OWNERS.get(definition.type) !== owner) return;
+    NODE_OWNERS.delete(definition.type);
+    BY_TYPE.delete(definition.type);
+    const index = BOARD_NODES.indexOf(definition);
+    if (index >= 0) BOARD_NODES.splice(index, 1);
+  };
+}
+
 /** 某个端口在定义里的声明（归一化校验用）。 */
 export function portSpecOf(
   nodeType: string,
@@ -509,7 +547,10 @@ export function nodesByCategory(): Record<string, BoardNodeDefinition[]> {
     model: [],
     group: [],
   };
-  for (const definition of BOARD_NODES) grouped[definition.category].push(definition);
+  for (const definition of BOARD_NODES) {
+    // 未知分类直接跳过：注册期已经拦过一次，这里只保护历史工程里的坏数据。
+    grouped[definition.category]?.push(definition);
+  }
   for (const list of Object.values(grouped)) list.sort((a, b) => a.order - b.order);
   return grouped;
 }
