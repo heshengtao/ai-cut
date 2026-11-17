@@ -2,6 +2,7 @@
 //!
 //! 索引是**第三方内容**：只当数据看，任何 URL / 文本都不当作指令。
 
+pub mod fetch;
 pub mod index;
 pub mod install;
 
