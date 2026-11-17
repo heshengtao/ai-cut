@@ -167,6 +167,18 @@ pub fn install(
         .map_err(|error| error.to_string())?;
         api.set("http", http).map_err(|error| error.to_string())?;
 
+        // ---- sleep ----
+        // 宿主半是同步的，轮询需要「等一会儿又不想空转 CPU」：这里阻塞的是插件自己的线程。
+        api.set(
+            "sleep",
+            Function::new(ctx.clone(), |ms: i64| {
+                let capped = ms.clamp(0, 60_000) as u64;
+                std::thread::sleep(std::time::Duration::from_millis(capped));
+            })
+            .map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+
         // ---- cancelled ----
         let flag = cancelled;
         api.set(
@@ -435,6 +447,19 @@ mod tests {
         "#;
         assert_eq!(run_script(dir.path(), script, None).unwrap(), "blocked");
         assert!(!dir.path().parent().unwrap().join("escape.txt").exists());
+    }
+
+    #[test]
+    fn sleep_blocks_for_at_least_the_requested_time() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let script = r#"
+          globalThis.__AICUT_PLUGIN__ = { id: "s", run() {
+            const started = Date.now();
+            ctx.sleep(40);
+            return String(Date.now() - started >= 30);
+          } };
+        "#;
+        assert_eq!(run_script(dir.path(), script, None).unwrap(), "true");
     }
 
     #[test]

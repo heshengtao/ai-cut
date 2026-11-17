@@ -121,13 +121,15 @@ globalThis.__AICUT_PLUGIN__ = {
 | `ctx.media.save(base64, name)` | 把字节落盘并返回路径（文件名不能带路径分隔符） |
 | `ctx.storage.get(key)` / `.set(key, value)` | 插件私有键值（`data/<id>/storage.json`） |
 | `ctx.log(message)` | 诊断输出 |
+| `ctx.sleep(ms)` | 阻塞插件自己的线程（轮询用，最多 60 s） |
 | `ctx.cancelled()` | 用户在界面上取消了吗 |
 
 宿主半**没有** `fs` / `require` / `process` / `fetch`。要读用户文件，把路径交给
 `ctx.http.multipart` 的文件字段，宿主会替你读。
 
-**性能注意**：宿主半是同步的，`while` 轮询会占满该插件的线程（不会拖慢别的插件）。
-轮询间隔用 `Date.now()` 空转实现，建议 ≥200 ms 并检查 `ctx.cancelled()`。
+**性能注意**：宿主半是同步的。轮询请用 `ctx.sleep(ms)`（阻塞插件自己的线程，不空转
+CPU、不影响别的插件），每次轮询后检查 `ctx.cancelled()`。对限速 1 次/秒的接口，
+间隔给 1.2 s 左右。
 
 ## 4. 本地调试
 
