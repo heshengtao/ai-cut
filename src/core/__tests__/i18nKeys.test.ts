@@ -13,6 +13,7 @@ const KEYS = [
   "extensions.install",
   "extensions.loading",
   "extensions.enable",
+  "extensions.reload",
   "extensions.disable",
   "extensions.incompatible",
   "extensions.confirmRemove",

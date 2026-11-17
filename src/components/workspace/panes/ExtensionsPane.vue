@@ -104,9 +104,27 @@ async function search(force = false): Promise<void> {
   await host.searchMarket(query.value, force);
 }
 
-function refreshAll(): void {
-  void host.refresh();
-  if (tab.value === "discover") void search(true);
+async function refreshAll(): Promise<void> {
+  busy.value = "reload";
+  try {
+    // 「刷新」= 重新读名册 + 把 rev 变了的插件热替换掉（改了 client.js 不用重启）。
+    await host.reloadAll(importPluginModule);
+    if (tab.value === "discover") await search(true);
+  } finally {
+    busy.value = null;
+  }
+}
+
+async function reloadOne(id: string): Promise<void> {
+  busy.value = id;
+  notice.value = null;
+  try {
+    await host.reload(id, importPluginModule);
+  } catch (error) {
+    notice.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    busy.value = null;
+  }
 }
 
 onMounted(() => {
@@ -212,6 +230,14 @@ onMounted(() => {
               @click="install(entry.id, updateFor.get(entry.id) ?? '')"
             >
               {{ i18n.t("extensions.updateTo", { version: updateFor.get(entry.id) ?? "" }) }}
+            </button>
+            <button
+              class="mini-btn"
+              type="button"
+              :disabled="busy === entry.id || !entry.compatible || !entry.enabled"
+              @click="reloadOne(entry.id)"
+            >
+              {{ i18n.t("extensions.reload") }}
             </button>
             <button
               class="mini-btn"

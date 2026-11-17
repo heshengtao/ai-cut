@@ -167,6 +167,53 @@ describe("plugin host store", () => {
     expect(store.plugins).toHaveLength(1);
   });
 
+  it("reloads a plugin by disposing and loading it again", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    await store.reload("@demo/x", async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.dispose).toHaveBeenCalledOnce();
+    expect(mocks.loadPluginModule).toHaveBeenCalledTimes(2);
+    expect(mocks.stopHost).toHaveBeenCalledWith("@demo/x");
+  });
+
+  it("swaps a plugin when its rev changes", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.loadPluginModule).toHaveBeenCalledTimes(1);
+
+    // 文件改了：daemon 报的 rev 变了。
+    mocks.list.mockResolvedValue([{ ...enabled, rev: "0.1.0-999" }]);
+    await store.checkForUpdates(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.dispose).toHaveBeenCalledOnce();
+    expect(mocks.loadPluginModule).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads a plugin that just became compatible", async () => {
+    mocks.list.mockResolvedValue([{ ...enabled, compatible: false, lastError: "需要 AI Cut 1.3.0" }]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.loadPluginModule).not.toHaveBeenCalled();
+
+    // 改清单后变兼容：下一轮检测直接装上，不用重启。
+    mocks.list.mockResolvedValue([enabled]);
+    await store.checkForUpdates(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.loadPluginModule).toHaveBeenCalledOnce();
+  });
+
+  it("ignores unchanged revs", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    await store.checkForUpdates(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.loadPluginModule).toHaveBeenCalledTimes(1);
+  });
+
   it("disposes a plugin when it is removed", async () => {
     mocks.list.mockResolvedValue([enabled]);
     mocks.remove.mockResolvedValue([]);

@@ -84,7 +84,9 @@ onMounted(() => {
   // 插件：先读名册再装已启用的客户端半。失败只记在插件面板里，不影响启动。
   void usePluginHostStore()
     .refresh()
-    .then(() => usePluginHostStore().loadEnabled(importPluginModule));
+    .then(() => usePluginHostStore().loadEnabled(importPluginModule))
+    // 插件的 client.js / host.js 改了不用重启：轮询名册里的 rev，变了就热替换。
+    .then(() => usePluginHostStore().startHotReload(importPluginModule));
   void restoreLastSession().finally(() => {
     restoring.value = false;
     restoreOverlay.value = false;
@@ -129,6 +131,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  usePluginHostStore().stopHotReload();
   window.removeEventListener("resize", onWindowResize);
   window.clearTimeout(restoreTimer);
   uninstall?.();

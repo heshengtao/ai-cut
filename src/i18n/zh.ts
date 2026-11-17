@@ -179,6 +179,7 @@ const zh: Record<string, string> = {
   "extensions.loading": "正在读取插件列表…",
   "extensions.install": "导入本地目录",
   "extensions.enable": "启用",
+  "extensions.reload": "重新加载",
   "extensions.disable": "禁用",
   "extensions.incompatible": "版本不兼容",
   "extensions.confirmRemove": "移除插件 {name}？（不会删除磁盘上的源目录）",

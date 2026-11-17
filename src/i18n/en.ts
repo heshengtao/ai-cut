@@ -179,6 +179,7 @@ const en: Record<string, string> = {
   "extensions.loading": "Loading plugin list…",
   "extensions.install": "Import folder",
   "extensions.enable": "Enable",
+  "extensions.reload": "Reload",
   "extensions.disable": "Disable",
   "extensions.incompatible": "Incompatible",
   "extensions.confirmRemove": "Remove plugin {name}? (the source folder on disk is kept)",
