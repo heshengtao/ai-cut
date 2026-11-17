@@ -286,25 +286,34 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 侧边栏宽度会在 280–520px 之间被拖动，所以按「容器宽度」自适应，
+   不按窗口宽度（窗口宽不代表这个面板宽）。 */
 .extensions {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 12px;
+  min-width: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   height: 100%;
 }
 .head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
 }
 .tabs {
   display: flex;
   gap: 4px;
+  min-width: 0;
 }
 .tab {
+  flex: 0 0 auto;
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -316,6 +325,7 @@ onMounted(async () => {
   background: var(--md-sys-color-primary-container);
 }
 .install {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -328,10 +338,11 @@ onMounted(async () => {
 .notice,
 .empty {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   font-size: 12px;
   color: var(--md-sys-color-on-surface-variant);
+  overflow-wrap: anywhere;
 }
 .notice {
   color: var(--md-sys-color-error);
@@ -341,9 +352,13 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+.source-row {
+  flex-wrap: wrap;
 }
 .field {
-  flex: 1;
+  flex: 1 1 120px;
   min-width: 0;
   padding: 6px 10px;
   border-radius: 10px;
@@ -352,6 +367,7 @@ onMounted(async () => {
   background: var(--md-sys-color-surface-container-high);
 }
 .row-label {
+  flex: 0 0 auto;
   font-size: 11px;
   color: var(--md-sys-color-on-surface-variant);
   white-space: nowrap;
@@ -360,38 +376,53 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 .item {
   display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
   padding: 10px;
   border-radius: 12px;
   background: var(--md-sys-color-surface-container);
 }
+.item-main {
+  flex: 1 1 160px;
+  min-width: 0;
+}
 .item-title {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   font-size: 12px;
 }
 .id {
+  min-width: 0;
   font-weight: 600;
+  overflow-wrap: anywhere;
   color: var(--md-sys-color-on-surface);
 }
 .version {
+  flex: 0 0 auto;
   color: var(--md-sys-color-on-surface-variant);
 }
 .item-sub,
 .item-desc {
   font-size: 10px;
   color: var(--md-sys-color-on-surface-variant);
+  overflow-wrap: anywhere;
   word-break: break-all;
 }
 .item-desc {
   margin-top: 2px;
 }
 .badge {
+  flex: 0 0 auto;
   padding: 1px 6px;
   border-radius: 999px;
   font-size: 10px;
@@ -406,16 +437,23 @@ onMounted(async () => {
   font-size: 11px;
   color: var(--md-sys-color-error);
   margin-top: 2px;
+  overflow-wrap: anywhere;
 }
 .item-actions {
+  flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
+  margin-left: auto;
 }
 .ghost {
+  flex: 0 0 auto;
   padding: 4px 8px;
   border-radius: 8px;
   font-size: 11px;
+  white-space: nowrap;
   color: var(--md-sys-color-on-surface);
   background: transparent;
 }
@@ -427,11 +465,12 @@ onMounted(async () => {
   color: var(--md-sys-color-error);
 }
 .failures {
-  font-size: 11px;
-  color: var(--md-sys-color-error);
   display: flex;
   flex-direction: column;
   gap: 2px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  color: var(--md-sys-color-error);
 }
 .hint {
   font-size: 12px;
@@ -439,5 +478,27 @@ onMounted(async () => {
 }
 .warn-text {
   color: var(--md-sys-color-error);
+}
+
+/* 窄面板：图标按钮代替文字、操作行落到下一行。 */
+@container (max-width: 340px) {
+  .extensions {
+    padding: 10px;
+    gap: 10px;
+  }
+  .install span {
+    display: none;
+  }
+  .item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .item-actions {
+    justify-content: flex-end;
+    margin-left: 0;
+  }
+  .tab {
+    padding: 4px 8px;
+  }
 }
 </style>
