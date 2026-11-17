@@ -15,13 +15,13 @@ fn host_of(app: &AppHandle) -> Arc<dyn aicut_daemon::Host> {
     Arc::new(TauriHost::new(app.clone()))
 }
 
-fn version() -> &'static str {
+fn binary_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
 #[tauri::command]
 pub fn plugin_host_list(app: AppHandle) -> Result<serde_json::Value, String> {
-    let plugins = aicut_daemon::plugin_host::service::list(&host_of(&app), version())?;
+    let plugins = aicut_daemon::plugin_host::service::list(&host_of(&app), binary_version())?;
     Ok(serde_json::json!({ "plugins": plugins }))
 }
 
@@ -33,7 +33,7 @@ pub fn plugin_host_install_local(
     let plugin = aicut_daemon::plugin_host::service::install_local(
         &host_of(&app),
         std::path::Path::new(&path),
-        version(),
+        binary_version(),
     )?;
     Ok(serde_json::json!({ "plugin": plugin }))
 }
@@ -45,13 +45,13 @@ pub fn plugin_host_set_enabled(
     enabled: bool,
 ) -> Result<serde_json::Value, String> {
     let plugins =
-        aicut_daemon::plugin_host::service::toggle(&host_of(&app), &id, enabled, version())?;
+        aicut_daemon::plugin_host::service::toggle(&host_of(&app), &id, enabled, binary_version())?;
     Ok(serde_json::json!({ "plugins": plugins }))
 }
 
 #[tauri::command]
 pub fn plugin_host_remove(app: AppHandle, id: String) -> Result<serde_json::Value, String> {
-    let plugins = aicut_daemon::plugin_host::service::forget(&host_of(&app), &id, version())?;
+    let plugins = aicut_daemon::plugin_host::service::forget(&host_of(&app), &id, binary_version())?;
     Ok(serde_json::json!({ "plugins": plugins }))
 }
 
@@ -109,7 +109,7 @@ pub async fn plugin_market_search(
     aicut_daemon::plugin_host::service::market_search(
         &host_of(&app),
         network.inner().as_ref(),
-        version(),
+        binary_version(),
         text.unwrap_or_default().as_str(),
         offset.unwrap_or(0),
         limit.unwrap_or(20),
@@ -128,7 +128,7 @@ pub async fn plugin_market_install(
     let plugin = aicut_daemon::plugin_host::service::market_install(
         &host_of(&app),
         network.inner().as_ref(),
-        version(),
+        binary_version(),
         &name,
         version.as_deref().unwrap_or(""),
     )
