@@ -74,6 +74,44 @@
 - When adding items, add `menu.*` keys to **both** `src/i18n/zh.ts` and `src/i18n/en.ts`, and
   extend `src/composables/__tests__/timelineMenus.test.ts` for the block-type rule.
 
+## Plugins (canvas extensions)
+
+Two different things share the word "plugin":
+
+- **OFX plugins** (`crates/daemon/src/plugins.rs`, `plugins/ofx/`): native binaries, registry
+  + download + scan. Unchanged by the extension work.
+- **Canvas plugins** (`crates/daemon/src/plugin_host/`, `plugins/host/`, `src/core/plugins/`):
+  JS packages with an optional client half (Vue side) and host half (QuickJS side).
+
+Canvas plugin invariants:
+
+- **Artifacts are immutable**: managed installs live in `plugins/host/store/<id>/<version>/`;
+  the ledger (`plugins.json`) never stores absolute paths for them. Only `linked` (local
+  directory) records keep a path — and removing a link never deletes the source folder.
+- **The manifest declares only what the host must know before loading**: `format`, `id`,
+  `version`, `engines.aicut`, `host` / `client` entry files, `inject`, `external`,
+  `capabilities`. What a plugin *contributes* (nodes, panes, controls, commands) is
+  registered at runtime through `ctx` — never copy that list into the manifest.
+- **Two halves, two trust levels**: the host half runs in its own QuickJS runtime/thread
+  with `ctx` as its only capability surface (`http` / `storage` / `media` / `log` /
+  `cancelled`; no `fs`, no `require`). The client half shares the editor's JS context and is
+  **not sandboxed** — say so in any install confirmation.
+- **Registration is reversible**: every `ctx.*.register` returns a disposer; unloading a
+  plugin must leave no node types, commands, panes or message keys behind. Duplicate ids are
+  hard errors that name the current owner (do not silently overwrite).
+- **Plugin files are served by `/plugins/{id}/{file}` only** (registry-scoped, single path
+  segment, no traversal). Never route plugin code through `/file`, which can read any
+  absolute path.
+- **Host half is synchronous**: network calls block the plugin's own actor thread. Polling
+  loops burn that thread; keep timeouts short and check `ctx.cancelled()`.
+- QuickJS drop order matters: `Context` must be dropped before `Runtime`, and closures must
+  not capture `rqtjs::Ctx` (take it as the first parameter instead) — otherwise
+  `JS_FreeRuntime` asserts and aborts the process.
+
+The market index is static JSON (`format: 1`, `sha256` + `size` required, `npm` / `tgz`
+sources only, no `git`): the daemon fetches and validates it, the renderer only ever sees one
+page of results.
+
 ## Data folder (where models / plugins / history live)
 
 - All persistent state is resolved through `src-tauri/src/paths.rs` — never call
