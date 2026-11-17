@@ -28,6 +28,24 @@ pub struct PluginStatus {
     pub last_error: Option<String>,
 }
 
+/// 插件 id → 安全的目录名（`@scope/name` 不能直接当目录）。
+pub fn safe_id(id: &str) -> String {
+    id.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+/// 托管安装目录：`<root>/store/<safe id>/<version>`。名册不存绝对路径，由版本推导。
+pub fn store_dir(root: &Path, id: &str, version: &str) -> PathBuf {
+    root.join("store").join(safe_id(id)).join(version)
+}
+
 /// 读清单并校验「id 与 package.json name 一致」。
 pub fn read_manifest(dir: &Path) -> Result<(PluginManifest, String), String> {
     let path = dir.join(MANIFEST_FILE);
@@ -85,7 +103,8 @@ pub fn install_linked(
 }
 
 /// 扫一条记录，产出给前端的完整状态（不报错，错误进 `last_error`）。
-pub fn scan(_root: &Path, record: &PluginRecord, app_version: &str) -> PluginStatus {
+pub fn scan(root: &Path, record: &PluginRecord, app_version: &str) -> PluginStatus {
+    let _root = root;
     let mut status = PluginStatus {
         id: record.id.clone(),
         version: record.version.clone(),
@@ -98,7 +117,13 @@ pub fn scan(_root: &Path, record: &PluginRecord, app_version: &str) -> PluginSta
         compatible: true,
         last_error: record.last_error.clone(),
     };
-    let Some(dir) = record.path.as_deref().map(PathBuf::from) else {
+    // 托管安装的路径由 `id@version` 推导；只有 linked 才落绝对路径。
+    let dir = if record.kind == "store" {
+        Some(store_dir(_root, &record.id, &record.version))
+    } else {
+        record.path.as_deref().map(PathBuf::from)
+    };
+    let Some(dir) = dir else {
         status.last_error = Some("记录里没有目录".to_string());
         return status;
     };

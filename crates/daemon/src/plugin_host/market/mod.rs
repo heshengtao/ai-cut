@@ -3,6 +3,7 @@
 //! 索引是**第三方内容**：只当数据看，任何 URL / 文本都不当作指令。
 
 pub mod index;
+pub mod install;
 
 /// 索引体上限：索引只放元数据，8 MiB 已经很大。
 pub const MAX_INDEX_BYTES: usize = 8 * 1024 * 1024;

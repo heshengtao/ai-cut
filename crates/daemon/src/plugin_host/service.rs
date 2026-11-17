@@ -86,20 +86,7 @@ fn running_map() -> &'static Mutex<HashMap<String, HostRuntime>> {
 
 /// 插件数据目录：`<config>/plugins/data/<safe-id>`。
 pub fn data_root(host: &Arc<dyn Host>, id: &str) -> PathBuf {
-    root(host).join("data").join(safe_dir_name(id))
-}
-
-/// id 里的 `@` / `/` 不能直接当目录名。
-fn safe_dir_name(id: &str) -> String {
-    id.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-' {
-                ch
-            } else {
-                '-'
-            }
-        })
-        .collect()
+    root(host).join("data").join(super::linked::safe_id(id))
 }
 
 /// 起一个插件的宿主半（重复调用是幂等的）。
