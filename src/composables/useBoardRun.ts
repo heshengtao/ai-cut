@@ -26,6 +26,21 @@ import {
   type AdapterIO,
   type AdapterResult,
 } from "@/core/board/adapters";
+import {
+  beginLiveRun,
+  endLiveRun,
+  liveRun,
+  liveRuns,
+  updateLiveRun,
+} from "@/core/board/liveRuns";
+
+/**
+ * 运行中的实时状态（文本流 / 进度 / 开始时间）。
+ *
+ * 不写进节点文档：每个 token / 每个 step 都落盘会把画布写爆；节点卡片直接读
+ * 这份内存状态（`core/board/liveRuns`），运行结束再把最终产物写回 `data`。
+ */
+export { liveRuns };
 import { addAsset } from "@/core/ops";
 import {
   DEFAULT_RUN_LIMITS,
@@ -78,22 +93,6 @@ const smartOrder = ref(true);
 const smartMemory = ref(true);
 /** 本次运行按泳道汇总（运行面板 / 工具栏提示用）。 */
 const plan = ref<ReturnType<typeof summarizeRun> | null>(null);
-/**
- * 运行中的实时状态（文本流 / 进度 / 开始时间）。
- *
- * 不写进节点文档：每个 token / 每个 step 都落盘会把画布写爆；BoardNode 直接读
- * 这份内存状态，运行结束再把最终产物写回 `data`。
- */
-export interface LiveRun {
-  startedAt: number;
-  /** 0..1；null 表示还没有可解析的进度（显示不确定进度环）。 */
-  progress: number | null;
-  /** 当前步骤 / 状态说明，例如 `12 / 20` 或云端排队信息。 */
-  message: string | null;
-  text: string;
-  reasoning: string;
-}
-const liveRuns = reactive<Record<string, LiveRun>>({});
 const mode = ref<BoardRunMode>("manual");
 const repeatCount = ref(1);
 let cancelled = false;
@@ -353,17 +352,6 @@ function liveProgressPct(node: BoardNode): number | null {
     default:
       return null;
   }
-}
-
-/** 每次运行的临时进度写入口；Task 4 换成 `core/board/liveRuns` 的模块版本。 */
-function updateLiveRun(
-  nodeId: string,
-  patch: { progress?: number; message?: string | null },
-): void {
-  const live = liveRuns[nodeId];
-  if (!live) return;
-  if (patch.progress !== undefined) live.progress = patch.progress;
-  if (patch.message !== undefined) live.message = patch.message;
 }
 
 /** 单个节点的适配器：把画布参数翻译成现有 API 的调用。 */
@@ -629,11 +617,11 @@ async function runAdapter(
             topP,
             reasoningEffort,
             onDelta: (delta) => {
-              const live = liveRuns[nodeId];
+              const live = liveRun(nodeId);
               if (live) live.text += delta;
             },
             onReasoning: (delta) => {
-              const live = liveRuns[nodeId];
+              const live = liveRun(nodeId);
               if (live) live.reasoning += delta;
             },
           })
@@ -818,11 +806,11 @@ async function runOne(nodeId: string): Promise<boolean> {
   }
 
   const startedAt = Date.now();
-  liveRuns[nodeId] = { startedAt, progress: null, message: null, text: "", reasoning: "" };
+  beginLiveRun(nodeId);
   ensureProgressWatches(node);
   // 进度事件是异步推送的：轮询 store 里的 progressPct，节流写进内存 live 状态。
   const progressTimer = setInterval(() => {
-    const live = liveRuns[nodeId];
+    const live = liveRun(nodeId);
     if (!live) return;
     const pct = liveProgressPct(node);
     if (pct !== null && pct !== undefined) live.progress = Math.min(1, Math.max(0, pct / 100));
@@ -880,7 +868,7 @@ async function runOne(nodeId: string): Promise<boolean> {
     });
     return true;
   } catch (error) {
-    const live = liveRuns[nodeId];
+    const live = liveRun(nodeId);
     board.setNodeRuntime(nodeId, {
       status: "error",
       progress: undefined,
@@ -893,7 +881,7 @@ async function runOne(nodeId: string): Promise<boolean> {
     return false;
   } finally {
     clearInterval(progressTimer);
-    delete liveRuns[nodeId];
+    endLiveRun(nodeId);
   }
 }
 
