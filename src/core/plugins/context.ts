@@ -8,6 +8,7 @@ import { registerAdapter, type AdapterFn } from "@/core/board/adapters";
 import { registerNodeDefinition } from "@/core/board/registry";
 import { registerCommand, type CommandSpec } from "@/core/commandTable";
 import { registerPluginMessages, type Locale } from "@/i18n/translate";
+import { pluginHostInvoke } from "@/core/pluginHostApi";
 import type { BoardNodeDefinition } from "@/types/board";
 
 export interface PluginContext {
@@ -15,6 +16,13 @@ export interface PluginContext {
   nodes: { register(definition: BoardNodeDefinition, run: AdapterFn): void };
   commands: { register(spec: CommandSpec): void };
   i18n: { register(dicts: Partial<Record<Locale, Record<string, string>>>): void };
+  /**
+   * 宿主半（`host.js`）的调用口。
+   *
+   * 客户端半只负责「把画布参数翻译成一次调用」，真正的网络 / 持久化 / 产物落盘
+   * 都在宿主半里做——这样密钥与二进制都不进渲染进程。
+   */
+  host: { run(input: string): Promise<string> };
   log(message: string): void;
 }
 
@@ -38,6 +46,11 @@ export function createPluginContext(
     i18n: {
       register(dicts) {
         push(registerPluginMessages(pluginId, dicts));
+      },
+    },
+    host: {
+      run(input) {
+        return pluginHostInvoke(pluginId, input);
       },
     },
     log(message) {

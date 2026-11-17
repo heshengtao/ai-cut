@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => {
     setEnabled: vi.fn(),
     remove: vi.fn(),
     installLocal: vi.fn(),
+    startHost: vi.fn(async () => {}),
+    stopHost: vi.fn(async () => []),
     loadPluginModule: vi.fn(() => ({ id: "@demo/x", dispose })),
   };
 });
@@ -18,6 +20,8 @@ vi.mock("@/core/pluginHostApi", () => ({
   pluginHostSetEnabled: (...args: unknown[]) => mocks.setEnabled(...args),
   pluginHostRemove: (...args: unknown[]) => mocks.remove(...args),
   pluginHostInstallLocal: (...args: unknown[]) => mocks.installLocal(...args),
+  pluginHostStart: (...args: unknown[]) => mocks.startHost(...args),
+  pluginHostStop: (...args: unknown[]) => mocks.stopHost(...args),
   onPluginHostProgress: vi.fn(),
 }));
 
@@ -47,6 +51,8 @@ beforeEach(() => {
   mocks.setEnabled.mockReset();
   mocks.remove.mockReset();
   mocks.installLocal.mockReset();
+  mocks.startHost.mockClear();
+  mocks.stopHost.mockClear();
   mocks.dispose.mockReset();
   mocks.loadPluginModule.mockClear();
 });
@@ -98,6 +104,24 @@ describe("plugin host store", () => {
     await store.setEnabled("@demo/x", false);
     expect(mocks.dispose).toHaveBeenCalledOnce();
     expect(store.plugins[0]!.enabled).toBe(false);
+  });
+
+  it("starts the host half when the plugin has one", async () => {
+    mocks.list.mockResolvedValue([{ ...enabled, hostFile: "/tmp/x/host.js" }]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.startHost).toHaveBeenCalledWith("@demo/x");
+  });
+
+  it("stops the host half when the plugin is disabled", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    mocks.setEnabled.mockResolvedValue([{ ...enabled, enabled: false }]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    await store.setEnabled("@demo/x", false);
+    expect(mocks.stopHost).toHaveBeenCalledWith("@demo/x");
   });
 
   it("disposes a plugin when it is removed", async () => {

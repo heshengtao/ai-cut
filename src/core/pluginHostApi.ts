@@ -38,3 +38,17 @@ export function onPluginHostProgress(
 ): Promise<UnlistenFn> {
   return listen<PluginHostProgress>("plugin-host-progress", (event) => handler(event.payload));
 }
+
+export async function pluginHostStart(id: string): Promise<void> {
+  await invoke<{ running: boolean }>("plugin_host_start", { id });
+}
+
+export async function pluginHostInvoke(id: string, input: string): Promise<string> {
+  const result = await invoke<{ output: string }>("plugin_host_invoke", { id, input });
+  return result.output;
+}
+
+export async function pluginHostStop(id: string): Promise<string[]> {
+  const result = await invoke<{ stopped: boolean; running: string[] }>("plugin_host_stop", { id });
+  return result.running;
+}

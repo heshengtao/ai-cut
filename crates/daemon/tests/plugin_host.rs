@@ -107,3 +107,53 @@ fn incompatible_engines_are_reported_but_kept() {
         "@demo/old"
     );
 }
+
+#[test]
+fn start_invoke_stop_round_trip() {
+    let home = TempDir::new().unwrap();
+    let host: Arc<dyn Host> = Arc::new(HeadlessHost::new(home.path().into(), home.path().into()));
+    let temp = TempDir::new().unwrap();
+    let source = temp.path().join("echo");
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::write(
+        source.join("aicut.plugin.json"),
+        r#"{"format":1,"id":"@demo/echo","version":"0.1.0","engines":{"aicut":"*"},"host":"./host.js"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        source.join("host.js"),
+        r#"globalThis.__AICUT_PLUGIN__={id:"@demo/echo",run(input){ctx.storage.set("last",input);return "echo:"+JSON.parse(input).text;}};"#,
+    )
+    .unwrap();
+
+    service::install_local(&host, &source, "1.4.0").unwrap();
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _enter = runtime.enter();
+    let network = aicut_daemon::network::NetworkRuntime::load(None);
+
+    service::start(&host, &network, "@demo/echo").unwrap();
+    assert_eq!(service::running(), vec!["@demo/echo".to_string()]);
+    assert_eq!(
+        service::invoke("@demo/echo", r#"{"text":"hi"}"#).unwrap(),
+        "echo:hi"
+    );
+    assert!(service::stop("@demo/echo"));
+    assert!(service::running().is_empty());
+    assert!(service::invoke("@demo/echo", "{}").is_err());
+}
+
+#[test]
+fn start_rejects_a_plugin_without_a_host_half() {
+    let home = TempDir::new().unwrap();
+    let host: Arc<dyn Host> = Arc::new(HeadlessHost::new(home.path().into(), home.path().into()));
+    let temp = TempDir::new().unwrap();
+    let source = plugin_dir(&temp, "@demo/clientonly");
+    service::install_local(&host, &source, "1.4.0").unwrap();
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _enter = runtime.enter();
+    let network = aicut_daemon::network::NetworkRuntime::load(None);
+    let error = service::start(&host, &network, "@demo/clientonly").unwrap_err();
+    assert!(error.contains("host"), "{}", error);
+}

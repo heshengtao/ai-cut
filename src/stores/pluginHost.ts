@@ -12,6 +12,8 @@ import {
   pluginHostList,
   pluginHostRemove,
   pluginHostSetEnabled,
+  pluginHostStart,
+  pluginHostStop,
 } from "@/core/pluginHostApi";
 import {
   loadPluginModule,
@@ -60,6 +62,14 @@ export const usePluginHostStore = defineStore("pluginHost", () => {
       return;
     }
     try {
+      // 宿主半先起（失败只记录，不阻断客户端半——有的插件只有一半）。
+      if (entry.hostFile) {
+        try {
+          await pluginHostStart(entry.id);
+        } catch (reason) {
+          note(entry, reason instanceof Error ? reason.message : String(reason));
+        }
+      }
       const module = await importer({ id: entry.id, client: entry.client, rev: entry.rev });
       loaded.set(entry.id, loadPluginModule({ id: entry.id, url: entry.client }, module));
     } catch (reason) {
@@ -79,6 +89,7 @@ export const usePluginHostStore = defineStore("pluginHost", () => {
     if (!enabled) {
       loaded.get(id)?.dispose();
       loaded.delete(id);
+      await pluginHostStop(id);
       failed.value = failed.value.filter((line) => !line.startsWith(`${id}:`));
     }
   }
@@ -86,6 +97,7 @@ export const usePluginHostStore = defineStore("pluginHost", () => {
   async function remove(id: string): Promise<void> {
     loaded.get(id)?.dispose();
     loaded.delete(id);
+    await pluginHostStop(id);
     plugins.value = await pluginHostRemove(id);
     failed.value = failed.value.filter((line) => !line.startsWith(`${id}:`));
   }

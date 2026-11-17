@@ -5,7 +5,9 @@
 use std::sync::Arc;
 
 use aicut_daemon::plugin_host::linked::PluginStatus;
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
+
+use crate::network::NetworkRuntime;
 
 use crate::host::TauriHost;
 
@@ -55,3 +57,28 @@ pub fn plugin_host_remove(app: AppHandle, id: String) -> Result<serde_json::Valu
 
 /// 给前端复用的状态结构（仅类型用途，避免 tauri 宏推导不到）。
 pub type PluginHostStatus = PluginStatus;
+
+#[tauri::command]
+pub fn plugin_host_start(
+    app: AppHandle,
+    network: State<'_, Arc<NetworkRuntime>>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    aicut_daemon::plugin_host::service::start(&host_of(&app), network.inner().as_ref(), &id)?;
+    Ok(serde_json::json!({ "running": true }))
+}
+
+#[tauri::command]
+pub fn plugin_host_invoke(id: String, input: String) -> Result<serde_json::Value, String> {
+    let output = aicut_daemon::plugin_host::service::invoke(&id, &input)?;
+    Ok(serde_json::json!({ "output": output }))
+}
+
+#[tauri::command]
+pub fn plugin_host_stop(id: String) -> Result<serde_json::Value, String> {
+    let stopped = aicut_daemon::plugin_host::service::stop(&id);
+    Ok(serde_json::json!({
+        "stopped": stopped,
+        "running": aicut_daemon::plugin_host::service::running(),
+    }))
+}

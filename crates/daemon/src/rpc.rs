@@ -1410,6 +1410,34 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
                 )?
             }))
         }
+        "plugin_host_start" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                id: String,
+            }
+            let args: Args = from_value(args)?;
+            crate::plugin_host::service::start(&ctx.host, &ctx.network, &args.id)?;
+            Ok(json!({ "running": true }))
+        }
+        "plugin_host_invoke" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                id: String,
+                input: String,
+            }
+            let args: Args = from_value(args)?;
+            let output = crate::plugin_host::service::invoke(&args.id, &args.input)?;
+            Ok(json!({ "output": output }))
+        }
+        "plugin_host_stop" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                id: String,
+            }
+            let args: Args = from_value(args)?;
+            let stopped = crate::plugin_host::service::stop(&args.id);
+            Ok(json!({ "stopped": stopped, "running": crate::plugin_host::service::running() }))
+        }
         "plugin_host_remove" => {
             #[derive(serde::Deserialize)]
             struct Args {
