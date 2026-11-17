@@ -20,6 +20,12 @@ import { useVideoAiStore } from "@/stores/videoAi";
 import { useAudioAiStore } from "@/stores/audioAi";
 import { useCloudGenStore } from "@/stores/cloudGen";
 import { cloudGenImage, cloudGenVideo } from "@/core/cloudGenApi";
+import {
+  adapterFor,
+  dispatchAdapter,
+  type AdapterIO,
+  type AdapterResult,
+} from "@/core/board/adapters";
 import { addAsset } from "@/core/ops";
 import {
   DEFAULT_RUN_LIMITS,
@@ -55,22 +61,6 @@ import type { AssetKind } from "@/types/project";
 
 export type { BoardRunMode } from "@/types/board";
 
-interface AdapterResult {
-  /** 产物路径（会自动入库）；单端口节点的多次产物（例如一次出 4 张图）都放这里。 */
-  paths?: string[];
-  /** 多端口节点：`端口 id → 产物路径`（会自动入库）。 */
-  pathByPort?: Record<string, string>;
-  /** 多端口节点：`端口 id → 已有素材 id`（例如视频音频分离把原视频原样透传）。 */
-  assetByPort?: Record<string, string>;
-  /** 已有素材 id：输入 / 显示节点只是把现有素材发布到输出，不重复入库。 */
-  assetId?: string;
-  /** 文本产物（不入库）。 */
-  text?: string;
-  /** 文本模型的思考过程（推理模型）。 */
-  reasoning?: string;
-  /** 产物素材类型。 */
-  kind?: AssetKind;
-}
 
 /** 待跑队列（还没开始的节点 id）。工具栏的计数器显示它。 */
 const queue = ref<string[]>([]);
@@ -365,8 +355,39 @@ function liveProgressPct(node: BoardNode): number | null {
   }
 }
 
+/** 每次运行的临时进度写入口；Task 4 换成 `core/board/liveRuns` 的模块版本。 */
+function updateLiveRun(
+  nodeId: string,
+  patch: { progress?: number; message?: string | null },
+): void {
+  const live = liveRuns[nodeId];
+  if (!live) return;
+  if (patch.progress !== undefined) live.progress = patch.progress;
+  if (patch.message !== undefined) live.message = patch.message;
+}
+
 /** 单个节点的适配器：把画布参数翻译成现有 API 的调用。 */
-async function runAdapter(node: BoardNode, nodeId: string): Promise<AdapterResult> {
+async function runAdapter(
+  node: BoardNode,
+  nodeId: string,
+  signal: AbortSignal = new AbortController().signal,
+): Promise<AdapterResult> {
+  const route = dispatchAdapter(node.type);
+  if (route === "plugin") {
+    const io: AdapterIO = {
+      param: <T,>(id: string) => node.data.params[id] as T | undefined,
+      text: (portId) => upstreamText(nodeId, portId),
+      asset: (portId) => {
+        const found = upstreamAsset(nodeId, portId);
+        return found ? { path: found.path, assetId: found.assetId } : null;
+      },
+      refs: (kind) => collectRefs(nodeId, kind),
+      progress: (value, message) =>
+        updateLiveRun(nodeId, { progress: value, message: message ?? null }),
+    };
+    return adapterFor(node.type)!({ node, nodeId, signal, io });
+  }
+  if (route === "unknown") throw new Error(`节点 ${node.type} 不支持运行`);
   const imageGen = useImageGenStore();
   const videoGen = useVideoGenStore();
   const tts = useTtsStore();

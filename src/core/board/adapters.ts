@@ -68,3 +68,31 @@ export function adapterFor(type: string): AdapterFn | null {
 export function pluginNodeType(type: string): boolean {
   return type.startsWith("ext.");
 }
+
+/** 内置节点的类型白名单（M1 起逐项迁进注册表后收缩）。 */
+const BUILTIN_TYPES = new Set([
+  "input.image",
+  "input.video",
+  "input.audio",
+  "input.text",
+  "display.image",
+  "display.video",
+  "display.audio",
+  "display.text",
+  "model.image",
+  "model.video",
+  "model.tts",
+  "model.asr",
+  "model.text",
+  "model.enhance",
+  "model.separate",
+  "model.demux",
+  "group",
+]);
+
+/** 一个节点类型该走哪条执行路径。 */
+export function dispatchAdapter(type: string): "plugin" | "builtin" | "unknown" {
+  if (adapterFor(type)) return "plugin";
+  if (BUILTIN_TYPES.has(type)) return "builtin";
+  return "unknown";
+}
