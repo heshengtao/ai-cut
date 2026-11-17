@@ -109,6 +109,9 @@ pub const HEADLESS: &[Capability] = &[
         reason: "caps.reason.pluginRevealDesktopOnly",
         fallback: "",
     },
+    // 画布插件宿主：安装 / 加载 / 宿主半（QuickJS）都在 daemon 里，无头形态同样可用。
+    // 客户端半（Vue 组件 / 插槽）只在有 UI 的形态加载，缺 UI 时对应注册表为空。
+    ok("plugin_host"),
     // ---- 智能体 / MCP ----
     // 工具面已经与桌面 `tools.rs` 对齐（62 / 62）：文档读写、编辑宏、片段级 AI、
     // 导出与渲染、工程生命周期、撤销重做、审片批注、影片结构、后台任务全在。
@@ -152,6 +155,12 @@ mod tests {
                 assert!(!item.reason.is_empty(), "{} 没有给原因", item.key);
             }
         }
+    }
+
+    #[test]
+    fn plugin_host_capability_is_available_headless() {
+        let cap = get("plugin_host").expect("plugin_host capability must be declared");
+        assert_eq!(cap.state, State::Ok);
     }
 
     #[test]

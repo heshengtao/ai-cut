@@ -9,6 +9,10 @@
  * - 桌面壳（Tauri）没有能力表，一律视为可用；
  * - 浏览器 / 容器里，**服务端没声明的 key 保持旧行为**（宁可放行也不要误伤）；
  * - 所有拒绝都必须能解释自己：`reason` + `fallback` 都是 i18n 键。
+ *
+ * 画布插件分两个 key：`plugin`（OFX，桌面操作受限时降级）与 `plugin_host`
+ * （画布插件宿主，跑在 daemon 里，无头形态同样 ok）。客户端半只在有 UI 时加载，
+ * 没有 UI 时节点 / 插槽注册表为空，插件仍可提供命令与服务。
  */
 import { t } from "@/i18n";
 import { isTauri } from "@/utils/platform";
