@@ -279,8 +279,8 @@ QuickJS 里**没有** `require` / `fetch` / `fs` / `process`。插件能做的�
 | K4 | 节点定义加 `cost.lane` | 未知 type 落 `gpu` 且按 4 GB（`scheduler.ts:80`） | 插件节点进 `api` 泳道而不是 `gpu` |
 | K5 | `category` 与节点类型加守卫 | 未知 `category` 会在 `grouped[...].push` 抛 TypeError | 插件只能复用内置分类；未知类型给出可读错误 |
 | K6 | 插件 i18n 解析：`titleKey` 支持 `@<短id>.<key>` | 词典硬编码在 `zh.ts`/`en.ts` | 插件节点多语言不依赖内核词典 |
-| K7 | 节点 `data.ports` 端口快照 | 未知节点被保留但**连线被丢**（`schema.ts:185`） | 缺插件时工程连线仍在 |
-| K8 | 新增 `/plugins/...` 资源路由（路径限定在 store 内） | 现在只能复用 `/file`（可读任意绝对路径，`rpc.rs:1939`） | 路径穿越请求 404 |
+| K7 | 节点 `data.ports` 端口快照 | 未知节点的端口渲染不出来（`portsOf` 返回空端口，`registry.ts:421`），无法继续连线 | 缺插件时端口与连线都能恢复 |
+| K8 | 新增 `/plugins/...` 资源路由（路径限定在 store 内；随 M1 落地，因为它要服务 `store/<id>/<version>/`） | 现在只能复用 `/file`（可读任意绝对路径，`rpc.rs:1939`） | 路径穿越请求 404 |
 | K9 | **命令注册表**（快捷键 + 右键菜单 + 未来命令面板共用） | `shortcuts.ts` 150 行硬编码键位 | 键位冲突明确报出占用者 |
 | K10 | 能力表加 `plugin` 键（headless 也 `ok`，因为宿主半在 daemon） | `capabilities.rs` 只有一张 HEADLESS 表 | 浏览器端能力门控正确 |
 
@@ -485,7 +485,7 @@ resolve → 预检 → 下载(cache) → sha256 → 解包(.tmp) → 原子 rena
 2. **占位而非报错**：缺插件的节点渲染成「插件未安装 · 去商店」占位；工程能正常打开、保存、导出（该节点视为无产物）。
 3. **不静默改 type**，不自动删未知参数。
 4. **参数迁移由插件负责**：节点记 `pluginVersion`；插件可选 `migrate(params, from)`，未提供则原样保留未知字段。
-5. **先例风险**：`schema.ts` 会丢弃「端口类型解析不出来」的连线，K7 必须先落地，否则插件节点在旧版本工程里会断连。
+5. **先例风险**：`normalizeBoard` 的 `portTypeOf` 选项在生产调用里都没传（`serialize.ts:334`、`stores/board.ts:141`），所以连线本身不会因缺插件而丢；真正的问题是端口渲染不出来、没法继续连线。K7 解决的正是后者。
 
 ---
 
@@ -559,7 +559,7 @@ resolve → 预检 → 下载(cache) → sha256 → 解包(.tmp) → 原子 rena
 
 | 阶段 | 内容 | 可独立验收 |
 | --- | --- | --- |
-| M0 | 内核改造 K1–K10（内置行为不变） | `pnpm build` + 全套测试 + 手测画布 |
+| M0 | 内核改造 K1–K7、K9–K10（内置行为不变；K8 资源路由随 M1 一起做，因为它要服务 `store/`） | `pnpm build` + 全套测试 + 手测画布 |
 | M1 | 加载器与生命周期（仅 `linked`、仅客户端半） | 示例插件出现节点/命令、可禁用 |
 | M2 | 宿主半 + ctx（QuickJS actor、http/media/jobs/storage、中断与配额） | 示例插件发真实 HTTP |
 | M3 | 商店（索引抓取、安装事务、更新/卸载、进度、安全模式、插件管理页） | 空索引 + 假索引安装 |
