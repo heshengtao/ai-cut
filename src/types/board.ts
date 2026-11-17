@@ -135,6 +135,11 @@ export interface BoardNodeDefinition {
   assetKind?: AssetKind;
   /** 是否在节点卡片底部展开实时输出（模型节点）。 */
   liveOutput?: boolean;
+  /**
+   * 调度声明：插件节点必须声明泳道，否则不参与运行（`nodeCost` 返回 null）。
+   * 内置节点不填，仍走 `scheduler.ts` 里的既有估算。
+   */
+  cost?: { lane: "instant" | "api" | "gpu" | "cpu"; vramMb?: number; ramMb?: number };
 }
 
 /** 参数绑定到上游端口。 */
