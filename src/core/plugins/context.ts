@@ -7,6 +7,8 @@
 import { registerAdapter, type AdapterFn } from "@/core/board/adapters";
 import { registerNodeDefinition } from "@/core/board/registry";
 import { registerCommand, type CommandSpec } from "@/core/commandTable";
+import { registerControl, type ControlSpec } from "@/core/plugins/controls";
+import { registerPane, type PaneSpec } from "@/core/plugins/panes";
 import { registerPluginMessages, type Locale } from "@/i18n/translate";
 import { pluginHostInvoke } from "@/core/pluginHostApi";
 import type { BoardNodeDefinition } from "@/types/board";
@@ -16,6 +18,10 @@ export interface PluginContext {
   nodes: { register(definition: BoardNodeDefinition, run: AdapterFn): void };
   commands: { register(spec: CommandSpec): void };
   i18n: { register(dicts: Partial<Record<Locale, Record<string, string>>>): void };
+  /** 参数控件（`board.inspector` 注入点）。 */
+  controls: { register(spec: ControlSpec): void };
+  /** AI 面板页（`ai.pane` 注入点）。 */
+  panes: { register(spec: PaneSpec): void };
   /**
    * 宿主半（`host.js`）的调用口。
    *
@@ -46,6 +52,16 @@ export function createPluginContext(
     i18n: {
       register(dicts) {
         push(registerPluginMessages(pluginId, dicts));
+      },
+    },
+    controls: {
+      register(spec) {
+        push(registerControl(pluginId, spec));
+      },
+    },
+    panes: {
+      register(spec) {
+        push(registerPane(pluginId, spec));
       },
     },
     host: {

@@ -75,12 +75,16 @@ export type BoardParamKind =
   | "select"
   | "toggle"
   | "seed"
-  | "size";
+  | "size"
+  /** 插件提供的控件（`BoardParamSpec.control` 指向注册 id）。 */
+  | "component";
 
 export interface BoardParamSpec {
   id: string;
   labelKey: string;
   kind: BoardParamKind;
+  /** `kind === "component"` 时生效：控件注册 id（见 `core/plugins/controls.ts`）。 */
+  control?: string;
   /** `select` 的选项（值 + i18n key）。 */
   options?: { value: string; labelKey: string }[];
   min?: number;

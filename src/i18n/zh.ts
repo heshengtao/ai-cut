@@ -1199,6 +1199,7 @@ const zh: Record<string, string> = {
   "ai.agent": "剪辑智能体",
   "ai.agentHint": "对话式剪辑，直接改时间线",
   "ai.run": "打开",
+  "ai.pluginPageHint": "插件提供的页面",
   "ai.mcpServer": "MCP 服务器",
   "ai.mcpOn": "已开启，Harness 可以连接",
   "ai.mcpOff": "已关闭",

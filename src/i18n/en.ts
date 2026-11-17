@@ -1199,6 +1199,7 @@ const en: Record<string, string> = {
   "ai.agent": "Clip agent",
   "ai.agentHint": "Chat-driven editing on the timeline",
   "ai.run": "Open",
+  "ai.pluginPageHint": "Page provided by a plugin",
   "ai.mcpServer": "MCP server",
   "ai.mcpOn": "Enabled — harnesses can connect",
   "ai.mcpOff": "Disabled",

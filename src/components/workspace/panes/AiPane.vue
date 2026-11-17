@@ -26,6 +26,7 @@ import DownloadStrip from "@/components/ai/DownloadStrip.vue";
 import AiVideoPage from "@/components/workspace/panes/ai/AiVideoPage.vue";
 import AiImagePage from "@/components/workspace/panes/ai/AiImagePage.vue";
 import AiVoicePage from "@/components/workspace/panes/ai/AiVoicePage.vue";
+import { paneFor, pluginPanes } from "@/core/plugins/panes";
 import type { BackendInfo, BackendPreference, McpStatus } from "@/types/agent";
 import type { AudioStem, ModelStatus, TtsAudio, TtsVoice } from "@/types/models";
 import type { Clip, MediaAsset } from "@/types/project";
@@ -111,7 +112,11 @@ const sdcpp = useSdcppStore();
 const device = useDeviceStore();
 
 /** 侧栏整页：AI 视频生成 / AI 画图 / 图像编辑 / 变声（四个独立页面）。 */
-const aiPage = ref<null | "video" | "image" | "image-edit" | "voice">(null);
+const aiPage = ref<null | string>(null);
+/** 插件页：`ext:<paneId>`。 */
+const extPane = computed(() =>
+  aiPage.value?.startsWith("ext:") ? paneFor(aiPage.value.slice(4)) : null,
+);
 
 /** 时间线右键菜单带过来的「打开某个生成页并预填」请求。 */
 const aiLaunch = useAiLaunchStore();
@@ -2147,6 +2152,7 @@ onMounted(() => {
       :initial-source-id="imageEditLaunch?.sourceAssetId ?? ''"
       @back="closeGenPage"
     />
+    <component v-else-if="extPane" :is="extPane.component" />
     <template v-else>
     <div class="tags" role="group" :aria-label="i18n.t('ai.tagFilter')">
       <button
@@ -2207,6 +2213,19 @@ onMounted(() => {
           <button class="iface-btn" @click="copyEndpoint">
             <ClipboardDocumentIcon class="w-[13px] h-[13px]" />
             {{ i18n.t("ai.copy") }}
+          </button>
+        </div>
+      </li>
+
+      <li v-for="pane in pluginPanes()" :key="pane.id" class="item">
+        <div class="item-row">
+          <div class="item-main">
+            <span class="item-name">{{ i18n.t(pane.titleKey) }}</span>
+            <span class="item-note">{{ i18n.t("ai.pluginPageHint") }}</span>
+          </div>
+          <button class="run-btn" @click="aiPage = `ext:${pane.id}`">
+            <SparklesIcon class="w-[14px] h-[14px]" />
+            {{ i18n.t("ai.run") }}
           </button>
         </div>
       </li>

@@ -13,6 +13,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { Handle, Position, useVueFlow } from "@vue-flow/core";
 import { useI18n } from "@/i18n";
+import { controlFor } from "@/core/plugins/controls";
 import {
   imageRefCount,
   isReferenceVideoModel,
@@ -1597,8 +1598,16 @@ function cycleOutput(): void {
             :class="{ 'mn-field-short': spec.kind === 'number' || spec.kind === 'seed' || spec.kind === 'toggle' }"
           >
             <span class="mn-label">{{ i18n.t(spec.labelKey) }}</span>
+            <component
+              :is="controlFor(spec.control ?? '') ?? 'input'"
+              v-if="spec.kind === 'component'"
+              :node="node"
+              :spec="spec"
+              :value="paramValue(spec)"
+              @update="setParam(spec, $event)"
+            />
             <BoardSizeControl
-              v-if="spec.kind === 'size'"
+              v-else-if="spec.kind === 'size'"
               :node="node"
               variant="card"
               @update="patchParams"
