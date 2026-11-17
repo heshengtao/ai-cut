@@ -241,3 +241,30 @@ mod tests {
 - [ ] sha256 不符拒绝安装
 - [ ] 索引 404 / 断网不影响已装插件（`stale-cache`）
 - [ ] 更新保留旧版本、可回滚；卸载不删 `data/`
+
+---
+
+## 执行记录（M3 · 2026-11-18）
+
+| 任务 | 结果 |
+| --- | --- |
+| T1 索引类型与校验 | ✅ 9 用例（含空索引、git 源拒绝、sha256 必填、最高兼容版本） |
+| T2 抓取 / 缓存 / 分页搜索 | ✅ 5 用例（https 限制、本机 http 放行、cache 回读、安装状态对账） |
+| T3 安装事务 | ✅ 8 用例（npm `package/` 前缀、sha256 不匹配、越界路径、同版本重装、GC、卸载只删 store） |
+| T4 RPC + 前端 API | ✅ 4 个命令 + Tauri 包装 + `pluginMarketApi.ts` |
+| T5 商店 UI | ✅ 已安装 / 发现两个标签页 + 索引源可改 + 更新按钮 |
+| T6 端到端 | ✅ 3 用例（本地 HTTP 服务 + 真 tgz：搜索 → 安装 → 名册 → 卸载） |
+
+**验收证据**
+
+- `cargo test --manifest-path crates/daemon/Cargo.toml plugin_host::market`：**22 passed**
+- `cargo test --manifest-path crates/daemon/Cargo.toml --test plugin_market`：**3 passed**
+- `pnpm test`：**114 文件 / 804 用例**；`pnpm build` 通过
+- 空索引可用（`accepts_an_empty_index`）；sha256 不符拒装；索引不可达时搜索返回明确错误
+
+**执行期偏差**
+
+1. **tgz 源也放行本机 http**：索引地址的规则（仅 https + localhost 例外）同样适用于 tgz 直链，否则本地自建市场与端到端测试都没法跑。远端仍强制 https。
+2. **`install_bytes` 用 `.tmp-<uuid>` 而非固定 tmp 名**：并发/重试时不会互相踩；解包后先认 `<root>/aicut.plugin.json`，再认 `package/aicut.plugin.json`（npm tarball 的形态）。
+3. **更新 = 同名覆盖 record、保留 `enabled`**：名册里同一个 id 只有一行，`kind` 从 `linked` 换成 `store` 时也一样——用户不需要先卸载再装。
+4. **GC 按目录名字典序保留最后 3 个**：对 `0.10.0` 与 `0.9.0` 这类版本会排错序。当前先接受（真实版本号不会同时出现这两位），已在计划的风险里记一笔，后续按 `parse_version` 排序即可。
