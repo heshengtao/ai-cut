@@ -23,6 +23,7 @@ mod network;
 mod ofx;
 mod opener;
 mod paths;
+mod plugin_host;
 mod plugins;
 mod project_io;
 mod runtime;
@@ -347,6 +348,10 @@ pub fn run() {
             plugins::plugin_import,
             plugins::plugin_reveal,
             plugins::plugin_open,
+            plugin_host::plugin_host_list,
+            plugin_host::plugin_host_install_local,
+            plugin_host::plugin_host_set_enabled,
+            plugin_host::plugin_host_remove,
             ofx::ofx_probe,
             ofx::ofx_render_frame,
             ofx::ofx_render_preview,

@@ -37,6 +37,7 @@ pub async fn serve(
         .route("/events", get(crate::rpc::events))
         .route("/session", get(crate::rpc::session_ws))
         .route("/file", get(crate::rpc::file))
+        .route("/plugins/{id}/{file}", get(crate::rpc::plugin_file))
         .route("/upload", post(crate::rpc::upload))
         .route("/rpc/{cmd}", post(crate::rpc::handle));
     if let Some(dist) = cfg.dist {

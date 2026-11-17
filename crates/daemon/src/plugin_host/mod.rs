@@ -5,6 +5,8 @@
 pub mod linked;
 pub mod manifest;
 pub mod registry;
+pub mod resource;
+pub mod service;
 
 /// 插件宿主进度事件（安装 / 重载）。
 pub const EVENT_PLUGIN_HOST: &str = "plugin-host-progress";
