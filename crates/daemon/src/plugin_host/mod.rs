@@ -2,6 +2,7 @@
 //!
 //! 与 `plugins` 模块（OFX）互不干扰：OFX 在 `plugins/ofx/`，这里在 `plugins/host/`。
 
+pub mod linked;
 pub mod manifest;
 pub mod registry;
 
