@@ -56,6 +56,7 @@ const ICONS: Record<PaneId, unknown> = {
   ai: SparklesIcon,
   models: CpuChipIcon,
   plugins: PuzzlePieceIcon,
+  extensions: PuzzlePieceIcon,
   cutReview: ScissorsIcon,
   pluginEditor: AdjustmentsHorizontalIcon,
   boardInspector: Squares2X2Icon,

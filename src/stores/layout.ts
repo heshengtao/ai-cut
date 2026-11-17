@@ -14,6 +14,7 @@ export type PaneId =
   | "ai"
   | "models"
   | "plugins"
+  | "extensions"
   | "cutReview"
   | "pluginEditor"
   | "boardInspector"
@@ -85,6 +86,7 @@ export const PANES: {
   { id: "ai", labelKey: "panel.ai", hintKey: "panel.aiHint" },
   { id: "models", labelKey: "panel.models", hintKey: "panel.modelsHint" },
   { id: "plugins", labelKey: "panel.plugins", hintKey: "panel.pluginsHint" },
+  { id: "extensions", labelKey: "panel.extensions", hintKey: "panel.extensionsHint" },
   { id: "cutReview", labelKey: "panel.cutReview", hintKey: "panel.cutReviewHint" },
   { id: "boardInspector", labelKey: "panel.boardInspector", hintKey: "panel.boardInspectorHint" },
   {

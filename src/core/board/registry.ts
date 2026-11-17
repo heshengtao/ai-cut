@@ -457,7 +457,8 @@ export function portsOf(
   context?: BoardPortContext,
 ): { inputs: BoardPortSpec[]; outputs: BoardPortSpec[] } {
   const definition = nodeDefinition(node.type);
-  if (!definition) return { inputs: [], outputs: [] };
+  // 插件缺失时用工程里存的端口快照兜底，端口与连线都还在。
+  if (!definition) return node.data.ports ?? { inputs: [], outputs: [] };
   if (definition.type === "model.video") {
     const dynamic = videoInputsFor(node, context) ?? [FRAME_INIT, FRAME_END];
     return { inputs: [PROMPT_IN, NEGATIVE_IN, ...dynamic], outputs: definition.outputs };

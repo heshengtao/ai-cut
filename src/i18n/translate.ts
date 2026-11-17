@@ -31,9 +31,11 @@ export function registerPluginMessages(
   pluginId: string,
   dicts: Partial<Record<Locale, Record<string, string>>>,
 ): () => void {
-  PLUGIN_MESSAGES.set(pluginId, dicts);
+  // key 的写法是 `@<id>.<key>`，开头那个 `@` 属于命名空间标记，不属于 id。
+  const id = pluginId.replace(/^@/, "");
+  PLUGIN_MESSAGES.set(id, dicts);
   return () => {
-    if (PLUGIN_MESSAGES.get(pluginId) === dicts) PLUGIN_MESSAGES.delete(pluginId);
+    if (PLUGIN_MESSAGES.get(id) === dicts) PLUGIN_MESSAGES.delete(id);
   };
 }
 

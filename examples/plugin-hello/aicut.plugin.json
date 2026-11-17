@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "id": "@aicut/plugin-hello",
+  "version": "0.1.0",
+  "engines": { "aicut": ">=1.3.0" },
+  "client": "./client.js",
+  "inject": [],
+  "external": [],
+  "capabilities": { "net": [] },
+  "contributes": { "nodes": ["ext.hello.greet"], "slots": [] }
+}
