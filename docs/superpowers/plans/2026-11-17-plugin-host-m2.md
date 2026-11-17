@@ -909,3 +909,37 @@ git commit -m "feat(plugins): 带宿主半的示例插件与端到端用例"
 - [ ] `pnpm test`、`pnpm build`
 - [ ] 手测第 1–3 条
 - [ ] 超时用例证明死循环插件不会拖死 daemon
+
+---
+
+## 执行记录（M2 · 2026-11-17）
+
+| 任务 | 结果 |
+| --- | --- |
+| T1 QuickJS actor（线程 + Runtime + 中断 + 超时） | ✅ 6 用例 |
+| T2 `ctx` 能力注入（log/storage/media/http×3/cancelled） | ✅ 6 用例（含本机 HTTP 真请求） |
+| T3 服务层 start/invoke/stop + RPC + Tauri | ✅ 2 端到端用例 |
+| T4 前端 `ctx.host.run` + store 启停接线 | ✅ 8 store 用例 |
+| T5 `examples/plugin-echo`（客户端半 + 宿主半） | ✅ 2 用例 |
+| 全部 | 提交 `ea12ab4` |
+
+**验收证据**
+
+- `cargo test --manifest-path crates/daemon/Cargo.toml plugin_host::`：**33 passed**
+- `cargo test --manifest-path crates/daemon/Cargo.toml --test plugin_host`：**6 passed**（含 `start_invoke_stop_round_trip`：真实起 QuickJS、跑 `run()`、写 storage）
+- `cargo test --manifest-path crates/daemon/Cargo.toml`：全量通过
+- `pnpm test`：**114 文件 / 790 用例**
+- `pnpm build`：通过
+
+**执行期发现并修掉的两个真问题**
+
+1. **QuickJS `JS_FreeRuntime` 断言（GC 对象未释放）**：闭包里捕获 `rquickjs::Ctx` 会把 JS 上下文永久挂在函数对象上，卸载时 QuickJS 断言 `list_empty(&rt->gc_obj_list)` 直接 `SIGABRT`。
+   - 修法：闭包改签名为 `move |cx: Ctx, ...|`（rquickjs 会把当前 Ctx 作为首参传进来），不再捕获 `Ctx`；
+   - 另外 `Context` 必须先于 `Runtime` 析构（结构体字段按声明顺序析构，`ctx` 字段要写在 `_rt` 前面）。
+2. **`rustls-no-provider` 的加密实现缺失**：`NetworkRuntime::client()` 是进程里所有 HTTP 客户端的唯一入口，但只有 `fonts.rs` 装过 ring provider。已把 `install_default()` 幂等地放进 `client_builder()`，插件 / 云端 / 字体共用。
+
+**偏差**
+
+- T2 的 `ctx.http` 一开始计划留成「未启用」占位，实际直接实现了 `request` / `download` / `multipart`——因为 H3 那类「multipart 上传 + 轮询 + 直链下载」只能在宿主半做，留占位会让 M4 返工。
+- 计划里的独立 `hostBridge.test.ts` 由 `exampleEcho.test.ts` 覆盖（同样验证 `ctx.host.run` → RPC → 结果回传），少写一个重复用例。
+- `plugin_host_invoke` / `plugin_host_stop` 的 Tauri 版不需要 `Host`（运行态是进程级单例），只 `plugin_host_start` 带 `app` 与 `network`。
