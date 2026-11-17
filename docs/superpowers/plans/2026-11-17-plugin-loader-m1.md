@@ -1793,3 +1793,39 @@ git commit -m "feat(plugins): 启动加载已启用插件 + 模块 URL 解析"
 - [ ] `pnpm test`、`pnpm build` 全绿
 - [ ] 手测清单 6 条全过（重点是第 6 条：移除不删源目录）
 - [ ] `plugins/host/plugins.json` 里只有名册数据，没有绝对路径以外的派生字段
+
+---
+
+## 执行记录（M1 · 2026-11-17）
+
+| 任务 | 提交 | 结果 |
+| --- | --- | --- |
+| T1 清单解析与受限版本范围 | `d86daa0` | ✅ 7 用例 |
+| T2 名册读写 | `0db0bfe` | ✅ 5 用例 |
+| T3 本地目录导入与状态扫描 | （见 M1-T3 提交） | ✅ 5 用例 |
+| T4 RPC + 前端 API + Tauri 包装 | `e1dc43e` | ✅ 4 前端用例 + `cargo check` 通过 |
+| T5 资源路由（限域） | `e1dc43e` | ✅ 4 用例 |
+| T6 清单前端镜像 | `3a89f3c` | ✅ 5 用例 |
+| T7 注册桥与 disposer 栈 | `3a89f3c` | ✅ 4 用例 |
+| T8 插件宿主 store | （见 store 提交） | ✅ 6 用例 |
+| T9 扩展面板 + i18n | `e88be12` | ✅ 11 i18n 用例 |
+| T10 启动加载 + URL 解析 | `e88be12` | ✅ 3 用例 |
+| 示例插件（仓内 `examples/plugin-hello`） | `e88be12` | ✅ 2 端到端用例 |
+| daemon 端到端（导入→列出→禁用→移除） | 见 `test(plugin-host)` 提交 | ✅ 4 用例 |
+
+**验收证据**
+
+- `cargo test --manifest-path crates/daemon/Cargo.toml --test plugin_host`：4 passed
+- `cargo test --manifest-path crates/daemon/Cargo.toml plugin_host`：21 passed（含 manifest / registry / linked / resource）
+- `pnpm test`：113 个文件 / 786 个用例全绿
+- `pnpm build`：类型检查 + 构建通过
+- `cargo check --manifest-path src-tauri/Cargo.toml`：通过（Tauri 薄层四个命令）
+- GUI 手测：本环境无显示器，未执行；等价路径已由「示例插件端到端用例 + daemon 端到端用例」覆盖
+
+**执行期偏差**
+
+1. **T4/T5 合并为一次提交**：两者都改 `rpc.rs`（一个加命令、一个加路由），拆开会产生「同文件半提交」，反而不好回溯。
+2. **资源路由的 `rev` 只做缓存键**：原计划想校验「陈旧 rev → 404」，但 linked 插件的 rev 含 mtime、且 `asset://` 根本不带 query。真正的版本隔离留给 M3 的「按版本目录并存」。
+3. **资源路由的 id 内含 `/`**：`@scope/name` 经 `encodeURIComponent` 变成单段（`%40scope%2Fname`），前端 `importer.ts` 已按此拼 URL。
+4. **插件词典 id 归一化**：`@aicut/plugin-hello` 的 key 写作 `@aicut/plugin-hello.title`，注册时要去掉开头的 `@` 才能对上（`translate.ts` 已改，示例插件用例验证）。
+5. **`plugin_host` 服务层签名用 `&Arc<dyn Host>`**：与 `plugins.rs`（OFX）保持一致，`rpc.rs` 里 `&ctx.host` 才能直接传。
