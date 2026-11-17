@@ -1,4 +1,4 @@
-//! 「H3 风格代理」插件的端到端：真 QuickJS 跑 host.js，打本机 axum mock 服务。
+//! 「异步视频代理」示例插件的端到端：真 QuickJS 跑 host.js，打本机 axum mock 服务。
 //!
 //! 覆盖客户端半之外的全链路：multipart 提交 → 轮询 → 取直链 → 下载 → 落盘。
 //! 真实私有插件用的是同一套 `ctx.http` 能力，这条用例通过就说明能力面够用。
@@ -23,21 +23,18 @@ struct Mock {
 }
 
 async fn submit() -> (axum::http::StatusCode, Json<Value>) {
-    (
-        axum::http::StatusCode::ACCEPTED,
-        Json(json!({ "success": true, "data": { "task_id": "t1", "status": "queued" } })),
-    )
+    (axum::http::StatusCode::ACCEPTED, Json(json!({ "id": "t1" })))
 }
 
 async fn poll(State(mock): State<Mock>) -> Json<Value> {
     let seen = mock.polls.fetch_add(1, Ordering::SeqCst);
-    let status = if seen == 0 { "processing" } else { "completed" };
-    Json(json!({ "success": true, "data": { "status": status } }))
+    let status = if seen == 0 { "running" } else { "done" };
+    Json(json!({ "status": status }))
 }
 
 async fn file_url(State(mock): State<Mock>) -> Json<Value> {
     let port = mock.port.load(Ordering::SeqCst);
-    Json(json!({ "success": true, "data": { "url": format!("http://127.0.0.1:{port}/download") } }))
+    Json(json!({ "url": format!("http://127.0.0.1:{port}/download") }))
 }
 
 async fn download() -> Vec<u8> {
@@ -63,9 +60,9 @@ fn runs_the_multipart_poll_download_flow() {
         port: Arc::new(AtomicUsize::new(port as usize)),
     };
     let app = Router::new()
-        .route("/api/v1/tasks", post(submit))
-        .route("/api/v1/tasks/{id}", get(poll))
-        .route("/api/v1/tasks/{id}/file-url", get(file_url))
+        .route("/tasks", post(submit))
+        .route("/tasks/{id}", get(poll))
+        .route("/tasks/{id}/file", get(file_url))
         .route("/download", get(download))
         .with_state(state);
     runtime.spawn(async move {
@@ -75,16 +72,16 @@ fn runs_the_multipart_poll_download_flow() {
 
     let home = TempDir::new().unwrap();
     let host: Arc<dyn Host> = Arc::new(HeadlessHost::new(home.path().into(), home.path().into()));
-    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/plugin-h3");
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/plugin-async-video");
     install(&host, &example);
 
     let network = aicut_daemon::network::NetworkRuntime::load(None);
-    service::start(&host, &network, "@aicut/plugin-h3").unwrap();
+    service::start(&host, &network, "@aicut/plugin-async-video").unwrap();
 
     let input = format!(
         r#"{{"base":"http://127.0.0.1:{port}","key":"sk_test","prompt":"一只猫在草地上奔跑","image":""}}"#
     );
-    let output = service::invoke("@aicut/plugin-h3", &input).unwrap();
+    let output = service::invoke("@aicut/plugin-async-video", &input).unwrap();
 
     let path = std::path::Path::new(&output);
     assert!(path.is_file(), "产物不存在：{output}");
@@ -92,9 +89,9 @@ fn runs_the_multipart_poll_download_flow() {
     assert!(polls.load(Ordering::SeqCst) >= 2);
 
     // 缺少基址：宿主半原地报错，不落产物。
-    let error = service::invoke("@aicut/plugin-h3", r#"{"base":"","key":"x","prompt":"y"}"#)
+    let error = service::invoke("@aicut/plugin-async-video", r#"{"base":"","key":"x","prompt":"y"}"#)
         .unwrap_err();
     assert!(error.contains("接口基址"), "{}", error);
 
-    service::stop("@aicut/plugin-h3");
+    service::stop("@aicut/plugin-async-video");
 }

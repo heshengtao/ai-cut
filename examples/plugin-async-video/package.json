@@ -1,0 +1,14 @@
+{
+  "name": "@aicut/plugin-async-video",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "aicut": {
+    "manifest": "./aicut.plugin.json"
+  },
+  "files": [
+    "aicut.plugin.json",
+    "client.js",
+    "host.js"
+  ]
+}
