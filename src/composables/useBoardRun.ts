@@ -33,6 +33,7 @@ import {
   liveRuns,
   updateLiveRun,
 } from "@/core/board/liveRuns";
+import { createRunSignals } from "@/core/board/runSignals";
 
 /**
  * 运行中的实时状态（文本流 / 进度 / 开始时间）。
@@ -93,6 +94,8 @@ const smartOrder = ref(true);
 const smartMemory = ref(true);
 /** 本次运行按泳道汇总（运行面板 / 工具栏提示用）。 */
 const plan = ref<ReturnType<typeof summarizeRun> | null>(null);
+/** 每节点取消信号：并行时停一个节点不再误伤别的分支。 */
+const signals = createRunSignals();
 const mode = ref<BoardRunMode>("manual");
 const repeatCount = ref(1);
 let cancelled = false;
@@ -806,6 +809,7 @@ async function runOne(nodeId: string): Promise<boolean> {
   }
 
   const startedAt = Date.now();
+  const signal = signals.begin(nodeId);
   beginLiveRun(nodeId);
   ensureProgressWatches(node);
   // 进度事件是异步推送的：轮询 store 里的 progressPct，节流写进内存 live 状态。
@@ -824,7 +828,7 @@ async function runOne(nodeId: string): Promise<boolean> {
     durationMs: undefined,
   });
   try {
-    const result = await runAdapter(node, nodeId);
+    const result = await runAdapter(node, nodeId, signal);
     const { byPort, primary, imported } = await registerOutputs(result);
     const outputs = byPort;
     const outputPorts = portsOf(node, portContext()).outputs;
@@ -882,6 +886,7 @@ async function runOne(nodeId: string): Promise<boolean> {
   } finally {
     clearInterval(progressTimer);
     endLiveRun(nodeId);
+    signals.end(nodeId);
   }
 }
 
@@ -1095,6 +1100,7 @@ export function useBoardRun() {
 
   function stop(): void {
     cancelled = true;
+    signals.abortAll();
     queue.value = [];
     plan.value = null;
     for (const id of Object.keys(repeatRuns)) delete repeatRuns[id];
