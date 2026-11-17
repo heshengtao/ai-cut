@@ -59,9 +59,9 @@ pub fn parse_manifest(text: &str) -> Result<PluginManifest, String> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Version(u64, u64, u64);
+pub struct Version(pub(crate) u64, pub(crate) u64, pub(crate) u64);
 
-fn parse_version(text: &str) -> Result<Version, String> {
+pub(crate) fn parse_version(text: &str) -> Result<Version, String> {
     let core = text.split(['-', '+']).next().unwrap_or(text);
     let mut parts = core.split('.');
     let mut next = || -> Result<u64, String> {

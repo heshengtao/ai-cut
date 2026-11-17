@@ -4,6 +4,7 @@
 
 pub mod bindings;
 pub mod linked;
+pub mod market;
 pub mod manifest;
 pub mod registry;
 pub mod resource;
