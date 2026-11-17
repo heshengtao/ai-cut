@@ -37,6 +37,7 @@ pub mod network;
 pub mod ort_probe;
 pub mod ofx;
 pub mod paths;
+pub mod plugin_host;
 pub mod plugins;
 pub mod project;
 pub mod rpc;
