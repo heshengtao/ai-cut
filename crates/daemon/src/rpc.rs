@@ -150,6 +150,20 @@ struct IdArgs {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkflowSaveArgs {
+    /// 保存请求（与桌面端 `workflow_save` 同参）。
+    request: crate::workflow::SaveWorkflowRequest,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkflowRenameArgs {
+    root_id: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
 struct OptionalIdArgs {
     #[serde(default)]
     id: Option<String>,
@@ -475,12 +489,64 @@ struct LoudnessArgs {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AgentConfigArgs {
-    #[serde(default)]
+    #[serde(default, alias = "provider")]
+    provider: String,
+    #[serde(default, alias = "baseUrl")]
     base_url: String,
-    #[serde(default)]
+    #[serde(default, alias = "apiKey")]
     api_key: String,
     #[serde(default)]
     model: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct TextProvidersArgs {
+    #[serde(default)]
+    providers: Vec<crate::agent::config::TextProvider>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct FileDataUrlArgs {
+    #[serde(default)]
+    path: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct LlmChatArgs {
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    messages: Vec<crate::agent::openai::ChatMessage>,
+    #[serde(default, alias = "maxTokens")]
+    max_tokens: Option<u32>,
+    #[serde(default)]
+    temperature: Option<f32>,
+    #[serde(default, alias = "topP")]
+    top_p: Option<f32>,
+    #[serde(default, alias = "reasoningEffort")]
+    reasoning_effort: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct LlmStreamArgs {
+    #[serde(default, alias = "requestId")]
+    request_id: String,
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    messages: Vec<crate::agent::openai::ChatMessage>,
+    #[serde(default, alias = "maxTokens")]
+    max_tokens: Option<u32>,
+    #[serde(default)]
+    temperature: Option<f32>,
+    #[serde(default, alias = "topP")]
+    top_p: Option<f32>,
+    #[serde(default, alias = "reasoningEffort")]
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1482,10 +1548,47 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
             let args: AgentConfigArgs = from_value(args)?;
             Ok(json!(crate::agent::agent_set_config(
                 &ctx.agent,
+                args.provider,
                 args.base_url,
                 args.api_key,
                 args.model,
             )))
+        }
+        "llm_chat" => {
+            let args: LlmChatArgs = from_value(args)?;
+            Ok(json!(
+                crate::agent::llm_chat(
+                    &ctx.agent,
+                    args.provider,
+                    args.model,
+                    args.messages,
+                    args.temperature,
+                    args.max_tokens,
+                    args.top_p,
+                    args.reasoning_effort,
+                )
+                .await?
+            ))
+        }
+        "llm_stream" => {
+            let args: LlmStreamArgs = from_value(args)?;
+            if args.request_id.trim().is_empty() {
+                return Err("缺少 requestId".to_string());
+            }
+            Ok(json!(
+                crate::agent::llm_stream(
+                    &ctx.agent,
+                    args.request_id,
+                    args.provider,
+                    args.model,
+                    args.messages,
+                    args.temperature,
+                    args.max_tokens,
+                    args.top_p,
+                    args.reasoning_effort,
+                )
+                .await?
+            ))
         }
         "agent_models" => {
             let args: AgentModelArgs = from_value(args)?;
@@ -1500,6 +1603,14 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
                 crate::agent::agent_test(&ctx.agent, args.base_url, args.api_key, args.model)
                     .await?
             ))
+        }
+        "text_providers" => Ok(json!(crate::agent::text_providers(&ctx.agent))),
+        "text_set_providers" => {
+            let args: TextProvidersArgs = from_value(args)?;
+            Ok(json!(crate::agent::text_set_providers(
+                &ctx.agent,
+                args.providers,
+            )))
         }
         "agent_sessions" => Ok(json!(crate::agent::agent_sessions(&ctx.agent))),
         "agent_session" => {
@@ -1563,7 +1674,34 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
             crate::history::delete(host.data_dir(), args.id)?;
             Ok(Value::Null)
         }
+        // ---- 工作流库（画布存档：节点 + 连线，带版本；桌面与浏览器共用） ----
+        "workflow_list" => Ok(json!(crate::workflow::list(host.data_dir()))),
+        "workflow_save" => {
+            let args: WorkflowSaveArgs = from_value(args)?;
+            Ok(json!(crate::workflow::save(host.data_dir(), args.request)?))
+        }
+        "workflow_get" => {
+            let args: IdArgs = from_value(args)?;
+            Ok(json!(crate::workflow::get(host.data_dir(), args.id)?))
+        }
+        "workflow_delete" => {
+            let args: IdArgs = from_value(args)?;
+            crate::workflow::delete(host.data_dir(), args.id)?;
+            Ok(Value::Null)
+        }
+        "workflow_rename" => {
+            let args: WorkflowRenameArgs = from_value(args)?;
+            Ok(json!(crate::workflow::rename(
+                host.data_dir(),
+                args.root_id,
+                args.name
+            )?))
+        }
         "media_cache_dir" => Ok(json!(media::media_cache_dir(host)?)),
+        "file_data_url" => {
+            let args: FileDataUrlArgs = from_value(args)?;
+            Ok(json!(media::file_data_url(args.path)?))
+        }
         // ---- 字体库（与桌面端共用 `aicut_daemon::fonts`） ----
         "font_registry" => {
             let args: OptionalForceArgs = from_value(args)?;
@@ -1636,6 +1774,12 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
             let args: AssetPathArgs = from_value(args)?;
             Ok(json!(
                 media::extract_audio_preview(host, args.path, args.asset_id).await?
+            ))
+        }
+        "extract_video_track" => {
+            let args: AssetPathArgs = from_value(args)?;
+            Ok(json!(
+                media::extract_video_track(host, args.path, args.asset_id).await?
             ))
         }
         "make_video_preview" => {

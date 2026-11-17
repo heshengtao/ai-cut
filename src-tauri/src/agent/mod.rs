@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use crate::bridge::ProjectBridge;
 use crate::network::NetworkRuntime;
 use crate::tools;
-use config::{AgentConfig, AgentConfigRuntime};
+use config::{AgentConfig, AgentConfigRuntime, TextProvider};
 use openai::{ChatOutcome, StreamEvent};
 use store::{
     new_id, now_millis, title_from, Node, Session, SessionStore, SessionSummary, ToolCallRef,
@@ -107,20 +107,201 @@ impl AgentState {
 
 #[tauri::command]
 pub fn agent_config(state: State<'_, Arc<AgentState>>) -> AgentConfig {
-    state.config.get()
+    // 镜像字段（provider / base_url / api_key / model）永远跟当前生效的供应商一致。
+    let mut config = state.config.get();
+    config.sync_mirror();
+    config
+}
+
+#[tauri::command]
+pub fn text_providers(state: State<'_, Arc<AgentState>>) -> Vec<TextProvider> {
+    let mut config = state.config.get();
+    config.sync_mirror();
+    config.providers
+}
+
+#[tauri::command]
+pub fn text_set_providers(
+    state: State<'_, Arc<AgentState>>,
+    providers: Vec<TextProvider>,
+) -> Vec<TextProvider> {
+    let mut config = state.config.get();
+    config.providers = providers;
+    if config.providers.is_empty() {
+        config.provider.clear();
+        config.base_url.clear();
+        config.api_key.clear();
+        config.model.clear();
+    } else {
+        config.sync_mirror();
+    }
+    state.config.set(config).providers
 }
 
 #[tauri::command]
 pub fn agent_set_config(
     state: State<'_, Arc<AgentState>>,
+    provider: String,
     base_url: String,
     api_key: String,
     model: String,
 ) -> AgentConfig {
-    state.config.set(AgentConfig {
-        base_url,
-        api_key,
-        model,
+    // 老接口：写进当前生效的供应商（没有就建一条），再同步镜像字段。
+    let mut config = state.config.get();
+    config.sync_mirror();
+    let index = config
+        .providers
+        .iter()
+        .position(|item| item.enabled)
+        .or(if config.providers.is_empty() { None } else { Some(0) });
+    match index {
+        Some(index) => {
+            let active = &mut config.providers[index];
+            active.preset = provider;
+            active.base_url = base_url;
+            active.api_key = api_key;
+            active.model = model.clone();
+            if !model.trim().is_empty() && !active.models.contains(&model) {
+                active.models.insert(0, model);
+            }
+        }
+        None => {
+            let name = if provider.trim().is_empty() {
+                "默认端点".to_string()
+            } else {
+                provider.clone()
+            };
+            config.providers.push(TextProvider {
+                id: "default".into(),
+                preset: provider,
+                name,
+                base_url,
+                api_key,
+                model: model.clone(),
+                models: if model.trim().is_empty() { Vec::new() } else { vec![model] },
+                enabled: true,
+            });
+        }
+    }
+    config.sync_mirror();
+    state.config.set(config)
+}
+
+/// 选中的供应商 / 模型 → 实际请求目标。
+fn resolve_chat_target(
+    state: &Arc<AgentState>,
+    provider: Option<&str>,
+    model: Option<&str>,
+) -> (AgentConfig, String) {
+    let mut config = state.config.get();
+    config.sync_mirror();
+    let selected = provider
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|id| config.providers.iter().find(|item| item.id == id).cloned());
+    let target = match selected {
+        Some(item) => AgentConfig {
+            provider: item.preset,
+            base_url: item.base_url,
+            api_key: item.api_key,
+            model: item.model,
+            providers: Vec::new(),
+        },
+        None => AgentConfig {
+            provider: config.provider.clone(),
+            base_url: config.base_url.clone(),
+            api_key: config.api_key.clone(),
+            model: config.model.clone(),
+            providers: Vec::new(),
+        },
+    };
+    let model = model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(target.model.trim())
+        .to_string();
+    (target, model)
+}
+
+fn chat_wire(messages: &[openai::ChatMessage]) -> Vec<Value> {
+    messages
+        .iter()
+        .map(|message| json!({ "role": message.role, "content": message.content.clone() }))
+        .collect()
+}
+
+/// 一次性（非流式）文本生成：画布「文本生成」节点在关闭流式时走这里。
+#[tauri::command]
+pub async fn llm_chat(
+    state: State<'_, Arc<AgentState>>,
+    provider: Option<String>,
+    model: Option<String>,
+    messages: Vec<openai::ChatMessage>,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    top_p: Option<f32>,
+    reasoning_effort: Option<String>,
+) -> Result<openai::LlmReply, String> {
+    let client = state.network.client()?;
+    let (target, model) = resolve_chat_target(&state, provider.as_deref(), model.as_deref());
+    openai::chat_once(
+        &client,
+        &target,
+        &model,
+        &messages,
+        temperature,
+        max_tokens,
+        top_p,
+        reasoning_effort.as_deref(),
+    )
+    .await
+}
+
+/// 流式文本生成：边生成边发 `llm-stream` 事件，命令结束时返回完整结果。
+#[tauri::command]
+pub async fn llm_stream(
+    state: State<'_, Arc<AgentState>>,
+    request_id: String,
+    provider: Option<String>,
+    model: Option<String>,
+    messages: Vec<openai::ChatMessage>,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    top_p: Option<f32>,
+    reasoning_effort: Option<String>,
+) -> Result<openai::LlmReply, String> {
+    let client = state.network.client()?;
+    let (target, model) = resolve_chat_target(&state, provider.as_deref(), model.as_deref());
+    let wire = chat_wire(&messages);
+    let cancel = CancellationToken::new();
+    let app = state.app.clone();
+    let rid = request_id.clone();
+    let mut on_event = |event: StreamEvent| {
+        let (kind, text) = match event {
+            StreamEvent::Content(text) => ("delta", text),
+            StreamEvent::Reasoning(text) => ("reasoning", text),
+        };
+        let _ = app.emit(
+            "llm-stream",
+            json!({ "requestId": rid, "kind": kind, "text": text }),
+        );
+    };
+    let outcome = openai::stream_chat(
+        &client,
+        &target,
+        &wire,
+        &[],
+        &cancel,
+        &mut on_event,
+        temperature,
+        max_tokens,
+        reasoning_effort.as_deref(),
+        top_p,
+    )
+    .await?;
+    Ok(openai::LlmReply {
+        text: outcome.content,
+        reasoning: outcome.reasoning,
     })
 }
 
@@ -146,9 +327,11 @@ pub async fn agent_test(
     Ok(openai::test_connection(
         &client,
         &AgentConfig {
+            provider: String::new(),
             base_url,
             api_key,
             model,
+            providers: Vec::new(),
         },
     )
     .await)
@@ -352,6 +535,10 @@ async fn run_turn_inner(
             &tool_defs,
             cancel,
             &mut on_event,
+            None,
+            None,
+            None,
+            None,
         )
         .await
         {

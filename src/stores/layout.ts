@@ -16,7 +16,8 @@ export type PaneId =
   | "plugins"
   | "cutReview"
   | "pluginEditor"
-  | "boardInspector";
+  | "boardInspector"
+  | "workflowLibrary";
 
 /** 设置页分区。 */
 export type SettingsSection =
@@ -24,6 +25,7 @@ export type SettingsSection =
   | "storage"
   | "appearance"
   | "layout"
+  | "text"
   | "ai"
   | "gen"
   | "asr"
@@ -85,6 +87,11 @@ export const PANES: {
   { id: "plugins", labelKey: "panel.plugins", hintKey: "panel.pluginsHint" },
   { id: "cutReview", labelKey: "panel.cutReview", hintKey: "panel.cutReviewHint" },
   { id: "boardInspector", labelKey: "panel.boardInspector", hintKey: "panel.boardInspectorHint" },
+  {
+    id: "workflowLibrary",
+    labelKey: "panel.workflowLibrary",
+    hintKey: "panel.workflowLibraryHint",
+  },
   {
     id: "pluginEditor",
     labelKey: "panel.pluginEditor",

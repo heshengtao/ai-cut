@@ -40,6 +40,28 @@ export function providersForCapability(
   );
 }
 
+/**
+ * 模型节点下拉用：一个节点既能文生也能图生（图生视频 / 图生图）时，
+ * 只支持图生 / 图生视频的服务也要列出来。
+ */
+export function providersForNodeCapability(
+  providers: CloudGenProvider[],
+  capability: GenCapability,
+  presets: CloudGenPreset[],
+): CloudGenProvider[] {
+  const wanted: GenCapability[] =
+    capability === "t2i"
+      ? ["t2i", "i2i"]
+      : capability === "t2v"
+        ? ["t2v", "i2v"]
+        : [capability];
+  return providers.filter(
+    (provider) =>
+      provider.enabled &&
+      wanted.some((item) => supportsCapability(provider, item, presets)),
+  );
+}
+
 /** `local:<id>` / `cloud:<id>` 拆开；非法值返回 null。 */
 export function splitSourceId(
   value: string | null | undefined,

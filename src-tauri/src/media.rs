@@ -57,6 +57,15 @@ pub async fn extract_audio_preview(
 }
 
 #[tauri::command]
+pub async fn extract_video_track(
+    app: AppHandle,
+    path: String,
+    asset_id: String,
+) -> Result<String, String> {
+    aicut_daemon::media::extract_video_track(&TauriHost::new(app), path, asset_id).await
+}
+
+#[tauri::command]
 pub async fn make_video_preview(
     app: AppHandle,
     path: String,
@@ -68,6 +77,11 @@ pub async fn make_video_preview(
 #[tauri::command]
 pub fn media_cache_dir(app: AppHandle) -> Result<String, String> {
     Ok(cache_dir(&app)?.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn file_data_url(path: String) -> Result<String, String> {
+    aicut_daemon::media::file_data_url(path)
 }
 
 #[tauri::command]

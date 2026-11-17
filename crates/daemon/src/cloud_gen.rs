@@ -11,7 +11,7 @@
 //! 这样时间线 / 素材库那边的导入逻辑与本地 sd.cpp 生成的产物完全一致。
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -408,6 +408,10 @@ pub struct CloudImageRequest {
     pub height: u32,
     /// 原图绝对路径（图生图）。
     pub init_image: Option<String>,
+    /// 额外参考图（多图编辑）：Gemini / GPT-Image / Seedream / Qwen-Image-Edit
+    /// 这些支持多张参考的服务会按顺序全部带上，单图服务只用原图。
+    #[serde(default)]
+    pub ref_images: Vec<String>,
     /// 白色涂抹区域 + 透明背景的 PNG data URL（只有 OpenAI 编辑接口用得上）。
     pub mask_png: Option<String>,
     pub seed: Option<i64>,
@@ -422,6 +426,9 @@ pub struct CloudVideoRequest {
     pub width: u32,
     pub height: u32,
     pub seconds: f32,
+    /// 分辨率档（480p / 720p / 1080p）。只有方舟 / MiniMax 这类只收档位的
+    /// 服务用得上；不传时沿用后端默认档。宽高仍会传，用来换算画幅比例。
+    pub resolution: Option<String>,
     /// 首帧参考图（图生视频）。
     pub init_image: Option<String>,
     /// 多模态参考（MiniMax H3）：本地文件路径，后端转成 data URI / 上传。
@@ -476,14 +483,16 @@ pub struct CloudGenTest {
 // ---------------------------------------------------------------------------
 
 struct Runtime {
-    running: AtomicBool,
+    /// 同时进行中的云端任务数。云端请求不占本机显存，可以让多条工作流分支
+    /// 真正并行（画布调度器负责限制并发数量）。
+    running: AtomicUsize,
     cancelled: AtomicBool,
 }
 
 fn runtime() -> &'static Runtime {
     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| Runtime {
-        running: AtomicBool::new(false),
+        running: AtomicUsize::new(0),
         cancelled: AtomicBool::new(false),
     })
 }
@@ -500,15 +509,20 @@ fn cancelled() -> bool {
 }
 
 fn begin_task() -> Result<(), String> {
-    if runtime().running.swap(true, Ordering::SeqCst) {
-        return Err("已有云端生成任务正在运行".into());
+    let previous = runtime().running.fetch_add(1, Ordering::SeqCst);
+    // 只有从「空闲」开始的新一批任务才清掉上一次的取消标记；并行中的第二条
+    // 任务不能把别人刚点的「停止」又打开。
+    if previous == 0 {
+        runtime().cancelled.store(false, Ordering::Relaxed);
     }
-    runtime().cancelled.store(false, Ordering::Relaxed);
     Ok(())
 }
 
 fn end_task() {
-    runtime().running.store(false, Ordering::SeqCst);
+    let previous = runtime().running.fetch_sub(1, Ordering::SeqCst);
+    if previous <= 1 {
+        runtime().cancelled.store(false, Ordering::Relaxed);
+    }
 }
 
 fn emit(host: &dyn Host, state: &str, message: Option<String>, progress: f32, elapsed: f64) {
@@ -578,7 +592,7 @@ pub fn cloud_gen_set_config(
 }
 
 pub fn cloud_gen_busy() -> bool {
-    runtime().running.load(Ordering::SeqCst)
+    runtime().running.load(Ordering::SeqCst) > 0
 }
 
 pub fn cloud_gen_cancel() {
@@ -632,6 +646,7 @@ pub async fn cloud_gen_image(
     emit(host, "preparing", Some("准备请求…".into()), 0.02, 0.0);
 
     let mut init_path: Option<PathBuf> = None;
+    let mut ref_paths: Vec<PathBuf> = Vec::new();
     let mut mask_bytes: Option<Vec<u8>> = None;
     let mut setup_error: Option<String> = None;
     if let Some(source) = request
@@ -642,6 +657,17 @@ pub async fn cloud_gen_image(
         match image_prep::prepare_init_image(host, source).await {
             Ok(path) => init_path = Some(path),
             Err(error) => setup_error = Some(error),
+        }
+    }
+    if setup_error.is_none() {
+        for source in &request.ref_images {
+            match image_prep::prepare_init_image(host, source).await {
+                Ok(path) => ref_paths.push(path),
+                Err(error) => {
+                    setup_error = Some(error);
+                    break;
+                }
+            }
         }
     }
     if setup_error.is_none() {
@@ -665,6 +691,7 @@ pub async fn cloud_gen_image(
             width: request.width.clamp(256, 2048),
             height: request.height.clamp(256, 2048),
             init: init_path.clone(),
+            refs: ref_paths.clone(),
             mask: mask_bytes,
             seed: request.seed.unwrap_or(-1),
             model: model.clone(),
@@ -690,7 +717,7 @@ pub async fn cloud_gen_image(
         }
         .await
     };
-    if let Some(path) = &init_path {
+    for path in init_path.iter().chain(ref_paths.iter()) {
         let _ = std::fs::remove_file(path);
     }
     end_task();
@@ -805,6 +832,12 @@ pub async fn cloud_gen_video(
         width: request.width.clamp(256, 2048),
         height: request.height.clamp(256, 2048),
         seconds: request.seconds.clamp(1.0, 30.0),
+        resolution: request
+            .resolution
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
         init: init_path.clone(),
         model: model.clone(),
         ref_images: to_paths(&request.ref_images),
@@ -839,7 +872,7 @@ pub async fn cloud_gen_video(
         save_video(host, &bytes).await
     }
     .await;
-    if let Some(path) = &init_path {
+    for path in init_path.iter() {
         let _ = std::fs::remove_file(path);
     }
     end_task();
@@ -908,6 +941,7 @@ pub async fn cloud_gen_test(
         width: 512,
         height: 512,
         init: None,
+        refs: Vec::new(),
         mask: None,
         seed: -1,
         model,
@@ -1137,6 +1171,23 @@ fn fixed_video_size(width: u32, height: u32, separator: char) -> String {
     format!("{w}{separator}{h}")
 }
 
+/// 方舟 / Seedance 的分辨率档：只认 480p / 720p / 1080p，缺省沿用 720p。
+fn ark_resolution(value: Option<&str>) -> &'static str {
+    match value.unwrap_or("").to_ascii_lowercase().as_str() {
+        "480p" => "480p",
+        "1080p" => "1080p",
+        _ => "720p",
+    }
+}
+
+/// MiniMax 的分辨率档只认大写，缺省沿用原来的 1080P（H3 另有 768P，不走这里）。
+fn minimax_resolution(value: Option<&str>) -> &'static str {
+    match value.unwrap_or("").to_ascii_lowercase().as_str() {
+        "720p" => "720P",
+        _ => "1080P",
+    }
+}
+
 /// SiliconFlow 的图片尺寸同样有白名单，按比例映射到允许的档位。
 fn siliconflow_image_size(width: u32, height: u32) -> String {
     const ALLOWED: &[(u32, u32)] = &[
@@ -1323,10 +1374,25 @@ struct ImageInput {
     width: u32,
     height: u32,
     init: Option<PathBuf>,
+    /// 额外参考图（多图编辑），顺序排在 init 之后。
+    refs: Vec<PathBuf>,
     mask: Option<Vec<u8>>,
     seed: i64,
     model: String,
     edit: bool,
+}
+
+impl ImageInput {
+    /// 原图 + 额外参考图，按顺序去重（多图编辑的输入）。
+    fn images(&self) -> Vec<&PathBuf> {
+        let mut out: Vec<&PathBuf> = Vec::new();
+        for path in self.init.iter().chain(self.refs.iter()) {
+            if !out.iter().any(|item| item.as_path() == path.as_path()) {
+                out.push(path);
+            }
+        }
+        out
+    }
 }
 
 struct VideoInput {
@@ -1335,6 +1401,8 @@ struct VideoInput {
     width: u32,
     height: u32,
     seconds: f32,
+    /// 分辨率档（仅档位型服务使用）。
+    resolution: Option<String>,
     init: Option<PathBuf>,
     model: String,
     /// 参考图 / 音频 / 视频（MiniMax H3 多模态参考）。
@@ -1531,21 +1599,26 @@ impl<'a> Call<'a> {
         let gpt_image = model.to_lowercase().contains("gpt-image");
         let size = openai_size(model, input.width, input.height);
         if input.edit {
-            let init = input
-                .init
-                .as_deref()
-                .ok_or_else(|| "OpenAI 图生图需要原图".to_string())?;
-            let bytes = std::fs::read(init).map_err(|error| format!("读取原图失败：{error}"))?;
-            let part = reqwest::multipart::Part::bytes(bytes)
-                .file_name(file_name(init))
-                .mime_str("image/png")
-                .map_err(|error| format!("构造上传表单失败：{error}"))?;
+            let images = input.images();
+            if images.is_empty() {
+                return Err("OpenAI 图生图需要原图".into());
+            }
             let mut form = reqwest::multipart::Form::new()
                 .text("model", model.to_string())
                 .text("prompt", input.prompt.clone())
                 .text("size", size)
-                .text("n", "1")
-                .part("image", part);
+                .text("n", "1");
+            // gpt-image-1 支持多张输入图：多图时用 `image[]` 重复字段。
+            let field = if images.len() > 1 { "image[]" } else { "image" };
+            for path in &images {
+                let bytes =
+                    std::fs::read(path).map_err(|error| format!("读取原图失败：{error}"))?;
+                let part = reqwest::multipart::Part::bytes(bytes)
+                    .file_name(file_name(path))
+                    .mime_str("image/png")
+                    .map_err(|error| format!("构造上传表单失败：{error}"))?;
+                form = form.part(field, part);
+            }
             if let Some(mask) = &input.mask {
                 let part = reqwest::multipart::Part::bytes(mask.clone())
                     .file_name("mask.png")
@@ -1592,8 +1665,9 @@ impl<'a> Call<'a> {
 
     async fn gemini_image(&self, input: &ImageInput) -> Result<Vec<u8>, String> {
         let mut parts = vec![json!({ "text": input.prompt })];
-        if let Some(init) = input.init.as_deref() {
-            let data = file_b64(init)?;
+        // Gemini 的 generateContent 天生支持多张 inline 图，直接按顺序全带上。
+        for path in input.images() {
+            let data = file_b64(path)?;
             parts.push(json!({
                 "inline_data": { "mime_type": "image/png", "data": data }
             }));
@@ -1797,11 +1871,14 @@ impl<'a> Call<'a> {
         }
         let mut content: Vec<Value> = Vec::new();
         if input.edit {
-            let init = input
-                .init
-                .as_deref()
-                .ok_or_else(|| "百炼图生图需要原图".to_string())?;
-            content.push(json!({ "image": file_data_url(init)? }));
+            let images = input.images();
+            if images.is_empty() {
+                return Err("百炼图生图需要原图".into());
+            }
+            // Qwen-Image-Edit 支持多图参考（最多 3 张）。
+            for path in images {
+                content.push(json!({ "image": file_data_url(path)? }));
+            }
         }
         content.push(json!({ "text": input.prompt }));
         let mut payload = json!({
@@ -1840,8 +1917,17 @@ impl<'a> Call<'a> {
             "response_format": "url",
             "watermark": false,
         });
-        if let Some(init) = input.init.as_deref() {
-            body["image"] = json!(file_data_url(init)?);
+        let images = input.images();
+        if !images.is_empty() {
+            // Seedream 4 支持多图参考：单张用字符串，多张用数组。
+            let values: Result<Vec<String>, String> =
+                images.iter().map(|path| file_data_url(path)).collect();
+            let values = values?;
+            body["image"] = if values.len() == 1 {
+                json!(values[0])
+            } else {
+                json!(values)
+            };
         }
         let value = send_json(
             self.client
@@ -1949,9 +2035,16 @@ impl<'a> Call<'a> {
             "aspect_ratio": nearest_ratio(input.width, input.height),
             "output_format": "png",
         });
-        if let Some(init) = input.init.as_deref() {
-            body["input_references"] =
-                json!([{ "type": "image_url", "image_url": { "url": file_data_url(init)? } }]);
+        let images = input.images();
+        if !images.is_empty() {
+            let mut references = Vec::with_capacity(images.len());
+            for path in images {
+                references.push(json!({
+                    "type": "image_url",
+                    "image_url": { "url": file_data_url(path)? }
+                }));
+            }
+            body["input_references"] = json!(references);
         }
         let value = send_json(
             self.client
@@ -1978,8 +2071,17 @@ impl<'a> Call<'a> {
         if !input.negative.is_empty() {
             body["negative_prompt"] = json!(input.negative);
         }
-        if let Some(init) = input.init.as_deref() {
-            body["image"] = json!(file_data_url(init)?);
+        let images = input.images();
+        if !images.is_empty() {
+            let values: Result<Vec<String>, String> =
+                images.iter().map(|path| file_data_url(path)).collect();
+            let values = values?;
+            // 部分编辑模型接受多张参考图：单张字符串、多张数组。
+            body["image"] = if values.len() == 1 {
+                json!(values[0])
+            } else {
+                json!(values)
+            };
         }
         let value = send_json(
             self.client
@@ -2284,7 +2386,7 @@ impl<'a> Call<'a> {
             "content": content,
             "ratio": nearest_ratio(input.width, input.height),
             "duration": input.seconds.round().clamp(3.0, 12.0) as i64,
-            "resolution": "720p",
+            "resolution": ark_resolution(input.resolution.as_deref()),
             "watermark": false,
         });
         let value = send_json(
@@ -2493,7 +2595,7 @@ impl<'a> Call<'a> {
             "model": input.model,
             "prompt": input.prompt,
             "duration": input.seconds.round().clamp(6.0, 10.0) as i64,
-            "resolution": "1080P",
+            "resolution": minimax_resolution(input.resolution.as_deref()),
         });
         if let Some(init) = input.init.as_deref() {
             body["first_frame_image"] = json!(file_data_url(init)?);
@@ -2587,7 +2689,8 @@ impl<'a> Call<'a> {
         let mut body = json!({
             "model": input.model,
             "promptText": input.prompt,
-            "ratio": format!("{}:{}", input.width, input.height),
+            // Runway 的 ratio 只接受固定三档像素比例（1280:720 / 720:1280 / 960:960）。
+            "ratio": fixed_video_size(input.width, input.height, ':'),
             "duration": input.seconds.round().clamp(5.0, 10.0) as i64,
         });
         if let Some(init) = input.init.as_deref() {
@@ -3029,6 +3132,24 @@ mod tests {
         assert_eq!(siliconflow_image_size(1024, 1024), "1024x1024");
         assert_eq!(siliconflow_image_size(832, 1216), "960x1280");
         assert_eq!(siliconflow_image_size(1216, 832), "1280x960");
+    }
+
+    #[test]
+    fn resolution_tiers_follow_provider_rules() {
+        // 方舟：480p / 720p / 1080p，缺省 720p。
+        assert_eq!(ark_resolution(Some("480p")), "480p");
+        assert_eq!(ark_resolution(Some("1080p")), "1080p");
+        assert_eq!(ark_resolution(Some("720p")), "720p");
+        assert_eq!(ark_resolution(None), "720p");
+        assert_eq!(ark_resolution(Some("4k")), "720p");
+        // MiniMax：只认大写档位，缺省 1080P。
+        assert_eq!(minimax_resolution(Some("720p")), "720P");
+        assert_eq!(minimax_resolution(Some("1080p")), "1080P");
+        assert_eq!(minimax_resolution(None), "1080P");
+        // Runway：像素比例换成它接受的固定三档。
+        assert_eq!(fixed_video_size(1920, 1080, ':'), "1280:720");
+        assert_eq!(fixed_video_size(1080, 1920, ':'), "720:1280");
+        assert_eq!(fixed_video_size(1080, 1080, ':'), "960:960");
     }
 
     #[test]

@@ -5,6 +5,10 @@ import type {
   AgentConfig,
   AgentEvent,
   AgentProbe,
+  LlmChatMessage,
+  LlmReply,
+  LlmStreamEvent,
+  TextProvider,
   AgentSession,
   AgentSessionSummary,
   BackendInfo,
@@ -21,7 +25,13 @@ import { t } from "@/i18n";
 
 export const EVENT_AGENT = "agent-event";
 
-const EMPTY_CONFIG: AgentConfig = { base_url: "", api_key: "", model: "" };
+const EMPTY_CONFIG: AgentConfig = {
+  provider: "",
+  base_url: "",
+  api_key: "",
+  model: "",
+  providers: [],
+};
 
 /**
  * 读类命令：浏览器里返回兜底值（设置页照常渲染），**不伪装成功**。
@@ -49,19 +59,29 @@ export function agentConfig(): Promise<AgentConfig> {
 }
 
 export function agentSetConfig(
+  provider: string,
   baseUrl: string,
   apiKey: string,
   model: string,
 ): Promise<AgentConfig> {
-  return act("agent_set_config", { baseUrl, apiKey, model }, "agent", t("caps.feature.agent"));
+  return act(
+    "agent_set_config",
+    { provider, baseUrl, apiKey, model },
+    "agent",
+    t("caps.feature.agent"),
+  );
 }
 
+/**
+ * 拉模型列表 / 测连通性：桌面壳和无头端都有这条命令，所以两边都直接发
+ * （`call()` 在浏览器里会返回空兜底，设置页的「获取模型列表」就永远没反应）。
+ */
 export function agentModels(
   baseUrl: string,
   apiKey: string,
   model: string,
 ): Promise<string[]> {
-  return call("agent_models", { baseUrl, apiKey, model }, []);
+  return invoke<string[]>("agent_models", { baseUrl, apiKey, model });
 }
 
 export function agentTest(
@@ -69,11 +89,105 @@ export function agentTest(
   apiKey: string,
   model: string,
 ): Promise<AgentProbe> {
-  return call("agent_test", { baseUrl, apiKey, model }, {
-    ok: false,
-    detail: "Tauri 不可用",
-    ms: 0,
+  return invoke<AgentProbe>("agent_test", { baseUrl, apiKey, model });
+}
+
+/** 画布文本节点的流式事件名（桌面走 Tauri event，浏览器走 SSE 同名事件）。 */
+export const EVENT_LLM_STREAM = "llm-stream";
+
+/** 一次性文本生成（关闭流式输出时用）。 */
+export function llmChat(
+  provider: string,
+  model: string,
+  messages: LlmChatMessage[],
+  temperature?: number,
+  maxTokens?: number,
+  topP?: number,
+  reasoningEffort?: string,
+): Promise<LlmReply> {
+  return act(
+    "llm_chat",
+    {
+      provider: provider || null,
+      model: model || null,
+      messages,
+      temperature: temperature ?? null,
+      maxTokens: maxTokens ?? null,
+      topP: topP ?? null,
+      reasoningEffort: reasoningEffort || null,
+    },
+    "agent",
+    t("caps.feature.agent"),
+  );
+}
+
+/** 订阅文本流（按 `requestId` 过滤，调用方负责退订）。 */
+export function onLlmStream(
+  handler: (event: LlmStreamEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<LlmStreamEvent>(EVENT_LLM_STREAM, (event) => handler(event.payload));
+}
+
+/**
+ * 流式文本生成：边收 `delta` / `reasoning` 边回调，结束时返回完整内容。
+ *
+ * 桌面与无头端共用同一套 Rust 实现；事件名在两边一致，浏览器端由 SSE 转发。
+ */
+export async function llmChatStream(args: {
+  requestId: string;
+  provider: string;
+  model: string;
+  messages: LlmChatMessage[];
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  reasoningEffort?: string;
+  onDelta?: (text: string) => void;
+  onReasoning?: (text: string) => void;
+}): Promise<LlmReply> {
+  const off = await onLlmStream((event) => {
+    if (event.requestId !== args.requestId) return;
+    if (event.kind === "reasoning") args.onReasoning?.(event.text);
+    else args.onDelta?.(event.text);
   });
+  try {
+    return await act(
+      "llm_stream",
+      {
+        requestId: args.requestId,
+        provider: args.provider || null,
+        model: args.model || null,
+        messages: args.messages,
+        temperature: args.temperature ?? null,
+        maxTokens: args.maxTokens ?? null,
+        topP: args.topP ?? null,
+        reasoningEffort: args.reasoningEffort || null,
+      },
+      "agent",
+      t("caps.feature.agent"),
+    );
+  } finally {
+    off();
+  }
+}
+
+/**
+ * 文本生成的供应商列表（设置 → 文本生成）。
+ *
+ * 与智能体共用一份配置：第一家的「启用」决定智能体用谁，文本生成节点则逐节点自选。
+ */
+export function textProviders(): Promise<TextProvider[]> {
+  // 无头端也实现了这条命令，浏览器里同样要能读到（不能用 `call` 的空兜底）。
+  return invoke<TextProvider[]>("text_providers");
+}
+
+export function textSetProviders(providers: TextProvider[]): Promise<TextProvider[]> {
+  return act(
+    "text_set_providers",
+    { providers },
+    "agent",
+    t("caps.feature.agent"),
+  );
 }
 
 export function agentSessions(): Promise<AgentSessionSummary[]> {

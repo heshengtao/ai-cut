@@ -26,6 +26,52 @@ describe("newProject", () => {
   });
 });
 
+describe("工作流随工程保存", () => {
+  it("画布节点 / 连线 / 组员 / 旁路都能往返", () => {
+    const p = newProject("画布");
+    const board = {
+      version: 1 as const,
+      nodes: [
+        {
+          id: "g1",
+          type: "group",
+          position: { x: 0, y: 0 },
+          size: { width: 500, height: 400 },
+          data: { params: {}, bindings: {}, children: ["n1", "n2"] },
+        },
+        {
+          id: "n1",
+          type: "model.text",
+          position: { x: 40, y: 60 },
+          data: {
+            params: { model: "p::m", system: "", temperature: 0.7, maxTokens: 0 },
+            bindings: {},
+            bypassed: true,
+            status: "skipped" as const,
+          },
+        },
+        {
+          id: "n2",
+          type: "model.text",
+          position: { x: 240, y: 60 },
+          data: { params: { model: "p::m2", system: "", temperature: 0.7, maxTokens: 0 }, bindings: {} },
+        },
+      ],
+      edges: [
+        { id: "e1", source: "n1", sourcePort: "text", target: "n2", targetPort: "text" },
+      ],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      updatedAt: 1,
+    };
+    const saved = parseProject(serializeProject({ ...p, board }));
+    expect(saved.board?.nodes.map((node) => node.id)).toEqual(["g1", "n1", "n2"]);
+    expect(saved.board?.nodes[0].data.children).toEqual(["n1", "n2"]);
+    expect(saved.board?.nodes[1].data.bypassed).toBe(true);
+    expect(saved.board?.nodes[1].data.status).toBe("skipped");
+    expect(saved.board?.edges).toHaveLength(1);
+  });
+});
+
 describe("serialize / parse round trip", () => {
   it("preserves the document through JSON", () => {
     let p = newProject("往返");

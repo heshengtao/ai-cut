@@ -32,15 +32,13 @@ import { renderFrame } from "@/core/export/frame";
 import { safeFileName } from "@/core/export/escape";
 import { toast } from "@/composables/useToast";
 import { useMediaImport } from "@/composables/useMediaImport";
+import { useTimelineMenus } from "@/composables/useTimelineMenus";
+import { patchClipTransform } from "./previewTransform";
 import { formatTimecode } from "@/core/time";
 import { containSize } from "@/core/transform";
 import { clipColorCss } from "@/core/clipColor";
 import { transitionState } from "@/core/clipTransition";
-import {
-  opacityAt,
-  resolveTransformAt,
-  upsertKeyframe,
-} from "@/core/keyframes";
+import { opacityAt, resolveTransformAt } from "@/core/keyframes";
 import {
   fontStackOf,
   hexToRgba,
@@ -54,7 +52,6 @@ import {
   TEXT_BACKGROUND_PADDING_Y,
   TEXT_BACKGROUND_RADIUS,
 } from "@/core/clipStyle";
-import { setClipKeyframes, setClipTransform } from "@/core/ops";
 import {
   clipEffectSpecs,
   clipHasEffects,
@@ -84,6 +81,8 @@ import { useSelectionStore } from "@/stores/selection";
 import PanelIcon from "@/components/common/PanelIcon.vue";
 import Tooltip from "@/components/common/Tooltip.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
+import ContextMenu from "@/components/common/ContextMenu.vue";
+import type { MenuItem } from "@/components/common/contextMenu";
 import { useI18n } from "@/i18n";
 
 const project = useProjectStore();
@@ -334,6 +333,8 @@ const MIN_PREVIEW_ZOOM = 0.25;
 const MAX_PREVIEW_ZOOM = 4;
 
 const viewportSize = ref({ width: 0, height: 0 });
+/** 视口在 `.preview` 里的左上角：选择框浮层贴着它放，坐标才和画面一致。 */
+const viewportOrigin = ref({ left: 0, top: 0 });
 const zoom = ref(1);
 const pan = ref({ x: 0, y: 0 });
 const isFullscreen = ref(false);
@@ -365,14 +366,25 @@ const aspectRatio = computed(() => {
   }
 });
 
+/**
+ * 画布四周留白（视口像素）。
+ *
+ * 选择框的角点、旋转点画在片段包围盒外面：不留白时画面会顶满视口，
+ * 旋转点直接落在视口外被裁掉、角点只剩半个 —— 看起来就是「缩放点够不着」，
+ * 片段一旦放大到出画就更明显。留出这点边距后默认 100% 就能抓全。
+ */
+const STAGE_MARGIN = 44;
+
 const stageSize = computed(() => {
   const { width: availableW, height: availableH } = viewportSize.value;
   if (!(availableW > 0 && availableH > 0)) return { width: 0, height: 0 };
+  const fitW = Math.max(1, availableW - STAGE_MARGIN * 2);
+  const fitH = Math.max(1, availableH - STAGE_MARGIN * 2);
   const ratio = aspectRatio.value;
-  let width = availableW;
+  let width = fitW;
   let height = width / ratio;
-  if (height > availableH) {
-    height = availableH;
+  if (height > fitH) {
+    height = fitH;
     width = height * ratio;
   }
   return {
@@ -389,10 +401,74 @@ const stageStyle = computed(() => ({
   transform: `translate(-50%, -50%) translate(${pan.value.x}px, ${pan.value.y}px) scale(${zoom.value})`,
 }));
 
+/**
+ * 选择框 SVG 的盒子：画布范围与选择框的并集，再各留 `SELECTION_PAD`。
+ *
+ * 两个原因必须把盒子做大：
+ * 1. WebKit 只对**盒子内部**的元素做命中测试 —— 片段拖出画面后角点在盒子外就点不到；
+ * 2. 角点圆点正好压在盒子边界上时，命中测试会落到 svg 根节点而不是 circle。
+ * 盒子按选择框实时扩大后，缩放点永远落在根节点内部，两边的 `elementFromPoint` 一致。
+ */
+const SELECTION_PAD = 32;
+
+const selectionBox = computed(() => {
+  const pad = SELECTION_PAD;
+  let minX = -pad;
+  let minY = -pad;
+  let maxX = stageSize.value.width + pad;
+  let maxY = stageSize.value.height + pad;
+  const geometry = selectionGeometry.value;
+  if (geometry) {
+    for (const point of [...geometry.corners, geometry.rotateHandle]) {
+      minX = Math.min(minX, point.x - pad);
+      minY = Math.min(minY, point.y - pad);
+      maxX = Math.max(maxX, point.x + pad);
+      maxY = Math.max(maxY, point.y + pad);
+    }
+  }
+  return {
+    minX,
+    minY,
+    viewBox: `${minX} ${minY} ${maxX - minX} ${maxY - minY}`,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+});
+
+/**
+ * SVG 与 `.stage` 完全重合：位置按平移 / 缩放算出来而不是写 transform。
+ *
+ * SVG 根节点一旦带 CSS transform，WebKit 对内部 circle 的命中测试会失效
+ * （elementFromPoint 只返回 svg 本身），缩放点就点不到了；按坐标布局则两边一致。
+ */
+const selectionLayerStyle = computed(() => {
+  const box = selectionBox.value;
+  const width = box.width * zoom.value;
+  const height = box.height * zoom.value;
+  // 浮层铺满整个预览区，视口再往里缩：这里要把视口偏移加回来。
+  const stageLeft =
+    viewportOrigin.value.left +
+    viewportSize.value.width / 2 +
+    pan.value.x -
+    (stageSize.value.width * zoom.value) / 2;
+  const stageTop =
+    viewportOrigin.value.top +
+    viewportSize.value.height / 2 +
+    pan.value.y -
+    (stageSize.value.height * zoom.value) / 2;
+  return {
+    left: `${stageLeft + box.minX * zoom.value}px`,
+    top: `${stageTop + box.minY * zoom.value}px`,
+    width: `${width}px`,
+    height: `${height}px`,
+  };
+});
+
 function measureViewport(): void {
   const el = viewportEl.value;
   if (!el) return;
   viewportSize.value = { width: el.clientWidth, height: el.clientHeight };
+  viewportOrigin.value = { left: el.offsetLeft, top: el.offsetTop };
   clampPan();
 }
 
@@ -1157,33 +1233,37 @@ function hasTextStroke(item: VisualItem): boolean {
 const videoLayerStyle = computed<Record<string, string | number>>(() => {
   const item = videoItem.value;
   if (!item) {
-    const empty: Record<string, string | number> = {
+    // 没有视频片段时把变量重置掉，避免上一段的位移 / 缩放留在引擎的 <video> 上。
+    return {
       zIndex: 0,
       opacity: 1,
-      transform: "none",
       mixBlendMode: "normal",
       filter: "none",
-      borderRadius: "0%",
-      boxShadow: "none",
+      "--media-transform": "none",
+      "--media-radius": "0px",
+      "--media-shadow": "none",
     };
-    return empty;
   }
   const localTime = playback.playhead - item.clip.start;
   const transform = transformAt(item.clip);
   const transition = transitionState(item.clip, localTime);
   const offsetX = ((transform.x + transition.offsetX) / 100) * stageSize.value.width;
   const offsetY = ((transform.y + transition.offsetY) / 100) * stageSize.value.height;
-  const style: Record<string, string | number> = {
+  const effect = mediaEffectStyle(item);
+  // 位移 / 旋转 / 缩放写在 <video> 自己身上（见下面 `.media-layer :deep(video)` 的说明）：
+  // WebKit 里视频是独立合成层，只改祖先的 transform 时，暂停中的画面不会跟着重绘，
+  // 用户看到的就是「选中框动了、画面不动」。
+  return {
     zIndex: item.layer,
     opacity: opacityAt(item.clip, localTime) * transition.opacity,
-    transform:
-      `translate(${offsetX}px, ${offsetY}px) ` +
-      `rotate(${transform.rotation}deg) scale(${transform.scale})`,
     mixBlendMode: resolveBlendMode(item.clip),
     filter: clipColorCss(item.clip) ?? "none",
-    ...mediaEffectStyle(item),
+    "--media-transform":
+      `translate(${offsetX}px, ${offsetY}px) ` +
+      `rotate(${transform.rotation}deg) scale(${transform.scale})`,
+    "--media-radius": effect.borderRadius ?? "0px",
+    "--media-shadow": effect.boxShadow ?? "none",
   };
-  return style;
 });
 
 const videoHitStyle = computed<Record<string, string | number> | null>(() => {
@@ -1384,19 +1464,8 @@ function applyClipTransform(
   patch: Partial<ClipTransform>,
   coalesce: boolean,
 ): void {
-  const mutate = (doc: Project) => {
-    for (const track of doc.tracks) {
-      const clip = track.clips.find((candidate) => candidate.id === clipId);
-      if (!clip) return doc;
-      if (!clip.keyframes?.length) return setClipTransform(doc, clipId, patch);
-      const time = Math.max(
-        0,
-        Math.min(clip.duration, playback.playhead - clip.start),
-      );
-      return setClipKeyframes(doc, clipId, upsertKeyframe(clip, time, patch));
-    }
-    return doc;
-  };
+  const mutate = (doc: Project): Project =>
+    patchClipTransform(doc, clipId, patch, playback.playhead);
   if (coalesce) project.dispatchCoalesced(mutate, `transform:${clipId}`);
   else project.dispatch(mutate);
 }
@@ -1415,7 +1484,10 @@ function onElementPointerDown(item: VisualItem, event: PointerEvent): void {
   selection.select(item.clip.id, event.shiftKey);
   selection.setActiveTrack(item.trackId);
   clearSnapGuides();
-  if (isClipLocked(item.clip.id)) return;
+  if (isClipLocked(item.clip.id)) {
+    toast(i18n.t("timeline.locked"), "error");
+    return;
+  }
 
   const transform = transformAt(item.clip);
   interaction = {
@@ -1438,7 +1510,10 @@ function onElementPointerDown(item: VisualItem, event: PointerEvent): void {
 function onResizeStart(event: PointerEvent): void {
   const geometry = selectionGeometry.value;
   if (!geometry) return;
-  if (isClipLocked(geometry.item.clip.id)) return;
+  if (isClipLocked(geometry.item.clip.id)) {
+    toast(i18n.t("timeline.locked"), "error");
+    return;
+  }
 
   const transform = transformAt(geometry.item.clip);
   const point = canvasPoint(event);
@@ -1467,7 +1542,10 @@ function onResizeStart(event: PointerEvent): void {
 function onRotateStart(event: PointerEvent): void {
   const geometry = selectionGeometry.value;
   if (!geometry) return;
-  if (isClipLocked(geometry.item.clip.id)) return;
+  if (isClipLocked(geometry.item.clip.id)) {
+    toast(i18n.t("timeline.locked"), "error");
+    return;
+  }
 
   const transform = transformAt(geometry.item.clip);
   const point = canvasPoint(event);
@@ -1640,6 +1718,40 @@ function onInteractionEnd(): void {
 }
 
 // ---------------------------------------------------------------------------
+// 右键菜单
+// ---------------------------------------------------------------------------
+
+/**
+ * 预览画面里的元素右键菜单直接复用时间线那套（AI 智能 / 编辑 / 音频 / 画面 …），
+ * 目标模型也一致：`clip` 按片段类型裁剪，空白画面用 `lane` 的「从无到有」生成组。
+ * 两份菜单内容必须来自同一个构建器，避免预览和时间线出现两套行为。
+ */
+const menus = useTimelineMenus();
+const previewMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
+
+function openPreviewMenu(event: MouseEvent, item: VisualItem | null): void {
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (item) {
+    // 多选中的片段保持整组选中，右键单点才收缩。
+    if (!selection.isSelected(item.clip.id)) selection.select(item.clip.id);
+    selection.setActiveTrack(item.trackId);
+  }
+
+  const items = item
+    ? menus.build({ kind: "clip", clipId: item.clip.id })
+    : menus.build({
+        kind: "lane",
+        trackId: null,
+        index: project.doc.tracks.length,
+        time: playback.playhead,
+      });
+  if (items.length === 0) return;
+  previewMenu.value = { x: event.clientX, y: event.clientY, items };
+}
+
+// ---------------------------------------------------------------------------
 // 全屏 / 播放控制
 // ---------------------------------------------------------------------------
 
@@ -1699,6 +1811,7 @@ watch(
     data-tour="preview"
     :class="{ portrait: layout.layoutMode === 'portrait' }"
   >
+
     <header class="preview-head">
       <div class="head-left">
         <span class="head-title">{{ i18n.t("preview.title") }}</span>
@@ -1728,6 +1841,7 @@ watch(
           class="frame"
           :data-quality="layout.previewQuality"
           @pointerdown.self="onFramePointerDown"
+          @contextmenu.prevent.self="openPreviewMenu($event, null)"
         >
           <!-- 引擎把 <video>/<audio> 挂在这里 -->
           <div ref="mediaLayer" class="media-layer" :style="videoLayerStyle" />
@@ -1741,6 +1855,7 @@ watch(
             alt=""
             draggable="false"
             @pointerdown="onElementPointerDown(item, $event)"
+            @contextmenu.prevent.stop="openPreviewMenu($event, item)"
           />
 
           <div
@@ -1752,6 +1867,7 @@ watch(
             :data-text="item.clip.text"
             :data-stroke="hasTextStroke(item) ? '' : null"
             @pointerdown="onElementPointerDown(item, $event)"
+            @contextmenu.prevent.stop="openPreviewMenu($event, item)"
           >
             {{ item.clip.text }}
           </div>
@@ -1761,6 +1877,7 @@ watch(
             class="video-hit"
             :style="videoHitStyle ?? undefined"
             @pointerdown="onElementPointerDown(videoItem, $event)"
+            @contextmenu.prevent.stop="openPreviewMenu($event, videoItem)"
           />
 
           <template v-for="item in effectItems" :key="`fx-${item.clip.id}`">
@@ -1838,69 +1955,76 @@ watch(
           </div>
         </div>
 
-        <!-- 选择框放在 frame 外面，避免被画面裁切 -->
-        <svg
-          v-if="selectionGeometry"
-          class="selection-layer"
-          :viewBox="`0 0 ${stageSize.width} ${stageSize.height}`"
-          :width="stageSize.width"
-          :height="stageSize.height"
-          aria-hidden="true"
-        >
-          <line
-            v-for="x in snapGuides.x"
-            :key="`snap-x-${x}`"
-            class="snap-line"
-            :x1="x"
-            y1="0"
-            :x2="x"
-            :y2="stageSize.height"
-            :stroke-width="snapGuideWidth"
-          />
-          <line
-            v-for="y in snapGuides.y"
-            :key="`snap-y-${y}`"
-            class="snap-line"
-            x1="0"
-            :y1="y"
-            :x2="stageSize.width"
-            :y2="y"
-            :stroke-width="snapGuideWidth"
-          />
-          <polygon
-            class="sel-outline"
-            :points="selectionPoints"
-            :stroke-width="outlineWidth"
-          />
-          <line
-            class="sel-outline"
-            :x1="selectionGeometry.topCenter.x"
-            :y1="selectionGeometry.topCenter.y"
-            :x2="selectionGeometry.rotateHandle.x"
-            :y2="selectionGeometry.rotateHandle.y"
-            :stroke-width="outlineWidth"
-          />
-          <circle
-            v-for="(point, index) in selectionGeometry.corners"
-            :key="index"
-            class="sel-handle"
-            :class="`corner-${index}`"
-            :cx="point.x"
-            :cy="point.y"
-            :r="handleRadius"
-            :stroke-width="outlineWidth"
-            @pointerdown.stop.prevent="onResizeStart"
-          />
-          <circle
-            class="sel-handle sel-rotate"
-            :cx="selectionGeometry.rotateHandle.x"
-            :cy="selectionGeometry.rotateHandle.y"
-            :r="handleRadius"
-            :stroke-width="outlineWidth"
-            @pointerdown.stop.prevent="onRotateStart"
-          />
-        </svg>
       </div>
+    </div>
+
+    <!--
+      选择框 / 吸附线画在视口外面：片段放大或移出画面时，角点仍然抓得到，
+      不会被 .stage-viewport 的 overflow 裁掉（裁掉就等于「无法缩放」）。
+    -->
+    <div class="selection-overlay">
+      <svg
+        v-if="selectionGeometry"
+        class="selection-layer"
+        :viewBox="selectionBox.viewBox"
+        :width="selectionBox.width"
+        :height="selectionBox.height"
+        :style="selectionLayerStyle"
+        aria-hidden="true"
+      >
+        <line
+          v-for="x in snapGuides.x"
+          :key="`snap-x-${x}`"
+          class="snap-line"
+          :x1="x"
+          y1="0"
+          :x2="x"
+          :y2="stageSize.height"
+          :stroke-width="snapGuideWidth"
+        />
+        <line
+          v-for="y in snapGuides.y"
+          :key="`snap-y-${y}`"
+          class="snap-line"
+          x1="0"
+          :y1="y"
+          :x2="stageSize.width"
+          :y2="y"
+          :stroke-width="snapGuideWidth"
+        />
+        <polygon
+          class="sel-outline"
+          :points="selectionPoints"
+          :stroke-width="outlineWidth"
+        />
+        <line
+          class="sel-outline"
+          :x1="selectionGeometry.topCenter.x"
+          :y1="selectionGeometry.topCenter.y"
+          :x2="selectionGeometry.rotateHandle.x"
+          :y2="selectionGeometry.rotateHandle.y"
+          :stroke-width="outlineWidth"
+        />
+        <circle
+          v-for="(point, index) in selectionGeometry.corners"
+          :key="index"
+          class="sel-handle"
+          :class="`corner-${index}`"
+          :cx="point.x"
+          :cy="point.y"
+          :r="handleRadius"
+          :stroke-width="outlineWidth"
+          @pointerdown.stop.prevent="onResizeStart"
+        />
+        <circle
+          class="sel-handle sel-rotate"
+          :cx="selectionGeometry.rotateHandle.x"
+          :cy="selectionGeometry.rotateHandle.y"
+          :r="handleRadius"
+          :stroke-width="outlineWidth"
+          @pointerdown.stop.prevent="onRotateStart"
+        />
+      </svg>
     </div>
 
     <footer class="transport">
@@ -2000,6 +2124,14 @@ watch(
         </Tooltip>
       </div>
     </footer>
+
+    <ContextMenu
+      :open="previewMenu !== null"
+      :x="previewMenu?.x ?? 0"
+      :y="previewMenu?.y ?? 0"
+      :items="previewMenu?.items ?? []"
+      @close="previewMenu = null"
+    />
   </section>
 </template>
 
@@ -2101,18 +2233,23 @@ watch(
 .media-layer {
   position: absolute;
   inset: 0;
-  transform-origin: center;
-  will-change: transform;
   pointer-events: none;
   overflow: hidden;
 }
-/* 引擎注入的元素铺满画面 */
+/* 引擎注入的元素铺满画面。
+   transform / 圆角 / 描边阴影作用在 <video> 自身上而不是外层容器：视频在 WebKit 里是
+   独立合成层，改祖先的 transform 时暂停帧不会跟着重绘（选择框动了、画面不动）。 */
 .media-layer :deep(video) {
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
   pointer-events: none;
+  transform: var(--media-transform, none);
+  transform-origin: center;
+  border-radius: var(--media-radius, 0px);
+  box-shadow: var(--media-shadow, none);
+  will-change: transform;
 }
 /* 音频元素不参与画面，但保持可加载 / 可播放（不用 display:none，规避 WebKit 的加载降级）。 */
 .media-layer :deep(audio) {
@@ -2313,10 +2450,17 @@ watch(
 }
 
 /* ---- 选择框 ---- */
-.selection-layer {
+/* 选择框浮层：铺满整个预览区（含顶部小工具条 / 走带条），本身不吃事件。
+   铺满而不是只盖住视口，是因为 WebKit 只对浮层盒子内的元素做命中测试：
+   只盖视口时，被拖到画面外的角点就点不到，等于「无法缩放」。 */
+.selection-overlay {
   position: absolute;
   inset: 0;
-  z-index: 50;
+  z-index: 40;
+  pointer-events: none;
+}
+.selection-layer {
+  position: absolute;
   overflow: visible;
   pointer-events: none;
 }

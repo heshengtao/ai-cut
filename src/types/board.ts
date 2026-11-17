@@ -5,28 +5,77 @@
  * 放在 `types/` 里是为了让 `types/project.ts` 能引用它而不产生循环依赖。
  */
 import type { AssetKind } from "@/types/project";
+import type { BoardWorkflowSource } from "@/types/workflow";
 
-/** 工具栏运行模式（ComfyUI 式）。 */
-export type BoardRunMode = "manual" | "always" | "repeat" | "none";
+export type { BoardWorkflowSource };
+
+/**
+ * 工具栏运行模式。
+ *
+ * - `manual`：点「运行」跑整个工作流（按依赖顺序跑一遍）；
+ * - `always`：自动重跑——某个节点的输出更新后，自动运行它的下游节点；
+ * - `repeat`：重复 N 次（模型节点重新生成）。
+ */
+export type BoardRunMode = "manual" | "always" | "repeat";
 
 /** 端口（连线）的语义类型。 */
 export type BoardPortType = "text" | "image" | "video" | "audio" | "any";
 
 /** 节点状态：运行中 / 完成 / 失败 / 上游变了（过期）。 */
-export type BoardNodeStatus = "idle" | "queued" | "running" | "done" | "error" | "stale";
+export type BoardNodeStatus =
+  | "idle"
+  | "queued"
+  | "running"
+  | "done"
+  | "error"
+  | "stale"
+  /** 旁路 / 被禁用的上游挡住：这次运行跳过了它。 */
+  | "skipped";
 
-/** 节点分类：输入 / 显示 / 模型。 */
-export type BoardCategory = "input" | "display" | "model";
+/** 节点分类：输入 / 显示 / 模型 / 分组。 */
+export type BoardCategory = "input" | "display" | "model" | "group";
+
+/** 组节点的色调（对齐 ai-board 的 group tone）。 */
+export type BoardGroupTone = "lavender" | "blue" | "green" | "coral" | "amber";
+
+export const BOARD_GROUP_TONES: BoardGroupTone[] = [
+  "lavender",
+  "blue",
+  "green",
+  "coral",
+  "amber",
+];
 
 /** 一个端口。 */
 export interface BoardPortSpec {
   id: string;
   type: BoardPortType;
   labelKey: string;
+  /**
+   * 这个输入端口最多能接几个上游（缺省 1）。
+   *
+   * 同类型的多路参考合并成一个端口（例如 H3 的 9 张参考图 = 一个 `image`
+   * 端口、max 9），节点 UI 上仍然只有一个输入锚点，具体选哪些上游在
+   * 节点检查器里多选。
+   */
+  max?: number;
 }
 
-/** 参数类型。`binding` 表示这个参数可以被上游连线绑定。 */
-export type BoardParamKind = "text" | "longtext" | "number" | "select" | "toggle" | "seed";
+/**
+ * 参数类型。`binding` 表示这个参数可以被上游连线绑定。
+ *
+ * `size` 是模型节点的输出分辨率：卡片和检查器都渲染成「分辨率」下拉，
+ * 具体选项按当前模型 / 云端服务来（见 `core/board/size.ts`），值写回
+ * `params.size` + `params.width` / `params.height`。
+ */
+export type BoardParamKind =
+  | "text"
+  | "longtext"
+  | "number"
+  | "select"
+  | "toggle"
+  | "seed"
+  | "size";
 
 export interface BoardParamSpec {
   id: string;
@@ -43,8 +92,30 @@ export interface BoardParamSpec {
   /**
    * 动态模型下拉：本地模型按 `feature` 列（`models.byFeature`），
    * 云端服务按 `capability` 列（`providersForCapability`）。值形如 `local:<id>` / `cloud:<id>`。
+   *
+   * `cloud` 用来接**另一类**云端服务（语音合成 / 语音识别各有自己的配置和预设），
+   * 它们不在图像 / 视频的 `cloud_gen` 里。
    */
-  model?: { feature: string; capability?: string };
+  model?: { feature: string; capability?: string; cloud?: "tts" | "asr" };
+  /**
+   * 文本模型下拉：选项来自「设置 → 文本生成」里的供应商（值是 `<供应商 id>::<模型>`）。
+   * 留空表示用配置里的默认模型。
+   */
+  llm?: boolean;
+  /** 输入框占位文案的 i18n key（长文本参数用）。 */
+  placeholderKey?: string;
+  /** 检查器里字段下方的说明文案（可选）。 */
+  hintKey?: string;
+  /**
+   * 只在检查器里出现的参数（流式输出 / 思考强度 / topP 这类高级项）。
+   * 节点卡片只保留最常用的字段，避免卡片越堆越长。
+   */
+  inspectorOnly?: boolean;
+  /**
+   * 只在另一个参数等于某个值时才显示（例如「画面增强」的模型输入随处理方式切换）。
+   * 隐藏的参数不渲染，但仍然可以被读取（运行时按当前逻辑取用）。
+   */
+  visibleWhen?: { param: string; equals: unknown };
 }
 
 /** 一个节点的静态定义（注册表项）。 */
@@ -58,6 +129,8 @@ export interface BoardNodeDefinition {
   outputs: BoardPortSpec[];
   params: BoardParamSpec[];
   defaultSize: { width: number; height: number };
+  /** 图片 / 视频节点锁定素材比例（对齐 ai-board 的 `lockAspectRatio`）。 */
+  lockAspectRatio?: boolean;
   /** 输入 / 显示节点的素材类型；模型节点为空。 */
   assetKind?: AssetKind;
   /** 是否在节点卡片底部展开实时输出（模型节点）。 */
@@ -83,14 +156,51 @@ export interface BoardNodeData {
   stackIndex?: number;
   /** 最近一次运行的产物（素材 id，产物运行完自动入库）。 */
   outputAssetId?: string;
+  /**
+   * 最近一次运行的全部产物：`outputAssetId` 是其中「当前选中 / 对外发布」的那一个。
+   * 音频分离的多条音轨、重复运行累积的结果都在这里，卡片下方的输出附件卡
+   * 用它做多输出切换。
+   */
+  outputAssetIds?: string[];
+  /**
+   * 按**端口**发布的产物：`端口 id → 素材 id`。
+   *
+   * 单输出节点仍然只靠 `outputAssetId`；有多个输出端口的节点（音频分离的
+   * 人声 / 鼓 / 贝斯…、视频音频分离的视频与音频）各端口各发各的，下游连到
+   * 哪个端口就拿哪个端口的产物。
+   */
+  outputs?: Record<string, string>;
+  /** 输出附件卡是否展开；未设置按展开处理，用户收起后记住。 */
+  outputOpen?: boolean;
   status?: BoardNodeStatus;
   error?: string;
   /** 实时输出文本（模型节点的日志 / 文本结果）。 */
   outputText?: string;
+  /**
+   * 文本模型拆出来的「思考过程」（推理模型返回的 reasoning_content）。
+   * 与 `outputText` 分开存，输出附件卡用两个 tab 展示。
+   */
+  outputReasoning?: string;
+  /** 本次运行开始的时间戳（毫秒）；用于运行计时。 */
+  startedAt?: number;
+  /** 上一次运行的耗时（毫秒）；完成后用于节点角标。 */
+  durationMs?: number;
   /** 0..1 进度。 */
   progress?: number;
-  /** 静音：跳过执行。 */
+  /**
+   * 禁用（旧叫法「静音」）：跳过**这个节点以及它之后的所有节点**。
+   * 下游拿不到输入，整条链这次都不跑。
+   */
   ignored?: boolean;
+  /**
+   * 旁路：只跳过这一个节点。下游要它的输出时，改用它自己同类型的输入
+   * （把它从链路里「摘出去」）；它没有同类型输入时下游拿到空值。
+   */
+  bypassed?: boolean;
+  /** 组节点的成员 id；组节点本身不参与运行。 */
+  children?: string[];
+  /** 组节点的色调（仅组节点使用）。 */
+  tone?: BoardGroupTone;
 }
 
 /** 画布上的一个节点。 */
@@ -124,6 +234,13 @@ export interface BoardDoc {
   edges: BoardEdge[];
   viewport: BoardViewport;
   updatedAt: number;
+  /**
+   * 这块画布来自工作流库的哪个工作流。
+   *
+   * 保存时据此判断是「同一个工作流的新版本」还是「从默认工作流改出来的新工作流」。
+   * 旧文档没有这个字段，按「没有来源」处理（保存时创建新工作流）。
+   */
+  source?: BoardWorkflowSource;
 }
 
 export const BOARD_VERSION = 1;

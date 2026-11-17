@@ -36,6 +36,7 @@ mod video_dsp;
 mod video_gen;
 mod web;
 mod voice_change;
+mod workflow;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -238,9 +239,11 @@ pub fn run() {
             media::probe_media,
             media::file_stamp,
             media::media_cache_dir,
+            media::file_data_url,
             media::make_thumbnail,
             media::make_waveform,
             media::extract_audio_preview,
+            media::extract_video_track,
             media::make_video_preview,
             media::copy_media_files,
             project_io::read_project,
@@ -251,6 +254,11 @@ pub fn run() {
             history::project_history_record,
             history::project_history_get,
             history::project_history_delete,
+            workflow::workflow_list,
+            workflow::workflow_save,
+            workflow::workflow_get,
+            workflow::workflow_delete,
+            workflow::workflow_rename,
             export::export_video,
             export::cancel_export,
             export::write_export_text_image,
@@ -280,6 +288,10 @@ pub fn run() {
             agent::agent_set_config,
             agent::agent_models,
             agent::agent_test,
+            agent::llm_chat,
+            agent::llm_stream,
+            agent::text_providers,
+            agent::text_set_providers,
             agent::agent_sessions,
             agent::agent_session,
             agent::agent_delete_session,

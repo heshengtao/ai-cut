@@ -10,9 +10,11 @@ import {
   MusicalNoteIcon,
   PhotoIcon,
   QueueListIcon,
+  ScissorsIcon,
   SparklesIcon,
   SpeakerWaveIcon,
   Squares2X2Icon,
+  Square3Stack3DIcon,
   VideoCameraIcon,
   WrenchScrewdriverIcon,
 } from "@heroicons/vue/24/outline";
@@ -34,12 +36,15 @@ const NODE_ICONS: Record<string, unknown> = {
   "model.text": ChatBubbleLeftRightIcon,
   "model.enhance": ArrowsPointingOutIcon,
   "model.separate": QueueListIcon,
+  "model.demux": ScissorsIcon,
+  group: Square3Stack3DIcon,
 };
 
 const CATEGORY_ICONS: Record<BoardCategory, unknown> = {
   input: ArrowRightEndOnRectangleIcon,
   display: EyeIcon,
   model: CpuChipIcon,
+  group: Square3Stack3DIcon,
 };
 
 export function nodeIcon(type: string): unknown {

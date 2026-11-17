@@ -84,7 +84,8 @@ watch(
 );
 
 function goSettings(): void {
-  layout.openSettings("ai");
+  // 智能体的端点 / Key / 模型都在「文本生成」子页的供应商列表里。
+  layout.openSettings("text");
 }
 
 function onEdit(nodeId: string, text: string): void {

@@ -19,6 +19,7 @@ import {
 import { useI18n } from "@/i18n";
 import { useProjectStore } from "@/stores/project";
 import { usePlaybackStore } from "@/stores/playback";
+import { useLayoutStore } from "@/stores/layout";
 import { useViewStore } from "@/stores/view";
 import {
   addEpisode,
@@ -29,6 +30,7 @@ import {
   renameEpisode,
 } from "@/core/ops";
 import { assetThumbnailUrl } from "@/core/thumbnails";
+import PanelIcon from "@/components/common/PanelIcon.vue";
 import { confirm } from "@/composables/useConfirm";
 import { toast } from "@/composables/useToast";
 import type { Episode } from "@/types/project";
@@ -38,6 +40,7 @@ type SortMode = "manual" | "duration";
 const i18n = useI18n();
 const project = useProjectStore();
 const playback = usePlaybackStore();
+const layout = useLayoutStore();
 const view = useViewStore();
 
 const query = ref("");
@@ -211,6 +214,18 @@ const totalDuration = computed(() =>
             {{ i18n.t("series.sortDuration") }}
           </button>
         </div>
+        <button
+          class="series-timeline"
+          type="button"
+          :class="{ on: layout.showTimeline }"
+          :title="layout.showTimeline ? i18n.t('board.hideTimeline') : i18n.t('board.showTimeline')"
+          :aria-label="layout.showTimeline ? i18n.t('board.hideTimeline') : i18n.t('board.showTimeline')"
+          :aria-expanded="layout.showTimeline"
+          @click="layout.showTimeline = !layout.showTimeline"
+        >
+          <PanelIcon side="bottom" :filled="layout.showTimeline" />
+          <span>{{ i18n.t("series.timeline") }}</span>
+        </button>
         <button class="series-new" type="button" @click="createEpisode">
           <PlusIcon class="series-new-icon" />
           <span>{{ i18n.t("series.newEpisode") }}</span>
@@ -410,6 +425,31 @@ const totalDuration = computed(() =>
 .series-sort button.on {
   background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
+}
+.series-timeline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.7);
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--md-on-surface-variant));
+  font-size: 12px;
+  cursor: pointer;
+}
+.series-timeline.on {
+  color: rgb(var(--md-on-secondary-container));
+  background-color: rgb(var(--md-secondary-container));
+  border-color: transparent;
+}
+.series-timeline:hover {
+  background-color: rgb(var(--md-on-surface-variant) / 0.1);
+}
+.series-timeline :deep(svg) {
+  width: 15px;
+  height: 15px;
 }
 .series-new {
   display: inline-flex;

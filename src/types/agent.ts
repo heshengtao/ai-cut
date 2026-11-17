@@ -1,10 +1,56 @@
 /** 剪辑智能体的前后端协议（与 Rust 侧 agent 模块一一对应）。 */
 
+/** 「文本生成」里配置的一家供应商。 */
+export interface TextProvider {
+  id: string;
+  /** 预设 id（`openai` / `deepseek` / `ollama` / `custom` …），见 `core/llmProviders`。 */
+  preset: string;
+  /** 显示名（用户可改）。 */
+  name: string;
+  /** OpenAI 兼容端点，形如 `https://api.openai.com/v1`。 */
+  base_url: string;
+  api_key: string;
+  /** 默认模型；节点没单独选模型时用它。 */
+  model: string;
+  /** 可选的模型列表（「获取模型列表」拉到的），空 = 只有默认模型。 */
+  models: string[];
+  enabled: boolean;
+}
+
 export interface AgentConfig {
+  /** 供应商 id（`openai` / `deepseek` / `ollama` / `custom` …），见 `core/llmProviders`。 */
+  provider: string;
   /** OpenAI 兼容端点，形如 `https://api.openai.com/v1`。 */
   base_url: string;
   api_key: string;
   model: string;
+  /** 当前生效供应商的镜像之外，完整供应商列表（文本生成页面 / 节点用）。 */
+  providers: TextProvider[];
+}
+
+/** 文本生成节点的一条对话消息。 */
+/** 多模态 content part：文本 + （可选）图片 / 视频 URL（data URL 或 https）。 */
+export type LlmContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "video_url"; video_url: { url: string } };
+
+export interface LlmChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string | LlmContentPart[];
+}
+
+/** 文本模型返回：内容 + 思考过程（推理模型才有）。 */
+export interface LlmReply {
+  text: string;
+  reasoning: string;
+}
+
+/** 画布文本节点的流式片段。 */
+export interface LlmStreamEvent {
+  requestId: string;
+  kind: "delta" | "reasoning";
+  text: string;
 }
 
 export interface AgentProbe {

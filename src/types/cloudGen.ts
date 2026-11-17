@@ -62,6 +62,11 @@ export interface CloudImageRequest {
   width: number;
   height: number;
   initImage?: string;
+  /**
+   * 额外参考图（本地文件路径）：支持多图编辑的服务（Gemini / GPT-Image /
+   * Seedream 4 / Qwen-Image-Edit…）按顺序收，单图服务只用第一张。
+   */
+  refImages?: string[];
   /** 白色涂抹区域 + 透明背景的 PNG data URL；只有 OpenAI 编辑接口用得上。 */
   maskPng?: string;
   seed?: number;
@@ -74,6 +79,13 @@ export interface CloudVideoRequest {
   width: number;
   height: number;
   seconds: number;
+  /**
+   * 分辨率档（`480p` / `720p` / `1080p`）。
+   *
+   * 方舟 / MiniMax 这类接口不收像素宽高，只收档位；不传时后端沿用各自的
+   * 默认档（方舟 720p、MiniMax 1080P）。宽高仍然会传，用来换算画幅比例。
+   */
+  resolution?: string;
   initImage?: string;
   /** 多模态参考（MiniMax H3）：本地文件路径，后端转 data URI 上传。 */
   refImages?: string[];

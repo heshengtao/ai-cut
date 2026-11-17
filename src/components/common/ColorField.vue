@@ -7,6 +7,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { CheckIcon } from "@heroicons/vue/24/outline";
 import {
   hexToHsv,
+  hexToRgb,
   hsvToHex,
   hueColor,
   normalizeHex,
@@ -32,28 +33,34 @@ const emit = defineEmits<{
 
 const i18n = useI18n();
 
-/** 预设色板：中性色 + MD3 主色/辅助色/错误色 + 常用色相。 */
+/**
+ * 预设色板：对齐 Word / Office 的取色器结构 —— 第一行「标准色」，第二行「灰阶」。
+ * 检查器里文字颜色、描边、发光、阴影、背景以及特效颜色参数都用这一份，
+ * 保证任意字段打开后看到的是同一组有辨识度的颜色，而不是主题里的暗灰调。
+ */
 const SWATCHES = [
-  "#ffffff",
-  "#f2f0f7",
-  "#cac4d0",
-  "#79747e",
-  "#49454f",
-  "#1c1b1f",
+  // 标准色（Word 标准色行）
+  "#c00000", // 深红
+  "#ff0000", // 红
+  "#ffc000", // 橙
+  "#ffff00", // 黄
+  "#92d050", // 浅绿
+  "#00b050", // 绿
+  "#00b0f0", // 浅蓝
+  "#0070c0", // 蓝
+  "#002060", // 深蓝
+  "#7030a0", // 紫
+  // 灰阶（黑 → 白）
   "#000000",
-  "#6750a4",
-  "#d0bcff",
-  "#e8def8",
-  "#7d5260",
-  "#ffd8e4",
-  "#b3261e",
-  "#f9dedc",
-  "#386a20",
-  "#c6f6d5",
-  "#1a6cff",
-  "#dbe1ff",
-  "#bd8900",
-  "#ffdfa0",
+  "#262626",
+  "#404040",
+  "#595959",
+  "#808080",
+  "#a6a6a6",
+  "#bfbfbf",
+  "#d9d9d9",
+  "#f2f2f2",
+  "#ffffff",
 ];
 
 const open = ref(false);
@@ -68,6 +75,16 @@ const hexDraft = ref(normalizeHex(props.modelValue) ?? "#000000");
 const dragMode = ref<"sv" | "hue" | null>(null);
 
 const shownHex = computed(() => normalizeHex(props.modelValue) ?? "#000000");
+
+/** 选中色块上的对勾：亮色用深勾、暗色用白勾，避免白勾落在白/黄块上看不见。 */
+const checkStyle = computed(() => {
+  const { r, g, b } = hexToRgb(shownHex.value);
+  const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+  return luma > 150
+    ? { color: "#1c1b1f", filter: "drop-shadow(0 0 1px rgb(255 255 255 / 0.8))" }
+    : { color: "#ffffff", filter: "drop-shadow(0 0 1px rgb(0 0 0 / 0.85))" };
+});
+
 const hueBackground = computed(
   () =>
     "linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, " +
@@ -328,7 +345,7 @@ onUnmounted(() => {
             :aria-pressed="color === shownHex"
             @click="pickSwatch(color)"
           >
-            <CheckIcon v-if="color === shownHex" class="check" />
+            <CheckIcon v-if="color === shownHex" class="check" :style="checkStyle" />
           </button>
         </div>
       </div>
@@ -473,7 +490,7 @@ onUnmounted(() => {
   padding: 0;
   border: 0;
   border-radius: 999px;
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
+  box-shadow: inset 0 0 0 1px rgb(var(--md-outline) / 0.35);
   cursor: pointer;
   transition: transform 0.12s ease;
 }
@@ -487,8 +504,6 @@ onUnmounted(() => {
 .check {
   width: 11px;
   height: 11px;
-  color: #fff;
-  filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.8));
 }
 .pop-enter-active {
   transition: opacity 0.14s ease, transform 0.18s cubic-bezier(0.34, 1.42, 0.5, 1);

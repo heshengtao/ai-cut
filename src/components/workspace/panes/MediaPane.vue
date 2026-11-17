@@ -506,6 +506,7 @@ async function collectMedia(): Promise<void> {
             class="asset"
             :class="{ offline: entry.asset.offline }"
             :style="{ '--i': index }"
+            :title="i18n.t('media.dragHint')"
             draggable="true"
             @dragstart="onDragStart($event, entry.asset)"
             @dragend="onDragEnd"
@@ -540,6 +541,7 @@ async function collectMedia(): Promise<void> {
             v-else
             class="asset"
             :style="{ '--i': index }"
+            :title="i18n.t('media.dragHint')"
             draggable="true"
             @dragstart="onTextDragStart($event, entry.preset)"
             @dragend="onDragEnd"

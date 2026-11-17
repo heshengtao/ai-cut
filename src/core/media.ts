@@ -82,6 +82,11 @@ export function fileUrl(path: string): string {
   return convertFileSrc(path);
 }
 
+/** 本地素材 → data URL（多模态文本模型吃图片 / 视频用；Rust 侧限 32 MB）。 */
+export function fileDataUrl(path: string): Promise<string> {
+  return invoke<string>("file_data_url", { path });
+}
+
 /**
  * 当前进程真正生效的缓存目录（绝对路径）。
  *
@@ -146,11 +151,19 @@ function cachedPreview(
 
 const audioPreviewCache = new Map<string, Promise<string>>();
 const videoPreviewCache = new Map<string, Promise<string>>();
+const videoTrackCache = new Map<string, Promise<string>>();
 
 /** 任意素材的音轨 → 缓存 M4A（AAC），供 WebAudio 解码。 */
 export function extractAudioPreview(path: string, assetId: string): Promise<string> {
   return cachedPreview(audioPreviewCache, `${assetId}:${path}`, () =>
     invoke<string>("extract_audio_preview", { path, assetId }),
+  );
+}
+
+/** 抽取视频画面（去掉音轨），画布「视频音频分离」节点的视频输出用。 */
+export function extractVideoTrack(path: string, assetId: string): Promise<string> {
+  return cachedPreview(videoTrackCache, `${assetId}:${path}`, () =>
+    invoke<string>("extract_video_track", { path, assetId }),
   );
 }
 

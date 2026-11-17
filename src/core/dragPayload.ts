@@ -6,7 +6,9 @@
  */
 export type DragPayload =
   | { kind: "asset"; id: string }
-  | { kind: "text"; id: string };
+  | { kind: "text"; id: string }
+  /** 工作流库 → 画布：`id` 是根工作流，`versionId` 指定某个历史版本。 */
+  | { kind: "workflow"; id: string; versionId?: string };
 
 let current: DragPayload | null = null;
 

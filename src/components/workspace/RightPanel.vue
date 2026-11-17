@@ -15,6 +15,7 @@ import {
   ScissorsIcon,
   ChevronRightIcon,
   Squares2X2Icon,
+  Square3Stack3DIcon,
 } from "@heroicons/vue/24/outline";
 import MediaPane from "./panes/MediaPane.vue";
 import InspectorPane from "./panes/InspectorPane.vue";
@@ -26,6 +27,7 @@ import PluginEditorPane from "./panes/PluginEditorPane.vue";
 import ClipAgentPanel from "./agent/ClipAgentPanel.vue";
 import CutReviewPane from "./panes/CutReviewPane.vue";
 import BoardInspectorPane from "./panes/BoardInspectorPane.vue";
+import WorkflowLibraryPane from "./panes/WorkflowLibraryPane.vue";
 import EmptyPanels from "@/components/onboarding/EmptyPanels.vue";
 import { PANES, useLayoutStore, type PaneId } from "@/stores/layout";
 import { useI18n } from "@/i18n";
@@ -44,6 +46,7 @@ const ICONS: Record<PaneId, unknown> = {
   cutReview: ScissorsIcon,
   pluginEditor: AdjustmentsHorizontalIcon,
   boardInspector: Squares2X2Icon,
+  workflowLibrary: Square3Stack3DIcon,
 };
 
 const panes = computed(() => PANES.filter((pane) => !pane.hidden));
@@ -94,6 +97,7 @@ const activeKey = computed(() =>
           <CutReviewPane v-else-if="layout.activeTab === 'cutReview'" />
           <PluginEditorPane v-else-if="layout.activeTab === 'pluginEditor'" />
           <BoardInspectorPane v-else-if="layout.activeTab === 'boardInspector'" />
+          <WorkflowLibraryPane v-else-if="layout.activeTab === 'workflowLibrary'" />
         </div>
       </Transition>
     </div>

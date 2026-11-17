@@ -157,6 +157,57 @@
     color-scheme: dark;
   }
 
+  /* ===== ai-board 画布配色 =====
+     画布节点与节点检查器直接复刻 ai-board 的色阶：卡片比 ai-cut 其它面板亮一档、
+     偏紫，画布底色更沉。作用域是 `.ab-canvas`，不影响时间线 / 顶栏 / 素材库。 */
+  .ab-canvas {
+    --node-card-top: 249 245 252;
+    --node-card-bottom: 242 237 247;
+    --md-surface: 246 242 250;
+    --md-surface-container-lowest: 255 255 255;
+    --md-surface-container-low: 240 235 245;
+    --md-surface-container: 234 229 240;
+    --md-surface-container-high: 227 222 234;
+    --md-surface-container-highest: 220 215 228;
+    --app-card: rgb(var(--md-surface));
+    --app-inset: rgb(var(--md-surface-container-low));
+    --ab-canvas-bg: rgb(var(--md-surface-container-high));
+    --ab-dot-minor: rgb(var(--md-outline) / 0.45);
+    --ab-dot-major: rgb(var(--md-outline) / 0.8);
+    /* 画布卡片统一渐变底：节点主体与输出附件共用，浅色 / 深色自动跟着 token 走。
+       和 ai-board 一样是「一块主色光晕 + 容器色斜向渐变」，一眼能看出层次。 */
+    /* 最后一层是不透明底色：渐变里的半透明容器色不会透出画布（文本附件尤其重要）。 */
+    --node-surface-bg: radial-gradient(115% 90% at 8% 0%, rgb(var(--md-primary) / 0.3), transparent 60%),
+      linear-gradient(155deg, rgb(var(--md-primary-container) / 0.55), rgba(0, 0, 0, 0) 46%, rgb(var(--md-tertiary-container) / 0.45)),
+      rgb(var(--node-card-top));
+    --node-surface-bg-video: radial-gradient(115% 90% at 8% 0%, rgb(var(--md-tertiary) / 0.34), transparent 60%),
+      linear-gradient(155deg, rgb(var(--md-tertiary-container) / 0.55), rgba(0, 0, 0, 0) 48%, rgb(var(--md-primary-container) / 0.35)),
+      rgb(var(--node-card-top));
+    --node-surface-bg-audio: radial-gradient(115% 90% at 8% 0%, rgb(var(--md-secondary) / 0.34), transparent 62%),
+      linear-gradient(155deg, rgb(var(--md-secondary-container) / 0.6), rgba(0, 0, 0, 0) 48%, rgb(var(--md-tertiary-container) / 0.35)),
+      rgb(var(--node-card-top));
+    --node-surface-bg-text: radial-gradient(115% 85% at 8% 0%, rgb(var(--md-primary) / 0.32), transparent 60%),
+      linear-gradient(150deg, rgb(var(--md-primary-container) / 0.62), rgba(0, 0, 0, 0) 48%, rgb(var(--md-tertiary-container) / 0.5)),
+      rgb(var(--node-card-top));
+    --node-surface-border: rgb(var(--md-outline-variant) / 0.4);
+    --node-surface-shadow: inset 0 1px 0 rgb(255 255 255 / 0.09), 0 16px 38px rgb(0 0 0 / 0.22);
+  }
+  .dark .ab-canvas {
+    --node-card-top: 63 59 72;
+    --node-card-bottom: 48 45 56;
+    --md-surface: 36 33 42;
+    --md-surface-container-lowest: 24 22 28;
+    --md-surface-container-low: 43 40 49;
+    --md-surface-container: 49 46 56;
+    --md-surface-container-high: 59 55 67;
+    --md-surface-container-highest: 69 65 78;
+    --app-card: rgb(var(--md-surface-container-high));
+    --app-inset: rgb(var(--md-surface-container));
+    --ab-canvas-bg: rgb(30 27 36);
+    --ab-dot-minor: rgb(var(--md-outline) / 0.45);
+    --ab-dot-major: rgb(var(--md-outline) / 0.8);
+  }
+
   /* ===== Material You Accent Color Palettes ===== */
   [data-accent="green"] {
     --md-source: 46 125 79;

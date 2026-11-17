@@ -13,6 +13,7 @@ import RightPanel from "@/components/workspace/RightPanel.vue";
 import StageView from "@/components/workspace/StageView.vue";
 import TimelinePane from "@/components/workspace/TimelinePane.vue";
 import SettingsView from "@/components/settings/SettingsView.vue";
+import WorkflowSaveDialog from "@/components/board/WorkflowSaveDialog.vue";
 import { useLayoutStore } from "@/stores/layout";
 import { isLinux, isTauri, isWindows } from "@/utils/platform";
 
@@ -80,6 +81,9 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
         </template>
       </div>
     </Transition>
+
+    <!-- 保存工作流：全局单例，画布工具栏 / 工作流库 / 文件菜单共用 -->
+    <WorkflowSaveDialog />
   </div>
 </template>
 

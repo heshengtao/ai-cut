@@ -106,7 +106,9 @@ export const useAgentStore = defineStore("agent", () => {
 
   const configured = computed(() => {
     const c = config.value;
-    return !!c && !!c.base_url.trim() && !!c.api_key.trim() && !!c.model.trim();
+    // 与后端 `AgentConfig::is_configured` 一致：只要端点和模型齐了就可用。
+    // 本地端点（Ollama / vLLM …）本来就不需要 Key，不能再因为 Key 为空显示「未配置」。
+    return !!c && !!c.base_url.trim() && !!c.model.trim();
   });
 
   const activePath = computed<AgentNode[]>(() => {
@@ -138,11 +140,12 @@ export const useAgentStore = defineStore("agent", () => {
   }
 
   async function saveConfig(
+    provider: string,
     baseUrl: string,
     apiKey: string,
     model: string,
   ): Promise<void> {
-    config.value = await agentSetConfig(baseUrl, apiKey, model);
+    config.value = await agentSetConfig(provider, baseUrl, apiKey, model);
   }
 
   async function fetchModels(

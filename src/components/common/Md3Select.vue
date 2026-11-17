@@ -9,6 +9,7 @@ import {
   ArrowRightIcon,
   CheckIcon,
   ChevronDownIcon,
+  MagnifyingGlassIcon,
 } from "@heroicons/vue/24/outline";
 import { useI18n } from "@/i18n";
 
@@ -37,23 +38,45 @@ const props = withDefaults(
     disabled?: boolean;
     /** 紧凑尺寸：预览底部工具条使用。 */
     compact?: boolean;
+    /** 菜单顶部带一个搜索框：长列表（模型 / 供应商）用。 */
+    searchable?: boolean;
+    /** 多选：点击选项切换选中状态，菜单不关闭，通过 `toggle` 事件回传 id。 */
+    multiple?: boolean;
+    /** 多选时已选的 id（配合 `multiple` 用）。 */
+    selectedIds?: string[];
   }>(),
-  { placeholder: "—", compact: false },
+  { placeholder: "—", compact: false, searchable: false },
 );
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: string): void;
   (e: "select", value: string): void;
+  (e: "toggle", id: string): void;
   (e: "action", id: string): void;
 }>();
 
 const { t } = useI18n();
 
+const query = ref("");
+const searchEl = ref<HTMLInputElement | null>(null);
+
+/** 搜索词过滤后的选项（按 label / hint / id 匹配）。 */
+const visibleOptions = computed<SelectOption[]>(() => {
+  const q = query.value.trim().toLowerCase();
+  if (!q) return props.options;
+  return props.options.filter(
+    (o) =>
+      o.label.toLowerCase().includes(q) ||
+      (o.hint ?? "").toLowerCase().includes(q) ||
+      o.id.toLowerCase().includes(q),
+  );
+});
+
 /** 选项按 group 折叠成区块（保持与传入顺序一致）。 */
 const groups = computed<{ title: string; items: SelectOption[] }[]>(() => {
   const out: { title: string; items: SelectOption[] }[] = [];
   const index = new Map<string, number>();
-  for (const o of props.options) {
+  for (const o of visibleOptions.value) {
     const key = o.group ?? "";
     let at = index.get(key);
     if (at === undefined) {
@@ -71,8 +94,22 @@ const triggerEl = ref<HTMLElement | null>(null);
 const menuEl = ref<HTMLElement | null>(null);
 const menuStyle = ref<Record<string, string>>({});
 
-const selected = computed(() => props.options.find((o) => o.id === props.modelValue) ?? null);
-const text = computed(() => selected.value?.label ?? props.placeholder);
+/** 当前选中的 id 集合（多选看 `selectedIds`，单选看 `modelValue`）。 */
+const selectedIds = computed<Set<string>>(() => {
+  if (props.multiple) return new Set(props.selectedIds ?? []);
+  return props.modelValue ? new Set([props.modelValue]) : new Set();
+});
+const selected = computed(
+  () => props.options.find((o) => o.id === props.modelValue) ?? null,
+);
+const text = computed(() => {
+  if (props.multiple) {
+    return selectedIds.value.size > 0
+      ? t("board.inspect.selectedCount", { count: selectedIds.value.size })
+      : props.placeholder;
+  }
+  return selected.value?.label ?? props.placeholder;
+});
 
 /** 贴着触发器放；下方空间不够就翻到上方。 */
 function place(): void {
@@ -94,19 +131,32 @@ function place(): void {
 function toggle(): void {
   if (props.disabled) return;
   open.value = !open.value;
-  if (open.value) void nextTick(place);
+  if (open.value) {
+    query.value = "";
+    void nextTick(() => {
+      place();
+      if (props.searchable) searchEl.value?.focus();
+    });
+  }
 }
 
 function close(): void {
   open.value = false;
+  query.value = "";
 }
 
 function pick(option: SelectOption): void {
-  close();
   if (option.action) {
+    close();
     emit("action", option.id);
     return;
   }
+  if (props.multiple) {
+    // 多选不关菜单：勾选 / 取消由调用方维护顺序。
+    emit("toggle", option.id);
+    return;
+  }
+  close();
   if (option.id === props.modelValue) return;
   emit("update:modelValue", option.id);
   emit("select", option.id);
@@ -169,7 +219,7 @@ onUnmounted(() => {
       @click="toggle"
     >
       <img v-if="selected?.thumb" class="trigger-thumb" :src="selected.thumb" alt="" />
-      <span class="value" :class="{ placeholder: !selected }">{{ text }}</span>
+      <span class="value" :class="{ placeholder: selectedIds.size === 0 }">{{ text }}</span>
       <ChevronDownIcon class="caret" :class="{ up: open }" />
     </button>
 
@@ -183,7 +233,19 @@ onUnmounted(() => {
           role="listbox"
           :aria-label="label"
         >
-          <p v-if="options.length === 0" class="empty">{{ t("common.none") }}</p>
+          <label v-if="searchable" class="search">
+            <MagnifyingGlassIcon />
+            <input
+              ref="searchEl"
+              v-model="query"
+              type="text"
+              spellcheck="false"
+              :placeholder="t('common.search')"
+              :aria-label="t('common.search')"
+              @keydown.esc.stop="close"
+            />
+          </label>
+          <p v-if="visibleOptions.length === 0" class="empty">{{ t("common.none") }}</p>
           <template v-for="g in groups" :key="g.title">
             <p v-if="g.title" class="group-title" role="presentation">{{ g.title }}</p>
             <button
@@ -193,7 +255,7 @@ onUnmounted(() => {
               :class="{ action: o.action }"
               type="button"
               role="option"
-              :aria-selected="o.id === modelValue"
+              :aria-selected="selectedIds.has(o.id)"
               @click="pick(o)"
             >
               <img v-if="o.thumb" class="item-thumb" :src="o.thumb" alt="" loading="lazy" />
@@ -208,7 +270,7 @@ onUnmounted(() => {
                 aria-hidden="true"
               />
               <ArrowRightIcon v-if="o.action" class="item-arrow" />
-              <CheckIcon v-else-if="o.id === modelValue" class="item-check" />
+              <CheckIcon v-else-if="selectedIds.has(o.id)" class="item-check" />
             </button>
           </template>
         </div>
@@ -306,6 +368,34 @@ onUnmounted(() => {
   border: 1px solid rgb(var(--md-outline-variant) / 0.5);
   background-color: rgb(var(--md-surface-container-high));
   box-shadow: var(--md-elevation-3);
+}
+.md3-select-menu .search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 2px 4px;
+  padding: 0 9px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.6);
+  background-color: rgb(var(--md-surface-container-lowest) / 0.6);
+  color: rgb(var(--md-on-surface-variant));
+}
+.md3-select-menu .search svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+.md3-select-menu .search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--md-on-surface));
+  font: inherit;
+  font-size: 12px;
+  outline: none;
 }
 .md3-select-menu .group-title {
   margin: 4px 0 2px;

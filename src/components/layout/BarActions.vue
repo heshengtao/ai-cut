@@ -31,13 +31,29 @@ import LayoutMenu from "./LayoutMenu.vue";
 import { useLayoutStore } from "@/stores/layout";
 import { useOnboardingStore } from "@/stores/onboarding";
 import { useProjectActions } from "@/composables/useProjectActions";
+import { useBoardStore } from "@/stores/board";
+import { useProjectStore } from "@/stores/project";
+import { useViewStore } from "@/stores/view";
+import {
+  exportWorkflow,
+  exportWorkflowToFile,
+  parseWorkflow,
+  pickWorkflowText,
+} from "@/core/board/workflow";
+import { toast } from "@/composables/useToast";
+import { displayProjectName } from "@/utils/projectName";
 import { useMediaImport } from "@/composables/useMediaImport";
+import { useWorkflowLibrary } from "@/composables/useWorkflowLibrary";
 import { useI18n } from "@/i18n";
 import { isMacOS } from "@/utils/platform";
 
 const layout = useLayoutStore();
 const onboarding = useOnboardingStore();
 const actions = useProjectActions();
+const library = useWorkflowLibrary();
+const board = useBoardStore();
+const project = useProjectStore();
+const view = useViewStore();
 const { importMedia } = useMediaImport();
 const i18n = useI18n();
 
@@ -77,6 +93,31 @@ const fileSections = computed<MenuSection[]>(() => [
       { id: "export", label: i18n.t("topbar.menu.export"), icon: ArrowUpTrayIcon },
     ],
   },
+  {
+    title: i18n.t("topbar.menu.workflowGroup"),
+    items: [
+      {
+        id: "workflow-save",
+        label: i18n.t("topbar.menu.workflowSave"),
+        icon: FloppyDiskIcon,
+      },
+      {
+        id: "workflow-library",
+        label: i18n.t("topbar.menu.workflowLibrary"),
+        icon: SquaresPlusIcon,
+      },
+      {
+        id: "workflow-export",
+        label: i18n.t("topbar.menu.workflowExport"),
+        icon: ArrowUpTrayIcon,
+      },
+      {
+        id: "workflow-import",
+        label: i18n.t("topbar.menu.workflowImport"),
+        icon: ArrowDownTrayIcon,
+      },
+    ],
+  },
 ]);
 
 const helpSections = computed<MenuSection[]>(() => [
@@ -99,6 +140,48 @@ function onFileAction(id: string): void {
   else if (id === "save") void actions.saveProject();
   else if (id === "saveAs") void actions.saveProjectAs();
   else if (id === "export") actions.exportVideo();
+  else if (id === "workflow-save") library.openSave();
+  else if (id === "workflow-library") {
+    view.setView("board");
+    layout.openTab("workflowLibrary");
+  }
+  else if (id === "workflow-export") void exportBoardWorkflow();
+  else if (id === "workflow-import") void importBoardWorkflow();
+}
+
+/** 只导出画布工作流（不含素材 / 时间线）。 */
+async function exportBoardWorkflow(): Promise<void> {
+  if (board.nodes.length === 0) {
+    toast(i18n.t("board.workflow.empty"), "error");
+    return;
+  }
+  try {
+    const text = exportWorkflow(board.nodes, board.edges);
+    const name = `${displayProjectName(project.doc.name)}-${i18n.t("board.workflow.suffix")}`;
+    if (await exportWorkflowToFile(name, text)) {
+      toast(i18n.t("board.workflow.exported"));
+    }
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  }
+}
+
+/** 导入工作流 JSON：并进当前画布并切到画布视图。 */
+async function importBoardWorkflow(): Promise<void> {
+  try {
+    const text = await pickWorkflowText();
+    if (!text) return;
+    const parsed = parseWorkflow(text);
+    if (!parsed) {
+      toast(i18n.t("board.workflow.invalid"), "error");
+      return;
+    }
+    view.setView("board");
+    const ids = board.insertWorkflow(parsed);
+    toast(i18n.t("board.workflow.imported", { count: ids.length }));
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  }
 }
 
 function onHelpAction(id: string): void {

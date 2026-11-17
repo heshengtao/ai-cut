@@ -13,6 +13,7 @@ import {
   type BoardNodeData,
   type BoardPortType,
   type BoardViewport,
+  type BoardWorkflowSource,
 } from "@/types/board";
 
 /** 空画布文档。 */
@@ -89,12 +90,58 @@ function normalizeNode(raw: unknown): BoardNode | null {
   if (typeof rawData.outputAssetId === "string" && rawData.outputAssetId) {
     data.outputAssetId = rawData.outputAssetId;
   }
+  if (Array.isArray(rawData.outputAssetIds)) {
+    const ids = rawData.outputAssetIds.filter(
+      (id): id is string => typeof id === "string" && id.length > 0,
+    );
+    if (ids.length > 0) {
+      data.outputAssetIds = [...new Set(ids)];
+      // 当前发布的那一张必须还在列表里；旧文档没有这个字段时用第一张兜底。
+      if (!data.outputAssetId || !data.outputAssetIds.includes(data.outputAssetId)) {
+        data.outputAssetId = data.outputAssetIds[0];
+      }
+    }
+  }
+  if (isObject(rawData.outputs)) {
+    const outputs: Record<string, string> = {};
+    for (const [portId, assetId] of Object.entries(rawData.outputs)) {
+      if (typeof assetId === "string" && assetId) outputs[portId] = assetId;
+    }
+    if (Object.keys(outputs).length > 0) data.outputs = outputs;
+  }
+  if (rawData.outputOpen === false) data.outputOpen = false;
   if (typeof rawData.outputText === "string" && rawData.outputText) data.outputText = rawData.outputText;
+  if (typeof rawData.outputReasoning === "string" && rawData.outputReasoning) {
+    data.outputReasoning = rawData.outputReasoning;
+  }
+  if (typeof rawData.startedAt === "number" && Number.isFinite(rawData.startedAt)) {
+    data.startedAt = rawData.startedAt;
+  }
+  if (typeof rawData.durationMs === "number" && Number.isFinite(rawData.durationMs)) {
+    data.durationMs = Math.max(0, rawData.durationMs);
+  }
   if (typeof rawData.error === "string" && rawData.error) data.error = rawData.error;
   if (typeof rawData.progress === "number" && Number.isFinite(rawData.progress)) {
     data.progress = Math.max(0, Math.min(1, rawData.progress));
   }
   if (rawData.ignored === true) data.ignored = true;
+  if (rawData.bypassed === true) data.bypassed = true;
+  const tone = rawData.tone;
+  if (
+    tone === "lavender" ||
+    tone === "blue" ||
+    tone === "green" ||
+    tone === "coral" ||
+    tone === "amber"
+  ) {
+    data.tone = tone;
+  }
+  if (Array.isArray(rawData.children)) {
+    const children = rawData.children.filter(
+      (id): id is string => typeof id === "string" && id.length > 0,
+    );
+    if (children.length > 0) data.children = [...new Set(children)];
+  }
   const status = rawData.status;
   if (
     status === "idle" ||
@@ -102,7 +149,8 @@ function normalizeNode(raw: unknown): BoardNode | null {
     status === "running" ||
     status === "done" ||
     status === "error" ||
-    status === "stale"
+    status === "stale" ||
+    status === "skipped"
   ) {
     data.status = status;
   }
@@ -113,6 +161,19 @@ function normalizeNode(raw: unknown): BoardNode | null {
     if (width > 80 && height > 60) node.size = { width, height };
   }
   return node;
+}
+
+/** 归一化工作流来源：只保留字符串 / 有限数字。 */
+export function normalizeBoardSource(raw: unknown): BoardWorkflowSource | undefined {
+  if (!isObject(raw)) return undefined;
+  const source: BoardWorkflowSource = {};
+  if (typeof raw.rootId === "string" && raw.rootId) source.rootId = raw.rootId;
+  if (typeof raw.builtinId === "string" && raw.builtinId) source.builtinId = raw.builtinId;
+  if (typeof raw.name === "string" && raw.name) source.name = raw.name;
+  if (typeof raw.version === "number" && Number.isFinite(raw.version)) {
+    source.version = Math.max(1, Math.floor(raw.version));
+  }
+  return Object.keys(source).length > 0 ? source : undefined;
 }
 
 /**
@@ -156,12 +217,14 @@ export function normalizeBoard(raw: unknown, portTypeOf?: (nodeType: string, por
     y: typeof rawViewport.y === "number" && Number.isFinite(rawViewport.y) ? rawViewport.y : 0,
     zoom,
   };
+  const source = normalizeBoardSource(raw.source);
   return {
     version: BOARD_VERSION,
     nodes,
     edges,
     viewport,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
+    ...(source ? { source } : {}),
   };
 }
 

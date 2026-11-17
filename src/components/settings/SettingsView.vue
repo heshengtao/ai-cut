@@ -36,6 +36,7 @@ import { useRuntimesStore } from "@/stores/runtimes";
 import { useSdcppStore } from "@/stores/sdcpp";
 import { useDownloadsStore } from "@/stores/downloads";
 import { useDeviceStore } from "@/stores/device";
+import { ensureBoardLlm } from "@/composables/useBoardLlm";
 import { useUpdaterStore } from "@/stores/updater";
 import { displayProjectName } from "@/utils/projectName";
 import {
@@ -47,6 +48,7 @@ import {
 import { useI18n, type Locale } from "@/i18n";
 import type {
   AgentProbe,
+  TextProvider,
   BackendInfo,
   BackendOption,
   BackendPreference,
@@ -66,10 +68,10 @@ import type {
   TtsVoice,
 } from "@/types/models";
 import {
-  agentConfig,
   agentModels,
-  agentSetConfig,
   agentTest,
+  textProviders,
+  textSetProviders,
   aiBackendInfo,
   aiSetBackend,
   backendFallback,
@@ -103,6 +105,15 @@ import type {
   CloudGenTest,
   GenCapability,
 } from "@/types/cloudGen";
+import {
+  findLlmProvider,
+  inferProviderId,
+  llmProvidersByGroup,
+  providerAllowsEmptyKey,
+  providerGroupKey,
+  providerLabel,
+  providerNote,
+} from "@/core/llmProviders";
 import {
   capabilitySummary,
   effectiveCapabilities,
@@ -152,6 +163,7 @@ const SECTIONS: { id: Section; labelKey: string; captionKey: string }[] = [
   { id: "storage", labelKey: "settings.section.storage", captionKey: "settings.section.storage.caption" },
   { id: "network", labelKey: "settings.section.network", captionKey: "settings.section.network.caption" },
   { id: "ai", labelKey: "settings.section.ai", captionKey: "settings.section.ai.caption" },
+  { id: "text", labelKey: "settings.section.text", captionKey: "settings.section.text.caption" },
   { id: "gen", labelKey: "settings.section.gen", captionKey: "settings.section.gen.caption" },
   { id: "asr", labelKey: "settings.section.asr", captionKey: "settings.section.asr.caption" },
   { id: "tts", labelKey: "settings.section.tts", captionKey: "settings.section.tts.caption" },
@@ -298,15 +310,153 @@ watch(
   },
 );
 
-// ---- 剪辑智能体 ----
-const agentBaseUrl = ref("");
-const agentApiKey = ref("");
-const agentModel = ref("");
-const agentModelList = ref<string[]>([]);
-const agentProbe = ref<AgentProbe | null>(null);
-const agentBusy = ref(false);
-const agentSaving = ref(false);
-const agentSaved = ref(false);
+// ---- 文本生成（供应商列表：剪辑智能体 + 画布文本节点共用）----
+interface TextDraft {
+  id: string;
+  preset: string;
+  name: string;
+  base_url: string;
+  api_key: string;
+  model: string;
+  /** 一行一个；保存时拆成数组。 */
+  models: string;
+  enabled: boolean;
+}
+
+const textList = ref<TextProvider[]>([]);
+const textLoading = ref(false);
+const textDraft = ref<TextDraft | null>(null);
+const editingTextId = ref<string | null>(null);
+const textBusy = ref<"models" | "test" | "save" | "delete" | null>(null);
+const textProbe = ref<AgentProbe | null>(null);
+
+const textDraftPreset = computed(() => findLlmProvider(textDraft.value?.preset ?? ""));
+/** 分组 + 中文名的供应商下拉（Md3Select 的 group 会渲染成小标题）。 */
+const textPresetOptions = computed<SelectOption[]>(() => {
+  const out: SelectOption[] = [];
+  for (const entry of llmProvidersByGroup()) {
+    const group = i18n.t(providerGroupKey(entry.group));
+    for (const preset of entry.items) {
+      out.push({
+        id: preset.id,
+        label: providerLabel(preset, i18n.locale.value),
+        group,
+        hint: preset.keyOptional ? i18n.t("settings.text.localKey") : undefined,
+      });
+    }
+  }
+  return out;
+});
+/** 本地自建端点允许留空 Key。 */
+const textKeyOptional = computed(() => providerAllowsEmptyKey(textDraftPreset.value));
+
+function presetName(id: string): string {
+  const preset = findLlmProvider(id);
+  return providerLabel(preset, i18n.locale.value) || id || i18n.t("settings.text.customPreset");
+}
+
+/** 一家供应商可选的模型：拉到的列表 + 默认模型。 */
+function modelsOfProvider(provider: TextProvider): string[] {
+  const list = provider.models.length ? [...provider.models] : [];
+  if (provider.model && !list.includes(provider.model)) list.unshift(provider.model);
+  return list;
+}
+
+function toTextDraft(provider: TextProvider): TextDraft {
+  return {
+    id: provider.id,
+    preset: provider.preset || inferProviderId(provider.base_url),
+    name: provider.name,
+    base_url: provider.base_url,
+    api_key: provider.api_key,
+    model: provider.model,
+    models: provider.models.join("\n"),
+    enabled: provider.enabled,
+  };
+}
+
+/** 草稿里的模型列表（一行一个，也容忍逗号）。 */
+function draftModels(): string[] {
+  return (textDraft.value?.models ?? "")
+    .split(/[\n,，]/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function blankTextDraft(presetId = "openai"): TextDraft {
+  const preset = findLlmProvider(presetId);
+  return {
+    id: "",
+    preset: preset?.id ?? "custom",
+    name: preset ? providerLabel(preset, i18n.locale.value) : "",
+    base_url: preset?.baseUrl ?? "",
+    api_key: "",
+    model: preset?.defaultModel ?? "",
+    models: "",
+    enabled: true,
+  };
+}
+
+/** 换预设：只在「当前值还是上一个预设的默认值」时覆盖地址 / 模型 / 名称。 */
+function pickTextPreset(id: string): void {
+  const draft = textDraft.value;
+  if (!draft) return;
+  const previous = findLlmProvider(draft.preset);
+  const preset = findLlmProvider(id);
+  draft.preset = id;
+  if (!draft.name.trim() || draft.name === providerLabel(previous, i18n.locale.value)) {
+    draft.name = providerLabel(preset, i18n.locale.value);
+  }
+  const baseUrl = draft.base_url.trim();
+  if (!baseUrl || baseUrl === previous?.baseUrl) draft.base_url = preset?.baseUrl ?? draft.base_url;
+  const model = draft.model.trim();
+  if (!model || model === previous?.defaultModel) draft.model = preset?.defaultModel ?? draft.model;
+  textProbe.value = null;
+}
+
+function newTextProvider(): void {
+  editingTextId.value = null;
+  textDraft.value = blankTextDraft();
+  textProbe.value = null;
+}
+
+function editTextProvider(provider: TextProvider): void {
+  editingTextId.value = provider.id;
+  textDraft.value = toTextDraft(provider);
+  textProbe.value = null;
+}
+
+function discardTextDraft(): void {
+  editingTextId.value = null;
+  textDraft.value = null;
+  textProbe.value = null;
+}
+
+async function loadTextProviders(): Promise<void> {
+  textLoading.value = true;
+  try {
+    textList.value = await textProviders();
+  } catch {
+    textList.value = [];
+  } finally {
+    textLoading.value = false;
+  }
+}
+
+async function persistTextProviders(next: TextProvider[], message: string): Promise<boolean> {
+  try {
+    textList.value = await textSetProviders(next);
+    // 智能体面板读的是同一份配置的镜像字段，画布节点读的是供应商列表：
+    // 存完两边都重新加载一次，免得开着画布改完设置还要等缓存过期。
+    void agentStore.loadConfig();
+    void ensureBoardLlm(true);
+    toast(message);
+    return true;
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+    return false;
+  }
+}
 
 // ---- 本地 AI 执行后端 ----
 const backendInfo = ref<BackendInfo | null>(null);
@@ -1988,17 +2138,6 @@ function clampPort(raw: string): number {
   return Math.min(Math.max(parsed, 0), 65535);
 }
 
-async function loadAgent(): Promise<void> {
-  try {
-    const cfg = await agentConfig();
-    agentBaseUrl.value = cfg.base_url;
-    agentApiKey.value = cfg.api_key;
-    agentModel.value = cfg.model;
-  } catch {
-    // 浏览器预览 / 后端未起：保持空白。
-  }
-}
-
 async function loadMcp(): Promise<void> {
   try {
     mcp.value = await mcpStatus();
@@ -2135,63 +2274,117 @@ async function loadCli(): Promise<void> {
   }
 }
 
-async function saveAgent(): Promise<void> {
-  if (agentSaving.value) return;
-  agentSaving.value = true;
-  agentSaved.value = false;
+async function saveTextProvider(): Promise<void> {
+  const draft = textDraft.value;
+  if (!draft || textBusy.value === "save") return;
+  const baseUrl = draft.base_url.trim();
+  const model = draft.model.trim();
+  if (!baseUrl) {
+    toast(i18n.t("settings.text.baseUrlRequired"), "error");
+    return;
+  }
+  if (!model) {
+    toast(i18n.t("settings.text.modelRequired"), "error");
+    return;
+  }
+  if (!draft.api_key.trim() && !providerAllowsEmptyKey(findLlmProvider(draft.preset))) {
+    toast(i18n.t("settings.text.keyRequired"), "error");
+    return;
+  }
+  textBusy.value = "save";
+  textProbe.value = null;
   try {
-    const cfg = await agentSetConfig(
-      agentBaseUrl.value.trim(),
-      agentApiKey.value.trim(),
-      agentModel.value.trim(),
-    );
-    agentBaseUrl.value = cfg.base_url;
-    agentApiKey.value = cfg.api_key;
-    agentModel.value = cfg.model;
-    agentSaved.value = true;
-    await agentStore.loadConfig();
-    toast(i18n.t("settings.ai.saved"));
-  } catch (error) {
-    toast(error instanceof Error ? error.message : String(error), "error");
+    const provider: TextProvider = {
+      id: draft.id || crypto.randomUUID(),
+      preset: draft.preset,
+      name: draft.name.trim() || presetName(draft.preset),
+      base_url: baseUrl,
+      api_key: draft.api_key.trim(),
+      model,
+      // 默认模型永远可选项，避免节点下拉里选不到它。
+      models: Array.from(new Set([model, ...draftModels()])),
+      enabled: draft.enabled,
+    };
+    const next = [...textList.value];
+    const index = next.findIndex((item) => item.id === provider.id);
+    if (index >= 0) next[index] = provider;
+    else next.push(provider);
+    if (await persistTextProviders(next, i18n.t("settings.text.saved"))) {
+      const saved = textList.value.find((item) => item.id === provider.id) ?? provider;
+      editingTextId.value = saved.id;
+      textDraft.value = toTextDraft(saved);
+    }
   } finally {
-    agentSaving.value = false;
+    textBusy.value = null;
   }
 }
 
-async function fetchModels(): Promise<void> {
-  if (agentBusy.value) return;
-  agentBusy.value = true;
+async function removeTextProvider(provider: TextProvider): Promise<void> {
+  if (textBusy.value) return;
+  const accepted = await confirm({
+    title: i18n.t("settings.text.deleteTitle"),
+    message: i18n.t("settings.text.deleteMessage", {
+      name: provider.name || presetName(provider.preset),
+    }),
+    confirmText: i18n.t("common.delete"),
+    cancelText: i18n.t("common.cancel"),
+  });
+  if (!accepted) return;
+  textBusy.value = "delete";
   try {
-    agentModelList.value = await agentModels(
-      agentBaseUrl.value.trim(),
-      agentApiKey.value.trim(),
-      agentModel.value.trim(),
-    );
-  } catch (error) {
-    toast(error instanceof Error ? error.message : String(error), "error");
+    const next = textList.value.filter((item) => item.id !== provider.id);
+    if (await persistTextProviders(next, i18n.t("settings.text.deleted"))) {
+      if (editingTextId.value === provider.id) discardTextDraft();
+    }
   } finally {
-    agentBusy.value = false;
+    textBusy.value = null;
   }
 }
 
-async function testAgent(): Promise<void> {
-  if (agentBusy.value) return;
-  agentBusy.value = true;
-  agentProbe.value = null;
+async function fetchTextModels(): Promise<void> {
+  const draft = textDraft.value;
+  if (!draft || textBusy.value) return;
+  if (findLlmProvider(draft.preset)?.noModelList) {
+    toast(i18n.t("settings.text.noModelList"), "error");
+    return;
+  }
+  textBusy.value = "models";
+  textProbe.value = null;
   try {
-    agentProbe.value = await agentTest(
-      agentBaseUrl.value.trim(),
-      agentApiKey.value.trim(),
-      agentModel.value.trim(),
+    const list = await agentModels(
+      draft.base_url.trim(),
+      draft.api_key.trim(),
+      draft.model.trim(),
+    );
+    draft.models = list.join("\n");
+    if (!draft.model.trim() && list.length > 0) draft.model = list[0]!;
+    toast(i18n.t("settings.text.modelsFound", { count: list.length }));
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error), "error");
+  } finally {
+    textBusy.value = null;
+  }
+}
+
+async function testTextProvider(): Promise<void> {
+  const draft = textDraft.value;
+  if (!draft || textBusy.value) return;
+  textBusy.value = "test";
+  textProbe.value = null;
+  try {
+    textProbe.value = await agentTest(
+      draft.base_url.trim(),
+      draft.api_key.trim(),
+      draft.model.trim(),
     );
   } catch (error) {
-    agentProbe.value = {
+    textProbe.value = {
       ok: false,
       detail: error instanceof Error ? error.message : String(error),
       ms: 0,
     };
   } finally {
-    agentBusy.value = false;
+    textBusy.value = null;
   }
 }
 
@@ -2468,7 +2661,7 @@ function replayTour(): void {
 
 onMounted(() => {
   void updater.loadVersion();
-  void loadAgent();
+  void loadTextProviders();
   void loadBackend();
   void loadMcp();
   void loadNetwork();
@@ -2935,79 +3128,208 @@ onUnmounted(() => {
           </div>
         </template>
 
-        <!-- AI / MCP -->
-        <template v-else-if="active === 'ai'">
-          <!-- OpenAI 兼容端点：右侧「剪辑智能体」面板直连它 -->
+        <!-- 文本生成：供应商列表（剪辑智能体 + 画布文本节点共用） -->
+        <template v-else-if="active === 'text'">
           <div class="group">
-            <div class="group-title">{{ i18n.t("settings.ai.title") }}</div>
+            <div class="group-title">{{ i18n.t("settings.text.providers") }}</div>
+            <div class="card">
+              <p v-if="textLoading" class="probe">{{ i18n.t("common.loading") }}</p>
+              <p v-else-if="textList.length === 0" class="probe">
+                {{ i18n.t("settings.text.empty") }}
+              </p>
+              <div
+                v-for="provider in textList"
+                :key="provider.id"
+                class="row provider-row"
+                :class="{ on: editingTextId === provider.id }"
+                @click="editTextProvider(provider)"
+              >
+                <div class="row-text">
+                  <span class="row-title">
+                    {{ provider.name || presetName(provider.preset) }}
+                    <span class="row-pill" :class="{ off: !provider.enabled }">
+                      {{
+                        i18n.t(
+                          provider.enabled
+                            ? "settings.text.enabledOn"
+                            : "settings.text.enabledOff",
+                        )
+                      }}
+                    </span>
+                  </span>
+                  <span class="row-sub">
+                    {{ presetName(provider.preset) }} ·
+                    {{ provider.model || i18n.t("settings.text.noModel") }} ·
+                    {{
+                      i18n.t("settings.text.modelCount", {
+                        count: modelsOfProvider(provider).length,
+                      })
+                    }}
+                  </span>
+                </div>
+                <span class="row-value mono">{{ provider.base_url }}</span>
+                <button
+                  class="scan-btn danger"
+                  :disabled="textBusy !== null"
+                  @click.stop="removeTextProvider(provider)"
+                >
+                  {{ i18n.t("common.delete") }}
+                </button>
+              </div>
+              <div class="row actions-row">
+                <button class="scan-btn primary" @click="newTextProvider">
+                  {{ i18n.t("settings.text.add") }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="textDraft" class="group">
+            <div class="group-title">
+              {{ i18n.t(editingTextId ? "settings.text.edit" : "settings.text.new") }}
+            </div>
             <div class="card">
               <div class="col-row">
-                <span class="row-title">{{ i18n.t("settings.ai.baseUrl") }}</span>
-                <span class="row-sub">{{ i18n.t("settings.ai.baseUrlHint") }}</span>
+                <span class="row-title">{{ i18n.t("settings.text.provider") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.text.providerHint") }}</span>
+                <Md3Select
+                  class="compute-select"
+                  :model-value="textDraft.preset"
+                  :options="textPresetOptions"
+                  :label="i18n.t('settings.text.provider')"
+                  :placeholder="i18n.t('settings.text.providerPlaceholder')"
+                  searchable
+                  @select="pickTextPreset"
+                />
+                <span v-if="textDraftPreset" class="row-sub">
+                  {{
+                    providerNote(textDraftPreset, i18n.locale.value) ||
+                    i18n.t("settings.text.providerNoteFallback")
+                  }}
+                </span>
+              </div>
+              <div class="col-row">
+                <span class="row-title">{{ i18n.t("settings.text.name") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.text.nameHint") }}</span>
                 <input
-                  v-model="agentBaseUrl"
+                  v-model="textDraft.name"
                   class="net-input"
                   type="text"
                   spellcheck="false"
-                  :placeholder="i18n.t('settings.ai.baseUrlPlaceholder')"
+                  :placeholder="presetName(textDraft.preset)"
                 />
               </div>
               <div class="col-row">
-                <span class="row-title">{{ i18n.t("settings.ai.apiKey") }}</span>
-                <span class="row-sub">{{ i18n.t("settings.ai.apiKeyHint") }}</span>
+                <span class="row-title">{{ i18n.t("settings.text.baseUrl") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.text.baseUrlHint") }}</span>
                 <input
-                  v-model="agentApiKey"
+                  v-model="textDraft.base_url"
+                  class="net-input"
+                  type="text"
+                  spellcheck="false"
+                  :placeholder="i18n.t('settings.text.baseUrlPlaceholder')"
+                />
+              </div>
+              <div class="col-row">
+                <span class="row-title">{{ i18n.t("settings.text.apiKey") }}</span>
+                <span class="row-sub">
+                  {{
+                    textKeyOptional
+                      ? i18n.t("settings.text.apiKeyLocalHint")
+                      : i18n.t("settings.text.apiKeyHint")
+                  }}
+                </span>
+                <input
+                  v-model="textDraft.api_key"
                   class="net-input"
                   type="password"
                   autocomplete="off"
                   spellcheck="false"
-                  :placeholder="i18n.t('settings.ai.apiKeyPlaceholder')"
+                  :placeholder="
+                    textKeyOptional
+                      ? i18n.t('settings.text.apiKeyOptional')
+                      : i18n.t('settings.text.apiKeyPlaceholder')
+                  "
                 />
               </div>
               <div class="col-row">
-                <span class="row-title">{{ i18n.t("settings.ai.model") }}</span>
-                <span class="row-sub">{{ i18n.t("settings.ai.modelHint") }}</span>
+                <span class="row-title">{{ i18n.t("settings.text.model") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.text.modelHint") }}</span>
                 <ComboField
-                  v-model="agentModel"
-                  :options="agentModelList"
-                  :label="i18n.t('settings.ai.model')"
-                  :placeholder="i18n.t('settings.ai.modelPlaceholder')"
-                  :empty="i18n.t('settings.ai.modelEmpty')"
+                  v-model="textDraft.model"
+                  :options="draftModels()"
+                  :label="i18n.t('settings.text.model')"
+                  :placeholder="i18n.t('settings.text.modelPlaceholder')"
+                  :empty="i18n.t('settings.text.modelEmpty')"
+                />
+              </div>
+              <div class="col-row">
+                <span class="row-title">{{ i18n.t("settings.text.models") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.text.modelsHint") }}</span>
+                <textarea
+                  v-model="textDraft.models"
+                  class="net-input models-area"
+                  rows="4"
+                  spellcheck="false"
+                  :placeholder="i18n.t('settings.text.modelsPlaceholder')"
+                />
+              </div>
+              <div class="row">
+                <div class="row-text">
+                  <span class="row-title">{{ i18n.t("settings.text.enabled") }}</span>
+                  <span class="row-sub">{{ i18n.t("settings.text.enabledHint") }}</span>
+                </div>
+                <button
+                  class="m3-switch"
+                  :class="{ on: textDraft.enabled }"
+                  type="button"
+                  role="switch"
+                  :aria-checked="textDraft.enabled"
+                  :aria-label="i18n.t('settings.text.enabled')"
+                  @click="textDraft.enabled = !textDraft.enabled"
                 />
               </div>
               <div class="row actions-row">
-                <button class="scan-btn" :disabled="agentBusy" @click="fetchModels">
+                <button class="scan-btn danger" :disabled="textBusy !== null" @click="discardTextDraft">
+                  {{ i18n.t("common.cancel") }}
+                </button>
+                <button class="scan-btn" :disabled="textBusy !== null" @click="fetchTextModels">
                   {{
-                    agentBusy
-                      ? i18n.t("settings.ai.fetching")
-                      : i18n.t("settings.ai.fetchModels")
+                    textBusy === "models"
+                      ? i18n.t("settings.text.fetching")
+                      : i18n.t("settings.text.fetchModels")
                   }}
                 </button>
-                <button class="scan-btn" :disabled="agentBusy" @click="testAgent">
-                  {{ agentBusy ? i18n.t("settings.ai.testing") : i18n.t("settings.ai.test") }}
+                <button class="scan-btn" :disabled="textBusy !== null" @click="testTextProvider">
+                  {{
+                    textBusy === "test"
+                      ? i18n.t("settings.text.testing")
+                      : i18n.t("settings.text.test")
+                  }}
                 </button>
-                <button class="scan-btn primary" :disabled="agentSaving" @click="saveAgent">
-                  {{ i18n.t("settings.ai.save") }}
+                <button class="scan-btn primary" :disabled="textBusy !== null" @click="saveTextProvider">
+                  {{ i18n.t("settings.text.save") }}
                 </button>
               </div>
               <p
-                v-if="agentProbe"
+                v-if="textProbe"
                 class="probe"
-                :class="{ ok: agentProbe.ok, error: !agentProbe.ok }"
+                :class="{ ok: textProbe.ok, error: !textProbe.ok }"
               >
                 {{
                   i18n.t(
-                    agentProbe.ok ? "settings.ai.probeOk" : "settings.ai.probeFail",
-                    { detail: agentProbe.detail, ms: agentProbe.ms },
+                    textProbe.ok ? "settings.text.probeOk" : "settings.text.probeFail",
+                    { detail: textProbe.detail, ms: textProbe.ms },
                   )
                 }}
               </p>
-              <p v-else-if="agentSaved" class="probe ok">
-                {{ i18n.t("settings.ai.saved") }}
-              </p>
             </div>
           </div>
+          <p class="compute-tip">{{ i18n.t("settings.text.tip") }}</p>
+        </template>
 
+        <!-- AI / MCP -->
+        <template v-else-if="active === 'ai'">
           <!-- 本地 AI 执行后端 -->
           <div class="group">
             <div class="group-title">{{ i18n.t("settings.ai.ortGroup") }}</div>
@@ -4629,6 +4951,32 @@ onUnmounted(() => {
   width: 220px;
   max-width: 58%;
   flex: 0 0 auto;
+}
+/* 文本生成：供应商下拉 / 模型列表都占满整行（和下面的输入框对齐）。 */
+.compute-select {
+  width: 100%;
+}
+.compute-select :deep(.md3-select-root) {
+  flex: 1 1 auto;
+  width: 100%;
+}
+.compute-tip {
+  margin: 10px 4px 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: rgb(var(--md-on-surface-muted));
+}
+/* 模型列表：一行一个，等宽字体更好数。 */
+.models-area {
+  min-height: 96px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.row-pill.off {
+  background-color: rgb(var(--md-on-surface) / 0.08);
+  color: rgb(var(--md-on-surface-muted));
 }
 textarea.mirror-field {
   width: 360px;

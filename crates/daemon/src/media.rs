@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
 use crate::host::{Host, RunOptions};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::Serialize;
 
 /// ffprobe 探测结果。`kind` 由前端按扩展名判定。
@@ -289,6 +290,52 @@ pub async fn extract_audio_preview(
     Ok(out.to_string_lossy().into_owned())
 }
 
+/// 抽取视频画面（去掉音轨）成一条独立 MP4。
+///
+/// 画布的「视频音频分离」用它：视频输出是无音轨的画面，音频输出是抽出来的
+/// 独立音轨。先走预览转码保证是 H.264 MP4，再 `-c:v copy` 去掉音轨，几乎不耗时。
+pub async fn extract_video_track(
+    host: &dyn Host,
+    path: String,
+    asset_id: String,
+) -> Result<String, String> {
+    let preview = make_video_preview(host, path.clone(), asset_id.clone()).await?;
+    let cache = cache_dir(host)?;
+    let id = safe_file_id(&asset_id);
+    let stamp = source_fingerprint(&path);
+    let out = cache.join(format!("video-mute-{id}-{stamp}.mp4"));
+    if cache_ready(&out) {
+        return Ok(out.to_string_lossy().into_owned());
+    }
+
+    let tmp = cache.join(format!(".video-mute-{}-{id}-{stamp}.mp4", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+    let args: Vec<String> = vec![
+        "-y".into(),
+        "-v".into(),
+        "error".into(),
+        "-i".into(),
+        preview,
+        "-map".into(),
+        "0:v:0".into(),
+        "-an".into(),
+        "-sn".into(),
+        "-dn".into(),
+        "-c:v".into(),
+        "copy".into(),
+        "-movflags".into(),
+        "+faststart".into(),
+        tmp.to_string_lossy().into_owned(),
+    ];
+    let (code, _) = run(host, "ffmpeg", &args).await?;
+    if code != Some(0) || !cache_ready(&tmp) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("无法抽取视频画面：{path}"));
+    }
+    std::fs::rename(&tmp, &out).map_err(|e| format!("写入视频缓存失败：{e}"))?;
+    Ok(out.to_string_lossy().into_owned())
+}
+
 /// 把 WebView 放不了的视频容器 / 编码转成 H.264 + AAC 的 MP4 预览。
 pub async fn make_video_preview(
     host: &dyn Host,
@@ -357,6 +404,55 @@ const WAVE_BUCKETS: usize = 2048;
 /// 于是缩略图 / 波形路径全部指向不存在的文件。这里把真正生效的缓存目录下发。
 pub fn media_cache_dir(host: &dyn Host) -> Result<String, String> {
     Ok(cache_dir(host)?.to_string_lossy().into_owned())
+}
+
+/// 把本地素材读成 data URL，供多模态文本模型直接吃（图片 / 视频 content parts）。
+///
+/// 云端与本地 OpenAI 兼容端点都只认 URL / base64，不认本机路径；上限 32 MB，
+/// 避免把整段视频塞进请求体把内存打爆。
+pub fn file_data_url(path: String) -> Result<String, String> {
+    const LIMIT: u64 = 32 * 1024 * 1024;
+    let file = std::path::Path::new(path.trim());
+    let meta = std::fs::metadata(file).map_err(|error| format!("读取素材失败：{error}"))?;
+    if !meta.is_file() {
+        return Err("素材不是文件".into());
+    }
+    if meta.len() > LIMIT {
+        return Err(format!(
+            "素材 {:.1} MB，超过多模态输入的 32 MB 上限",
+            meta.len() as f64 / (1024.0 * 1024.0)
+        ));
+    }
+    let bytes = std::fs::read(file).map_err(|error| format!("读取素材失败：{error}"))?;
+    let mime = match file
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "avif" => "image/avif",
+        "heic" | "heif" => "image/heic",
+        "tif" | "tiff" => "image/tiff",
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "mkv" => "video/x-matroska",
+        "avi" => "video/x-msvideo",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "m4a" => "audio/mp4",
+        "flac" => "audio/flac",
+        "ogg" => "audio/ogg",
+        _ => "application/octet-stream",
+    };
+    Ok(format!("data:{mime};base64,{}", BASE64.encode(bytes)))
 }
 
 pub async fn make_thumbnail(

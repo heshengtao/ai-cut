@@ -50,6 +50,7 @@ pub mod video_ai;
 pub mod video_dsp;
 pub mod video_gen;
 pub mod voice_change;
+pub mod workflow;
 
 pub use doc::{DocEngine, IdSource};
 pub use doc_actor::DocHandle;
