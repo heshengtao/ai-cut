@@ -3,6 +3,7 @@
 //! 与 `plugins` 模块（OFX）互不干扰：OFX 在 `plugins/ofx/`，这里在 `plugins/host/`。
 
 pub mod manifest;
+pub mod registry;
 
 /// 插件宿主进度事件（安装 / 重载）。
 pub const EVENT_PLUGIN_HOST: &str = "plugin-host-progress";
