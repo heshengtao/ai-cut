@@ -1410,6 +1410,64 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
                 )?
             }))
         }
+        "plugin_market_sources" => Ok(json!({
+            "url": crate::plugin_host::service::market_source(&ctx.host)
+        })),
+        "plugin_market_set_source" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                url: String,
+            }
+            let args: Args = from_value(args)?;
+            Ok(json!({
+                "url": crate::plugin_host::service::market_set_source(&ctx.host, &args.url)?
+            }))
+        }
+        "plugin_market_search" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                #[serde(default)]
+                text: String,
+                #[serde(default)]
+                offset: usize,
+                #[serde(default = "default_limit")]
+                limit: usize,
+                #[serde(default)]
+                force: bool,
+            }
+            fn default_limit() -> usize {
+                20
+            }
+            let args: Args = from_value(args)?;
+            crate::plugin_host::service::market_search(
+                &ctx.host,
+                &ctx.network,
+                ctx.version,
+                &args.text,
+                args.offset,
+                args.limit,
+                args.force,
+            )
+            .await
+        }
+        "plugin_market_install" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                name: String,
+                #[serde(default)]
+                version: String,
+            }
+            let args: Args = from_value(args)?;
+            let plugin = crate::plugin_host::service::market_install(
+                &ctx.host,
+                &ctx.network,
+                ctx.version,
+                &args.name,
+                &args.version,
+            )
+            .await?;
+            Ok(json!({ "plugin": plugin }))
+        }
         "plugin_host_start" => {
             #[derive(serde::Deserialize)]
             struct Args {

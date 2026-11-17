@@ -141,9 +141,11 @@ pub fn parse_index(text: &str) -> Result<MarketIndex, String> {
                 })?;
             }
             if let MarketSource::Tgz { url } = &item.source {
-                if !url.starts_with("https://") {
+                // 与索引地址同一条规则：只 HTTPS；本机 http 放行（本地自建市场 / 测试）。
+                let local = url.starts_with("http://localhost") || url.starts_with("http://127.0.0.1");
+                if !url.starts_with("https://") && !local {
                     return Err(format!(
-                        "插件 {} 的 {} 的 tgz 源必须是 https：{url}",
+                        "插件 {} 的 {} 的 tgz 源必须是 https（本机 http 例外）：{url}",
                         plugin.name, item.version
                     ));
                 }

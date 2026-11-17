@@ -16,6 +16,13 @@ import {
   pluginHostStop,
 } from "@/core/pluginHostApi";
 import {
+  pluginMarketInstall,
+  pluginMarketSearch,
+  pluginMarketSetSource,
+  pluginMarketSource,
+} from "@/core/pluginMarketApi";
+import type { MarketSearchHit } from "@/types/pluginMarket";
+import {
   loadPluginModule,
   type LoadedPlugin,
   type PluginClientModule,
@@ -35,6 +42,15 @@ export const usePluginHostStore = defineStore("pluginHost", () => {
   const loading = ref(false);
   const error = ref<string | null>(null);
   const loaded = new Map<string, LoadedPlugin>();
+
+  // ---- 商店 ----
+  const marketUrl = ref("");
+  const marketHits = ref<MarketSearchHit[]>([]);
+  const marketTotal = ref(0);
+  /** `network` / `cache` / `stale-cache`。 */
+  const marketSource = ref("");
+  const marketLoading = ref(false);
+  const marketError = ref<string | null>(null);
 
   function note(entry: PluginStatus, message: string): void {
     const line = `${entry.id}: ${message}`;
@@ -111,6 +127,41 @@ export const usePluginHostStore = defineStore("pluginHost", () => {
     }
   }
 
+  async function loadMarketUrl(): Promise<void> {
+    try {
+      marketUrl.value = await pluginMarketSource();
+    } catch (reason) {
+      marketError.value = reason instanceof Error ? reason.message : String(reason);
+    }
+  }
+
+  async function setMarketUrl(url: string): Promise<void> {
+    marketUrl.value = await pluginMarketSetSource(url);
+  }
+
+  async function searchMarket(text = "", force = false): Promise<void> {
+    marketLoading.value = true;
+    marketError.value = null;
+    try {
+      const result = await pluginMarketSearch({ text, limit: 50, force });
+      marketHits.value = result.hits;
+      marketTotal.value = result.total;
+      marketSource.value = result.source;
+    } catch (reason) {
+      marketError.value = reason instanceof Error ? reason.message : String(reason);
+    } finally {
+      marketLoading.value = false;
+    }
+  }
+
+  async function installFromMarket(name: string, version = ""): Promise<PluginStatus> {
+    marketError.value = null;
+    const plugin = await pluginMarketInstall(name, version);
+    await refresh();
+    await loadMarketUrl().then(() => searchMarket("", true));
+    return plugin;
+  }
+
   /** 卸载全部（测试 / 切换数据目录用）。 */
   function disposeAll(): void {
     for (const plugin of loaded.values()) plugin.dispose();
@@ -128,5 +179,15 @@ export const usePluginHostStore = defineStore("pluginHost", () => {
     remove,
     installLocal,
     disposeAll,
+    marketUrl,
+    marketHits,
+    marketTotal,
+    marketSource,
+    marketLoading,
+    marketError,
+    loadMarketUrl,
+    setMarketUrl,
+    searchMarket,
+    installFromMarket,
   };
 });

@@ -14,6 +14,17 @@ const KEYS = [
   "extensions.disable",
   "extensions.incompatible",
   "extensions.confirmRemove",
+  "extensions.tabInstalled",
+  "extensions.tabDiscover",
+  "extensions.search",
+  "extensions.refresh",
+  "extensions.installFromMarket",
+  "extensions.updateTo",
+  "extensions.marketEmpty",
+  "extensions.marketSource",
+  "extensions.marketSaveSource",
+  "extensions.marketStale",
+  "extensions.marketInstalled",
 ];
 
 describe("extensions i18n keys", () => {

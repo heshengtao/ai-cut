@@ -112,3 +112,5 @@ sherpa-onnx-sys = { path = "../sherpa-onnx-sys" }
 
 [dev-dependencies]
 tempfile = "3"
+tar = "0.4"
+flate2 = "1"

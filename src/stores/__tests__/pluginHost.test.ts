@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => {
     installLocal: vi.fn(),
     startHost: vi.fn(async () => {}),
     stopHost: vi.fn(async () => []),
+    search: vi.fn(async () => ({ source: "network", fetchedAt: 1, total: 0, hits: [] })),
+    install: vi.fn(async () => ({ ...enabled })),
     loadPluginModule: vi.fn(() => ({ id: "@demo/x", dispose })),
   };
 });
@@ -23,6 +25,13 @@ vi.mock("@/core/pluginHostApi", () => ({
   pluginHostStart: (...args: unknown[]) => mocks.startHost(...args),
   pluginHostStop: (...args: unknown[]) => mocks.stopHost(...args),
   onPluginHostProgress: vi.fn(),
+}));
+
+vi.mock("@/core/pluginMarketApi", () => ({
+  pluginMarketSource: async () => "https://example.com/index.json",
+  pluginMarketSetSource: async (url: string) => url,
+  pluginMarketSearch: (...args: unknown[]) => mocks.search(...args),
+  pluginMarketInstall: (...args: unknown[]) => mocks.install(...args),
 }));
 
 vi.mock("@/core/plugins/loader", () => ({
@@ -53,6 +62,8 @@ beforeEach(() => {
   mocks.installLocal.mockReset();
   mocks.startHost.mockClear();
   mocks.stopHost.mockClear();
+  mocks.search.mockClear();
+  mocks.install.mockClear();
   mocks.dispose.mockReset();
   mocks.loadPluginModule.mockClear();
 });
@@ -122,6 +133,38 @@ describe("plugin host store", () => {
     await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
     await store.setEnabled("@demo/x", false);
     expect(mocks.stopHost).toHaveBeenCalledWith("@demo/x");
+  });
+
+  it("searches the market and records the source", async () => {
+    mocks.search.mockResolvedValue({
+      source: "cache",
+      fetchedAt: 7,
+      total: 1,
+      hits: [{ name: "@demo/a", version: "0.1.0", updateAvailable: false }],
+    });
+    const store = usePluginHostStore();
+    await store.searchMarket("demo", true);
+    expect(store.marketHits).toHaveLength(1);
+    expect(store.marketSource).toBe("cache");
+    expect(mocks.search).toHaveBeenCalledWith({ text: "demo", limit: 50, force: true });
+  });
+
+  it("records a market error instead of throwing", async () => {
+    mocks.search.mockRejectedValue(new Error("索引 404"));
+    const store = usePluginHostStore();
+    await store.searchMarket("");
+    expect(store.marketError).toContain("404");
+    expect(store.marketHits).toHaveLength(0);
+  });
+
+  it("installs from the market and refreshes the list", async () => {
+    mocks.install.mockResolvedValue(enabled);
+    mocks.list.mockResolvedValue([enabled]);
+    mocks.search.mockResolvedValue({ source: "network", fetchedAt: 1, total: 0, hits: [] });
+    const store = usePluginHostStore();
+    await store.installFromMarket("@demo/x", "0.1.0");
+    expect(mocks.install).toHaveBeenCalledWith("@demo/x", "0.1.0");
+    expect(store.plugins).toHaveLength(1);
   });
 
   it("disposes a plugin when it is removed", async () => {

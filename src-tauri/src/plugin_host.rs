@@ -82,3 +82,56 @@ pub fn plugin_host_stop(id: String) -> Result<serde_json::Value, String> {
         "running": aicut_daemon::plugin_host::service::running(),
     }))
 }
+
+#[tauri::command]
+pub fn plugin_market_sources(app: AppHandle) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "url": aicut_daemon::plugin_host::service::market_source(&host_of(&app))
+    }))
+}
+
+#[tauri::command]
+pub fn plugin_market_set_source(app: AppHandle, url: String) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "url": aicut_daemon::plugin_host::service::market_set_source(&host_of(&app), &url)?
+    }))
+}
+
+#[tauri::command]
+pub async fn plugin_market_search(
+    app: AppHandle,
+    network: State<'_, Arc<NetworkRuntime>>,
+    text: Option<String>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+    force: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    aicut_daemon::plugin_host::service::market_search(
+        &host_of(&app),
+        network.inner().as_ref(),
+        version(),
+        text.unwrap_or_default().as_str(),
+        offset.unwrap_or(0),
+        limit.unwrap_or(20),
+        force.unwrap_or(false),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn plugin_market_install(
+    app: AppHandle,
+    network: State<'_, Arc<NetworkRuntime>>,
+    name: String,
+    version: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let plugin = aicut_daemon::plugin_host::service::market_install(
+        &host_of(&app),
+        network.inner().as_ref(),
+        version(),
+        &name,
+        version.as_deref().unwrap_or(""),
+    )
+    .await?;
+    Ok(serde_json::json!({ "plugin": plugin }))
+}
