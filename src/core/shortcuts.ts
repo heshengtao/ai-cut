@@ -6,6 +6,7 @@ import { useSelectionStore } from "@/stores/selection";
 import { useViewStore, type AppView } from "@/stores/view";
 import { useTimelineActions } from "@/composables/useTimelineActions";
 import { useProjectActions } from "@/composables/useProjectActions";
+import { matchShortcut, runCommand } from "@/core/commandTable";
 
 /** 焦点在输入类元素上时不抢快捷键。 */
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -41,6 +42,15 @@ export function installShortcuts(): () => void {
       return;
     }
     if (layout.settingsOpen) return;
+
+    // 命令表优先：插件命令与后续迁进来的内核命令都从这里命中。
+    // 输入类元素里只放行带 ⌘ / Ctrl 的组合键（保存、撤销这类全局语义）。
+    const matched = !isTypingTarget(event.target) || mod ? matchShortcut(event) : null;
+    if (matched) {
+      event.preventDefault();
+      void runCommand(matched.id);
+      return;
+    }
 
     // ⌘1 / ⌘2 / ⌘3：切换预览 / 画布 / 剧集。
     if (mod) {
