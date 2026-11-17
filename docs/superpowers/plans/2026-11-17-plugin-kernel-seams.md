@@ -1507,3 +1507,36 @@ git commit -m "feat(caps): 声明 plugin 能力键"
 - [ ] 手测画布：文生图、图生视频、文本、TTS、音频分离各跑一次，行为与改造前一致
 - [ ] 手测快捷键：`⌘S` / `⌘Z` / `⌘C` / 空格 / `S` / `M` / 删除 / 方向键全部照旧
 - [ ] `git log --oneline` 能看到 10 个独立 commit
+
+---
+
+## 执行记录（M0 · 2026-11-17）
+
+| 任务 | 提交 | 结果 |
+| --- | --- | --- |
+| T1 适配器注册表 | `6fd4bb6` | ✅ 6 用例 |
+| T2 分发先查表 | `9560763` | ✅ 3 用例 |
+| T3 节点定义注册表 | `084942f` | ✅ 6 用例 |
+| T4 liveRuns 模块化 | `f3f6ebd` | ✅ 6 用例 |
+| T5 每节点 AbortSignal | `886b483` | ✅ 4 用例 |
+| T6 节点泳道声明 | `a27f179` | ✅ 3 用例 |
+| T7 端口快照 | `73913af` | ✅ 3 用例 |
+| T8 UI 命令表 | `9225d7b` | ✅ 6 用例 |
+| T9 插件词典 | `9af6ca6` | ✅ 4 用例 |
+| T10 plugin_host 能力键 | `b2e3a98` | ✅ Rust 用例 |
+
+**验收证据**
+
+- `pnpm test`：106 个测试文件 / 751 个用例全绿
+- `pnpm build`：`vue-tsc --noEmit` + Vite 构建通过
+- `cargo test --manifest-path crates/daemon/Cargo.toml`：全绿（含新增 `plugin_host_capability_is_available_headless`）
+- 画布手测：本环境无 GUI，未执行；由用户在有桌面环境时补（行为未改分支，风险低）
+
+**执行期发现的偏差（已按实际代码修正）**
+
+1. **命令表文件名改为 `src/core/commandTable.ts`**：`src/core/commands/` 目录已存在（AI 写操作的「可序列化命令」），`core/commands.ts` 会被目录遮蔽。新模块明确叫「UI 命令表」。
+2. **能力键改为 `plugin_host`**：`plugin` 键早已存在（OFX 插件，headless 下 Degraded）。画布插件宿主单独用 `plugin_host`。
+3. **T3 的分类守卫**：注册期「分类必须是内置四类」直接抛错；`nodesByCategory` 对历史坏数据跳过而不是新建桶（否则添加菜单会出现未知分组）。
+4. **T4 返回响应式代理**：`beginLiveRun` 必须返回 `liveRuns[nodeId]`（Proxy）而不是原始对象，否则调用方拿到的对象和画布读到的不是同一个（`toBe` 会失败，且响应式失效）。
+5. **T9 插件词典回退链**：当前语言 → `en` → 宿主兜底语言。第三方插件大多只带英文。
+6. **测试环境没有 DOM**：命令表的按键用例用普通对象冒充 `KeyboardEvent`（vitest 环境是 node）。
