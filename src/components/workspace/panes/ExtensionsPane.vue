@@ -2,33 +2,33 @@
 /**
  * 画布插件面板：**已安装**与**发现**两件事分开做。
  *
- * - 已安装：本地目录导入、启用/禁用、移除、有新版本时一键更新；
- * - 发现：从索引源（默认作者维护的 GitHub 仓库）搜索并安装。
- *
- * 索引的抓取、校验、分页都在 daemon 里；这里只渲染一页结果。
+ * 视觉与交互沿用「下载管理器」（`ModelsPane`）那一套：同一套卡片 / 标签 / 胶囊类名、
+ * 同一套 MD3 token，窄面板里自动换行。索引源不在这里改——它属于设置项，
+ * 面板只放一个跳转胶囊（和「下载源」胶囊同一形态）。
  */
 import { computed, onMounted, ref } from "vue";
 import {
+  AdjustmentsHorizontalIcon,
   ArrowPathIcon,
-  ExclamationTriangleIcon,
   FolderOpenIcon,
   PuzzlePieceIcon,
-  TrashIcon,
 } from "@heroicons/vue/24/outline";
 import { usePluginHostStore } from "@/stores/pluginHost";
+import { useLayoutStore } from "@/stores/layout";
 import { importPluginModule } from "@/core/plugins/importer";
 import { useI18n } from "@/i18n";
 import type { MarketSearchHit } from "@/types/pluginMarket";
 
 const host = usePluginHostStore();
+const layout = useLayoutStore();
 const i18n = useI18n();
 const tab = ref<"installed" | "discover">("installed");
 const query = ref("");
 const busy = ref<string | null>(null);
 const notice = ref<string | null>(null);
-const sourceDraft = ref("");
 
 const entries = computed(() => host.plugins);
+/** 已装插件里可更新的：id → 目标版本。 */
 const updateFor = computed(() => {
   const map = new Map<string, string>();
   for (const hit of host.marketHits) {
@@ -38,8 +38,8 @@ const updateFor = computed(() => {
 });
 
 function sizeLabel(bytes: number): string {
-  if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  if (bytes > 1024) return `${Math.round(bytes / 1024)} KB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${bytes} B`;
 }
 
@@ -83,11 +83,11 @@ async function remove(id: string): Promise<void> {
   }
 }
 
-async function updateEntry(id: string, version: string): Promise<void> {
-  busy.value = id;
+async function install(name: string, version: string): Promise<void> {
+  busy.value = name;
   notice.value = null;
   try {
-    await host.installFromMarket(id, version);
+    await host.installFromMarket(name, version);
     await host.loadEnabled(importPluginModule);
   } catch (error) {
     notice.value = error instanceof Error ? error.message : String(error);
@@ -96,123 +96,138 @@ async function updateEntry(id: string, version: string): Promise<void> {
   }
 }
 
-async function installHit(hit: MarketSearchHit): Promise<void> {
-  busy.value = hit.name;
-  notice.value = null;
-  try {
-    await host.installFromMarket(hit.name, hit.version);
-    await host.loadEnabled(importPluginModule);
-  } catch (error) {
-    notice.value = error instanceof Error ? error.message : String(error);
-  } finally {
-    busy.value = null;
-  }
+function installHit(hit: MarketSearchHit): Promise<void> {
+  return install(hit.name, hit.version);
 }
 
 async function search(force = false): Promise<void> {
   await host.searchMarket(query.value, force);
 }
 
-async function saveSource(): Promise<void> {
-  try {
-    await host.setMarketUrl(sourceDraft.value.trim());
-    await search(true);
-  } catch (error) {
-    notice.value = error instanceof Error ? error.message : String(error);
-  }
+function refreshAll(): void {
+  void host.refresh();
+  if (tab.value === "discover") void search(true);
 }
 
-onMounted(async () => {
+onMounted(() => {
   void host.refresh();
-  await host.loadMarketUrl();
-  sourceDraft.value = host.marketUrl;
-  await search(false);
+  void search(false);
 });
 </script>
 
 <template>
-  <section class="extensions">
+  <div class="pane">
     <header class="head">
-      <div class="tabs">
+      <div class="head-main">
+        <h2 class="title">{{ i18n.t("extensions.title") }}</h2>
+        <p class="sub">
+          {{
+            tab === "installed"
+              ? i18n.t("extensions.subInstalled", { count: entries.length })
+              : i18n.t("extensions.subDiscover", { count: host.marketTotal })
+          }}
+        </p>
+      </div>
+      <button
+        class="icon-btn"
+        :title="i18n.t('extensions.refresh')"
+        :aria-label="i18n.t('extensions.refresh')"
+        :disabled="host.loading || host.marketLoading"
+        @click="refreshAll"
+      >
+        <ArrowPathIcon class="w-[16px] h-[16px]" :class="{ spinning: host.marketLoading }" />
+      </button>
+    </header>
+
+    <div class="manager-bar">
+      <div class="tabs" role="tablist">
         <button
-          type="button"
           class="tab"
           :class="{ on: tab === 'installed' }"
+          role="tab"
+          :aria-selected="tab === 'installed'"
           @click="tab = 'installed'"
         >
           {{ i18n.t("extensions.tabInstalled") }}
+          <span v-if="entries.length" class="tab-count">{{ entries.length }}</span>
         </button>
         <button
-          type="button"
           class="tab"
           :class="{ on: tab === 'discover' }"
+          role="tab"
+          :aria-selected="tab === 'discover'"
           @click="tab = 'discover'"
         >
           {{ i18n.t("extensions.tabDiscover") }}
+          <span v-if="host.marketTotal" class="tab-count">{{ host.marketTotal }}</span>
         </button>
       </div>
       <button
         v-if="tab === 'installed'"
-        class="install"
+        class="mini-btn primary"
         type="button"
         :disabled="busy !== null"
         @click="importFolder"
       >
-        <FolderOpenIcon class="w-4 h-4" />
-        <span>{{ i18n.t("extensions.install") }}</span>
+        <FolderOpenIcon class="w-[13px] h-[13px]" />
+        {{ i18n.t("extensions.install") }}
       </button>
-    </header>
+    </div>
 
-    <p v-if="notice" class="notice">
-      <ExclamationTriangleIcon class="w-4 h-4" />
-      <span>{{ notice }}</span>
+    <p v-if="notice" class="banner">
+      <span class="banner-text">{{ notice }}</span>
     </p>
 
     <!-- 已安装 -->
     <template v-if="tab === 'installed'">
-      <p v-if="host.loading" class="hint">{{ i18n.t("extensions.loading") }}</p>
-      <p v-else-if="entries.length === 0" class="empty">
-        <PuzzlePieceIcon class="w-6 h-6" />
+      <p v-if="entries.length === 0" class="empty">
+        <PuzzlePieceIcon class="w-[18px] h-[18px]" />
         <span>{{ i18n.t("extensions.empty") }}</span>
       </p>
       <ul v-else class="list">
-        <li v-for="entry in entries" :key="entry.id" class="item">
-          <div class="item-main">
-            <div class="item-title">
-              <span class="id">{{ entry.id }}</span>
-              <span class="version">v{{ entry.version }}</span>
-              <span v-if="!entry.compatible" class="badge warn">
-                {{ i18n.t("extensions.incompatible") }}
-              </span>
-            </div>
-            <div class="item-sub">{{ entry.dir }}</div>
-            <div v-if="entry.lastError" class="error">{{ entry.lastError }}</div>
+        <li v-for="entry in entries" :key="entry.id" class="card">
+          <div class="card-top">
+            <span class="card-name">{{ entry.id }}</span>
+            <span class="badge">v{{ entry.version }}</span>
+            <span v-if="entry.enabled" class="badge ok">
+              {{ i18n.t("extensions.enabled") }}
+            </span>
+            <span v-else class="badge">{{ i18n.t("extensions.disabled") }}</span>
+            <span v-if="!entry.compatible" class="badge warn">
+              {{ i18n.t("extensions.incompatible") }}
+            </span>
+            <span v-if="entry.kind === 'store'" class="badge source">
+              {{ i18n.t("extensions.kindStore") }}
+            </span>
+            <span v-else class="badge source">{{ i18n.t("extensions.kindLinked") }}</span>
           </div>
-          <div class="item-actions">
+          <p class="card-files" :title="entry.dir">{{ entry.dir }}</p>
+          <p v-if="entry.lastError" class="card-error">{{ entry.lastError }}</p>
+          <div class="card-actions">
             <button
               v-if="updateFor.get(entry.id)"
+              class="mini-btn primary"
               type="button"
-              class="ghost primary"
               :disabled="busy === entry.id"
-              @click="updateEntry(entry.id, updateFor.get(entry.id) ?? '')"
+              @click="install(entry.id, updateFor.get(entry.id) ?? '')"
             >
               {{ i18n.t("extensions.updateTo", { version: updateFor.get(entry.id) ?? "" }) }}
             </button>
             <button
+              class="mini-btn"
               type="button"
-              class="ghost"
               :disabled="busy === entry.id || !entry.compatible"
               @click="toggle(entry.id, !entry.enabled)"
             >
               {{ entry.enabled ? i18n.t("extensions.disable") : i18n.t("extensions.enable") }}
             </button>
             <button
+              class="mini-btn danger"
               type="button"
-              class="ghost danger"
               :disabled="busy === entry.id"
               @click="remove(entry.id)"
             >
-              <TrashIcon class="w-4 h-4" />
+              {{ i18n.t("common.remove") }}
             </button>
           </div>
         </li>
@@ -224,44 +239,63 @@ onMounted(async () => {
 
     <!-- 发现 -->
     <template v-else>
-      <div class="search-row">
-        <input
-          v-model="query"
-          class="field"
-          :placeholder="i18n.t('extensions.search')"
-          spellcheck="false"
-          @keyup.enter="search(false)"
-        />
-        <button type="button" class="ghost" :disabled="host.marketLoading" @click="search(true)">
-          <ArrowPathIcon class="w-4 h-4" />
+      <input
+        v-model="query"
+        class="search"
+        type="search"
+        :placeholder="i18n.t('extensions.search')"
+        :aria-label="i18n.t('extensions.search')"
+        @keyup.enter="search(false)"
+      />
+
+      <div class="chips" role="group" :aria-label="i18n.t('extensions.marketSource')">
+        <span class="chip status">
+          {{
+            host.marketSource === "network"
+              ? i18n.t("extensions.marketOnline")
+              : host.marketSource === "cache"
+                ? i18n.t("extensions.marketCached")
+                : host.marketSource === "stale-cache"
+                  ? i18n.t("extensions.marketStale")
+                  : i18n.t("extensions.marketUnknown")
+          }}
+        </span>
+        <button class="chip source-chip" type="button" @click="layout.openSettings('network')">
+          <AdjustmentsHorizontalIcon class="w-[13px] h-[13px]" />
+          {{ i18n.t("extensions.marketSourceSettings") }}
         </button>
       </div>
-      <p v-if="host.marketSource === 'stale-cache'" class="hint warn-text">
-        {{ i18n.t("extensions.marketStale") }}
+
+      <p v-if="host.marketError" class="banner">
+        <span class="banner-text">{{ host.marketError }}</span>
       </p>
-      <p v-if="host.marketError" class="error">{{ host.marketError }}</p>
-      <p v-if="host.marketLoading" class="hint">{{ i18n.t("extensions.loading") }}</p>
+      <p v-else-if="host.marketLoading" class="empty">{{ i18n.t("extensions.loading") }}</p>
       <p v-else-if="host.marketHits.length === 0" class="empty">
-        <PuzzlePieceIcon class="w-6 h-6" />
-        <span>{{ host.marketError ? "" : i18n.t("extensions.marketEmpty") }}</span>
+        <PuzzlePieceIcon class="w-[18px] h-[18px]" />
+        <span>{{ i18n.t("extensions.marketEmpty") }}</span>
       </p>
+
       <ul v-else class="list">
-        <li v-for="hit in host.marketHits" :key="hit.name" class="item">
-          <div class="item-main">
-            <div class="item-title">
-              <span class="id">{{ hit.title || hit.name }}</span>
-              <span class="version">v{{ hit.version }}</span>
-              <span v-if="hit.installed" class="badge">
-                {{ i18n.t("extensions.marketInstalled") }}
-              </span>
-            </div>
-            <div class="item-sub">{{ hit.name }} · {{ hit.author ?? "" }} · {{ sizeLabel(hit.size) }}</div>
-            <div v-if="hit.description" class="item-desc">{{ hit.description }}</div>
+        <li v-for="hit in host.marketHits" :key="hit.name" class="card">
+          <div class="card-top">
+            <span class="card-name">{{ hit.title || hit.name }}</span>
+            <span class="badge">v{{ hit.version }}</span>
+            <span v-if="hit.installed" class="badge ok">
+              {{ i18n.t("extensions.marketInstalled") }}
+            </span>
+            <span v-if="hit.updateAvailable" class="badge source">
+              {{ i18n.t("extensions.marketUpdate") }}
+            </span>
           </div>
-          <div class="item-actions">
+          <p class="card-meta">
+            {{ hit.name }}<template v-if="hit.author"> · {{ hit.author }}</template>
+            · {{ sizeLabel(hit.size) }}
+          </p>
+          <p v-if="hit.description" class="card-desc">{{ hit.description }}</p>
+          <div class="card-actions">
             <button
+              class="mini-btn primary"
               type="button"
-              class="ghost primary"
               :disabled="busy === hit.name"
               @click="installHit(hit)"
             >
@@ -274,231 +308,312 @@ onMounted(async () => {
           </div>
         </li>
       </ul>
-      <div class="source-row">
-        <span class="row-label">{{ i18n.t("extensions.marketSource") }}</span>
-        <input v-model="sourceDraft" class="field" spellcheck="false" />
-        <button type="button" class="ghost" @click="saveSource">
-          {{ i18n.t("extensions.marketSaveSource") }}
-        </button>
-      </div>
     </template>
-  </section>
+  </div>
 </template>
 
 <style scoped>
-/* 侧边栏宽度会在 280–520px 之间被拖动，所以按「容器宽度」自适应，
-   不按窗口宽度（窗口宽不代表这个面板宽）。 */
-.extensions {
-  container-type: inline-size;
+/* 视觉基线来自「下载管理器」（ModelsPane）：同一套类名与 MD3 token。 */
+.pane {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px;
+  flex: 1;
+  min-height: 0;
   min-width: 0;
-  overflow-x: hidden;
   overflow-y: auto;
-  height: 100%;
+  overflow-x: hidden;
+  padding-bottom: 12px;
 }
 .head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 14px 0;
+}
+.head-main {
+  min-width: 0;
+}
+.title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgb(var(--md-on-surface));
+}
+.sub {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: rgb(var(--md-on-surface-variant));
+}
+.manager-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-width: 0;
+  padding: 10px 14px 0;
+  flex: 0 0 auto;
 }
 .tabs {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 4px;
   min-width: 0;
 }
 .tab {
-  flex: 0 0 auto;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  color: var(--md-sys-color-on-surface-variant);
-  background: transparent;
-}
-.tab.on {
-  color: var(--md-sys-color-on-primary-container);
-  background: var(--md-sys-color-primary-container);
-}
-.install {
-  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 12px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  border: 0;
   border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--md-on-surface-variant));
   font-size: 12px;
-  color: var(--md-sys-color-on-primary-container);
-  background: var(--md-sys-color-primary-container);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
-.notice,
-.empty {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
+.tab:hover {
+  background-color: rgb(var(--md-on-surface-variant) / var(--md-state-hover-alpha));
+}
+.tab.on {
+  background-color: rgb(var(--md-secondary-container));
+  color: rgb(var(--md-on-secondary-container));
+}
+.tab-count {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background-color: rgb(var(--md-primary) / 0.16);
+  color: rgb(var(--md-primary));
+  font-size: 10px;
+}
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--md-on-surface-variant));
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+.icon-btn:hover:not(:disabled) {
+  background-color: rgb(var(--md-on-surface) / var(--md-state-hover-alpha));
+  color: rgb(var(--md-on-surface));
+}
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.spinning {
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.search {
+  flex: 0 0 auto;
+  height: 32px;
+  min-height: 32px;
+  margin: 10px 14px 0;
+  padding: 0 12px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.7);
+  border-radius: 999px;
+  background: var(--app-inset);
+  color: rgb(var(--md-on-surface));
   font-size: 12px;
-  color: var(--md-sys-color-on-surface-variant);
+  outline: none;
+}
+.search:focus {
+  outline: 2px solid rgb(var(--md-primary));
+  outline-offset: 0;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 14px 4px;
+  flex: 0 0 auto;
+}
+.chip {
+  height: 26px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.8);
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--md-on-surface-variant));
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.chip.status {
+  cursor: default;
+}
+.chip.source-chip:hover {
+  background-color: rgb(var(--md-on-surface-variant) / var(--md-state-hover-alpha));
+}
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 14px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background-color: rgb(var(--md-error) / 0.12);
+  color: rgb(var(--md-error));
+}
+.banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11.5px;
   overflow-wrap: anywhere;
 }
-.notice {
-  color: var(--md-sys-color-error);
-}
-.search-row,
-.source-row {
+.empty {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
-}
-.source-row {
-  flex-wrap: wrap;
-}
-.field {
-  flex: 1 1 120px;
-  min-width: 0;
-  padding: 6px 10px;
-  border-radius: 10px;
+  margin: 14px;
   font-size: 12px;
-  color: var(--md-sys-color-on-surface);
-  background: var(--md-sys-color-surface-container-high);
-}
-.row-label {
-  flex: 0 0 auto;
-  font-size: 11px;
-  color: var(--md-sys-color-on-surface-variant);
-  white-space: nowrap;
+  color: rgb(var(--md-on-surface-variant));
+  overflow-wrap: anywhere;
 }
 .list {
+  list-style: none;
+  margin: 10px 14px 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 0;
 }
-.item {
+.card {
+  position: relative;
+  overflow: hidden;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px;
-  border-radius: 12px;
-  background: var(--md-sys-color-surface-container);
-}
-.item-main {
-  flex: 1 1 160px;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+  border-radius: 14px;
+  background-color: var(--app-inset);
   min-width: 0;
 }
-.item-title {
+.card-top {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
-  font-size: 12px;
 }
-.id {
+.card-name {
   min-width: 0;
+  font-size: 13px;
   font-weight: 600;
   overflow-wrap: anywhere;
-  color: var(--md-sys-color-on-surface);
-}
-.version {
-  flex: 0 0 auto;
-  color: var(--md-sys-color-on-surface-variant);
-}
-.item-sub,
-.item-desc {
-  font-size: 10px;
-  color: var(--md-sys-color-on-surface-variant);
-  overflow-wrap: anywhere;
-  word-break: break-all;
-}
-.item-desc {
-  margin-top: 2px;
+  color: rgb(var(--md-on-surface));
 }
 .badge {
-  flex: 0 0 auto;
-  padding: 1px 6px;
+  padding: 1px 7px;
   border-radius: 999px;
+  background-color: rgb(var(--md-surface-container-highest));
+  color: rgb(var(--md-on-surface-variant));
   font-size: 10px;
-  color: var(--md-sys-color-on-secondary-container);
-  background: var(--md-sys-color-secondary-container);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.badge.ok {
+  background-color: rgb(var(--md-secondary-container));
+  color: rgb(var(--md-on-secondary-container));
+}
+.badge.source {
+  background-color: rgb(var(--md-primary) / 0.14);
+  color: rgb(var(--md-primary));
 }
 .badge.warn {
-  color: var(--md-sys-color-on-error-container);
-  background: var(--md-sys-color-error-container);
+  background-color: rgb(var(--md-error) / 0.12);
+  color: rgb(var(--md-error));
 }
-.error {
+.card-meta,
+.card-files,
+.card-desc,
+.card-error {
+  margin: 0;
   font-size: 11px;
-  color: var(--md-sys-color-error);
-  margin-top: 2px;
+  line-height: 1.45;
+  color: rgb(var(--md-on-surface-muted));
   overflow-wrap: anywhere;
 }
-.item-actions {
-  flex: 0 0 auto;
+.card-files {
+  font-size: 10.5px;
+  word-break: break-all;
+}
+.card-desc {
+  color: rgb(var(--md-on-surface-variant));
+}
+.card-error {
+  color: rgb(var(--md-error));
+}
+.card-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
   justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+.mini-btn {
+  height: 27px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
-  margin-left: auto;
-}
-.ghost {
-  flex: 0 0 auto;
-  padding: 4px 8px;
-  border-radius: 8px;
-  font-size: 11px;
-  white-space: nowrap;
-  color: var(--md-sys-color-on-surface);
+  border: 1px solid rgb(var(--md-outline-variant) / 0.7);
+  border-radius: 999px;
   background: transparent;
+  color: rgb(var(--md-on-surface-variant));
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.14s ease, color 0.14s ease;
 }
-.ghost.primary {
-  color: var(--md-sys-color-on-primary-container);
-  background: var(--md-sys-color-primary-container);
+.mini-btn:hover:not(:disabled) {
+  background-color: rgb(var(--md-on-surface-variant) / var(--md-state-hover-alpha));
 }
-.ghost.danger {
-  color: var(--md-sys-color-error);
+.mini-btn.primary {
+  border-color: transparent;
+  background-color: rgb(var(--md-primary));
+  color: rgb(var(--md-on-primary));
+}
+.mini-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+.mini-btn.danger {
+  color: rgb(var(--md-error));
+  border-color: rgb(var(--md-error) / 0.4);
+}
+.mini-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .failures {
+  list-style: none;
+  margin: 10px 14px 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
   font-size: 11px;
   overflow-wrap: anywhere;
-  color: var(--md-sys-color-error);
-}
-.hint {
-  font-size: 12px;
-  color: var(--md-sys-color-on-surface-variant);
-}
-.warn-text {
-  color: var(--md-sys-color-error);
-}
-
-/* 窄面板：图标按钮代替文字、操作行落到下一行。 */
-@container (max-width: 340px) {
-  .extensions {
-    padding: 10px;
-    gap: 10px;
-  }
-  .install span {
-    display: none;
-  }
-  .item {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .item-actions {
-    justify-content: flex-end;
-    margin-left: 0;
-  }
-  .tab {
-    padding: 4px 8px;
-  }
+  color: rgb(var(--md-error));
 }
 </style>

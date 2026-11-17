@@ -34,7 +34,13 @@ pub fn load_source(root: &Path) -> String {
         .unwrap_or_else(|| DEFAULT_INDEX_URL.to_string())
 }
 
+/// 保存索引源；**传空串 = 恢复默认源**（删掉配置文件）。
 pub fn save_source(root: &Path, url: &str) -> Result<String, String> {
+    let url = url.trim();
+    if url.is_empty() {
+        let _ = std::fs::remove_file(root.join(SOURCE_FILE));
+        return Ok(DEFAULT_INDEX_URL.to_string());
+    }
     check_url(url)?;
     std::fs::create_dir_all(root).map_err(|error| format!("创建插件目录失败：{error}"))?;
     let text = serde_json::to_string_pretty(&SourceConfig {
@@ -333,6 +339,9 @@ mod tests {
         save_source(root.path(), "https://example.com/i.json").unwrap();
         assert_eq!(load_source(root.path()), "https://example.com/i.json");
         assert!(save_source(root.path(), "ftp://x/y.json").is_err());
+        // 空串 = 恢复默认。
+        assert_eq!(save_source(root.path(), "  ").unwrap(), DEFAULT_INDEX_URL);
+        assert_eq!(load_source(root.path()), DEFAULT_INDEX_URL);
     }
 
     #[test]

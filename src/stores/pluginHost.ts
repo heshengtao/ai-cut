@@ -15,12 +15,7 @@ import {
   pluginHostStart,
   pluginHostStop,
 } from "@/core/pluginHostApi";
-import {
-  pluginMarketInstall,
-  pluginMarketSearch,
-  pluginMarketSetSource,
-  pluginMarketSource,
-} from "@/core/pluginMarketApi";
+import { pluginMarketInstall, pluginMarketSearch } from "@/core/pluginMarketApi";
 import type { MarketSearchHit } from "@/types/pluginMarket";
 import {
   loadPluginModule,
@@ -44,7 +39,6 @@ export const usePluginHostStore = defineStore("pluginHost", () => {
   const loaded = new Map<string, LoadedPlugin>();
 
   // ---- 商店 ----
-  const marketUrl = ref("");
   const marketHits = ref<MarketSearchHit[]>([]);
   const marketTotal = ref(0);
   /** `network` / `cache` / `stale-cache`。 */
@@ -127,18 +121,6 @@ export const usePluginHostStore = defineStore("pluginHost", () => {
     }
   }
 
-  async function loadMarketUrl(): Promise<void> {
-    try {
-      marketUrl.value = await pluginMarketSource();
-    } catch (reason) {
-      marketError.value = reason instanceof Error ? reason.message : String(reason);
-    }
-  }
-
-  async function setMarketUrl(url: string): Promise<void> {
-    marketUrl.value = await pluginMarketSetSource(url);
-  }
-
   async function searchMarket(text = "", force = false): Promise<void> {
     marketLoading.value = true;
     marketError.value = null;
@@ -158,7 +140,7 @@ export const usePluginHostStore = defineStore("pluginHost", () => {
     marketError.value = null;
     const plugin = await pluginMarketInstall(name, version);
     await refresh();
-    await loadMarketUrl().then(() => searchMarket("", true));
+    await searchMarket("", true);
     return plugin;
   }
 
@@ -179,14 +161,11 @@ export const usePluginHostStore = defineStore("pluginHost", () => {
     remove,
     installLocal,
     disposeAll,
-    marketUrl,
     marketHits,
     marketTotal,
     marketSource,
     marketLoading,
     marketError,
-    loadMarketUrl,
-    setMarketUrl,
     searchMarket,
     installFromMarket,
   };

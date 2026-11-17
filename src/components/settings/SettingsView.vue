@@ -122,6 +122,10 @@ import {
   pluginRegistryConfig,
   pluginSetRegistryConfig,
 } from "@/core/pluginApi";
+import {
+  pluginMarketSetSource,
+  pluginMarketSource,
+} from "@/core/pluginMarketApi";
 import { fileUrl } from "@/core/media";
 import {
   CUSTOM_OUTPUT,
@@ -863,6 +867,9 @@ const proxyProbe = ref<ProxyProbe | null>(null);
 const proxySaving = ref(false);
 const proxySaved = ref(false);
 const proxyTesting = ref(false);
+const pluginMarketUrl = ref("");
+const pluginMarketSaving = ref(false);
+const pluginMarketSaved = ref(false);
 const pluginRegistryUrl = ref("");
 const pluginRegistryMirrors = ref("");
 const pluginSaving = ref(false);
@@ -2192,6 +2199,34 @@ async function loadModelSources(): Promise<void> {
   modelDownloadPrefix.value = models.downloadPrefix;
 }
 
+async function loadPluginMarket(): Promise<void> {
+  try {
+    pluginMarketUrl.value = await pluginMarketSource();
+  } catch {
+    pluginMarketUrl.value = "";
+  }
+}
+
+async function savePluginMarket(url: string): Promise<void> {
+  if (pluginMarketSaving.value) return;
+  pluginMarketSaving.value = true;
+  pluginMarketSaved.value = false;
+  try {
+    pluginMarketUrl.value = await pluginMarketSetSource(url.trim());
+    pluginMarketSaved.value = true;
+    toast(i18n.t("settings.market.saved"));
+  } catch (error) {
+    toast(
+      i18n.t("settings.plugins.saveFailed", {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+      "error",
+    );
+  } finally {
+    pluginMarketSaving.value = false;
+  }
+}
+
 async function loadPluginRegistry(): Promise<void> {
   try {
     const config = await pluginRegistryConfig();
@@ -2667,6 +2702,7 @@ onMounted(() => {
   void loadNetwork();
   void loadModelSources();
   void loadPluginRegistry();
+  void loadPluginMarket();
   void loadCloudTts();
   void loadCloudAsr();
   void loadCloudGen();
@@ -4450,6 +4486,48 @@ onUnmounted(() => {
                       : pluginSaved
                         ? i18n.t("settings.plugins.saved")
                         : i18n.t("settings.plugins.save")
+                  }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group-title">{{ i18n.t("settings.market.group") }}</div>
+            <div class="card">
+              <div class="col-row">
+                <span class="row-title">{{ i18n.t("settings.market.url") }}</span>
+                <span class="row-sub">{{ i18n.t("settings.market.urlHint") }}</span>
+                <input
+                  v-model="pluginMarketUrl"
+                  class="net-input"
+                  type="text"
+                  spellcheck="false"
+                  :placeholder="i18n.t('settings.market.urlPlaceholder')"
+                />
+              </div>
+              <div class="col-row">
+                <span class="row-sub">{{ i18n.t("settings.market.saveHint") }}</span>
+              </div>
+              <div class="row actions-row">
+                <button
+                  class="scan-btn"
+                  :disabled="pluginMarketSaving"
+                  @click="savePluginMarket('')"
+                >
+                  {{ i18n.t("settings.market.reset") }}
+                </button>
+                <button
+                  class="scan-btn primary"
+                  :disabled="pluginMarketSaving"
+                  @click="savePluginMarket(pluginMarketUrl)"
+                >
+                  {{
+                    pluginMarketSaving
+                      ? i18n.t("settings.market.saving")
+                      : pluginMarketSaved
+                        ? i18n.t("settings.market.saved")
+                        : i18n.t("settings.market.save")
                   }}
                 </button>
               </div>
