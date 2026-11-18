@@ -5,9 +5,12 @@ name: Docker (ai-cut)
 #
 # 只需要一个 Secret：DOCKERHUB_TOKEN（Docker Hub Access Token，Read & Write）。
 #
-# 标签策略（和 git tag 对齐）：
+# 标签策略：**只在打 `v*` tag 时发布**（和 release.yml 同一触发点）：
 #   v1.7.1  → 1.7.1、1.7、latest、sha-<短 sha>
-#   main    → latest、sha-<短 sha>
+#
+# main 的日常提交不构建镜像：双架构各跑一次 Rust release 构建很贵，而 main 上的
+# 改动已经由 ci.yml 做回归；需要验证 Dockerfile 时用 workflow_dispatch 手动跑，
+# 发版时 tag 会自动构建并移动 latest。
 #
 # 架构：amd64 / arm64 各用一台原生 runner 构建（不走 QEMU），但**按 digest 推送**——
 # 不再产生 `main-amd64` 这类中间标签：每台机器只交出镜像 digest，最后在 merge 任务里
@@ -16,7 +19,6 @@ name: Docker (ai-cut)
 
 on:
   push:
-    branches: [main]
     tags: ['v*']
   workflow_dispatch:
     inputs:
