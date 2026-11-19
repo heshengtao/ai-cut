@@ -216,7 +216,7 @@ export function valueKindOf(node: BoardNode): BoardPortType {
 const BATCH: BoardNodeDefinition = {
   type: "batch",
   titleKey: "board.node.batch",
-  category: "model",
+  category: "group",
   order: 40,
   inputs: [
     { id: "items", type: "json", labelKey: "board.port.items" },
@@ -263,40 +263,40 @@ const BATCH: BoardNodeDefinition = {
 const VAR_ITEM: BoardNodeDefinition = {
   type: "var.item",
   titleKey: "board.node.varItem",
-  category: "model",
+  category: "group",
   order: 41,
   inputs: [],
   outputs: [{ id: "value", type: "any", labelKey: "board.port.item" }],
   params: [],
-  defaultSize: { width: MODEL_WIDTH, height: 150 },
+  defaultSize: { width: MEDIA_WIDTH, height: 150 },
 };
 
 const VAR_INDEX: BoardNodeDefinition = {
   type: "var.index",
   titleKey: "board.node.varIndex",
-  category: "model",
+  category: "group",
   order: 42,
   inputs: [],
   outputs: [{ id: "value", type: "integer", labelKey: "board.port.index" }],
   params: [],
-  defaultSize: { width: MODEL_WIDTH, height: 140 },
+  defaultSize: { width: MEDIA_WIDTH, height: 140 },
 };
 
 const VAR_CARRY: BoardNodeDefinition = {
   type: "var.carry",
   titleKey: "board.node.varCarry",
-  category: "model",
+  category: "group",
   order: 43,
   inputs: [],
   outputs: [{ id: "value", type: "any", labelKey: "board.port.carry" }],
   params: [],
-  defaultSize: { width: MODEL_WIDTH, height: 150 },
+  defaultSize: { width: MEDIA_WIDTH, height: 150 },
 };
 
 const VAR_RESULT: BoardNodeDefinition = {
   type: "var.result",
   titleKey: "board.node.varResult",
-  category: "display",
+  category: "group",
   order: 44,
   inputs: [{ id: "value", type: "any", labelKey: "board.port.result" }],
   outputs: [],
@@ -307,7 +307,7 @@ const VAR_RESULT: BoardNodeDefinition = {
 const VAR_CARRY_OUT: BoardNodeDefinition = {
   type: "var.carryOut",
   titleKey: "board.node.varCarryOut",
-  category: "display",
+  category: "group",
   order: 45,
   inputs: [{ id: "value", type: "any", labelKey: "board.port.carryOut" }],
   outputs: [],

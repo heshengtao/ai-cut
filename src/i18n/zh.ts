@@ -2520,7 +2520,7 @@ const zh: Record<string, string> = {
   "board.category.input": "输入",
   "board.category.display": "显示",
   "board.category.model": "模型",
-  "board.category.group": "分组",
+  "board.category.group": "逻辑",
   "board.type.text": "文本",
   "board.type.image": "图片",
   "board.type.video": "视频",

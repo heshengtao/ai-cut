@@ -2520,7 +2520,7 @@ const en: Record<string, string> = {
   "board.category.input": "Input",
   "board.category.display": "Display",
   "board.category.model": "Model",
-  "board.category.group": "Groups",
+  "board.category.group": "Logic",
   "board.type.text": "Text",
   "board.type.image": "Image",
   "board.type.video": "Video",

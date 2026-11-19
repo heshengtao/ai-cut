@@ -289,7 +289,8 @@ const upstreamOutputs = computed<UpstreamOutput[]>(() => {
   for (const item of board.nodes) {
     if (!ancestors.has(item.id)) continue;
     const spec = nodeDefinition(item.type);
-    if (!spec || spec.category === "group") continue;
+    // 只有纯组的容器没有输出；迭代节点与行变量同样属于「逻辑」分类，但能产出值。
+    if (!spec || item.type === "group") continue;
     for (const port of portsOf(item, portContext.value).outputs) {
       out.push({
         nodeId: item.id,
