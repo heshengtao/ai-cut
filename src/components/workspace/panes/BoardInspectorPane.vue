@@ -341,7 +341,10 @@ const upstreamOutputs = computed<UpstreamOutput[]>(() => {
         nodeId: item.id,
         portId: port.id,
         type: port.type,
-        label: `${displayTitleOf(item)} · ${i18n.t(port.labelKey)}`,
+        label:
+          item.type.startsWith("loop.") || item.type.startsWith("input.") || item.type.startsWith("display.")
+            ? `${displayTitleOf(item)} · ${i18n.t(port.labelKey)} (${port.id})`
+            : `${displayTitleOf(item)} · ${i18n.t(port.labelKey)}`,
       });
     }
   }

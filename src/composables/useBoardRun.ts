@@ -242,8 +242,15 @@ function bundlePick(
   const context = portContext();
   const project = useProjectStore();
   const media = wanted === "image" || wanted === "video" || wanted === "audio";
-  const candidates = portsOf(node, context)
-    .outputs.map((port) => ({
+  const ports = portsOf(node, context).outputs;
+  // 输入端口在检查器里选的是哪一个输出：连线上的 `sourcePort` 说了算，
+  // 这里不再按类型猜（用户选了 out2 就必须拿 out2）。
+  const edge = edgeId ? useBoardStore().edges.find((item) => item.id === edgeId) : null;
+  if (edge && ports.some((port) => port.id === edge.sourcePort)) {
+    return { portId: edge.sourcePort, value: publishedValue(node, edge.sourcePort) };
+  }
+  const candidates = ports
+    .map((port) => ({
       portId: port.id,
       portType: port.type,
       value: publishedValue(node, port.id),
