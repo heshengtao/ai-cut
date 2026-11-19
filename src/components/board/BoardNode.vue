@@ -22,6 +22,7 @@ import {
   portsOf,
   splitModelValue,
   stemsForFamily,
+  valueKindOf,
   visibleParams,
 } from "@/core/board/registry";
 import { useBoardStore } from "@/stores/board";
@@ -336,6 +337,29 @@ const textHtml = computed(() => renderMarkdown(textPreview.value));
 
 /** 模型节点：只有模型节点有输出附件卡（输入 / 显示节点的内容就是卡片本身）。 */
 const isModel = computed(() => definition.value?.category === "model");
+
+/** 值显示节点：卡片上直接给出上游发布的值（模型节点才有附件卡）。 */
+const isValueDisplay = computed(() => node.value?.type === "display.value");
+const valuePreviewKind = computed(() => (node.value ? valueKindOf(node.value) : "text"));
+const valuePreviewRaw = computed<unknown>(() => node.value?.data.values?.value ?? null);
+const valuePreviewEmpty = computed(() => {
+  const raw = valuePreviewRaw.value;
+  return raw === null || raw === undefined || raw === "";
+});
+const valuePreviewText = computed(() => {
+  const raw = valuePreviewRaw.value;
+  if (raw !== null && typeof raw === "object") {
+    try {
+      return JSON.stringify(raw, null, 2);
+    } catch {
+      return String(raw);
+    }
+  }
+  if (typeof raw === "boolean") {
+    return raw ? i18n.t("board.value.true") : i18n.t("board.value.false");
+  }
+  return String(raw ?? "");
+});
 
 /** 本次运行发布的全部产物（没有 `outputAssetIds` 的旧文档退回单个输出）。 */
 const outputAssets = computed<MediaAsset[]>(() => {
@@ -1662,6 +1686,13 @@ function cycleOutput(): void {
           </label>
         </div>
 
+        <!-- 值显示：上游发布的值直接排在卡片上（值节点没有输出附件卡）。 -->
+        <div v-if="isValueDisplay" class="value-preview nodrag nowheel" :data-kind="valuePreviewKind">
+          <span v-if="valuePreviewEmpty" class="value-preview-empty">{{ i18n.t("board.value.empty") }}</span>
+          <pre v-else-if="valuePreviewKind === 'json' || typeof valuePreviewRaw === 'object'" class="value-preview-pre">{{ valuePreviewText }}</pre>
+          <span v-else class="value-preview-text">{{ valuePreviewText }}</span>
+        </div>
+
         <!-- 产物在卡片下方的输出附件卡里；卡片主体只留参数与运行状态。 -->
         <footer class="mn-foot">
           <span>{{ modelFoot }}</span>
@@ -2918,6 +2949,34 @@ function cycleOutput(): void {
 .mn-params::-webkit-scrollbar {
   width: 4px;
 }
+.value-preview {
+  margin: 0 12px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  max-height: 160px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.value-preview-empty {
+  color: var(--text-dim);
+}
+
+.value-preview-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+}
+
+.value-preview-text {
+  word-break: break-word;
+}
+
 .mn-params::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: rgb(var(--md-outline) / 0.4);

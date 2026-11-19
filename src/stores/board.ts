@@ -59,6 +59,7 @@ function cloneNodes(nodes: BoardNode[]): BoardNode[] {
       params: { ...node.data.params },
       bindings: { ...node.data.bindings },
       ...(node.data.outputs ? { outputs: { ...node.data.outputs } } : {}),
+      ...(node.data.values ? { values: { ...node.data.values } } : {}),
       ...(node.data.assetIds ? { assetIds: [...node.data.assetIds] } : {}),
       ...(node.data.outputAssetIds ? { outputAssetIds: [...node.data.outputAssetIds] } : {}),
     },

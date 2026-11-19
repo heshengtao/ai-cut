@@ -5,7 +5,13 @@
  * 本阶段先落 4 个输入 + 4 个显示节点，模型节点在后续阶段补齐。
  */
 import { shallowRef } from "vue";
-import type { BoardNode, BoardNodeDefinition, BoardPortSpec } from "@/types/board";
+import type {
+  BoardNode,
+  BoardNodeDefinition,
+  BoardPortSpec,
+  BoardPortType,
+} from "@/types/board";
+import { isDataTypeId } from "./dataTypes";
 
 /**
  * 注册表版本号。
@@ -143,15 +149,72 @@ const DISPLAY_TEXT: BoardNodeDefinition = {
   defaultSize: { width: MEDIA_WIDTH, height: 200 },
 };
 
+/**
+ * 值节点：inline 值的输入 / 显示。
+ *
+ * 类型不在定义里写死——`params.kind` 存一个类型 id，端口类型由注册表在
+ * `portsOf` 里动态算出来。插件注册了新的 inline 类型后，两个节点自动支持，
+ * 核心不用改代码。媒体（图片 / 视频 / 音频）走各自的专用节点，不在这里编辑。
+ */
+const VALUE_PARAMS: BoardNodeDefinition["params"] = [
+  {
+    id: "kind",
+    labelKey: "board.param.valueKind",
+    kind: "component",
+    control: "core.valueKind",
+    default: "text",
+  },
+  {
+    id: "value",
+    labelKey: "board.param.value",
+    kind: "component",
+    control: "core.value",
+    default: "",
+  },
+];
+
+const INPUT_VALUE: BoardNodeDefinition = {
+  type: "input.value",
+  titleKey: "board.node.inputValue",
+  category: "input",
+  order: 14,
+  inputs: [],
+  outputs: [{ id: "value", type: "number", labelKey: "board.port.value" }],
+  params: VALUE_PARAMS.map((spec) =>
+    spec.id === "kind" ? { ...spec, default: "number" } : spec,
+  ),
+  defaultSize: { width: MEDIA_WIDTH, height: 180 },
+};
+
+const DISPLAY_VALUE: BoardNodeDefinition = {
+  type: "display.value",
+  titleKey: "board.node.displayValue",
+  category: "display",
+  order: 34,
+  inputs: [{ id: "value", type: "text", labelKey: "board.port.value" }],
+  outputs: [{ id: "value", type: "text", labelKey: "board.port.value" }],
+  params: VALUE_PARAMS,
+  defaultSize: { width: MEDIA_WIDTH, height: 170 },
+};
+
+/** 值节点当前选的类型（没选 / 坏数据时回落到定义里的默认）。 */
+export function valueKindOf(node: BoardNode): BoardPortType {
+  const definition = nodeDefinition(node.type);
+  const raw = paramValue(definition, node.data.params, "kind");
+  return isDataTypeId(raw) ? raw : "text";
+}
+
 export const BOARD_NODES: BoardNodeDefinition[] = [
   INPUT_IMAGE,
   INPUT_VIDEO,
   INPUT_AUDIO,
   INPUT_TEXT,
+  INPUT_VALUE,
   DISPLAY_IMAGE,
   DISPLAY_VIDEO,
   DISPLAY_AUDIO,
   DISPLAY_TEXT,
+  DISPLAY_VALUE,
 ];
 
 const BY_TYPE = new Map(BOARD_NODES.map((definition) => [definition.type, definition]));
@@ -485,6 +548,14 @@ export function portsOf(
   const definition = nodeDefinition(node.type);
   // 插件缺失时用工程里存的端口快照兜底，端口与连线都还在。
   if (!definition) return node.data.ports ?? { inputs: [], outputs: [] };
+  if (definition.type === "input.value" || definition.type === "display.value") {
+    // 值节点的端口类型跟着 `params.kind` 走：插件注册了新类型，这里自动生效。
+    const kind = valueKindOf(node);
+    const port: BoardPortSpec = { id: "value", type: kind, labelKey: "board.port.value" };
+    return definition.type === "display.value"
+      ? { inputs: [port], outputs: [port] }
+      : { inputs: [], outputs: [port] };
+  }
   if (definition.type === "model.video") {
     const dynamic = videoInputsFor(node, context) ?? [FRAME_INIT, FRAME_END];
     return { inputs: [PROMPT_IN, NEGATIVE_IN, ...dynamic], outputs: definition.outputs };

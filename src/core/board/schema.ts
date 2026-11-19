@@ -16,6 +16,7 @@ import {
   type BoardViewport,
   type BoardWorkflowSource,
 } from "@/types/board";
+import { isDataTypeId, portsConnectable } from "./dataTypes";
 
 /** 空画布文档。 */
 export function emptyBoard(): BoardDoc {
@@ -28,14 +29,54 @@ export function emptyBoard(): BoardDoc {
   };
 }
 
-const PORT_TYPES: BoardPortType[] = ["text", "image", "video", "audio", "any"];
-
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** 端口类型现在来自注册表（内置 + 插件），所以只校验「id 写对了没有」。 */
 function isPortType(value: unknown): value is BoardPortType {
-  return typeof value === "string" && (PORT_TYPES as string[]).includes(value);
+  return isDataTypeId(value);
+}
+
+/**
+ * 值产物的上限：值端口传的是小 JSON，超过这个大小的值视为坏数据丢掉。
+ * 大数组 / 大文档该走 `blob`（引用）而不是往节点里塞。
+ */
+const MAX_VALUE_BYTES = 64 * 1024;
+const MAX_VALUE_DEPTH = 4;
+
+function isJsonValue(value: unknown, depth: number): boolean {
+  if (depth > MAX_VALUE_DEPTH) return false;
+  if (value === null) return true;
+  const kind = typeof value;
+  if (kind === "string" || kind === "boolean") return true;
+  if (kind === "number") return Number.isFinite(value as number);
+  if (Array.isArray(value)) return value.every((item) => isJsonValue(item, depth + 1));
+  if (isObject(value)) {
+    return Object.values(value).every((item) => isJsonValue(item, depth + 1));
+  }
+  return false;
+}
+
+/** 值产物归一化：键必须是类型 id，值是 JSON，整块不超过上限。 */
+function normalizeValues(raw: unknown): Record<string, unknown> | undefined {
+  if (!isObject(raw)) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!isDataTypeId(key)) continue;
+    if (value === undefined) continue;
+    if (!isJsonValue(value, 0)) continue;
+    out[key] = value;
+  }
+  const keys = Object.keys(out);
+  if (keys.length === 0) return undefined;
+  let encoded = "";
+  try {
+    encoded = JSON.stringify(out);
+  } catch {
+    return undefined;
+  }
+  return encoded.length > MAX_VALUE_BYTES ? undefined : out;
 }
 
 /** 归一化节点参数：只保留对象形态，缺省给空表。 */
@@ -75,6 +116,9 @@ function normalizePortList(raw: unknown): BoardPortSpec[] | null {
       type: item.type,
       labelKey: item.labelKey,
       ...(typeof item.max === "number" ? { max: item.max } : {}),
+      ...(item.channel === "inline" || item.channel === "blob" || item.channel === "stream"
+        ? { channel: item.channel }
+        : {}),
     });
   }
   return list;
@@ -122,6 +166,8 @@ function normalizeNode(raw: unknown): BoardNode | null {
   if (typeof rawData.outputAssetId === "string" && rawData.outputAssetId) {
     data.outputAssetId = rawData.outputAssetId;
   }
+  const values = normalizeValues(rawData.values);
+  if (values) data.values = values;
   if (Array.isArray(rawData.outputAssetIds)) {
     const ids = rawData.outputAssetIds.filter(
       (id): id is string => typeof id === "string" && id.length > 0,
@@ -260,7 +306,7 @@ export function normalizeBoard(raw: unknown, portTypeOf?: (nodeType: string, por
   };
 }
 
-/** 端口类型兼容：`any` 对谁都能连。 */
+/** 端口兼容：语义类型 + 传输通道都由注册表判定（`any` 通配）。 */
 export function portsCompatible(from: BoardPortType, to: BoardPortType): boolean {
-  return from === "any" || to === "any" || from === to;
+  return portsConnectable(from, to);
 }

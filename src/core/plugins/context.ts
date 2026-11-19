@@ -6,16 +6,22 @@
  */
 import { registerAdapter, type AdapterFn } from "@/core/board/adapters";
 import { registerNodeDefinition } from "@/core/board/registry";
+import { registerDataType } from "@/core/board/dataTypes";
 import { registerCommand, type CommandSpec } from "@/core/commandTable";
 import { registerControl, type ControlSpec } from "@/core/plugins/controls";
 import { registerPane, type PaneSpec } from "@/core/plugins/panes";
 import { registerPluginMessages, type Locale } from "@/i18n/translate";
 import { pluginHostInvoke } from "@/core/pluginHostApi";
-import type { BoardNodeDefinition } from "@/types/board";
+import type { BoardNodeDefinition, DataTypeSpec } from "@/types/board";
 
 export interface PluginContext {
   id: string;
   nodes: { register(definition: BoardNodeDefinition, run: AdapterFn): void };
+  /**
+   * 自定义数据类型：注册后可以出现在端口、值节点的类型下拉和连线判定里。
+   * 类型 id 必须唯一（内置类型不可覆盖），卸载插件时自动注销。
+   */
+  dataTypes: { register(spec: DataTypeSpec): void };
   commands: { register(spec: CommandSpec): void };
   i18n: { register(dicts: Partial<Record<Locale, Record<string, string>>>): void };
   /** 参数控件（`board.inspector` 注入点）。 */
@@ -42,6 +48,11 @@ export function createPluginContext(
       register(definition, run) {
         push(registerNodeDefinition(definition, pluginId));
         push(registerAdapter(definition.type, run, pluginId));
+      },
+    },
+    dataTypes: {
+      register(spec) {
+        push(registerDataType(pluginId, spec));
       },
     },
     commands: {

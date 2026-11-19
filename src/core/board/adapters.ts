@@ -28,6 +28,11 @@ export interface AdapterResult {
   text?: string;
   /** 文本模型的思考过程。 */
   reasoning?: string;
+  /**
+   * 值产物：`端口 id → JSON 值`（number / boolean / json / 插件自定义 inline 类型）。
+   * 素材走 `assetId` / `paths`，文本走 `text`，只有这两者表达不了的值才走这里。
+   */
+  values?: Record<string, unknown>;
   /** 产物素材类型。 */
   kind?: AssetKind;
 }
@@ -38,6 +43,8 @@ export interface AdapterIO {
   text(portId: string): string | null;
   asset(portId: string): { path: string; assetId: string } | null;
   refs(kind: AssetKind): string[];
+  /** 上游值端口当前发布的值（number / boolean / json / 插件类型）。 */
+  value(portId: string): unknown;
   progress(value: number, message?: string): void;
 }
 
@@ -94,6 +101,8 @@ const BUILTIN_TYPES = new Set([
   "model.enhance",
   "model.separate",
   "model.demux",
+  "input.value",
+  "display.value",
   "group",
 ]);
 

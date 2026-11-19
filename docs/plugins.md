@@ -83,18 +83,50 @@ export default {
 | API | 作用 |
 | --- | --- |
 | `ctx.nodes.register(def, run)` | 画布节点（`run` 收到 `{ node, nodeId, signal, io }`） |
+| `ctx.dataTypes.register(spec)` | 自定义数据类型（端口类型、值节点下拉、连线判定都会认它） |
 | `ctx.commands.register(spec)` | 命令 + 默认快捷键（`{ id, titleKey, key?, run }`） |
 | `ctx.controls.register({ id, component })` | 参数区自定义控件（配合 `params[].kind = "component"`） |
 | `ctx.panes.register({ id, titleKey, component })` | AI 面板里的插件页 |
 | `ctx.i18n.register({ zh, en })` | 插件词典，key 用 `@<插件 id>.<key>` 引用 |
 | `ctx.host.run(input)` | 调宿主半的 `run(input)`，拿到字符串结果 |
 
-`io` 提供 `param(id)` / `text(portId)` / `asset(portId)` / `refs(kind)` / `progress(v, msg)`。
+`io` 提供 `param(id)` / `text(portId)` / `asset(portId)` / `refs(kind)` / `value(portId)` / `progress(v, msg)`。
 `param(id)` 取的是**实际生效的值**：用户没改过的参数返回定义里的 `default`（节点卡片上
 显示的就是它），所以基址 / 端点这类「有默认值、通常不用改」的参数直接读即可；用户主动
 清空时拿到的是空串，不会被默认值顶回去。
 节点产物用返回值表达：`{ paths: [绝对路径] }`（自动入库）、`{ text }`（文本产物）、
-`{ pathByPort }`（多端口）、`{ assetId }`（透传已有素材）。
+`{ pathByPort }`（多端口）、`{ assetId }`（透传已有素材）、`{ values }`（值产物，
+`端口 id → JSON 值`，只用于 `number` / `boolean` / `json` 与插件自定义 inline 类型）。
+
+### 2.1 自定义数据类型
+
+画布只固定**传输通道**（`inline` / `blob` / `stream`）；语义类型在注册表里，
+插件可以在 `apply()` 里加自己的类型：
+
+```js
+apply(ctx) {
+  ctx.dataTypes.register({
+    id: "embedding",            // 小写字母开头，可带 . _ -，全局唯一（内置类型不可覆盖）
+    label: "Embedding",         // 兜底文案；有 i18n key `board.type.embedding` 时优先
+    channels: ["inline"],       // 首选在前；blob = 传引用，stream = 执行中分块
+    inline: "json",             // 值输入节点用哪种编辑器
+    color: "#123456",
+  });
+  ctx.nodes.register({
+    type: "ext.demo.embed",
+    // ...
+    inputs: [{ id: "text", type: "text", labelKey: "board.port.text" }],
+    outputs: [{ id: "vector", type: "embedding", labelKey: "board.port.value" }],
+    // ...
+  }, async ({ io }) => ({ values: { vector: vectorize(io.text("text") ?? "") } }));
+}
+```
+
+- 类型 id **不要加 `ext.` 前缀**：语义类型是跨插件共享的契约，前缀会把它锁死在你的插件里。
+- 卸载插件时类型自动注销；工程里引用该类型的端口快照与连线会保留，但类型回落到
+  「能接能搬」的未知类型（不会再被打断）。
+- 值输入 / 值显示节点从注册表取 `inline` 类型，所以你注册完不需要改核心代码，
+  两个节点会自动多出一个选项。
 
 ## 3. 宿主半
 

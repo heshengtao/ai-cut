@@ -35,7 +35,7 @@ import {
   updateLiveRun,
 } from "@/core/board/liveRuns";
 import { createRunSignals } from "@/core/board/runSignals";
-import { nodeOwner } from "@/core/board/registry";
+import { nodeDefinition, nodeOwner, paramValue, valueKindOf } from "@/core/board/registry";
 import { pluginHostCancel } from "@/core/pluginHostApi";
 
 /**
@@ -75,7 +75,7 @@ import { topologicalOrder } from "@/core/board/graph";
 import { llmChat, llmChatStream } from "@/core/agentApi";
 import { t } from "@/i18n";
 import { splitLlmValue } from "@/composables/useBoardLlm";
-import type { BoardEdge, BoardNode, BoardRunMode } from "@/types/board";
+import type { BoardEdge, BoardNode, BoardPortType, BoardRunMode } from "@/types/board";
 import type { LlmChatMessage, LlmContentPart } from "@/types/agent";
 import type { AssetKind } from "@/types/project";
 
@@ -135,7 +135,7 @@ interface UpstreamRef {
 function resolveUpstream(
   targetNodeId: string,
   targetPortId: string,
-  wanted: "text" | "image" | "video" | "audio" | "any",
+  wanted: BoardPortType,
   seen: Set<string> = new Set(),
 ): UpstreamRef | null {
   const board = useBoardStore();
@@ -148,7 +148,7 @@ function resolveUpstream(
 /** 从一条连线往上找真正产出素材的节点（多路输入逐条解析）。 */
 function resolveFromEdge(
   edge: BoardEdge,
-  wanted: "text" | "image" | "video" | "audio" | "any",
+  wanted: BoardPortType,
   seen: Set<string> = new Set(),
 ): UpstreamRef | null {
   const board = useBoardStore();
@@ -169,7 +169,7 @@ function resolveFromEdge(
       const next = resolveUpstream(
         source.id,
         input.id,
-        input.type === "any" ? wanted : (input.type as typeof wanted),
+        input.type === "any" ? wanted : input.type,
         seen,
       );
       if (next) return next;
@@ -188,7 +188,7 @@ function resolveFromEdge(
     const next = resolveUpstream(
       source.id,
       port.id,
-      port.type === "any" ? wanted : (port.type as typeof wanted),
+      port.type === "any" ? wanted : port.type,
       seen,
     );
     if (next) return next;
@@ -204,7 +204,56 @@ function resolveFromEdge(
  */
 function upstreamText(nodeId: string, portId: string): string | null {
   const source = resolveUpstream(nodeId, portId, "text");
-  return source ? (source.node.data.outputText ?? null) : null;
+  if (!source) return null;
+  // 值节点（`input.value`）选 text 类型时把值存在 `data.values` 里，其余节点存 `outputText`。
+  const direct = source.node.data.values?.[source.portId];
+  if (typeof direct === "string") return direct;
+  return source.node.data.outputText ?? null;
+}
+
+/** 某个节点某个输出端口当前发布的值产物（number / boolean / json / 插件类型）。 */
+function publishedValue(node: BoardNode, portId: string): unknown {
+  const context = portContext();
+  const ports = portsOf(node, context).outputs;
+  const id = ports.some((port) => port.id === portId) ? portId : (ports[0]?.id ?? portId);
+  const direct = node.data.values?.[id];
+  if (direct !== undefined) return direct;
+  const port = ports.find((item) => item.id === id);
+  // 文本型值端口沿用 `outputText`，别让同一份文本存两遍。
+  if (port?.type === "text") return node.data.outputText ?? null;
+  return null;
+}
+
+/** 上游已经发布的值产物。 */
+function upstreamValue(nodeId: string, portId: string): unknown {
+  const board = useBoardStore();
+  const context = portContext();
+  const target = board.nodes.find((item) => item.id === nodeId);
+  const targetPort = target
+    ? portsOf(target, context).inputs.find((port) => port.id === portId)
+    : null;
+  const source = resolveUpstream(nodeId, portId, targetPort?.type ?? "any");
+  return source ? publishedValue(source.node, source.portId) : null;
+}
+
+/** 值节点参数 → 输出值。JSON 文本解析失败时原样返回，不把一次运行弄挂。 */
+export function parseValueParam(kind: BoardPortType, raw: unknown): unknown {
+  if (kind === "number") {
+    const value = typeof raw === "number" ? raw : Number(raw);
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (kind === "boolean") {
+    return raw === true || raw === "true" || raw === 1 || raw === "1";
+  }
+  if (kind === "json") {
+    if (typeof raw !== "string") return raw ?? null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return raw;
+    }
+  }
+  return raw ?? "";
 }
 
 /** 上游已经**发布**的素材输出（按端口取；单端口节点仍读 `outputAssetId`）。 */
@@ -222,7 +271,7 @@ function upstreamAsset(
   const source = resolveUpstream(
     nodeId,
     portId,
-    (targetPort?.type as "image" | "video" | "audio" | undefined) ?? "any",
+    targetPort?.type ?? "any",
   );
   if (!source) return null;
   const assetId = publishedAssetId(source.node, source.portId, context);
@@ -252,7 +301,7 @@ function upstreamAssets(
   const source = resolveUpstream(
     nodeId,
     portId,
-    (targetPort?.type as "image" | "video" | "audio" | undefined) ?? "any",
+    targetPort?.type ?? "any",
   );
   if (!source) return { ids: [] };
   const primary = publishedAssetId(source.node, source.portId, context);
@@ -410,6 +459,7 @@ export async function runAdapter(
         return found ? { path: found.path, assetId: found.assetId } : null;
       },
       refs: (kind) => collectRefs(nodeId, kind),
+      value: (portId) => upstreamValue(nodeId, portId),
       progress: (value, message) =>
         updateLiveRun(nodeId, { progress: value, message: message ?? null }),
     };
@@ -437,6 +487,24 @@ export async function runAdapter(
   const model = splitModel(paramsOf(node).model);
 
   switch (node.type) {
+    case "input.value": {
+      // 端口类型跟着 `kind` 走；text 走 `text` 产物，其余走值产物。
+      const kind = valueKindOf(node);
+      const raw = paramValue(nodeDefinition(node.type), node.data.params, "value");
+      const value = parseValueParam(kind, raw);
+      if (kind === "text") {
+        return { values: { value }, text: typeof value === "string" ? value : "" };
+      }
+      return { values: { value } };
+    }
+
+    case "display.value": {
+      const value = upstreamValue(nodeId, "value");
+      return typeof value === "string"
+        ? { values: { value }, text: value }
+        : { values: { value } };
+    }
+
     case "input.image": {
       const project = useProjectStore();
       const ids = node.data.assetIds ?? (node.data.assetId ? [node.data.assetId] : []);
@@ -931,6 +999,7 @@ async function runOne(nodeId: string): Promise<boolean> {
       ...(result.text !== undefined
         ? { outputText: result.text, outputReasoning: result.reasoning ?? "" }
         : {}),
+      ...(result.values !== undefined ? { values: result.values } : {}),
     });
     return true;
   } catch (error) {

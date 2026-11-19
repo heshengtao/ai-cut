@@ -97,8 +97,13 @@ Canvas plugin invariants:
   `cancelled`; no `fs`, no `require`). The client half shares the editor's JS context and is
   **not sandboxed** — say so in any install confirmation.
 - **Registration is reversible**: every `ctx.*.register` returns a disposer; unloading a
-  plugin must leave no node types, commands, panes or message keys behind. Duplicate ids are
-  hard errors that name the current owner (do not silently overwrite).
+  plugin must leave no node types, commands, panes, data types or message keys behind.
+  Duplicate ids are hard errors that name the current owner (do not silently overwrite).
+- **Data types are a registry, not an enum**: core ids live in `core/board/dataTypes.ts`
+  (`text/image/video/audio/number/boolean/json/any`); plugins add more through
+  `ctx.dataTypes.register`. Connection checks go through `portsConnectable` (semantic type +
+  channel), never through a hard-coded union. Unknown types must still load with a fallback
+  spec — a project opened while a plugin is disabled keeps its ports and edges.
 - **Plugin files are served by `/plugins/{id}/{file}` only** (registry-scoped, single path
   segment, no traversal). Never route plugin code through `/file`, which can read any
   absolute path.

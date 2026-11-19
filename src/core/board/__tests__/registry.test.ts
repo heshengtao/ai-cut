@@ -21,9 +21,9 @@ function node(type: string, model?: string): BoardNode {
 }
 
 describe("registry", () => {
-  it("注册了 4 输入 + 4 显示 + 8 模型", () => {
-    expect(BOARD_NODES.filter((item) => item.category === "input")).toHaveLength(4);
-    expect(BOARD_NODES.filter((item) => item.category === "display")).toHaveLength(4);
+  it("注册了 5 输入 + 5 显示 + 8 模型", () => {
+    expect(BOARD_NODES.filter((item) => item.category === "input")).toHaveLength(5);
+    expect(BOARD_NODES.filter((item) => item.category === "display")).toHaveLength(5);
     expect(BOARD_NODES.filter((item) => item.category === "model")).toHaveLength(8);
     expect(nodeDefinition("model.video")).not.toBeNull();
     expect(nodeDefinition("nope")).toBeNull();

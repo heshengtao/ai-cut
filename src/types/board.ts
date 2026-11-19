@@ -18,8 +18,51 @@ export type { BoardWorkflowSource };
  */
 export type BoardRunMode = "manual" | "always" | "repeat";
 
-/** 端口（连线）的语义类型。 */
-export type BoardPortType = "text" | "image" | "video" | "audio" | "any";
+/**
+ * 端口（连线）的语义类型。
+ *
+ * 内核只固定**传输通道**，语义类型由 `core/board/dataTypes.ts` 的注册表维护：
+ * 内置类型见 `CoreDataType`，插件可以注册自己的类型（`DataTypeSpec.pluginId`），
+ * 所以这里保持开放联合而不是枚举。
+ */
+export type CoreDataType =
+  | "text"
+  | "image"
+  | "video"
+  | "audio"
+  | "number"
+  | "boolean"
+  | "json"
+  | "any";
+
+export type BoardPortType = CoreDataType | (string & {});
+
+/**
+ * 值的物理形态。
+ *
+ * - `inline`：小的 JSON 值（字符串 / 数字 / 布尔 / JSON 对象）；
+ * - `blob`：大二进制，画布上只传引用（素材 id / URL）；
+ * - `stream`：执行中分块产出（模型文本流）。
+ */
+export type ChannelKind = "inline" | "blob" | "stream";
+
+/** 一个语义类型在注册表里的声明。 */
+export interface DataTypeSpec {
+  id: BoardPortType;
+  /** 兜底标签；UI 优先用 i18n key `board.type.<id>`。 */
+  label: string;
+  /** 首选通道在前，后面的都是可接受通道。 */
+  channels: ChannelKind[];
+  mime?: string;
+  /** 值输入节点用哪种编辑器（只有 inline 类型需要）。 */
+  inline?: "text" | "number" | "boolean" | "json" | "color" | "url" | "none";
+  /** 端口 / 值卡的主题色。 */
+  color?: string;
+  /** 不用显式转换就可以连通的其它类型（双向判定）。 */
+  accepts?: BoardPortType[];
+  /** 由插件注册的类型：卸载插件时一并注销。 */
+  pluginId?: string;
+}
 
 /** 节点状态：运行中 / 完成 / 失败 / 上游变了（过期）。 */
 export type BoardNodeStatus =
@@ -59,6 +102,8 @@ export interface BoardPortSpec {
    * 节点检查器里多选。
    */
   max?: number;
+  /** 这个端口想强制走的通道；缺省用类型声明的首选通道。 */
+  channel?: ChannelKind;
 }
 
 /**
@@ -195,6 +240,14 @@ export interface BoardNodeData {
    * 与 `outputText` 分开存，输出附件卡用两个 tab 展示。
    */
   outputReasoning?: string;
+  /**
+   * 值端口（`number` / `boolean` / `json` / 插件自定义 inline 类型）的产物：
+   * `端口 id → JSON 值`。
+   *
+   * 素材仍然走 `outputAssetId`、文本仍然走 `outputText`——`values` 只承载
+   * 这两者表达不了的值，避免把所有输出都塞成一个万能字符串。
+   */
+  values?: Record<string, unknown>;
   /** 本次运行开始的时间戳（毫秒）；用于运行计时。 */
   startedAt?: number;
   /** 上一次运行的耗时（毫秒）；完成后用于节点角标。 */

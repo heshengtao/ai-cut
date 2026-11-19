@@ -3,6 +3,7 @@ import { createPinia } from "pinia";
 import { invoke } from "@/platform/tauri";
 import App from "./App.vue";
 import { initTheme } from "./composables/useTheme";
+import { registerValueControls } from "./core/board/valueControls";
 import { isTauri } from "./utils/platform";
 import { ensureCapabilities } from "./platform/capabilities";
 import "./i18n";
@@ -11,6 +12,9 @@ import "./assets/fonts.css";
 
 // 主题必须在挂载前应用：否则「上次选了深色」这件事在重新打开应用时会失效。
 initTheme();
+
+// 值节点的内置控件：和插件控件同一张注册表，必须在画布渲染前就位。
+registerValueControls();
 
 createApp(App).use(createPinia()).mount("#app");
 
