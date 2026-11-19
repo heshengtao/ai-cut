@@ -36,7 +36,7 @@ function setup() {
 function jsonInput(id: string, value: unknown): BoardNode {
   return node(id, "input.value", {
     params: { kind: "json", value: JSON.stringify(value) },
-    values: { value },
+    values: { value, list: Array.isArray(value) ? value : [value] },
   });
 }
 
@@ -87,25 +87,29 @@ describe("循环节点", () => {
     ]);
   });
 
-  it("次数模式：按 index 循环 N 次；多槽位一一对应收集", async () => {
+  it("次数模式：循环 N 次；接了数组就按数组前 N 项走，多槽位一一对应收集", async () => {
     const board = setup();
+    const items = jsonInput("items", ["甲", "乙"]);
+    board.addNode(items);
     board.addNode(node("s", "loop.start", { params: { mode: "count", count: 2 } }, 400));
     const end = board.nodes.find((item) => item.type === "loop.end")!;
     board.updateNodeData(end.id, { params: { slots: 2 } });
-    board.addNode(node("byIndex", "display.value", {}, 900));
     board.addNode(node("byItem", "display.value", {}, 900));
     connect(board, [
-      { id: "e1", source: "s", sourcePort: "index", target: "byIndex", targetPort: "value" },
-      { id: "e2", source: "byIndex", sourcePort: "value", target: end.id, targetPort: "in1" },
-      { id: "e3", source: "s", sourcePort: "item", target: "byItem", targetPort: "value" },
-      { id: "e4", source: "byItem", sourcePort: "value", target: end.id, targetPort: "in2" },
+      { id: "e0", source: "items", sourcePort: "value", target: "s", targetPort: "items" },
+      { id: "e1", source: "s", sourcePort: "item", target: "byItem", targetPort: "value" },
+      { id: "e2", source: "byItem", sourcePort: "value", target: end.id, targetPort: "in1" },
+      // 槽位 2 直接收输入节点的整组数组（每个循环行都收一次）。
+      { id: "e3", source: "items", sourcePort: "list", target: end.id, targetPort: "in2" },
     ]);
 
     const start = board.nodes.find((item) => item.id === "s")!;
     await runAdapter(start, "s");
     const values = board.nodes.find((item) => item.id === end.id)?.data.values;
-    expect(values?.out1).toEqual([0, 1]);
-    // 次数模式没有 items，当前项是 null。
-    expect(values?.out2).toEqual([null, null]);
+    expect(values?.out1).toEqual(["甲", "乙"]);
+    expect(values?.out2).toEqual([
+      ["甲", "乙"],
+      ["甲", "乙"],
+    ]);
   });
 });

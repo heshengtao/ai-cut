@@ -702,10 +702,10 @@ function addSubmenus(): BoardMenuItem[] {
       items: nodes.map((definition) => ({
         kind: "action" as const,
         id: `add-${definition.type}`,
-        label: i18n.t(definition.titleKey),
+        label: i18n.t(definition.menuTitleKey ?? definition.titleKey),
         icon: nodeIcon(definition.type),
         hint: definition.type,
-        searchText: `${definition.type} ${i18n.t(definition.titleKey)}`,
+        searchText: `${definition.type} ${i18n.t(definition.menuTitleKey ?? definition.titleKey)}`,
         run: () => addNode(definition.type),
       })),
     });
@@ -758,10 +758,10 @@ const menuItems = computed<BoardMenuItem[]>(() => {
         : candidates.map((candidate) => ({
             kind: "action" as const,
             id: `connect-${candidate.definition.type}`,
-            label: i18n.t(candidate.definition.titleKey),
+            label: i18n.t(candidate.definition.menuTitleKey ?? candidate.definition.titleKey),
             icon: nodeIcon(candidate.definition.type),
             hint: candidate.definition.type,
-            searchText: `${candidate.definition.type} ${i18n.t(candidate.definition.titleKey)}`,
+            searchText: `${candidate.definition.type} ${i18n.t(candidate.definition.menuTitleKey ?? candidate.definition.titleKey)}`,
             run: () => connectToNew(current, candidate),
           }))),
     ];

@@ -258,8 +258,9 @@ export function valueKindOf(node: BoardNode): BoardPortType {
  */
 const LOOP_START: BoardNodeDefinition = {
   type: "loop.start",
-  // 添加菜单里就叫「循环」：它和配对的结束节点是同一个东西的两端。
-  titleKey: "board.node.loop",
+  // 添加菜单里叫「循环」，节点卡片上仍是「循环开始」。
+  titleKey: "board.node.loopStart",
+  menuTitleKey: "board.node.loop",
   category: "group",
   order: 40,
   inputs: [{ id: "items", type: "json", labelKey: "board.port.items" }],
@@ -665,14 +666,8 @@ export function portsOf(
   // 插件缺失时用工程里存的端口快照兜底，端口与连线都还在。
   if (!definition) return node.data.ports ?? { inputs: [], outputs: [] };
   if (definition.type === "loop.start") {
-    const mode = String(paramValue(definition, node.data.params, "mode") ?? "array");
-    return {
-      inputs:
-        mode === "count"
-          ? []
-          : [{ id: "items", type: "json", labelKey: "board.port.items" }],
-      outputs: definition.outputs,
-    };
+    // 两种模式都给 `items` 输入：循环之外的节点总要能把值带进循环。
+    return { inputs: definition.inputs, outputs: definition.outputs };
   }
   if (definition.type === "loop.end") {
     const count = slotCount(paramValue(definition, node.data.params, "slots") ?? 1);

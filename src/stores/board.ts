@@ -1014,6 +1014,49 @@ export const useBoardStore = defineStore("board", () => {
     });
   }
 
+  /**
+   * 删掉循环结束节点的第 `index` 个输入（0 基）。
+   *
+   * 后面的输入整体前移一位：`in3 → in2`、`out3 → out2`，挂在它们上的连线
+   * 也一起改名，避免删中间一条后出现空洞端口。
+   */
+  function removeLoopInputAt(nodeId: string, index: number): void {
+    const node = nodes.value.find((item) => item.id === nodeId);
+    if (!node || node.type !== "loop.end") return;
+    const slots = Math.max(1, Math.min(8, Number(node.data.params.slots) || 1));
+    if (slots <= 1 || index < 0 || index >= slots) return;
+    const removed = index + 1;
+    const rename = (portId: string): string | null => {
+      const match = /^(in|out)(\d+)$/.exec(portId);
+      if (!match) return null;
+      const num = Number(match[2]);
+      if (num === removed) return "";
+      return num > removed ? `${match[1]}${num - 1}` : null;
+    };
+    commit(() => {
+      nodes.value = nodes.value.map((item) =>
+        item.id === nodeId
+          ? { ...item, data: { ...item.data, params: { ...item.data.params, slots: slots - 1 } } }
+          : item,
+      );
+      edges.value = edges.value
+        .filter((edge) => {
+          if (edge.target === nodeId) return rename(edge.targetPort) !== "";
+          if (edge.source === nodeId) return rename(edge.sourcePort) !== "";
+          return true;
+        })
+        .map((edge) => {
+          const targetPort = edge.target === nodeId ? rename(edge.targetPort) : null;
+          const sourcePort = edge.source === nodeId ? rename(edge.sourcePort) : null;
+          return {
+            ...edge,
+            ...(targetPort ? { targetPort } : {}),
+            ...(sourcePort ? { sourcePort } : {}),
+          };
+        });
+    });
+  }
+
   function setViewport(next: BoardViewport): void {
     viewport.value = { ...next };
     schedule();
@@ -1090,6 +1133,7 @@ export const useBoardStore = defineStore("board", () => {
     setEdgeSourcePort,
     removeEdges,
     setLoopInputCount,
+    removeLoopInputAt,
     setViewport,
     select,
     clear,

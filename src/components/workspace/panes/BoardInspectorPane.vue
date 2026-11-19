@@ -180,12 +180,21 @@ function addLoopInput(): void {
   board.setLoopInputCount(current.id, slots + 1);
 }
 
-function removeLoopInput(): void {
+function removeLoopInput(index: number): void {
   const current = node.value;
   if (!current || current.type !== "loop.end") return;
-  const slots = Math.max(1, Number(current.data.params.slots) || 1);
-  board.setLoopInputCount(current.id, slots - 1);
+  board.removeLoopInputAt(current.id, index);
 }
+
+/** 输入 / 显示 / 循环这类节点的多个输出是「一包值」，连线不用选端口。 */
+const isBundleOutputNode = computed(() => {
+  const type = node.value?.type ?? "";
+  return (
+    type.startsWith("input.") ||
+    type.startsWith("display.") ||
+    type.startsWith("loop.")
+  );
+});
 
 /** 端口显示名（同类型多路输入已经合并成一个端口，直接用端口标签）。 */
 function portLabel(port: BoardPortSpec): string {
@@ -956,17 +965,17 @@ function portReady(port: BoardPortSpec): boolean {
             <span>{{ i18n.t("board.loop.inputs") }}</span>
             <span class="binding-count">{{ loopInputRows.length }}</span>
           </div>
-          <div v-for="row in loopInputRows" :key="row.portId" class="binding-row">
+          <div v-for="row in loopInputRows" :key="row.portId" class="binding-row loop-input-row">
             <div class="binding-label">
               <span>{{ i18n.t("board.loop.inputN", { n: row.index }) }}</span>
               <span class="binding-type">{{ row.source ?? "—" }}</span>
             </div>
             <button
-              class="binding-remove"
+              class="loop-input-remove"
               type="button"
               :disabled="loopInputRows.length <= 1"
               :title="i18n.t('board.loop.removeInput')"
-              @click="removeLoopInput"
+              @click="removeLoopInput(row.index - 1)"
             >
               <XMarkIcon />
             </button>
@@ -1001,7 +1010,7 @@ function portReady(port: BoardPortSpec): boolean {
         </section>
 
         <!-- 输出连线：多输出节点（音频分轨 / 视频音频分离）每条下游走哪一路 -->
-        <section v-if="outputPorts.length > 1" class="binding-section">
+        <section v-if="outputPorts.length > 1 && !isBundleOutputNode" class="binding-section">
           <div class="binding-head">
             <LinkIcon />
             <span>{{ i18n.t("board.inspect.outBindings") }}</span>
@@ -1464,6 +1473,41 @@ function portReady(port: BoardPortSpec): boolean {
   text-transform: none;
   color: rgb(var(--md-on-surface-muted));
 }
+/* 循环输入行：标签与删除按钮横排，别让按钮在纵向 flex 里被拉成一整块。 */
+.loop-input-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.loop-input-remove {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--md-on-surface-muted));
+}
+
+.loop-input-remove:hover:not(:disabled) {
+  background: rgb(var(--md-error) / 0.12);
+  color: rgb(var(--md-error));
+}
+
+.loop-input-remove:disabled {
+  opacity: 0.3;
+}
+
+.loop-input-remove svg {
+  width: 13px;
+  height: 13px;
+}
+
 .binding-row {
   display: flex;
   flex-direction: column;

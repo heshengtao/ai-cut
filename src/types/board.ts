@@ -171,6 +171,8 @@ export interface BoardParamSpec {
 export interface BoardNodeDefinition {
   type: string;
   titleKey: string;
+  /** 添加菜单里显示的名字（缺省同 titleKey）；节点卡片仍用 titleKey。 */
+  menuTitleKey?: string;
   category: BoardCategory;
   /** 排序权重：输入在上、显示在下。 */
   order: number;

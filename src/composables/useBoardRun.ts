@@ -36,6 +36,7 @@ import {
 } from "@/core/board/liveRuns";
 import { createRunSignals } from "@/core/board/runSignals";
 import { nodeDefinition, nodeOwner, paramValue, valueKindOf } from "@/core/board/registry";
+import { portsCompatible } from "@/core/board/schema";
 import { pluginHostCancel } from "@/core/pluginHostApi";
 import { stackOf } from "@/core/board/stacks";
 import {
@@ -137,6 +138,8 @@ function numberParam(node: BoardNode, id: string, fallback: number): number {
 interface UpstreamRef {
   node: BoardNode;
   portId: string;
+  /** 产出这条值的连线：同类型多个输出时按连线顺序取值。 */
+  edgeId?: string;
 }
 
 function resolveUpstream(
@@ -183,7 +186,9 @@ function resolveFromEdge(
     }
     return { node: source, portId: sourcePorts.outputs[0]?.id ?? edge.sourcePort };
   }
-  if (!source.data.bypassed) return { node: source, portId: edge.sourcePort };
+  if (!source.data.bypassed) {
+    return { node: source, portId: edge.sourcePort, edgeId: edge.id };
+  }
   // 旁路：优先沿用同类型的、真的接了线的输入；没有就返回空。
   const inputs = portsOf(source, context).inputs.filter(
     (port) => wanted === "any" || port.type === wanted || port.type === "any",
@@ -204,6 +209,76 @@ function resolveFromEdge(
 }
 
 /**
+ * 「一包值」节点：输入 / 显示 / 循环开始结束。
+ *
+ * 它们的多个逻辑输出不是「让用户选一路」，而是同一包值里的不同字段；
+ * 下游按自己需要的类型取——精确类型优先，其次可兼容，最后才是 any。
+ * 同类型的多个值（例如循环结束的 out1 / out2）按连线顺序依次分配。
+ */
+function isBundleNode(node: BoardNode): boolean {
+  return (
+    node.type.startsWith("input.") ||
+    node.type.startsWith("display.") ||
+    node.type.startsWith("loop.")
+  );
+}
+
+function bundleRank(portType: BoardPortType, wanted: BoardPortType): number {
+  if (wanted === "any") {
+    // 消费方不挑类型时优先取 any 端口（例如循环的「当前项」），别把整数抢过去。
+    return portType === "any" ? 0 : 1;
+  }
+  if (portType === wanted) return 0;
+  if (portType === "any") return 2;
+  if (portsCompatible(portType, wanted)) return 1;
+  return -1;
+}
+
+function bundlePick(
+  node: BoardNode,
+  wanted: BoardPortType,
+  edgeId: string | undefined,
+): { portId: string; value: unknown } | null {
+  const context = portContext();
+  const project = useProjectStore();
+  const media = wanted === "image" || wanted === "video" || wanted === "audio";
+  const candidates = portsOf(node, context)
+    .outputs.map((port) => ({
+      portId: port.id,
+      portType: port.type,
+      value: publishedValue(node, port.id),
+    }))
+    .filter((item) => item.value !== null && item.value !== undefined)
+    .filter((item) => {
+      if (!media) return true;
+      return (
+        typeof item.value === "string" &&
+        project.doc.assets.some((asset) => asset.id === item.value)
+      );
+    })
+    .map((item) => ({ ...item, rank: bundleRank(item.portType, wanted) }))
+    .filter((item) => item.rank >= 0)
+    .sort((a, b) => a.rank - b.rank);
+  if (candidates.length === 0) return null;
+  const top = candidates.filter((item) => item.rank === candidates[0]!.rank);
+  if (top.length === 1) return { portId: top[0]!.portId, value: top[0]!.value };
+  // 同类型的多个输出：按这条连线的先后顺序轮流取（out1 / out2 …）。
+  const edges = useBoardStore().edges.filter((edge) => edge.source === node.id);
+  const index = Math.max(0, edges.findIndex((edge) => edge.id === edgeId));
+  const picked = top[index % top.length]!;
+  return { portId: picked.portId, value: picked.value };
+}
+
+function bundleValue(
+  node: BoardNode,
+  wanted: BoardPortType,
+  edgeId: string | undefined,
+): unknown {
+  if (!isBundleNode(node)) return undefined;
+  return bundlePick(node, wanted, edgeId)?.value;
+}
+
+/**
  * 上游已经**发布**的文本输出。
  *
  * 只读 `outputText`，不读输入节点的参数草案：画布是显式执行的，上游没有运行
@@ -212,6 +287,10 @@ function resolveFromEdge(
 function upstreamText(nodeId: string, portId: string): string | null {
   const source = resolveUpstream(nodeId, portId, "text");
   if (!source) return null;
+  if (isBundleNode(source.node)) {
+    const value = bundleValue(source.node, "text", source.edgeId);
+    if (value !== null && value !== undefined) return String(value);
+  }
   // 值节点（`input.value`）选 text 类型时把值存在 `data.values` 里，其余节点存 `outputText`。
   const direct = source.node.data.values?.[source.portId];
   if (typeof direct === "string") return direct;
@@ -240,7 +319,12 @@ function upstreamValue(nodeId: string, portId: string): unknown {
     ? portsOf(target, context).inputs.find((port) => port.id === portId)
     : null;
   const source = resolveUpstream(nodeId, portId, targetPort?.type ?? "any");
-  return source ? publishedValue(source.node, source.portId) : null;
+  if (!source) return null;
+  if (isBundleNode(source.node)) {
+    const value = bundleValue(source.node, targetPort?.type ?? "any", source.edgeId);
+    if (value !== undefined) return value;
+  }
+  return publishedValue(source.node, source.portId);
 }
 
 /** 值节点参数 → 输出值。JSON 文本解析失败时原样返回，不把一次运行弄挂。 */
@@ -286,7 +370,12 @@ function upstreamAsset(
     targetPort?.type ?? "any",
   );
   if (!source) return null;
-  const assetId = publishedAssetId(source.node, source.portId, context);
+  const assetId = isBundleNode(source.node)
+    ? (() => {
+        const value = bundleValue(source.node, targetPort?.type ?? "any", source.edgeId);
+        return typeof value === "string" ? value : null;
+      })()
+    : publishedAssetId(source.node, source.portId, context);
   if (!assetId) return null;
   const asset = project.doc.assets.find((item) => item.id === assetId);
   if (!asset) return null;
@@ -316,6 +405,19 @@ function upstreamAssets(
     targetPort?.type ?? "any",
   );
   if (!source) return { ids: [] };
+  if (isBundleNode(source.node)) {
+    const value = bundleValue(source.node, targetPort?.type ?? "any", source.edgeId);
+    const list = Array.isArray(value)
+      ? value
+      : typeof value === "string"
+        ? [value]
+        : [];
+    const ids = list.filter(
+      (id): id is string =>
+        typeof id === "string" && project.doc.assets.some((asset) => asset.id === id),
+    );
+    return { ids, primary: ids[0] };
+  }
   const primary = publishedAssetId(source.node, source.portId, context);
   const ids = publishedAssetIds(source.node, source.portId, context).filter((id) =>
     project.doc.assets.some((asset) => asset.id === id),
@@ -352,7 +454,12 @@ function collectRefs(nodeId: string, kind: "image" | "audio" | "video"): string[
     if (edge.target !== nodeId || !portIds.has(edge.targetPort)) continue;
     const ref = resolveFromEdge(edge, kind);
     if (!ref) continue;
-    const assetId = publishedAssetId(ref.node, ref.portId, context);
+    const assetId = isBundleNode(ref.node)
+      ? (() => {
+          const value = bundleValue(ref.node, kind, ref.edgeId);
+          return typeof value === "string" ? value : null;
+        })()
+      : publishedAssetId(ref.node, ref.portId, context);
     const asset = assetId ? project.doc.assets.find((item) => item.id === assetId) : null;
     if (asset) paths.push(asset.src);
   }
@@ -1006,10 +1113,13 @@ async function runLoop(start: BoardNode, signal: AbortSignal): Promise<AdapterRe
   if (!end) throw new Error("循环缺少结束节点");
   const rawCount = Number(paramValue(definition, start.data.params, "count") ?? 4);
   const count = Math.max(1, Math.min(999, Number.isFinite(rawCount) ? Math.round(rawCount) : 4));
+  const provided = normalizeItems(upstreamValue(start.id, "items"));
   const items =
     mode === "array"
-      ? normalizeItems(upstreamValue(start.id, "items"))
-      : Array.from({ length: count }, () => null);
+      ? provided
+      : provided.length > 0
+        ? provided.slice(0, count)
+        : Array.from({ length: count }, () => null);
 
   const bodyIds = loopBodyIds(start.id, board.nodes, board.edges);
   const byId = new Map(board.nodes.map((node) => [node.id, node]));
