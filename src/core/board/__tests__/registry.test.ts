@@ -21,10 +21,10 @@ function node(type: string, model?: string): BoardNode {
 }
 
 describe("registry", () => {
-  it("注册了 5 输入 + 5 显示 + 8 模型", () => {
+  it("注册了 5 输入 + 7 显示 + 12 模型", () => {
     expect(BOARD_NODES.filter((item) => item.category === "input")).toHaveLength(5);
-    expect(BOARD_NODES.filter((item) => item.category === "display")).toHaveLength(5);
-    expect(BOARD_NODES.filter((item) => item.category === "model")).toHaveLength(8);
+    expect(BOARD_NODES.filter((item) => item.category === "display")).toHaveLength(7);
+    expect(BOARD_NODES.filter((item) => item.category === "model")).toHaveLength(12);
     expect(nodeDefinition("model.video")).not.toBeNull();
     expect(nodeDefinition("nope")).toBeNull();
   });
@@ -259,6 +259,11 @@ describe("registry", () => {
   it("节点宽度按分类统一", () => {
     for (const definition of BOARD_NODES) {
       if (definition.category === "group") continue;
+      // 迭代容器是特例：它要装下一段子工作流，宽度/高度都更大。
+      if (definition.type === "batch") {
+        expect(definition.defaultSize.width).toBe(520);
+        continue;
+      }
       expect(definition.defaultSize.width).toBe(
         definition.category === "model" ? 400 : 380,
       );

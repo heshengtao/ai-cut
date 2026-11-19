@@ -12,6 +12,11 @@ import { defineStore } from "pinia";
 import { useProjectStore } from "@/stores/project";
 import { emptyBoard, normalizeBoard, portsCompatible } from "@/core/board/schema";
 import {
+  batchFrameRect,
+  clampBatchSize,
+  insideBatchFrame,
+} from "@/core/board/batchFrame";
+import {
   MEDIA_WIDTH,
   MODEL_WIDTH,
   nodeDefinition,
@@ -60,6 +65,7 @@ function cloneNodes(nodes: BoardNode[]): BoardNode[] {
       bindings: { ...node.data.bindings },
       ...(node.data.outputs ? { outputs: { ...node.data.outputs } } : {}),
       ...(node.data.values ? { values: { ...node.data.values } } : {}),
+      ...(node.data.rows ? { rows: { ...node.data.rows } } : {}),
       ...(node.data.assetIds ? { assetIds: [...node.data.assetIds] } : {}),
       ...(node.data.outputAssetIds ? { outputAssetIds: [...node.data.outputAssetIds] } : {}),
     },
@@ -300,14 +306,19 @@ export const useBoardStore = defineStore("board", () => {
     size: { width: number; height: number },
     options: { record?: boolean } = {},
   ): void {
+    const target = nodes.value.find((node) => node.id === nodeId);
+    const next = target?.type === "batch" ? clampBatchSize(size) : size;
+    // 收起容器框时不要重新判定成员（否则框一变小，子工作流会被清空）。
+    const growing = next.height >= (target?.size?.height ?? 0);
     const apply = () => {
       nodes.value = nodes.value.map((node) =>
-        node.id === nodeId ? { ...node, size: { ...size } } : node,
+        node.id === nodeId ? { ...node, size: { ...next } } : node,
       );
     };
     if (options.record === false) {
       apply();
       refreshGroupMembership([nodeId]);
+      if (target?.type === "batch" && growing) refreshBatchMembership();
       schedule();
       return;
     }
@@ -315,6 +326,8 @@ export const useBoardStore = defineStore("board", () => {
     // 尺寸变化可能让节点中心移出组框（或把组框撑大）：跟着维护成员与组框。
     refreshGroupMembership([nodeId]);
     syncGroupBounds();
+    // 迭代容器变大：落在框里的节点进入子工作流；变小（收起）时保持成员不变。
+    if (target?.type === "batch" && growing) refreshBatchMembership();
   }
 
   function updateNode(nodeId: string, patch: Partial<BoardNode>): void {
@@ -540,7 +553,9 @@ export const useBoardStore = defineStore("board", () => {
     for (const id of expanded) {
       wanted.add(id);
       const node = nodes.value.find((item) => item.id === id);
-      if (node?.type === "group") for (const child of node.data.children ?? []) wanted.add(child);
+      if (node?.type === "group" || node?.type === "batch") {
+        for (const child of node.data.children ?? []) wanted.add(child);
+      }
     }
     commit(() => {
       nodes.value = nodes.value
@@ -667,6 +682,71 @@ export const useBoardStore = defineStore("board", () => {
   }
 
   /** 整组启用 / 禁用 / 旁路：组节点和组员一起改。 */
+  /**
+   * 按几何关系同步迭代容器的成员（和组一样的视觉容器语义）。
+   *
+   * 节点的**中心点**落在容器框里就属于这个迭代；拖出去就离开。给了 `ids` 时只
+   * 重新判定这些节点（拖进来的节点），避免拖动容器本身时把路过的节点吸进来。
+   */
+  function refreshBatchMembership(ids?: string[]): void {
+    const batches = nodes.value.filter((node) => node.type === "batch");
+    if (batches.length === 0) return;
+    const targets = new Set(
+      ids ??
+        nodes.value
+          .filter((node) => node.type !== "batch" && node.type !== "group")
+          .map((node) => node.id),
+    );
+    if (targets.size === 0) return;
+
+    const owner = new Map<string, string>();
+    for (const batch of batches) {
+      for (const child of batch.data.children ?? []) {
+        if (!owner.has(child)) owner.set(child, batch.id);
+      }
+    }
+
+    const assignment = new Map<string, string>();
+    for (const node of nodes.value) {
+      if (!targets.has(node.id) || node.type === "batch" || node.type === "group") continue;
+      const current = owner.get(node.id);
+      const currentBatch = batches.find((batch) => batch.id === current);
+      const currentFrame = currentBatch ? batchFrameRect(currentBatch) : null;
+      if (currentFrame && insideBatchFrame(node, currentFrame)) {
+        assignment.set(node.id, currentBatch!.id);
+        continue;
+      }
+      let best: { id: string; area: number } | null = null;
+      for (const batch of batches) {
+        const frame = batchFrameRect(batch);
+        if (!frame || !insideBatchFrame(node, frame)) continue;
+        const area = frame.width * frame.height;
+        if (!best || area < best.area) best = { id: batch.id, area };
+      }
+      if (best) assignment.set(node.id, best.id);
+    }
+
+    let changed = false;
+    const next = nodes.value.map((node) => {
+      if (node.type !== "batch") return node;
+      const desired = new Set(
+        (node.data.children ?? []).filter((id) => !targets.has(id)),
+      );
+      for (const [id, batchId] of assignment) {
+        if (batchId === node.id) desired.add(id);
+      }
+      const before = node.data.children ?? [];
+      const same =
+        before.length === desired.size && before.every((id) => desired.has(id));
+      if (same) return node;
+      changed = true;
+      return { ...node, data: { ...node.data, children: [...desired] } };
+    });
+    if (changed) commit(() => {
+      nodes.value = next;
+    });
+  }
+
   function setGroupFlag(groupId: string, patch: Partial<BoardNodeData>): void {
     const group = nodes.value.find((node) => node.id === groupId);
     if (!group) return;
@@ -1002,6 +1082,7 @@ export const useBoardStore = defineStore("board", () => {
     syncGroupBounds,
     setGroupFlag,
     refreshGroupMembership,
+    refreshBatchMembership,
     insertWorkflow,
     connect,
     bindPort,
