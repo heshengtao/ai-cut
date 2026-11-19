@@ -251,7 +251,18 @@ impl NetworkRuntime {
         }
     }
 
+    /// reqwest 用 `rustls-no-provider`：建 Client 之前进程里必须装一个加密实现。
+    /// 放在这里是因为它是**所有** HTTP 客户端的唯一入口（字体 / 云端 / 插件都走它）。
+    fn ensure_crypto_provider() {
+        use std::sync::Once;
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        });
+    }
+
     pub fn client_builder(&self) -> reqwest::ClientBuilder {
+        Self::ensure_crypto_provider();
         let config = self.get();
         let route = Self::resolve_proxy(config.proxy_mode, &config.proxy_url);
         let builder = reqwest::Client::builder()

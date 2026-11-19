@@ -75,12 +75,16 @@ export type BoardParamKind =
   | "select"
   | "toggle"
   | "seed"
-  | "size";
+  | "size"
+  /** 插件提供的控件（`BoardParamSpec.control` 指向注册 id）。 */
+  | "component";
 
 export interface BoardParamSpec {
   id: string;
   labelKey: string;
   kind: BoardParamKind;
+  /** `kind === "component"` 时生效：控件注册 id（见 `core/plugins/controls.ts`）。 */
+  control?: string;
   /** `select` 的选项（值 + i18n key）。 */
   options?: { value: string; labelKey: string }[];
   min?: number;
@@ -135,6 +139,11 @@ export interface BoardNodeDefinition {
   assetKind?: AssetKind;
   /** 是否在节点卡片底部展开实时输出（模型节点）。 */
   liveOutput?: boolean;
+  /**
+   * 调度声明：插件节点必须声明泳道，否则不参与运行（`nodeCost` 返回 null）。
+   * 内置节点不填，仍走 `scheduler.ts` 里的既有估算。
+   */
+  cost?: { lane: "instant" | "api" | "gpu" | "cpu"; vramMb?: number; ramMb?: number };
 }
 
 /** 参数绑定到上游端口。 */
@@ -148,6 +157,11 @@ export interface BoardNodeData {
   title?: string;
   params: Record<string, unknown>;
   bindings: Record<string, BoardBinding>;
+  /**
+   * 端口快照：插件节点在工程里存一份自己的端口定义。
+   * 插件被卸载后仍能据此恢复端口与连线（`portsOf` 在定义缺失时回退到它）。
+   */
+  ports?: { inputs: BoardPortSpec[]; outputs: BoardPortSpec[] };
   /** 输入 / 显示节点引用的素材。 */
   assetId?: string;
   /** 图片输入可以放多张（牌堆）；`assetId` 始终等于当前展示那张。 */

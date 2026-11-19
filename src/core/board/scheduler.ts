@@ -17,7 +17,7 @@
  * 「智能排序」按「解锁多少下游」优先：先跑卡在关键路径上的节点，分支多时
  * 整体完成更早；关掉就按画布顺序。
  */
-import { splitModelValue } from "./registry";
+import { nodeDefinition, splitModelValue } from "./registry";
 import type { BoardNode } from "@/types/board";
 
 export type RunLane = "instant" | "api" | "gpu" | "cpu";
@@ -99,6 +99,16 @@ function vramForLocal(type: string, modelId: string | null): number {
 export function nodeCost(node: BoardNode): NodeCost | null {
   const type = node.type;
   if (type === "group") return null;
+  // 插件节点（ext.*）只认自己声明的泳道；没声明就不跑，绝不默认进 gpu 泳道。
+  if (type.startsWith("ext.")) {
+    const declared = nodeDefinition(type)?.cost;
+    if (!declared) return null;
+    return {
+      lane: declared.lane,
+      vramMb: declared.vramMb ?? 0,
+      ramMb: declared.ramMb ?? 64,
+    };
+  }
   if (type.startsWith("input.") || type.startsWith("display.")) {
     return { lane: "instant", vramMb: 0, ramMb: 16 };
   }

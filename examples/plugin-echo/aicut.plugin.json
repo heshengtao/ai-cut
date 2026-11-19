@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "id": "@aicut/plugin-echo",
+  "version": "0.1.0",
+  "engines": { "aicut": ">=1.3.0" },
+  "host": "./host.js",
+  "client": "./client.js",
+  "inject": ["http"],
+  "external": [],
+  "capabilities": { "net": [] },
+  "contributes": { "nodes": ["ext.echo.text"], "slots": [] }
+}

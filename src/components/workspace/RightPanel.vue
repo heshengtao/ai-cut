@@ -23,6 +23,7 @@ import OpsPane from "./panes/OpsPane.vue";
 import AiPane from "./panes/AiPane.vue";
 import ModelsPane from "./panes/ModelsPane.vue";
 import PluginsPane from "./panes/PluginsPane.vue";
+import ExtensionsPane from "./panes/ExtensionsPane.vue";
 import PluginEditorPane from "./panes/PluginEditorPane.vue";
 import ClipAgentPanel from "./agent/ClipAgentPanel.vue";
 import CutReviewPane from "./panes/CutReviewPane.vue";
@@ -43,6 +44,7 @@ const ICONS: Record<PaneId, unknown> = {
   ai: SparklesIcon,
   models: CpuChipIcon,
   plugins: PuzzlePieceIcon,
+  extensions: PuzzlePieceIcon,
   cutReview: ScissorsIcon,
   pluginEditor: AdjustmentsHorizontalIcon,
   boardInspector: Squares2X2Icon,
@@ -94,6 +96,7 @@ const activeKey = computed(() =>
           <AiPane v-else-if="layout.activeTab === 'ai'" />
           <ModelsPane v-else-if="layout.activeTab === 'models'" />
           <PluginsPane v-else-if="layout.activeTab === 'plugins'" />
+          <ExtensionsPane v-else-if="layout.activeTab === 'extensions'" />
           <CutReviewPane v-else-if="layout.activeTab === 'cutReview'" />
           <PluginEditorPane v-else-if="layout.activeTab === 'pluginEditor'" />
           <BoardInspectorPane v-else-if="layout.activeTab === 'boardInspector'" />

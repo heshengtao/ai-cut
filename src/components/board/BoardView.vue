@@ -74,12 +74,14 @@ import { portsCompatible } from "@/core/board/schema";
 import { wouldCreateCycle } from "@/core/board/graph";
 import {
   BOARD_NODES,
+  boardRegistryRevision,
   nodeDefinition,
   nodesByCategory,
   portsOf,
 } from "@/core/board/registry";
 import { boardCloudPresets, boardCloudProviders } from "@/composables/useBoardCloudOptions";
 import { useBoardPortContext } from "@/composables/useBoardPortContext";
+import { mediaNodeSize } from "@/core/board/mediaFit";
 import { useModelsStore } from "@/stores/models";
 import {
   connectCandidates,
@@ -159,10 +161,15 @@ const {
   onConnectEnd,
   getNodes,
   getSelectedNodes,
+  onNodesInitialized,
   updateNode,
 } = useVueFlow();
 
-const groups = computed(() => nodesByCategory());
+const groups = computed(() => {
+  // 插件注册 / 卸载节点后，「添加节点」菜单要跟着变（注册表本身不是响应式的）。
+  void boardRegistryRevision();
+  return nodesByCategory();
+});
 
 /**
  * Vue Flow 1.x 没有 `selectionOnDrag`：框选靠 `selectionKeyCode` 驱动。
@@ -330,6 +337,11 @@ function syncEdges(): void {
 
 watch(() => board.nodes, syncNodes, { deep: false });
 watch(() => board.edges, syncEdges, { deep: false });
+/**
+ * 插件注册 / 卸载节点后重新排一次尺寸：插件节点创建时没存 `size`，
+ * 卡片尺寸来自定义里的 `defaultSize`，定义晚到就得再同步一遍。
+ */
+watch(boardRegistryRevision, syncNodes);
 
 onMounted(() => {
   void models.load();
@@ -547,11 +559,10 @@ function inputTypeOf(kind: AssetKind): string {
   return kind === "image" ? "input.image" : kind === "video" ? "input.video" : "input.audio";
 }
 
-/** 按素材原始比例给图片 / 视频节点一个合适的初始高度（与卡片内的 fit 同一套夹取）。 */
+/** 按素材原始比例给图片 / 视频节点一个合适的初始高度（与卡片内的 fit 共用一份规则）。 */
 function fitNodeToAsset(id: string, asset: MediaAsset, width: number): void {
   if (asset.kind === "audio" || !asset.width || !asset.height) return;
-  const height = Math.min(1200, Math.max(140, Math.round(width * (asset.height / asset.width))));
-  board.resizeNode(id, { width, height }, { record: false });
+  board.resizeNode(id, mediaNodeSize(width, asset.width, asset.height), { record: false });
 }
 
 /** 素材库拖到空白处：建一个对应的输入节点并把素材挂上去。 */
@@ -1411,6 +1422,32 @@ function onKeyDown(event: KeyboardEvent): void {
 function onFlowInit(): void {
   void setViewport({ x: board.viewport.x, y: board.viewport.y, zoom: board.viewport.zoom });
 }
+
+/**
+ * 本进程是否已经自动「适应画布」过。
+ *
+ * 模块级而不是组件级：切到预览台再切回画布会重新挂载，但只有**重启后第一次**
+ * 进入画布要自动居中；之后再进来沿用用户调好的视角。
+ */
+let fittedOnEnter = false;
+
+/**
+ * 重启后第一次进入画布：等节点测量完（`onNodesInitialized`）再 fit，
+ * 否则空画布 / 尺寸还没测出来时 fit 出来的位置是错的。
+ */
+function fitOnFirstEnter(): void {
+  if (fittedOnEnter) return;
+  if (board.nodes.length === 0) return;
+  fittedOnEnter = true;
+  void fitView({ padding: 0.2, duration: 260 }).then((done) => {
+    if (!done) return;
+    const viewport = getViewport();
+    board.setViewport(viewport);
+    liveZoom.value = viewport.zoom;
+  });
+}
+
+onNodesInitialized(fitOnFirstEnter);
 
 onMounted(() => {
   layout.openTab("boardInspector");

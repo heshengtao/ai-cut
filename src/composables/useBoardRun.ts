@@ -20,6 +20,31 @@ import { useVideoAiStore } from "@/stores/videoAi";
 import { useAudioAiStore } from "@/stores/audioAi";
 import { useCloudGenStore } from "@/stores/cloudGen";
 import { cloudGenImage, cloudGenVideo } from "@/core/cloudGenApi";
+import {
+  adapterFor,
+  dispatchAdapter,
+  paramReader,
+  type AdapterIO,
+  type AdapterResult,
+} from "@/core/board/adapters";
+import {
+  beginLiveRun,
+  endLiveRun,
+  liveRun,
+  liveRuns,
+  updateLiveRun,
+} from "@/core/board/liveRuns";
+import { createRunSignals } from "@/core/board/runSignals";
+import { nodeOwner } from "@/core/board/registry";
+import { pluginHostCancel } from "@/core/pluginHostApi";
+
+/**
+ * 运行中的实时状态（文本流 / 进度 / 开始时间）。
+ *
+ * 不写进节点文档：每个 token / 每个 step 都落盘会把画布写爆；节点卡片直接读
+ * 这份内存状态（`core/board/liveRuns`），运行结束再把最终产物写回 `data`。
+ */
+export { liveRuns };
 import { addAsset } from "@/core/ops";
 import {
   DEFAULT_RUN_LIMITS,
@@ -33,6 +58,7 @@ import {
   isReferenceVideoModel,
   portsOf,
   publishedAssetId,
+  publishedAssetIds,
   splitModelValue,
   stemPortId,
 } from "@/core/board/registry";
@@ -55,22 +81,6 @@ import type { AssetKind } from "@/types/project";
 
 export type { BoardRunMode } from "@/types/board";
 
-interface AdapterResult {
-  /** 产物路径（会自动入库）；单端口节点的多次产物（例如一次出 4 张图）都放这里。 */
-  paths?: string[];
-  /** 多端口节点：`端口 id → 产物路径`（会自动入库）。 */
-  pathByPort?: Record<string, string>;
-  /** 多端口节点：`端口 id → 已有素材 id`（例如视频音频分离把原视频原样透传）。 */
-  assetByPort?: Record<string, string>;
-  /** 已有素材 id：输入 / 显示节点只是把现有素材发布到输出，不重复入库。 */
-  assetId?: string;
-  /** 文本产物（不入库）。 */
-  text?: string;
-  /** 文本模型的思考过程（推理模型）。 */
-  reasoning?: string;
-  /** 产物素材类型。 */
-  kind?: AssetKind;
-}
 
 /** 待跑队列（还没开始的节点 id）。工具栏的计数器显示它。 */
 const queue = ref<string[]>([]);
@@ -88,22 +98,8 @@ const smartOrder = ref(true);
 const smartMemory = ref(true);
 /** 本次运行按泳道汇总（运行面板 / 工具栏提示用）。 */
 const plan = ref<ReturnType<typeof summarizeRun> | null>(null);
-/**
- * 运行中的实时状态（文本流 / 进度 / 开始时间）。
- *
- * 不写进节点文档：每个 token / 每个 step 都落盘会把画布写爆；BoardNode 直接读
- * 这份内存状态，运行结束再把最终产物写回 `data`。
- */
-export interface LiveRun {
-  startedAt: number;
-  /** 0..1；null 表示还没有可解析的进度（显示不确定进度环）。 */
-  progress: number | null;
-  /** 当前步骤 / 状态说明，例如 `12 / 20` 或云端排队信息。 */
-  message: string | null;
-  text: string;
-  reasoning: string;
-}
-const liveRuns = reactive<Record<string, LiveRun>>({});
+/** 每节点取消信号：并行时停一个节点不再误伤别的分支。 */
+const signals = createRunSignals();
 const mode = ref<BoardRunMode>("manual");
 const repeatCount = ref(1);
 let cancelled = false;
@@ -237,6 +233,36 @@ function upstreamAsset(
 }
 
 /**
+ * 上游已经**发布**的整摞素材（按端口取；`primary` 是上游当前对外发布的那张）。
+ *
+ * 图片显示节点用整摞做多图牌堆，单张节点只用 `primary`——两者语义都从
+ * `publishedAssetIds` 来，不会出现「显示节点只拿到第一张」的割裂。
+ */
+function upstreamAssets(
+  nodeId: string,
+  portId: string,
+): { ids: string[]; primary?: string } {
+  const board = useBoardStore();
+  const project = useProjectStore();
+  const context = portContext();
+  const target = board.nodes.find((item) => item.id === nodeId);
+  const targetPort = target
+    ? portsOf(target, context).inputs.find((port) => port.id === portId)
+    : null;
+  const source = resolveUpstream(
+    nodeId,
+    portId,
+    (targetPort?.type as "image" | "video" | "audio" | undefined) ?? "any",
+  );
+  if (!source) return { ids: [] };
+  const primary = publishedAssetId(source.node, source.portId, context);
+  const ids = publishedAssetIds(source.node, source.portId, context).filter((id) =>
+    project.doc.assets.some((asset) => asset.id === id),
+  );
+  return { ids, primary: primary && ids.includes(primary) ? primary : ids[0] };
+}
+
+/**
  * 收集某个类型的所有上游参考（按检查器里排好的顺序）。
  *
  * 同类型多路输入合并成一个端口后，一个端口可能挂着多条连线；这里逐条
@@ -365,8 +391,43 @@ function liveProgressPct(node: BoardNode): number | null {
   }
 }
 
-/** 单个节点的适配器：把画布参数翻译成现有 API 的调用。 */
-async function runAdapter(node: BoardNode, nodeId: string): Promise<AdapterResult> {
+/** 单个节点的适配器：把画布参数翻译成现有 API 的调用。（导出给单测。） */
+export async function runAdapter(
+  node: BoardNode,
+  nodeId: string,
+  signal: AbortSignal = new AbortController().signal,
+): Promise<AdapterResult> {
+  const route = dispatchAdapter(node.type);
+  if (route === "plugin") {
+    const readParam = paramReader(node);
+    const io: AdapterIO = {
+      // 只读 `data.params` 的话，没被用户改过的参数就是 `undefined`——卡片上明明
+      // 显示着定义里的默认值（插件作者也因此以为 `io.param` 拿得到），要回落。
+      param: <T,>(id: string) => readParam<T>(id),
+      text: (portId) => upstreamText(nodeId, portId),
+      asset: (portId) => {
+        const found = upstreamAsset(nodeId, portId);
+        return found ? { path: found.path, assetId: found.assetId } : null;
+      },
+      refs: (kind) => collectRefs(nodeId, kind),
+      progress: (value, message) =>
+        updateLiveRun(nodeId, { progress: value, message: message ?? null }),
+    };
+    // 宿主半的 `run()` 是同步的，前端 abort 不会让它自己停下来：停止运行时要显式
+    // 通知 daemon 取消（`ctx.cancelled()` 变 true），否则它会一直跑到服务端结束。
+    const owner = nodeOwner(node.type);
+    const onAbort = (): void => {
+      if (owner) void pluginHostCancel(owner).catch(() => {});
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      return await adapterFor(node.type)!({ node, nodeId, signal, io });
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+  if (route === "unknown") throw new Error(`节点 ${node.type} 不支持运行`);
   const imageGen = useImageGenStore();
   const videoGen = useVideoGenStore();
   const tts = useTtsStore();
@@ -400,7 +461,13 @@ async function runAdapter(node: BoardNode, nodeId: string): Promise<AdapterResul
     case "input.text":
       return { text: textParam(node, "text") };
 
-    case "display.image":
+    case "display.image": {
+      // 上游一次出多张时整摞都接过来：卡片按「牌堆」叠放，`assetId` 是当前发布那张。
+      const upstream = upstreamAssets(node.id, "image");
+      if (upstream.ids.length === 0) throw new Error("缺少上游素材：先连接并运行上游节点");
+      return { assets: upstream.ids, assetId: upstream.primary, kind: "image" };
+    }
+
     case "display.video":
     case "display.audio": {
       const port = node.type.slice("display.".length);
@@ -608,11 +675,11 @@ async function runAdapter(node: BoardNode, nodeId: string): Promise<AdapterResul
             topP,
             reasoningEffort,
             onDelta: (delta) => {
-              const live = liveRuns[nodeId];
+              const live = liveRun(nodeId);
               if (live) live.text += delta;
             },
             onReasoning: (delta) => {
-              const live = liveRuns[nodeId];
+              const live = liveRun(nodeId);
               if (live) live.reasoning += delta;
             },
           })
@@ -747,7 +814,11 @@ async function registerOutputs(result: AdapterResult): Promise<RegisteredOutputs
     const id = byPath.get(path);
     if (id) byPort[portId] = id;
   }
-  const primary = result.assetId ?? (result.paths?.[0] ? byPath.get(result.paths[0]) : undefined);
+  // 透传整摞（`assets`）时没有 `assetId` 也能发布：第一张就是当前发布那张。
+  const primary =
+    result.assetId ??
+    result.assets?.[0] ??
+    (result.paths?.[0] ? byPath.get(result.paths[0]) : undefined);
   return { byPort, primary, imported };
 }
 
@@ -797,11 +868,12 @@ async function runOne(nodeId: string): Promise<boolean> {
   }
 
   const startedAt = Date.now();
-  liveRuns[nodeId] = { startedAt, progress: null, message: null, text: "", reasoning: "" };
+  const signal = signals.begin(nodeId);
+  beginLiveRun(nodeId);
   ensureProgressWatches(node);
   // 进度事件是异步推送的：轮询 store 里的 progressPct，节流写进内存 live 状态。
   const progressTimer = setInterval(() => {
-    const live = liveRuns[nodeId];
+    const live = liveRun(nodeId);
     if (!live) return;
     const pct = liveProgressPct(node);
     if (pct !== null && pct !== undefined) live.progress = Math.min(1, Math.max(0, pct / 100));
@@ -815,7 +887,7 @@ async function runOne(nodeId: string): Promise<boolean> {
     durationMs: undefined,
   });
   try {
-    const result = await runAdapter(node, nodeId);
+    const result = await runAdapter(node, nodeId, signal);
     const { byPort, primary, imported } = await registerOutputs(result);
     const outputs = byPort;
     const outputPorts = portsOf(node, portContext()).outputs;
@@ -832,13 +904,16 @@ async function runOne(nodeId: string): Promise<boolean> {
         ? board.nodes.find((item) => item.id === nodeId)?.data.outputAssetIds ?? []
         : [];
     const current =
-      outputPorts.length > 1
-        ? outputPorts.map((port) => outputs[port.id]).filter((id): id is string => Boolean(id))
-        : imported.length > 0
-          ? imported
-          : primary
-            ? [primary]
-            : [];
+      // 透传节点（图片显示）把上游整摞一起发布，卡片才能按牌堆叠放。
+      result.assets && result.assets.length > 0
+        ? result.assets
+        : outputPorts.length > 1
+          ? outputPorts.map((port) => outputs[port.id]).filter((id): id is string => Boolean(id))
+          : imported.length > 0
+            ? imported
+            : primary
+              ? [primary]
+              : [];
     const all = [...new Set([...previous, ...current])].slice(-MAX_OUTPUTS);
     const outputAssetId = outputs[firstPort] ?? imported[0] ?? previous[0];
     const kept = Object.fromEntries(
@@ -859,7 +934,7 @@ async function runOne(nodeId: string): Promise<boolean> {
     });
     return true;
   } catch (error) {
-    const live = liveRuns[nodeId];
+    const live = liveRun(nodeId);
     board.setNodeRuntime(nodeId, {
       status: "error",
       progress: undefined,
@@ -872,7 +947,8 @@ async function runOne(nodeId: string): Promise<boolean> {
     return false;
   } finally {
     clearInterval(progressTimer);
-    delete liveRuns[nodeId];
+    endLiveRun(nodeId);
+    signals.end(nodeId);
   }
 }
 
@@ -1086,6 +1162,7 @@ export function useBoardRun() {
 
   function stop(): void {
     cancelled = true;
+    signals.abortAll();
     queue.value = [];
     plan.value = null;
     for (const id of Object.keys(repeatRuns)) delete repeatRuns[id];

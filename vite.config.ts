@@ -33,6 +33,10 @@ export default defineConfig({
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: HMR_PORT } : undefined,
     watch: { ignored: ["**/src-tauri/**"] },
+    // dev 模式下每个模块是一个独立请求：不预热的话，窗口第一次打开要等整张
+    // 模块图（~850 个文件）现转 → 启动时会在 logo 占位页上多停 2~3 秒。
+    // 只预热入口，别把整棵组件树都塞进来（会拖慢 dev server 起来）。
+    warmup: { clientFiles: ["./src/main.ts", "./src/App.vue"] },
   },
   envPrefix: ["VITE_", "TAURI_"],
   test: {

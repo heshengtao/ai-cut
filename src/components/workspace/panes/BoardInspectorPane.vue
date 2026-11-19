@@ -42,6 +42,7 @@ import { useBoardRun } from "@/composables/useBoardRun";
 import { LLM_VALUE_SEP, useBoardLlm } from "@/composables/useBoardLlm";
 import { useAssetDownload } from "@/composables/useAssetDownload";
 import {
+  boardRegistryRevision,
   nodeDefinition,
   portsOf,
   publishedAssetId,
@@ -91,7 +92,11 @@ const cloudPresets = ref<CloudGenPreset[]>([]);
 const pickerOpen = ref(false);
 
 const node = computed(() => board.nodes.find((item) => item.id === board.selection[0]) ?? null);
-const definition = computed(() => (node.value ? nodeDefinition(node.value.type) : null));
+const definition = computed(() => {
+  // 插件异步注册节点：读版本号让检查器在插件装好后自动补上参数表单。
+  void boardRegistryRevision();
+  return node.value ? nodeDefinition(node.value.type) : null;
+});
 
 /** 节点标题：用户改过就用用户的，否则用定义的 i18n 标题。 */
 function displayTitleOf(item: BoardNode): string {

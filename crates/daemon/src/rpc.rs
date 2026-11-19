@@ -817,6 +817,17 @@ pub struct FileQuery {
     pub token: Option<String>,
 }
 
+/// `GET /plugins/{id}/{file}?rev=…`：插件资源查询参数。
+///
+/// `rev` 只作为缓存键：桌面走 `asset://` 时不带它，浏览器带它破缓存。
+/// 真正的版本隔离靠「托管安装按版本目录并存」（M3）。
+#[derive(Deserialize)]
+pub struct PluginFileQuery {
+    pub token: Option<String>,
+    #[serde(default)]
+    pub rev: Option<String>,
+}
+
 /// `POST /upload?name=…`：浏览器导入本地文件，流式落到 `<data>/imports/`。
 #[derive(Deserialize)]
 pub struct UploadQuery {
@@ -1370,6 +1381,163 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
             ))
         }
         "plugin_installed" => Ok(json!(crate::plugins::plugin_installed(&ctx.host)?)),
+        "plugin_host_list" => Ok(json!({
+            "plugins": crate::plugin_host::service::list(&ctx.host, ctx.version)?
+        })),
+        "plugin_host_install_local" => {
+            let args: PathArgs = from_value(args)?;
+            Ok(json!({
+                "plugin": crate::plugin_host::service::install_local(
+                    &ctx.host,
+                    std::path::Path::new(&args.path),
+                    ctx.version,
+                )?
+            }))
+        }
+        "plugin_host_set_enabled" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                id: String,
+                enabled: bool,
+            }
+            let args: Args = from_value(args)?;
+            Ok(json!({
+                "plugins": crate::plugin_host::service::toggle(
+                    &ctx.host,
+                    &args.id,
+                    args.enabled,
+                    ctx.version,
+                )?
+            }))
+        }
+        "plugin_market_sources" => Ok(json!({
+            "url": crate::plugin_host::service::market_source(&ctx.host)
+        })),
+        "plugin_market_set_source" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                url: String,
+            }
+            let args: Args = from_value(args)?;
+            Ok(json!({
+                "url": crate::plugin_host::service::market_set_source(&ctx.host, &args.url)?
+            }))
+        }
+        "plugin_market_search" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                #[serde(default)]
+                text: String,
+                #[serde(default)]
+                offset: usize,
+                #[serde(default = "default_limit")]
+                limit: usize,
+                #[serde(default)]
+                force: bool,
+            }
+            fn default_limit() -> usize {
+                20
+            }
+            let args: Args = from_value(args)?;
+            crate::plugin_host::service::market_search(
+                &ctx.host,
+                &ctx.network,
+                ctx.version,
+                &args.text,
+                args.offset,
+                args.limit,
+                args.force,
+            )
+            .await
+        }
+        "plugin_market_install" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                name: String,
+                #[serde(default)]
+                version: String,
+            }
+            let args: Args = from_value(args)?;
+            let plugin = crate::plugin_host::service::market_install(
+                &ctx.host,
+                &ctx.network,
+                ctx.version,
+                &args.name,
+                &args.version,
+            )
+            .await?;
+            Ok(json!({ "plugin": plugin }))
+        }
+        "plugin_host_start" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                id: String,
+            }
+            let args: Args = from_value(args)?;
+            // 起宿主半要等脚本执行完（可能读大文件 / 同步初始化），别占着 RPC 的执行器线程。
+            let host = Arc::clone(&ctx.host);
+            let network = Arc::clone(&ctx.network);
+            let id = args.id;
+            tokio::task::spawn_blocking(move || {
+                crate::plugin_host::service::start(&host, network.as_ref(), &id)
+            })
+            .await
+            .map_err(|error| error.to_string())??;
+            Ok(json!({ "running": true }))
+        }
+        "plugin_host_invoke" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                id: String,
+                input: String,
+            }
+            let args: Args = from_value(args)?;
+            // `run()` 是同步的、可能跑几分钟（轮询到生成结束）：必须挪到阻塞线程池，
+            // 否则一个插件就把 HTTP RPC 的执行器线程占死。
+            let id = args.id;
+            let input = args.input;
+            let output =
+                tokio::task::spawn_blocking(move || crate::plugin_host::service::invoke(&id, &input))
+                    .await
+                    .map_err(|error| error.to_string())??;
+            Ok(json!({ "output": output }))
+        }
+        "plugin_host_cancel" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                id: String,
+            }
+            let args: Args = from_value(args)?;
+            let id = args.id;
+            let cancelled =
+                tokio::task::spawn_blocking(move || crate::plugin_host::service::cancel(&id))
+                    .await
+                    .map_err(|error| error.to_string())?;
+            Ok(json!({ "cancelled": cancelled }))
+        }
+        "plugin_host_stop" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                id: String,
+            }
+            let args: Args = from_value(args)?;
+            let id = args.id;
+            let stopped =
+                tokio::task::spawn_blocking(move || crate::plugin_host::service::stop(&id))
+                    .await
+                    .map_err(|error| error.to_string())?;
+            Ok(json!({ "stopped": stopped, "running": crate::plugin_host::service::running() }))
+        }
+        "plugin_host_remove" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                id: String,
+            }
+            let args: Args = from_value(args)?;
+            Ok(json!({
+                "plugins": crate::plugin_host::service::forget(&ctx.host, &args.id, ctx.version)?
+            }))
+        }
         "plugin_install" => {
             let args: SlugArgs = from_value(args)?;
             crate::plugins::plugin_install(&ctx.host, &ctx.network, args.slug).await?;
@@ -1940,6 +2108,54 @@ pub async fn file(
     if !path.is_absolute() || !path.is_file() {
         return rpc_error(StatusCode::NOT_FOUND, "文件不存在");
     }
+    let mut builder = axum::http::Request::builder().uri("/");
+    for (key, value) in headers.iter() {
+        if key == axum::http::header::HOST || key == axum::http::header::AUTHORIZATION {
+            continue;
+        }
+        builder = builder.header(key, value);
+    }
+    let request = match builder.body(Body::empty()) {
+        Ok(request) => request,
+        Err(error) => return rpc_error(StatusCode::BAD_REQUEST, error.to_string()),
+    };
+    match tower_http::services::ServeFile::new(&path)
+        .oneshot(request)
+        .await
+    {
+        Ok(response) => response.map(Body::new).into_response(),
+        Err(error) => rpc_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+    }
+}
+
+/// `GET /plugins/{id}/{file}`：插件资源（客户端半的 `client.js`）。
+///
+/// 与 `/file` 的区别：这里只认名册里登记过的插件目录，且只允许单层文件名——
+/// 插件代码不应该借道「能读任意绝对路径」的接口。
+pub async fn plugin_file(
+    State(ctx): State<Arc<RpcCtx>>,
+    axum::extract::Path((id, file)): axum::extract::Path<(String, String)>,
+    Query(query): Query<PluginFileQuery>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(
+        &ctx,
+        &AuthQuery {
+            token: query.token.clone(),
+        },
+        &headers,
+    ) {
+        return rpc_error(StatusCode::UNAUTHORIZED, "token 无效");
+    }
+    let root = crate::plugin_host::service::root(&ctx.host);
+    let registry = match crate::plugin_host::registry::load(&root) {
+        Ok(registry) => registry,
+        Err(error) => return rpc_error(StatusCode::INTERNAL_SERVER_ERROR, error),
+    };
+    let path = match crate::plugin_host::resource::resolve(&root, &registry, &id, &file) {
+        Ok(path) => path,
+        Err(error) => return rpc_error(StatusCode::NOT_FOUND, error),
+    };
     let mut builder = axum::http::Request::builder().uri("/");
     for (key, value) in headers.iter() {
         if key == axum::http::header::HOST || key == axum::http::header::AUTHORIZATION {

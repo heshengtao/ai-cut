@@ -2,7 +2,7 @@
 /**
  * 构建时同步 OFX 注册表快照。
  *
- * - 默认从 GitHub raw 拉 registry.json；
+ * - 默认从 GitHub Pages 拉 registry.json（raw 作备选）；
  * - 支持 HTTPS_PROXY / HTTP_PROXY（优先 curl，其次 Node fetch）；
  * - 写入 src-tauri/assets/ofx-registry.json（随 App 编译进二进制）；
  * - 网络失败时保留已有快照并 exit 0；`--strict` 时 exit 1。
@@ -17,7 +17,7 @@ const ASSETS = path.join(ROOT, "src-tauri", "assets");
 const TARGET = path.join(ASSETS, "ofx-registry.json");
 const META = path.join(ASSETS, "ofx-registry.meta.json");
 const DEFAULT_URL =
-  "https://raw.githubusercontent.com/heshengtao/ai-cut-ofx-registry/main/registry.json";
+  "https://heshengtao.github.io/ai-cut-ofx-registry/registry.json";
 const args = process.argv.slice(2);
 const strict = args.includes("--strict");
 const urlIndex = args.indexOf("--url");

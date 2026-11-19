@@ -1,0 +1,227 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createPinia, setActivePinia } from "pinia";
+
+const mocks = vi.hoisted(() => {
+  const dispose = vi.fn();
+  return {
+    dispose,
+    list: vi.fn(),
+    setEnabled: vi.fn(),
+    remove: vi.fn(),
+    installLocal: vi.fn(),
+    startHost: vi.fn(async () => {}),
+    stopHost: vi.fn(async () => []),
+    search: vi.fn(async () => ({ source: "network", fetchedAt: 1, total: 0, hits: [] })),
+    install: vi.fn(async () => ({ ...enabled })),
+    loadPluginModule: vi.fn(() => ({ id: "@demo/x", dispose })),
+  };
+});
+
+vi.mock("@/core/pluginHostApi", () => ({
+  pluginHostList: () => mocks.list(),
+  pluginHostSetEnabled: (...args: unknown[]) => mocks.setEnabled(...args),
+  pluginHostRemove: (...args: unknown[]) => mocks.remove(...args),
+  pluginHostInstallLocal: (...args: unknown[]) => mocks.installLocal(...args),
+  pluginHostStart: (...args: unknown[]) => mocks.startHost(...args),
+  pluginHostStop: (...args: unknown[]) => mocks.stopHost(...args),
+  onPluginHostProgress: vi.fn(),
+}));
+
+vi.mock("@/core/pluginMarketApi", () => ({
+  pluginMarketSource: async () => "https://example.com/index.json",
+  pluginMarketSetSource: async (url: string) => url,
+  pluginMarketSearch: (...args: unknown[]) => mocks.search(...args),
+  pluginMarketInstall: (...args: unknown[]) => mocks.install(...args),
+}));
+
+vi.mock("@/core/plugins/loader", () => ({
+  loadPluginModule: (...args: unknown[]) => mocks.loadPluginModule(...args),
+}));
+
+import { usePluginHostStore } from "../pluginHost";
+import type { PluginStatus } from "@/types/pluginHost";
+
+const enabled: PluginStatus = {
+  id: "@demo/x",
+  version: "0.1.0",
+  kind: "linked",
+  enabled: true,
+  dir: "/tmp/x",
+  client: "/tmp/x/client.js",
+  hostFile: null,
+  rev: "0.1.0-1",
+  compatible: true,
+  lastError: null,
+};
+
+beforeEach(() => {
+  setActivePinia(createPinia());
+  mocks.list.mockReset();
+  mocks.setEnabled.mockReset();
+  mocks.remove.mockReset();
+  mocks.installLocal.mockReset();
+  mocks.startHost.mockClear();
+  mocks.stopHost.mockClear();
+  mocks.search.mockClear();
+  mocks.install.mockClear();
+  mocks.dispose.mockReset();
+  mocks.loadPluginModule.mockClear();
+});
+
+describe("plugin host store", () => {
+  it("refreshes the list from the daemon", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    expect(store.plugins).toHaveLength(1);
+  });
+
+  it("loads enabled plugins through the injected importer", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.loadPluginModule).toHaveBeenCalledOnce();
+  });
+
+  it("skips incompatible plugins and records why", async () => {
+    mocks.list.mockResolvedValue([
+      { ...enabled, compatible: false, lastError: "需要 AI Cut 1.3.0" },
+    ]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async () => ({ id: "@demo/x", apply() {} }));
+    expect(mocks.loadPluginModule).not.toHaveBeenCalled();
+    expect(store.failed[0]).toContain("1.3.0");
+  });
+
+  it("records a failure and keeps going when one plugin throws", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    mocks.loadPluginModule.mockImplementationOnce(() => {
+      throw new Error("apply 炸了");
+    });
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(store.failed.join(" ")).toContain("apply 炸了");
+  });
+
+  it("disposes a plugin when it is disabled", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    mocks.setEnabled.mockResolvedValue([{ ...enabled, enabled: false }]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    await store.setEnabled("@demo/x", false);
+    expect(mocks.dispose).toHaveBeenCalledOnce();
+    expect(store.plugins[0]!.enabled).toBe(false);
+  });
+
+  it("starts the host half when the plugin has one", async () => {
+    mocks.list.mockResolvedValue([{ ...enabled, hostFile: "/tmp/x/host.js" }]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.startHost).toHaveBeenCalledWith("@demo/x");
+  });
+
+  it("stops the host half when the plugin is disabled", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    mocks.setEnabled.mockResolvedValue([{ ...enabled, enabled: false }]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    await store.setEnabled("@demo/x", false);
+    expect(mocks.stopHost).toHaveBeenCalledWith("@demo/x");
+  });
+
+  it("searches the market and records the source", async () => {
+    mocks.search.mockResolvedValue({
+      source: "cache",
+      fetchedAt: 7,
+      total: 1,
+      hits: [{ name: "@demo/a", version: "0.1.0", updateAvailable: false }],
+    });
+    const store = usePluginHostStore();
+    await store.searchMarket("demo", true);
+    expect(store.marketHits).toHaveLength(1);
+    expect(store.marketSource).toBe("cache");
+    expect(mocks.search).toHaveBeenCalledWith({ text: "demo", limit: 50, force: true });
+  });
+
+  it("records a market error instead of throwing", async () => {
+    mocks.search.mockRejectedValue(new Error("索引 404"));
+    const store = usePluginHostStore();
+    await store.searchMarket("");
+    expect(store.marketError).toContain("404");
+    expect(store.marketHits).toHaveLength(0);
+  });
+
+  it("installs from the market and refreshes the list", async () => {
+    mocks.install.mockResolvedValue(enabled);
+    mocks.list.mockResolvedValue([enabled]);
+    mocks.search.mockResolvedValue({ source: "network", fetchedAt: 1, total: 0, hits: [] });
+    const store = usePluginHostStore();
+    await store.installFromMarket("@demo/x", "0.1.0");
+    expect(mocks.install).toHaveBeenCalledWith("@demo/x", "0.1.0");
+    expect(store.plugins).toHaveLength(1);
+  });
+
+  it("reloads a plugin by disposing and loading it again", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    await store.reload("@demo/x", async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.dispose).toHaveBeenCalledOnce();
+    expect(mocks.loadPluginModule).toHaveBeenCalledTimes(2);
+    expect(mocks.stopHost).toHaveBeenCalledWith("@demo/x");
+  });
+
+  it("swaps a plugin when its rev changes", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.loadPluginModule).toHaveBeenCalledTimes(1);
+
+    // 文件改了：daemon 报的 rev 变了。
+    mocks.list.mockResolvedValue([{ ...enabled, rev: "0.1.0-999" }]);
+    await store.checkForUpdates(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.dispose).toHaveBeenCalledOnce();
+    expect(mocks.loadPluginModule).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads a plugin that just became compatible", async () => {
+    mocks.list.mockResolvedValue([{ ...enabled, compatible: false, lastError: "需要 AI Cut 1.3.0" }]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.loadPluginModule).not.toHaveBeenCalled();
+
+    // 改清单后变兼容：下一轮检测直接装上，不用重启。
+    mocks.list.mockResolvedValue([enabled]);
+    await store.checkForUpdates(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.loadPluginModule).toHaveBeenCalledOnce();
+  });
+
+  it("ignores unchanged revs", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    await store.checkForUpdates(async (entry) => ({ id: entry.id, apply() {} }));
+    expect(mocks.loadPluginModule).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes a plugin when it is removed", async () => {
+    mocks.list.mockResolvedValue([enabled]);
+    mocks.remove.mockResolvedValue([]);
+    const store = usePluginHostStore();
+    await store.refresh();
+    await store.loadEnabled(async (entry) => ({ id: entry.id, apply() {} }));
+    await store.remove("@demo/x");
+    expect(mocks.dispose).toHaveBeenCalledOnce();
+    expect(store.plugins).toHaveLength(0);
+  });
+});

@@ -13,7 +13,9 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { Handle, Position, useVueFlow } from "@vue-flow/core";
 import { useI18n } from "@/i18n";
+import { controlFor } from "@/core/plugins/controls";
 import {
+  boardRegistryRevision,
   imageRefCount,
   isReferenceVideoModel,
   nodeDefinition,
@@ -33,10 +35,11 @@ import { toast } from "@/composables/useToast";
 import { nodeIcon } from "./nodeIcons";
 import BoardMediaPicker from "./BoardMediaPicker.vue";
 import BoardSizeControl from "./BoardSizeControl.vue";
+import BoardVideoPlayer from "./BoardVideoPlayer.vue";
 import { getDragPayload } from "@/core/dragPayload";
 import {
   ArrowPathIcon,
-  ArrowsPointingOutIcon,
+  ClipboardIcon,
   ArrowsRightLeftIcon,
   ArrowUpTrayIcon,
   ChevronDownIcon,
@@ -51,7 +54,6 @@ import {
   PhotoIcon,
   PlayIcon,
   SpeakerWaveIcon,
-  SpeakerXMarkIcon,
   Square3Stack3DIcon,
   StopIcon,
   TrashIcon,
@@ -72,6 +74,7 @@ import {
 } from "@/composables/useBoardCloudOptions";
 import { useBoardPortContext } from "@/composables/useBoardPortContext";
 import { modelBackend, modelTarget } from "@/core/board/modelTarget";
+import { mediaNodeSize, sameMediaSize } from "@/core/board/mediaFit";
 import { LLM_VALUE_SEP, useBoardLlm } from "@/composables/useBoardLlm";
 import { renderMarkdown } from "@/utils/markdown";
 import { copyText as copyToClipboard } from "@/utils/clipboard";
@@ -110,12 +113,17 @@ const libraryOpen = ref(false);
 
 const nodeId = computed(() => props.data?.nodeId ?? props.id ?? "");
 const node = computed<BoardNode | undefined>(() => board.nodes.find((item) => item.id === nodeId.value));
-const definition = computed(() => (node.value ? nodeDefinition(node.value.type) : null));
+const definition = computed(() => {
+  // 读一次注册表版本：插件注册 / 卸载后要重新取定义（定义表本身不是响应式的）。
+  void boardRegistryRevision();
+  return node.value ? nodeDefinition(node.value.type) : null;
+});
 /** 动态端口（H3 参考 / 多图 / 分轨）的上下文。 */
 const portContext = useBoardPortContext();
-const ports = computed(() =>
-  node.value ? portsOf(node.value, portContext.value) : { inputs: [], outputs: [] },
-);
+const ports = computed(() => {
+  void boardRegistryRevision();
+  return node.value ? portsOf(node.value, portContext.value) : { inputs: [], outputs: [] };
+});
 
 const title = computed(() => {
   const current = node.value;
@@ -148,12 +156,35 @@ const mediaKind = computed<AssetKind | null>(() =>
     : null,
 );
 
-/** 图片牌堆（图片输入可以放多张）。 */
-const stack = computed<MediaAsset[]>(() => {
+const isDisplay = computed(() => definition.value?.category === "display");
+
+/** 图片输入自己选的牌堆（追加 / 切换只对输入节点有效）。 */
+const inputStack = computed<MediaAsset[]>(() => {
   const current = node.value;
   if (!current) return [];
   const ids = current.data.assetIds ?? (current.data.assetId ? [current.data.assetId] : []);
   return ids.map((id) => assetById(id)).filter((asset): asset is MediaAsset => asset !== null);
+});
+
+/**
+ * 图片卡上叠着的那一摞。
+ *
+ * - 输入节点：用户自己选的多张（`assetIds`）；
+ * - 显示节点：上游一次出的多张（运行发布的 `outputAssetIds`，当前发布那张是
+ *   `outputAssetId`，不一定排第一）。
+ *
+ * 两边的纸叠 / 胶囊是同一套视觉，所以这里合成一个列表，只在取「当前张」时分开。
+ */
+const stack = computed<MediaAsset[]>(() => {
+  if (isDisplay.value) {
+    const current = node.value;
+    if (!current) return [];
+    const ids =
+      current.data.outputAssetIds ??
+      (current.data.outputAssetId ? [current.data.outputAssetId] : []);
+    return ids.map((id) => assetById(id)).filter((asset): asset is MediaAsset => asset !== null);
+  }
+  return inputStack.value;
 });
 
 const nodeWidth = computed(
@@ -161,13 +192,17 @@ const nodeWidth = computed(
 );
 const compact = computed(() => nodeWidth.value < 300);
 
+/** 牌堆当前展示的下标：输入节点是用户翻到的那张，显示节点是「当前发布」那张。 */
 const stackIndex = computed(() => {
   const total = stack.value.length;
   if (total === 0) return 0;
+  if (isDisplay.value) {
+    const active = node.value?.data.outputAssetId;
+    const index = active ? stack.value.findIndex((asset) => asset.id === active) : -1;
+    return index >= 0 ? index : 0;
+  }
   return Math.min(Math.max(0, node.value?.data.stackIndex ?? 0), total - 1);
 });
-
-const isDisplay = computed(() => definition.value?.category === "display");
 
 /** 显示节点是否已经连上上游：有连线时文案从"去连一个"变成"等运行"。 */
 const upstreamConnected = computed(() => {
@@ -378,6 +413,10 @@ function selectDockTab(tab: "text" | "reasoning"): void {
 /** 用户收起过就是 false；新文档 / 老文档默认展开。 */
 const outputOpen = computed(() => node.value?.data.outputOpen !== false);
 const outputMediaSrc = computed(() => (activeOutput.value ? fileUrl(activeOutput.value.src) : ""));
+/** 产物缩略图：视频附件同样先用它垫住首帧，避免生成完就显示一块黑。 */
+const outputPoster = computed(() =>
+  activeOutput.value ? assetThumbnailUrl(activeOutput.value) : null,
+);
 
 /** 附件卡底部的一行元信息：图片 / 视频给尺寸，音频给时长。 */
 const outputMeta = computed(() => {
@@ -425,31 +464,30 @@ function deckStyle(sheet: MediaAsset, index: number): Record<string, string> {
   };
 }
 
-/** 与 ai-board `mediaHeight()` 一致：宽度不变，高度按原始比例走，140–1200 夹取。 */
-function mediaHeight(width: number, naturalWidth?: number, naturalHeight?: number): number {
-  if (!naturalWidth || !naturalHeight) return Math.min(1200, Math.max(140, Math.round(width * 0.66)));
-  return Math.min(1200, Math.max(140, Math.round(width * (naturalHeight / naturalWidth))));
-}
-
 /**
- * 把节点高度改成图片的原始比例。图片加载完成后由 `@load` 触发；不记撤销步，
- * 也不改宽度——与 ai-board 的 `ImageDisplayBody.fit` / `mediaHeight` 一致。
+ * 把节点高度改成素材的原始比例（宽度不变，140–1200 夹取）。
+ *
+ * 三个触发点共用：素材元数据一换（`watch(primary)`）、图片 `@load`、视频
+ * `@loadedmetadata`。同一个「素材 + 宽度」只适配一次，免得和用户手动缩放打架；
+ * 也不记撤销步——这是渲染的自然结果。
  */
-function fitImage(naturalWidth: number, naturalHeight: number): void {
+function fitMedia(naturalWidth: number, naturalHeight: number, key: string): void {
   const current = node.value;
   if (!current || !naturalWidth || !naturalHeight) return;
   const width = nodeWidth.value;
-  const height = mediaHeight(width, naturalWidth, naturalHeight);
-  const key = `${imageUrl.value ?? ""}:${width}`;
-  if (fittedKey.value === key) return;
-  fittedKey.value = key;
-  if (Math.abs((current.size?.height ?? 0) - height) <= 2) return;
-  board.resizeNode(current.id, { width, height }, { record: false });
+  const next = mediaNodeSize(width, naturalWidth, naturalHeight);
+  const stamp = `${key}:${width}`;
+  if (fittedKey.value === stamp) return;
+  fittedKey.value = stamp;
+  if (sameMediaSize(current.size, next)) return;
+  board.resizeNode(current.id, next, { record: false });
 }
 
 function onImageLoad(event: Event): void {
   const image = event.currentTarget as HTMLImageElement;
-  if (image.naturalWidth > 0) fitImage(image.naturalWidth, image.naturalHeight);
+  if (image.naturalWidth > 0) {
+    fitMedia(image.naturalWidth, image.naturalHeight, imageUrl.value ?? "");
+  }
 }
 
 watch(imageUrl, () => {
@@ -457,13 +495,20 @@ watch(imageUrl, () => {
   fittedKey.value = "";
 });
 
-/** 左右切换牌堆（循环）。 */
+/** 切换牌堆（循环）：输入节点换「我选的这张」，显示节点换「对外发布的这张」。 */
 function stepStack(delta: number): void {
   const current = node.value;
   if (!current || stack.value.length < 2) return;
   const total = stack.value.length;
   const next = (stackIndex.value + delta + total) % total;
-  board.updateNodeData(current.id, { stackIndex: next, assetId: stack.value[next].id });
+  const target = stack.value[next];
+  if (!target) return;
+  // 显示节点翻牌就是换发布的产物：下游标记过期，等显式运行（和模型节点切换产物一致）。
+  if (isDisplay.value) {
+    selectOutput(target);
+    return;
+  }
+  board.updateNodeData(current.id, { stackIndex: next, assetId: target.id });
 }
 
 
@@ -482,15 +527,15 @@ async function pickFiles(): Promise<void> {
     }
   }
   if (imported.length === 0) return;
-  const ids = [...stack.value.map((asset) => asset.id), ...imported.map((asset) => asset.id)];
+  const ids = [...inputStack.value.map((asset) => asset.id), ...imported.map((asset) => asset.id)];
   for (const asset of imported) project.dispatch((doc) => addAsset(doc, asset));
-  const index = stack.value.length;
+  const index = inputStack.value.length;
   board.updateNodeData(current.id, {
     assetIds: ids,
     stackIndex: index,
     assetId: ids[index],
   });
-  fitImageAspect(imported[0]);
+  fitAsset(imported[0]);
 }
 
 /** 这个节点是否接收文件拖放（只有媒体输入节点；显示节点让事件冒泡）。 */
@@ -539,7 +584,7 @@ async function onNodeDrop(event: DragEvent): Promise<void> {
     event.stopPropagation();
     dropActive.value = false;
     if (expected === "image") {
-      const ids = [...stack.value.map((item) => item.id), dragged.id];
+      const ids = [...inputStack.value.map((item) => item.id), dragged.id];
       board.updateNodeData(current.id, {
         assetIds: ids,
         stackIndex: ids.length - 1,
@@ -548,7 +593,7 @@ async function onNodeDrop(event: DragEvent): Promise<void> {
     } else {
       board.updateNodeData(current.id, { assetId: dragged.id, assetIds: undefined });
     }
-    fitImageAspect(dragged);
+    fitAsset(dragged);
     return;
   }
 
@@ -573,16 +618,16 @@ async function onNodeDrop(event: DragEvent): Promise<void> {
   }
   if (imported.length === 0) return;
   if (expected === "image") {
-    const ids = [...stack.value.map((item) => item.id), ...imported.map((item) => item.id)];
+    const ids = [...inputStack.value.map((item) => item.id), ...imported.map((item) => item.id)];
     board.updateNodeData(current.id, {
       assetIds: ids,
-      stackIndex: stack.value.length,
+      stackIndex: inputStack.value.length,
       assetId: imported[0].id,
     });
   } else {
     board.updateNodeData(current.id, { assetId: imported[0].id, assetIds: undefined });
   }
-  fitImageAspect(imported[0]);
+  fitAsset(imported[0]);
 }
 
 /** 打开素材库选择对话框（视频 / 音频单选，图片可多选）。 */
@@ -600,8 +645,8 @@ function onLibraryPick(ids: string[]): void {
     .filter((item): item is MediaAsset => item !== null && item.kind === kind.value);
   if (picked.length === 0) return;
   if (kind.value === "image") {
-    const next = [...stack.value.map((item) => item.id), ...picked.map((item) => item.id)];
-    const index = stack.value.length;
+    const next = [...inputStack.value.map((item) => item.id), ...picked.map((item) => item.id)];
+    const index = inputStack.value.length;
     board.updateNodeData(current.id, {
       assetIds: next,
       stackIndex: index,
@@ -610,18 +655,35 @@ function onLibraryPick(ids: string[]): void {
   } else {
     board.updateNodeData(current.id, { assetId: picked[0].id, assetIds: undefined });
   }
-  fitImageAspect(picked[0]);
+  fitAsset(picked[0]);
 }
 
-/** 导入后先用素材元数据定高；浏览器里 ffprobe 读不到时由 `@load` 兜底。 */
-function fitImageAspect(asset: MediaAsset): void {
-  const current = node.value;
-  if (!current || !asset.width || !asset.height) return;
-  const width = nodeWidth.value;
-  const height = mediaHeight(width, asset.width, asset.height);
-  fittedKey.value = `${assetThumbnailUrl(asset) ?? ""}:${width}`;
-  board.resizeNode(current.id, { width, height }, { record: false });
+/**
+ * 按素材元数据先定一次尺寸（图片 / 视频通用）。
+ *
+ * 运行产出、拖入、素材库选中都会走这里，所以**不用等 `<img>` / `<video>` 加载完**
+ * 卡片就已经是素材的比例；ffprobe 读不到宽高时由 `@load` / `@loadedmetadata` 兜底。
+ */
+function fitAsset(asset: MediaAsset): void {
+  if (!asset.width || !asset.height) return;
+  fitMedia(asset.width, asset.height, assetThumbnailUrl(asset) ?? asset.src);
 }
+
+/** 素材一换（输入 / 拖入 / 运行产出）就适配一次：显示节点也靠这条跟上产物尺寸。 */
+watch(
+  [
+    () => primary.value?.id,
+    () => primary.value?.width,
+    () => primary.value?.height,
+    nodeWidth,
+  ],
+  () => {
+    if (kind.value !== "image" && kind.value !== "video") return;
+    const asset = primary.value;
+    if (asset) fitAsset(asset);
+  },
+  { immediate: true },
+);
 
 function runNode(): void {
   const current = node.value;
@@ -757,14 +819,12 @@ function onResizeStart(event: PointerEvent): void {
 
 /* ------------------------------------------------------------------ *
  * ai-board card details: text editing, media transport, model form.
+ *
+ * 视频的播放条 / 首帧 / 静音 / 全屏都在 `BoardVideoPlayer` 里：显示节点的整卡
+ * 和模型节点的输出附件卡共用同一个组件，两处的 UI 才不会各走一套。
  * ------------------------------------------------------------------ */
-const videoEl = ref<HTMLVideoElement | null>(null);
 const audioEl = ref<HTMLAudioElement | null>(null);
-const videoPlaying = ref(false);
 const audioPlaying = ref(false);
-const videoMuted = ref(false);
-const videoTime = ref(0);
-const videoDuration = ref(0);
 const audioTime = ref(0);
 const audioDuration = ref(0);
 
@@ -811,6 +871,12 @@ async function copyTextValue(): Promise<void> {
   toast(i18n.t("board.node.textCopied"));
 }
 
+/** 文本显示卡整张都是拖动面（选不中文字），所以复制收进悬停控制里。 */
+async function copyDisplayText(): Promise<void> {
+  await copyToClipboard(textPreview.value);
+  toast(i18n.t("board.node.textCopied"));
+}
+
 function clockText(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds || 0));
   const minutes = Math.floor(total / 60);
@@ -818,53 +884,12 @@ function clockText(seconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
 }
 
-const videoProgress = computed(() =>
-  videoDuration.value > 0 ? Math.min(100, (videoTime.value / videoDuration.value) * 100) : 0,
-);
-
-function onVideoMeta(): void {
-  const el = videoEl.value;
-  if (el && Number.isFinite(el.duration)) videoDuration.value = el.duration;
+/** 播放器报上来的元数据：视频卡和图片卡同一套适配，宽度不变、高度按画面比例。 */
+function onVideoMeta(meta: { width: number; height: number }): void {
+  if (meta.width > 0 && meta.height > 0) {
+    fitMedia(meta.width, meta.height, imageUrl.value ?? mediaSrc.value);
+  }
 }
-
-function onVideoTime(): void {
-  const el = videoEl.value;
-  if (el) videoTime.value = el.currentTime;
-}
-
-function toggleVideo(): void {
-  const el = videoEl.value;
-  if (!el) return;
-  if (el.paused) void el.play().catch(() => undefined);
-  else el.pause();
-}
-
-function seekVideo(event: MouseEvent): void {
-  const el = videoEl.value;
-  if (!el || !Number.isFinite(el.duration) || el.duration <= 0) return;
-  const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  const ratio = Math.min(1, Math.max(0, (event.clientX - box.left) / Math.max(1, box.width)));
-  el.currentTime = ratio * el.duration;
-  videoTime.value = el.currentTime;
-}
-
-function toggleVideoMute(): void {
-  const el = videoEl.value;
-  if (!el) return;
-  el.muted = !el.muted;
-  videoMuted.value = el.muted;
-}
-
-function videoFullscreen(): void {
-  const stage = videoEl.value?.parentElement;
-  void stage?.requestFullscreen?.().catch(() => undefined);
-}
-
-watch(mediaSrc, () => {
-  videoPlaying.value = false;
-  videoTime.value = 0;
-  videoDuration.value = 0;
-});
 
 const audioProgress = computed(() =>
   audioDuration.value > 0 ? Math.min(1, audioTime.value / audioDuration.value) : 0,
@@ -1210,12 +1235,12 @@ function cycleOutput(): void {
 
 <template>
   <div
-    v-if="node && definition"
+    v-if="node"
     ref="cardEl"
     class="board-node"
-    :data-kind="kind"
+    :data-kind="definition ? kind : 'unknown'"
     :data-node-type="node.type"
-    :data-category="definition.category"
+    :data-category="definition?.category ?? 'unknown'"
     :data-selected="selected ? 'true' : 'false'"
     :data-empty="empty ? 'true' : 'false'"
     :data-status="status"
@@ -1251,7 +1276,7 @@ function cycleOutput(): void {
     <!-- 悬停控制：与 ai-board 一样贴在标签右侧 -->
     <div class="node-hover-controls nodrag" @pointerdown.stop @click.stop>
       <button
-        v-if="kind !== 'group'"
+        v-if="definition && kind !== 'group'"
         type="button"
         data-kind="rebuild"
         :title="i18n.t('board.ctx.rebuildHint')"
@@ -1262,13 +1287,23 @@ function cycleOutput(): void {
         <ArrowPathIcon />
       </button>
       <button
-        v-if="kind !== 'group'"
+        v-if="definition && kind !== 'group'"
         type="button"
         :data-kind="status === 'running' ? 'stop' : 'run'"
         :title="status === 'running' ? i18n.t('board.run.stop') : i18n.t('board.ctx.run')"
         @click="status === 'running' ? run.stop() : runNode()"
       >
         <component :is="status === 'running' ? StopIcon : PlayIcon" />
+      </button>
+      <button
+        v-if="isDisplay && kind === 'text' && textPreview"
+        type="button"
+        data-kind="copy"
+        :title="i18n.t('board.node.copyOutputText')"
+        :aria-label="i18n.t('board.node.copyOutputText')"
+        @click="copyDisplayText"
+      >
+        <ClipboardIcon />
       </button>
       <button type="button" data-kind="duplicate" :title="i18n.t('board.ctx.duplicate')" @click="duplicate">
         <DocumentDuplicateIcon />
@@ -1300,8 +1335,20 @@ function cycleOutput(): void {
     <div class="node-surface" :data-kind="kind">
       <div v-if="error" class="node-error">{{ error }}</div>
 
+      <!--
+        ============ 定义缺失：插件没加载成功 / 被卸载 ============
+        工程里的节点、端口快照和连线都还在，这里给一张占位卡——不能什么都不画，
+        否则用户看到的是「节点凭空消失」，既点不中也删不掉。
+      -->
+      <div v-if="!definition" class="node-unknown">
+        <span class="art-empty-icon"><LinkIcon /></span>
+        <strong>{{ i18n.t("board.node.missingPlugin") }}</strong>
+        <span>{{ i18n.t("board.node.missingPluginHint") }}</span>
+        <code>{{ node.type }}</code>
+      </div>
+
       <!-- ============ 组：一块安静的虚线容器（成员节点画在它上面） ============ -->
-      <div v-if="kind === 'group'" class="group-frame" :data-tone="groupTone">
+      <div v-else-if="kind === 'group'" class="group-frame" :data-tone="groupTone">
         <p v-if="groupMembers.length === 0" class="group-empty">
           {{ i18n.t("board.group.empty") }}
         </p>
@@ -1328,7 +1375,7 @@ function cycleOutput(): void {
             />
           </div>
           <button
-            v-if="definition.category === 'input' && stack.length > 1"
+            v-if="stack.length > 1"
             class="art-stack-pill nodrag"
             type="button"
             :title="i18n.t('board.node.nextImage')"
@@ -1369,62 +1416,15 @@ function cycleOutput(): void {
 
       <!-- ============ 视频 ============ -->
       <div v-else-if="kind === 'video'" class="art-card" data-kind="video" :data-drop="dropActive ? 'true' : 'false'">
-        <div v-if="primary && mediaSrc" class="media-video" :data-playing="videoPlaying ? 'true' : 'false'">
-          <video
-            ref="videoEl"
+        <div v-if="primary && mediaSrc" class="media-video">
+          <!-- 与模型节点输出附件共用同一个播放器：自绘播放条 + 首帧。 -->
+          <BoardVideoPlayer
             :src="mediaSrc"
-            preload="metadata"
-            playsinline
-            @click="toggleVideo"
-            @play="videoPlaying = true"
-            @pause="videoPlaying = false"
-            @ended="videoPlaying = false"
-            @loadedmetadata="onVideoMeta"
-            @timeupdate="onVideoTime"
+            :poster="imageUrl"
+            fill
+            @meta="onVideoMeta"
             @error="imageFailed = true"
           />
-          <button
-            v-if="!videoPlaying"
-            class="video-orb"
-            type="button"
-            :aria-label="i18n.t('board.node.play')"
-            @pointerdown.stop
-            @click.stop="toggleVideo"
-          >
-            <PlayIcon />
-          </button>
-          <div class="video-controls nodrag" @pointerdown.stop>
-            <button
-              class="video-control video-control-primary"
-              type="button"
-              :aria-label="videoPlaying ? i18n.t('board.node.pause') : i18n.t('board.node.play')"
-              @click.stop="toggleVideo"
-            >
-              <component :is="videoPlaying ? PauseIcon : PlayIcon" />
-            </button>
-            <span class="video-time">{{ clockText(videoTime) }} / {{ clockText(videoDuration) }}</span>
-            <div class="video-track" @click.stop="seekVideo">
-              <span class="video-track-rail" />
-              <span class="video-track-fill" :style="{ width: `${videoProgress}%` }" />
-              <span class="video-track-thumb" :style="{ left: `clamp(6px, ${videoProgress}%, calc(100% - 6px))` }" />
-            </div>
-            <button
-              class="video-control"
-              type="button"
-              :aria-label="videoMuted ? i18n.t('board.node.unmute') : i18n.t('board.node.mute')"
-              @click.stop="toggleVideoMute"
-            >
-              <component :is="videoMuted ? SpeakerXMarkIcon : SpeakerWaveIcon" />
-            </button>
-            <button
-              class="video-control"
-              type="button"
-              :aria-label="i18n.t('board.node.fullscreen')"
-              @click.stop="videoFullscreen"
-            >
-              <ArrowsPointingOutIcon />
-            </button>
-          </div>
         </div>
 
         <div v-else-if="isDisplay" class="art-empty art-empty-quiet">
@@ -1552,7 +1552,7 @@ function cycleOutput(): void {
       <!-- ============ 文本显示：一个阅读面 ============ -->
       <div
         v-else-if="kind === 'text'"
-        class="node-text-display nodrag nowheel"
+        class="node-text-display nowheel"
         :data-streaming="status === 'running' || upstreamLiveText ? 'true' : 'false'"
       >
         <span class="node-text-grip" aria-hidden="true" />
@@ -1562,10 +1562,10 @@ function cycleOutput(): void {
         </span>
         <div
           v-if="textPreview && textMode === 'markdown'"
-          class="node-markdown nodrag nowheel"
+          class="node-markdown"
           v-html="textHtml"
         />
-        <div v-else-if="textPreview" class="node-text-plain nodrag nowheel">{{ textPreview }}</div>
+        <div v-else-if="textPreview" class="node-text-plain">{{ textPreview }}</div>
         <div v-else class="art-empty art-empty-quiet">
           <LinkIcon />
           <strong>{{ i18n.t(upstreamConnected ? "board.node.waitingRun" : "board.node.waitingMedia") }}</strong>
@@ -1597,8 +1597,16 @@ function cycleOutput(): void {
             :class="{ 'mn-field-short': spec.kind === 'number' || spec.kind === 'seed' || spec.kind === 'toggle' }"
           >
             <span class="mn-label">{{ i18n.t(spec.labelKey) }}</span>
+            <component
+              :is="controlFor(spec.control ?? '') ?? 'input'"
+              v-if="spec.kind === 'component'"
+              :node="node"
+              :spec="spec"
+              :value="paramValue(spec)"
+              @update="setParam(spec, $event)"
+            />
             <BoardSizeControl
-              v-if="spec.kind === 'size'"
+              v-else-if="spec.kind === 'size'"
               :node="node"
               variant="card"
               @update="patchParams"
@@ -1682,6 +1690,7 @@ function cycleOutput(): void {
       v-if="isModel && hasOutputDock && outputOpen"
       class="node-output-dock nodrag nowheel"
       :data-kind="outputKind"
+      :data-media="activeOutput && outputKind === 'video' ? 'true' : 'false'"
       :data-running="status === 'running' ? 'true' : 'false'"
       @pointerdown.stop
       @click.stop
@@ -1799,7 +1808,12 @@ function cycleOutput(): void {
             />
           </template>
           <template v-else-if="activeOutput && outputKind === 'video'">
-            <video class="node-output-video" :src="outputMediaSrc" controls playsinline preload="metadata" />
+            <!-- 和显示节点完全同一套播放条 / 首帧，且铺满附件卡（见 data-media 的样式）。 -->
+            <BoardVideoPlayer
+              class="node-output-player"
+              :src="outputMediaSrc"
+              :poster="outputPoster"
+            />
           </template>
           <template v-else-if="activeOutput && outputKind === 'audio'">
             <audio class="node-output-audio" :src="outputMediaSrc" controls preload="metadata" />
@@ -2063,6 +2077,43 @@ function cycleOutput(): void {
   box-shadow:
     inset 0 0 0 1px rgb(var(--group-accent) / 0.14),
     0 0 0 3px rgb(var(--group-accent) / 0.1);
+}
+/* 定义缺失（插件没加载 / 被卸载）：一块安静的占位卡，别让节点凭空消失。 */
+.node-unknown {
+  position: absolute;
+  inset: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 16px;
+  border: 1px dashed rgb(var(--md-error) / 0.45);
+  border-radius: 14px;
+  text-align: center;
+  color: rgb(var(--md-on-surface-muted));
+  background: rgb(var(--md-error) / 0.05);
+}
+.node-unknown .art-empty-icon {
+  background: rgb(var(--md-error) / 0.12);
+  color: rgb(var(--md-error));
+  margin-bottom: 3px;
+}
+.node-unknown strong {
+  color: rgb(var(--md-on-surface));
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.node-unknown > span:not(.art-empty-icon) {
+  max-width: 240px;
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+.node-unknown code {
+  margin-top: 2px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 8.5px;
+  opacity: 0.75;
 }
 .group-empty {
   margin: 0;
@@ -2335,155 +2386,13 @@ function cycleOutput(): void {
   opacity: 0.7;
 }
 
-/* ============ 视频：自绘播放条 ============ */
+/* ============ 视频：舞台（播放器见 BoardVideoPlayer.vue） ============ */
 .media-video {
   position: absolute;
   inset: 0;
   border-radius: 18px;
   overflow: hidden;
   background: rgb(8 6 12 / 0.92);
-}
-.media-video video {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: contain;
-  cursor: pointer;
-}
-.video-orb {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 56px;
-  height: 56px;
-  border: 0;
-  border-radius: 999px;
-  background: rgb(var(--md-primary));
-  color: rgb(var(--md-on-primary));
-  display: grid;
-  place-items: center;
-  box-shadow: 0 10px 28px rgb(0 0 0 / 0.32), inset 0 1px 0 rgb(255 255 255 / 0.18);
-  cursor: pointer;
-  transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.video-orb:hover {
-  transform: translate(-50%, -50%) scale(1.06);
-}
-.video-orb :deep(svg) {
-  width: 24px;
-  height: 24px;
-  margin-left: 2px;
-}
-.video-controls {
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
-  height: 46px;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  border-radius: 999px;
-  background: rgb(var(--md-surface-container-high) / 0.9);
-  border: 1px solid rgb(var(--md-outline-variant) / 0.55);
-  box-shadow: 0 10px 28px rgb(0 0 0 / 0.28), inset 0 1px 0 rgb(255 255 255 / 0.08);
-  color: rgb(var(--md-on-surface));
-  backdrop-filter: blur(18px) saturate(1.2);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
-  transition: opacity 0.14s ease, transform 0.14s ease;
-}
-.media-video[data-playing="true"] .video-controls {
-  opacity: 0;
-  transform: translateY(4px);
-  pointer-events: none;
-}
-.media-video[data-playing="true"]:hover .video-controls,
-.media-video[data-playing="true"]:focus-within .video-controls {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-.video-control {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--md-on-surface-variant));
-  display: grid;
-  place-items: center;
-  padding: 0;
-  cursor: pointer;
-  transition: background-color 0.14s ease, color 0.14s ease, transform 0.14s ease;
-}
-.video-control:hover {
-  background: rgb(var(--md-on-surface) / 0.08);
-  color: rgb(var(--md-on-surface));
-}
-.video-control:active {
-  transform: scale(0.92);
-}
-.video-control :deep(svg) {
-  width: 16px;
-  height: 16px;
-}
-.video-control-primary {
-  background: rgb(var(--md-primary));
-  color: rgb(var(--md-on-primary));
-  box-shadow: 0 2px 8px rgb(var(--md-primary) / 0.28);
-}
-.video-control-primary:hover {
-  background: rgb(var(--md-primary));
-  color: rgb(var(--md-on-primary));
-  filter: brightness(1.06);
-}
-.video-time {
-  flex: 0 0 auto;
-  min-width: 52px;
-  text-align: center;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 8.5px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  opacity: 0.72;
-}
-.video-track {
-  flex: 1 1 auto;
-  min-width: 36px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  position: relative;
-}
-.video-track-rail,
-.video-track-fill {
-  position: absolute;
-  left: 0;
-  height: 4px;
-  border-radius: 999px;
-  pointer-events: none;
-}
-.video-track-rail {
-  right: 0;
-  background: rgb(var(--md-on-surface) / 0.16);
-}
-.video-track-fill {
-  background: rgb(var(--md-primary));
-}
-.video-track-thumb {
-  position: absolute;
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  background: rgb(var(--md-primary));
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 3px rgb(var(--md-surface-container-high) / 0.95);
-  pointer-events: none;
 }
 
 /* ============ 音频：波形 + 一个播放球 ============ */
@@ -2667,6 +2576,10 @@ function cycleOutput(): void {
   flex-direction: column;
   padding: 20px 18px 12px;
   border-radius: 20px;
+  /* 整张卡就是拖动面：卡上不能再有 `nodrag`，也不做文字选中，
+     否则从正文起手只会选中文字、拖不动节点。要复制走悬停控制里的复制按钮。 */
+  user-select: none;
+  -webkit-user-select: none;
   /* 让整张显示卡就是滚动容器：滚轮落在内边距 / 空白处也能滚，而不是只有正文区域生效。 */
   overflow-y: auto;
   overflow-x: hidden;
@@ -3092,6 +3005,23 @@ function cycleOutput(): void {
 .node-output-dock[data-kind="video"] {
   background: var(--node-surface-bg-video, var(--node-surface-bg));
 }
+/* 视频产物：和显示节点一样整块铺满——不再留 8px 内边距（那就是用户看到的那圈
+   「边缘」），圆角交给附件卡自己裁，播放器直接顶到卡片边沿。 */
+.node-output-dock[data-media="true"] {
+  padding: 0;
+  overflow: hidden;
+}
+.node-output-dock[data-media="true"] .node-output {
+  max-height: none;
+  border-radius: 15px;
+}
+.node-output-dock[data-media="true"] .node-output-body {
+  overflow: hidden;
+}
+.node-output-dock[data-media="true"] .node-output-player {
+  display: block;
+  width: 100%;
+}
 .node-output-dock[data-kind="audio"] {
   background: var(--node-surface-bg-audio, var(--node-surface-bg));
 }
@@ -3432,13 +3362,6 @@ function cycleOutput(): void {
 }
 .node-output-cycle:hover {
   background: rgb(12 9 16 / 0.72);
-}
-.node-output-video {
-  display: block;
-  width: 100%;
-  max-height: min(560px, 76vh);
-  border-radius: 12px;
-  background: #000;
 }
 .node-output-audio {
   display: block;

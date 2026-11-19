@@ -20,6 +20,8 @@ import { useLayoutStore } from "@/stores/layout";
 import { useOnboardingStore } from "@/stores/onboarding";
 import { useAgentStore } from "@/stores/agent";
 import { useUpdaterStore } from "@/stores/updater";
+import { usePluginHostStore } from "@/stores/pluginHost";
+import { importPluginModule } from "@/core/plugins/importer";
 import { useProjectActions } from "@/composables/useProjectActions";
 import { useMediaImport } from "@/composables/useMediaImport";
 import { restoreLastSession, startAutosave } from "@/core/autosave";
@@ -79,6 +81,12 @@ onMounted(() => {
     if (restoring.value) restoreOverlay.value = true;
   }, 280);
   // 重启后直接回到上次的工程，不再询问；恢复完成后再开始自动保存 / 弹欢迎页。
+  // 插件：先读名册再装已启用的客户端半。失败只记在插件面板里，不影响启动。
+  void usePluginHostStore()
+    .refresh()
+    .then(() => usePluginHostStore().loadEnabled(importPluginModule))
+    // 插件的 client.js / host.js 改了不用重启：轮询名册里的 rev，变了就热替换。
+    .then(() => usePluginHostStore().startHotReload(importPluginModule));
   void restoreLastSession().finally(() => {
     restoring.value = false;
     restoreOverlay.value = false;
@@ -123,6 +131,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  usePluginHostStore().stopHotReload();
   window.removeEventListener("resize", onWindowResize);
   window.clearTimeout(restoreTimer);
   uninstall?.();

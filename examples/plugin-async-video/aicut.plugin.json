@@ -1,0 +1,26 @@
+{
+  "format": 1,
+  "id": "@aicut/plugin-async-video",
+  "version": "0.1.0",
+  "engines": {
+    "aicut": ">=1.3.0"
+  },
+  "host": "./host.js",
+  "client": "./client.js",
+  "inject": [
+    "http",
+    "media",
+    "storage",
+    "jobs"
+  ],
+  "external": [],
+  "capabilities": {
+    "net": []
+  },
+  "contributes": {
+    "nodes": [
+      "ext.asyncvideo.video"
+    ],
+    "slots": []
+  }
+}

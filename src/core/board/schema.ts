@@ -11,6 +11,7 @@ import {
   type BoardEdge,
   type BoardNode,
   type BoardNodeData,
+  type BoardPortSpec,
   type BoardPortType,
   type BoardViewport,
   type BoardWorkflowSource,
@@ -50,6 +51,35 @@ function normalizeParams(raw: unknown): Record<string, unknown> {
   return out;
 }
 
+/** 端口快照归一化：形状不对就整块丢掉，不猜。 */
+function normalizePorts(
+  raw: unknown,
+): { inputs: BoardPortSpec[]; outputs: BoardPortSpec[] } | undefined {
+  if (!isObject(raw)) return undefined;
+  const inputs = normalizePortList(raw.inputs);
+  const outputs = normalizePortList(raw.outputs);
+  if (inputs === null || outputs === null) return undefined;
+  return { inputs, outputs };
+}
+
+function normalizePortList(raw: unknown): BoardPortSpec[] | null {
+  if (!Array.isArray(raw)) return null;
+  const list: BoardPortSpec[] = [];
+  for (const item of raw) {
+    if (!isObject(item)) return null;
+    if (typeof item.id !== "string" || !item.id) return null;
+    if (!isPortType(item.type)) return null;
+    if (typeof item.labelKey !== "string") return null;
+    list.push({
+      id: item.id,
+      type: item.type,
+      labelKey: item.labelKey,
+      ...(typeof item.max === "number" ? { max: item.max } : {}),
+    });
+  }
+  return list;
+}
+
 /** 归一化绑定：丢掉形状不对的条目。 */
 function normalizeBindings(raw: unknown): Record<string, BoardBinding> {
   if (!isObject(raw)) return {};
@@ -73,6 +103,8 @@ function normalizeNode(raw: unknown): BoardNode | null {
     params: normalizeParams(rawData.params),
     bindings: normalizeBindings(rawData.bindings),
   };
+  const ports = normalizePorts(rawData.ports);
+  if (ports) data.ports = ports;
   if (typeof rawData.title === "string" && rawData.title) data.title = rawData.title;
   if (typeof rawData.assetId === "string" && rawData.assetId) data.assetId = rawData.assetId;
   if (Array.isArray(rawData.assetIds)) {

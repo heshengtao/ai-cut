@@ -212,7 +212,7 @@ MCP 工具 ─┼─▶ apply_command / apply_commands ─▶ 纯函数 ops ─�
 - HTML / iframe 场景素材与 HyperFrames 集成。
 - 云端协作、账号体系、多人实时编辑。
 - 移动端 / Web 版编辑器。
-- 插件市场与第三方 UI 扩展。
+- ~~插件市场与第三方 UI 扩展~~ —— **已实现**（见 [插件架构设计](superpowers/specs/2026-11-17-plugin-architecture-design.md) 与 [插件开发指南](plugins.md)）。
 - 提案 / 变更集审阅面板（当前用撤销历史 + 事件流替代）。
 - 内置转场素材库、字幕烧录模板市场。
 

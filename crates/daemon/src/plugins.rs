@@ -27,9 +27,13 @@ use walkdir::WalkDir;
 
 /// 插件安装进度事件名。
 pub const EVENT_PLUGIN: &str = "plugin-progress";
-/// 官方注册表（GitHub raw；不需要 GitHub Pages）。
+/// 官方注册表（GitHub Pages 静态托管）。
+///
+/// 用 Pages 而不是 raw.githubusercontent.com：部分网络下 raw 的 TLS 连接会被 reset
+/// （curl 能过、Rust 的 TLS 栈被掐），`*.github.io` 走 Fastly 能稳定取到。
+/// 用户可以在设置里配镜像或自己的注册表地址（镜像优先于这个默认值）。
 pub const DEFAULT_REGISTRY_URL: &str =
-    "https://raw.githubusercontent.com/heshengtao/ai-cut-ofx-registry/main/registry.json";
+    "https://heshengtao.github.io/ai-cut-ofx-registry/registry.json";
 /// 注册表磁盘缓存有效期。
 const CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 /// 单个下载地址最多尝试次数。
