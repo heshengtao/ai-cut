@@ -99,10 +99,6 @@ function vramForLocal(type: string, modelId: string | null): number {
 export function nodeCost(node: BoardNode): NodeCost | null {
   const type = node.type;
   if (type === "group") return null;
-  // 容器与行变量是控制节点：本身不占资源，子图的成本由批处理逐节点申请。
-  if (type === "batch" || type.startsWith("var.")) {
-    return { lane: "instant", vramMb: 0, ramMb: 16 };
-  }
   // 插件节点（ext.*）只认自己声明的泳道；没声明就不跑，绝不默认进 gpu 泳道。
   if (type.startsWith("ext.")) {
     const declared = nodeDefinition(type)?.cost;

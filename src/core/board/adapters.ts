@@ -103,12 +103,6 @@ const BUILTIN_TYPES = new Set([
   "model.demux",
   "input.value",
   "display.value",
-  "batch",
-  "var.item",
-  "var.index",
-  "var.carry",
-  "var.result",
-  "var.carryOut",
   "group",
 ]);
 

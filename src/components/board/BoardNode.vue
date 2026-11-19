@@ -32,7 +32,6 @@ import { fileUrl, importAssetAt, kindFromPath, pickMediaFiles } from "@/core/med
 import { uploadLocalFile } from "@/platform/files";
 import { addAsset } from "@/core/ops";
 import { toast } from "@/composables/useToast";
-import { BATCH_HEADER } from "@/core/board/batchFrame";
 import { nodeIcon } from "./nodeIcons";
 import BoardMediaPicker from "./BoardMediaPicker.vue";
 import BoardSizeControl from "./BoardSizeControl.vue";
@@ -45,7 +44,6 @@ import {
   ArrowUpTrayIcon,
   ChevronDownIcon,
   ChevronUpIcon,
-  Squares2X2Icon,
   DocumentDuplicateIcon,
   EyeIcon,
   EyeSlashIcon,
@@ -139,7 +137,6 @@ const kind = computed(() => {
   const current = node.value;
   if (!current) return "model";
   if (current.type === "group") return "group";
-  if (current.type === "batch") return "batch";
   if (current.type.startsWith("model.")) return "model";
   return definition.value?.assetKind ?? (current.type.includes("text") ? "text" : "model");
 });
@@ -340,55 +337,7 @@ const textHtml = computed(() => renderMarkdown(textPreview.value));
 /** 模型节点：只有模型节点有输出附件卡（输入 / 显示节点的内容就是卡片本身）。 */
 const isModel = computed(() => definition.value?.category === "model");
 
-/* ------------------------------------------------------------------ *
- * 迭代节点：头部卡片 + 下方可伸缩的子工作流容器框
- * ------------------------------------------------------------------ */
-
-const batchChildren = computed<BoardNode[]>(() => {
-  const ids = new Set(node.value?.data.children ?? []);
-  return board.nodes.filter((item) => ids.has(item.id));
-});
-
-const batchRows = computed(() => node.value?.data.rows ?? {});
-const batchDoneRows = computed(
-  () =>
-    Object.values(batchRows.value).filter((row) => row.status === "done").length,
-);
-const batchMode = computed(() => String(node.value?.data.params.mode ?? "parallel"));
-const batchSubtitle = computed(() => {
-  if (!node.value) return "";
-  if (node.value.type !== "batch") return "";
-  const total = Object.keys(batchRows.value).length;
-  const mode =
-    batchMode.value === "serial"
-      ? i18n.t("board.batchMode.serial")
-      : i18n.t("board.batchMode.parallel");
-  const progress = total > 0 ? ` · ${batchDoneRows.value}/${total}` : "";
-  return `${mode}${progress}`;
-});
-const batchCollapsed = computed(() => {
-  const height = node.value?.size?.height ?? 0;
-  return height <= BATCH_HEADER + 90;
-});
-
-/** 收缩 / 展开容器框：展开高度记在参数里，下次展开还原。 */
-function toggleBatchCollapsed(): void {
-  const current = node.value;
-  if (!current || current.type !== "batch") return;
-  const width = current.size?.width ?? 520;
-  const height = current.size?.height ?? 420;
-  if (batchCollapsed.value) {
-    const restore = Number(current.data.params.expandedHeight ?? 420);
-    board.resizeNode(current.id, { width, height: Math.max(restore, BATCH_HEADER + 160) });
-    return;
-  }
-  board.updateNodeData(current.id, {
-    params: { ...current.data.params, expandedHeight: height },
-  });
-  board.resizeNode(current.id, { width, height: BATCH_HEADER + 74 });
-}
-
-/** 值节点：一条安静的表面，编辑器 / 值本身占满整张卡（没有参数行、没有标签）。 */
+/** 值节点：一张安静的表面，编辑器 / 值本身占满整张卡（没有参数行、没有标签）。 */
 const isValueNode = computed(
   () => node.value?.type === "display.value" || node.value?.type === "input.value",
 );
@@ -1439,52 +1388,6 @@ function cycleOutput(): void {
       </div>
 
       <!-- ============ 组：一块安静的虚线容器（成员节点画在它上面） ============ -->
-      <!-- ============ 迭代节点：头部卡片 + 子工作流容器框 ============ -->
-      <div v-else-if="kind === 'batch'" class="batch-shell">
-        <header class="batch-head">
-          <span class="mn-icon" aria-hidden="true">
-            <component :is="nodeIcon(node.type)" />
-          </span>
-          <div class="mn-heading">
-            <strong class="mn-title" :title="title">{{ title }}</strong>
-            <span class="mn-subtitle">{{ batchSubtitle }}</span>
-          </div>
-          <button
-            class="batch-toggle nodrag"
-            type="button"
-            :title="i18n.t(batchCollapsed ? 'board.batch.expand' : 'board.batch.collapse')"
-            @pointerdown.stop
-            @click.stop="toggleBatchCollapsed"
-          >
-            <component :is="batchCollapsed ? ChevronDownIcon : ChevronUpIcon" />
-          </button>
-          <span class="mn-status" :data-state="status" :title="statusLabel">
-            <span class="mn-status-dot" aria-hidden="true" />
-            {{ statusLabel }}
-          </span>
-        </header>
-
-        <div v-if="!batchCollapsed" class="batch-frame">
-          <div class="batch-frame-head">
-            <span class="batch-frame-title">{{ i18n.t("board.batch.subflow") }}</span>
-            <span class="batch-frame-count">
-              {{ i18n.t("board.batch.nodeCount", { count: batchChildren.length }) }}
-            </span>
-          </div>
-          <div v-if="batchChildren.length === 0" class="batch-empty">
-            <Squares2X2Icon />
-            <strong>{{ i18n.t("board.batch.emptyTitle") }}</strong>
-            <span>{{ i18n.t("board.batch.emptyHint") }}</span>
-          </div>
-          <ul v-else class="batch-children">
-            <li v-for="child in batchChildren" :key="child.id">
-              <span class="batch-child-type">{{ child.type }}</span>
-              <span class="batch-child-title">{{ child.data.title || i18n.t(nodeDefinition(child.type)?.titleKey ?? child.type) }}</span>
-            </li>
-          </ul>
-        </div>
-      </div>
-
       <div v-else-if="kind === 'group'" class="group-frame" :data-tone="groupTone">
         <p v-if="groupMembers.length === 0" class="group-empty">
           {{ i18n.t("board.group.empty") }}
@@ -2024,7 +1927,6 @@ function cycleOutput(): void {
       type="target"
       :position="Position.Left"
       class="node-handle node-handle-in"
-      :style="kind === 'batch' ? { top: `${BATCH_HEADER / 2}px` } : undefined"
     />
     <Handle
       v-if="ports.outputs.length > 0"
@@ -2032,7 +1934,6 @@ function cycleOutput(): void {
       type="source"
       :position="Position.Right"
       class="node-handle node-handle-out"
-      :style="kind === 'batch' ? { top: `${BATCH_HEADER / 2}px` } : undefined"
     />
 
     <span
@@ -2060,8 +1961,6 @@ function cycleOutput(): void {
 
 .board-node {
   position: relative;
-  /* 容器（组 / 迭代）永远垫在普通节点下面：子工作流要能盖在容器框上。 */
-  z-index: 1;
   width: 100%;
   height: 100%;
   border-radius: 20px;
@@ -2207,179 +2106,7 @@ function cycleOutput(): void {
   opacity: 0.72;
 }
 
-/* ============ 迭代节点：头部卡片 + 子工作流容器框 ============ */
-.batch-shell {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  border-radius: 20px;
-  border: 1px solid rgb(var(--md-outline-variant) / 0.42);
-  background: linear-gradient(152deg, rgb(var(--node-card-top)), rgb(var(--node-card-bottom)));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 14px 34px rgb(0 0 0 / 0.22);
-  overflow: visible;
-}
-
-.batch-head {
-  flex: 0 0 auto;
-  height: 78px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 0 12px;
-  border-bottom: 1px dashed rgb(var(--md-outline-variant) / 0.4);
-  border-radius: 20px 20px 0 0;
-  background: radial-gradient(120% 90% at 0% 0%, rgb(var(--md-primary) / 0.1), transparent 62%);
-}
-
-.batch-toggle {
-  flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--md-on-surface-variant));
-}
-
-.batch-toggle:hover {
-  background: rgb(var(--md-on-surface) / 0.08);
-}
-
-.batch-toggle svg {
-  width: 14px;
-  height: 14px;
-}
-
-.batch-frame {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px 14px;
-  border-radius: 0 0 20px 20px;
-  background:
-    radial-gradient(90% 70% at 100% 100%, rgb(var(--md-primary) / 0.06), transparent 70%),
-    repeating-linear-gradient(
-      45deg,
-      rgb(var(--md-outline-variant) / 0.05) 0 10px,
-      transparent 10px 20px
-    );
-  pointer-events: none;
-}
-
-.batch-frame-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: rgb(var(--md-on-surface-muted));
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.batch-frame-count {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 8.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: none;
-}
-
-.batch-empty {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px dashed rgb(var(--md-outline) / 0.35);
-  border-radius: 14px;
-  color: rgb(var(--md-on-surface-muted));
-  text-align: center;
-}
-
-.batch-empty svg {
-  width: 22px;
-  height: 22px;
-  opacity: 0.6;
-}
-
-.batch-empty strong {
-  color: rgb(var(--md-on-surface-variant));
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.batch-empty span {
-  max-width: 260px;
-  font-size: 9.5px;
-  line-height: 1.5;
-}
-
-.batch-children {
-  flex: 1 1 auto;
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  overflow: auto;
-}
-
-.batch-children li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border-radius: 8px;
-  background: rgb(var(--md-surface-container-lowest) / 0.32);
-  font-size: 9.5px;
-}
-
-.batch-child-type {
-  flex: 0 0 auto;
-  color: rgb(var(--md-on-surface-muted));
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 8px;
-}
-
-.batch-child-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: rgb(var(--md-on-surface-variant));
-}
-
-.batch-child-status {
-  flex: 0 0 auto;
-  color: rgb(var(--md-on-surface-muted));
-  font-size: 8px;
-}
-
-/* 端口在头部中间，不要落在整张容器框的垂直中心。 */
-.board-node[data-kind="batch"] .node-handle-in,
-.board-node[data-kind="batch"] .node-handle-out {
-  top: 39px;
-}
-
 /* ============ 组节点：虚线框 + 标题条 ============ */
-.board-node[data-kind="group"],
-.board-node[data-kind="batch"] {
-  z-index: 0;
-}
-
 .board-node[data-kind="group"] {
   /* 组框只是背景，别抢走成员节点的点击；标题条 / 浮动标签 / 悬停控制自己恢复可点。 */
   pointer-events: none;

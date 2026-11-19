@@ -548,8 +548,6 @@ function addNode(type: string, at?: { x: number; y: number }, data?: Partial<Boa
     },
     data: { params: {}, bindings: {}, ...data },
   });
-  // 新节点如果正好落在迭代容器的框里，直接成为子工作流成员。
-  board.refreshBatchMembership([id]);
   void nextTick(() => {
     if (board.nodes.length === 1) void fitView({ padding: 0.35, duration: 260 });
   });
@@ -1195,9 +1193,7 @@ let groupDrag: {
 } | null = null;
 
 onNodeDragStart(({ node }) => {
-  const group = board.nodes.find(
-    (item) => item.id === node.id && (item.type === "group" || item.type === "batch"),
-  );
+  const group = board.nodes.find((item) => item.id === node.id && item.type === "group");
   const members = new Map<string, { x: number; y: number }>();
   if (group) {
     const byId = new Map(board.nodes.map((item) => [item.id, item]));
@@ -1236,11 +1232,7 @@ onNodeDragStop((event) => {
     .filter((node): node is BoardNode => Boolean(node) && node!.type !== "group")
     .map((node) => node.id);
   // 拖出组框 → 离开组；拖进组框 → 加入组（对齐 ai-board 的视觉容器语义）。
-  if (moved.length > 0) {
-    board.refreshGroupMembership(moved);
-    // 拖进 / 拖出迭代容器的子工作流框：成员跟着变。
-    board.refreshBatchMembership(moved);
-  }
+  if (moved.length > 0) board.refreshGroupMembership(moved);
   // 成员被拖出组 / 组内成员增删后，组框重新贴合。
   board.syncGroupBounds();
 });

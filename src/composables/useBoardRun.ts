@@ -36,15 +36,6 @@ import {
 } from "@/core/board/liveRuns";
 import { createRunSignals } from "@/core/board/runSignals";
 import { nodeDefinition, nodeOwner, paramValue, valueKindOf } from "@/core/board/registry";
-import { createRunLimiter } from "@/core/board/limiter";
-import {
-  normalizeItems,
-  scopedAssetId,
-  scopedText,
-  scopedValue,
-  type RowOutputs,
-  type RunScope,
-} from "@/core/board/runScope";
 import { pluginHostCancel } from "@/core/pluginHostApi";
 
 /**
@@ -211,12 +202,9 @@ function resolveFromEdge(
  * 只读 `outputText`，不读输入节点的参数草案：画布是显式执行的，上游没有运行
  * 之前下游不应该拿到任何东西（否则改一个字就自动推进整条链）。
  */
-function upstreamText(nodeId: string, portId: string, scope?: RunScope): string | null {
+function upstreamText(nodeId: string, portId: string): string | null {
   const source = resolveUpstream(nodeId, portId, "text");
   if (!source) return null;
-  // 迭代行里优先读行作用域：同一节点在每一行各有一份产物，不能读节点上的「最新一次」。
-  const scoped = scopedText(scope, source.node.id, source.portId);
-  if (scoped !== undefined) return scoped;
   // 值节点（`input.value`）选 text 类型时把值存在 `data.values` 里，其余节点存 `outputText`。
   const direct = source.node.data.values?.[source.portId];
   if (typeof direct === "string") return direct;
@@ -224,9 +212,7 @@ function upstreamText(nodeId: string, portId: string, scope?: RunScope): string 
 }
 
 /** 某个节点某个输出端口当前发布的值产物（number / boolean / json / 插件类型）。 */
-function publishedValue(node: BoardNode, portId: string, scope?: RunScope): unknown {
-  const scoped = scopedValue(scope, node.id, portId);
-  if (scoped !== undefined) return scoped;
+function publishedValue(node: BoardNode, portId: string): unknown {
   const context = portContext();
   const ports = portsOf(node, context).outputs;
   const id = ports.some((port) => port.id === portId) ? portId : (ports[0]?.id ?? portId);
@@ -239,7 +225,7 @@ function publishedValue(node: BoardNode, portId: string, scope?: RunScope): unkn
 }
 
 /** 上游已经发布的值产物。 */
-function upstreamValue(nodeId: string, portId: string, scope?: RunScope): unknown {
+function upstreamValue(nodeId: string, portId: string): unknown {
   const board = useBoardStore();
   const context = portContext();
   const target = board.nodes.find((item) => item.id === nodeId);
@@ -247,7 +233,7 @@ function upstreamValue(nodeId: string, portId: string, scope?: RunScope): unknow
     ? portsOf(target, context).inputs.find((port) => port.id === portId)
     : null;
   const source = resolveUpstream(nodeId, portId, targetPort?.type ?? "any");
-  return source ? publishedValue(source.node, source.portId, scope) : null;
+  return source ? publishedValue(source.node, source.portId) : null;
 }
 
 /** 值节点参数 → 输出值。JSON 文本解析失败时原样返回，不把一次运行弄挂。 */
@@ -279,7 +265,6 @@ export function parseValueParam(kind: BoardPortType, raw: unknown): unknown {
 function upstreamAsset(
   nodeId: string,
   portId: string,
-  scope?: RunScope,
 ): { path: string; duration: number; assetId: string } | null {
   const board = useBoardStore();
   const project = useProjectStore();
@@ -294,8 +279,7 @@ function upstreamAsset(
     targetPort?.type ?? "any",
   );
   if (!source) return null;
-  const scoped = scopedAssetId(scope, source.node.id, source.portId);
-  const assetId = scoped !== undefined ? scoped : publishedAssetId(source.node, source.portId, context);
+  const assetId = publishedAssetId(source.node, source.portId, context);
   if (!assetId) return null;
   const asset = project.doc.assets.find((item) => item.id === assetId);
   if (!asset) return null;
@@ -311,7 +295,6 @@ function upstreamAsset(
 function upstreamAssets(
   nodeId: string,
   portId: string,
-  scope?: RunScope,
 ): { ids: string[]; primary?: string } {
   const board = useBoardStore();
   const project = useProjectStore();
@@ -326,11 +309,6 @@ function upstreamAssets(
     targetPort?.type ?? "any",
   );
   if (!source) return { ids: [] };
-  const scoped = scopedAssetId(scope, source.node.id, source.portId);
-  if (scoped !== undefined) {
-    const ids = scoped && project.doc.assets.some((asset) => asset.id === scoped) ? [scoped] : [];
-    return { ids, primary: ids[0] };
-  }
   const primary = publishedAssetId(source.node, source.portId, context);
   const ids = publishedAssetIds(source.node, source.portId, context).filter((id) =>
     project.doc.assets.some((asset) => asset.id === id),
@@ -344,7 +322,7 @@ function upstreamAssets(
  * 同类型多路输入合并成一个端口后，一个端口可能挂着多条连线；这里逐条
  * 沿连线解析（旁路 / 显示节点透传都算），失败或没连的直接跳过。
  */
-function collectRefs(nodeId: string, kind: "image" | "audio" | "video", scope?: RunScope): string[] {
+function collectRefs(nodeId: string, kind: "image" | "audio" | "video"): string[] {
   const board = useBoardStore();
   const project = useProjectStore();
   const context = portContext();
@@ -367,8 +345,7 @@ function collectRefs(nodeId: string, kind: "image" | "audio" | "video", scope?: 
     if (edge.target !== nodeId || !portIds.has(edge.targetPort)) continue;
     const ref = resolveFromEdge(edge, kind);
     if (!ref) continue;
-    const scoped = scopedAssetId(scope, ref.node.id, ref.portId);
-    const assetId = scoped !== undefined ? scoped : publishedAssetId(ref.node, ref.portId, context);
+    const assetId = publishedAssetId(ref.node, ref.portId, context);
     const asset = assetId ? project.doc.assets.find((item) => item.id === assetId) : null;
     if (asset) paths.push(asset.src);
   }
@@ -376,8 +353,8 @@ function collectRefs(nodeId: string, kind: "image" | "audio" | "video", scope?: 
 }
 
 /** 图像节点的参考图（一个 `ref` 端口可接多张，顺序就是检查器里的顺序）。 */
-function collectImageRefs(nodeId: string, scope?: RunScope): string[] {
-  return collectRefs(nodeId, "image", scope);
+function collectImageRefs(nodeId: string): string[] {
+  return collectRefs(nodeId, "image");
 }
 
 /** `local:<id>` / `cloud:<id>`（端口展开与运行共用同一套解析）。 */
@@ -473,7 +450,6 @@ export async function runAdapter(
   node: BoardNode,
   nodeId: string,
   signal: AbortSignal = new AbortController().signal,
-  scope?: RunScope,
 ): Promise<AdapterResult> {
   const route = dispatchAdapter(node.type);
   if (route === "plugin") {
@@ -482,13 +458,13 @@ export async function runAdapter(
       // 只读 `data.params` 的话，没被用户改过的参数就是 `undefined`——卡片上明明
       // 显示着定义里的默认值（插件作者也因此以为 `io.param` 拿得到），要回落。
       param: <T,>(id: string) => readParam<T>(id),
-      text: (portId) => upstreamText(nodeId, portId, scope),
+      text: (portId) => upstreamText(nodeId, portId),
       asset: (portId) => {
-        const found = upstreamAsset(nodeId, portId, scope);
+        const found = upstreamAsset(nodeId, portId);
         return found ? { path: found.path, assetId: found.assetId } : null;
       },
-      refs: (kind) => collectRefs(nodeId, kind, scope),
-      value: (portId) => upstreamValue(nodeId, portId, scope),
+      refs: (kind) => collectRefs(nodeId, kind),
+      value: (portId) => upstreamValue(nodeId, portId),
       progress: (value, message) =>
         updateLiveRun(nodeId, { progress: value, message: message ?? null }),
     };
@@ -516,20 +492,6 @@ export async function runAdapter(
   const model = splitModel(paramsOf(node).model);
 
   switch (node.type) {
-    case "batch":
-      return runBatch(node, signal, scope);
-
-    case "var.item":
-      return { values: { value: scope?.row.item ?? null } };
-    case "var.index":
-      return { values: { value: scope?.row.index ?? 0 } };
-    case "var.carry":
-      return { values: { value: scope?.row.carry ?? null } };
-    case "var.result":
-    case "var.carryOut":
-      // 结果 / 循环变量出口：只作为接线终点，本身不产出。
-      return {};
-
     case "input.value": {
       // 端口类型跟着 `kind` 走；text 走 `text` 产物，其余走值产物。
       const kind = valueKindOf(node);
@@ -954,152 +916,15 @@ function blockedByDisabled(nodeId: string): boolean {
   return false;
 }
 
-/** 节点是不是某个迭代容器的子工作流成员（这类节点不参与主流程调度）。 */
-function isBatchChild(nodeId: string): boolean {
-  return useBoardStore().nodes.some(
-    (node) => node.type === "batch" && (node.data.children ?? []).includes(nodeId),
-  );
-}
-
-/** 组节点只是框，不参与运行；迭代容器的成员由容器自己在行内调度。 */
+/** 组节点只是框，不参与运行。 */
 function isRunnableNode(node: BoardNode): boolean {
   if (node.type === "group") return false;
   if (node.data.ignored || node.data.bypassed) return false;
-  if (isBatchChild(node.id)) return false;
   return !blockedByDisabled(node.id);
 }
 
-/** 全局资源闸门：主流程与迭代行共用，避免并行的本地模型撑爆显存。 */
-const runLimiter = createRunLimiter(DEFAULT_RUN_LIMITS);
-
 /** 输出附件卡最多保留多少个产物（重复运行累积时防止无限膨胀）。 */
 const MAX_OUTPUTS = 12;
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/** 把一次子节点运行的结果整理成行作用域的产物。 */
-async function rowOutputsOf(node: BoardNode, result: AdapterResult): Promise<RowOutputs> {
-  const registered = await registerOutputs(result);
-  const ports = portsOf(node, portContext()).outputs;
-  const assetByPort: Record<string, string> = { ...registered.byPort };
-  if (registered.primary && ports[0]) assetByPort[ports[0].id] ??= registered.primary;
-  return {
-    values: { ...(result.values ?? {}) },
-    ...(result.text !== undefined ? { text: result.text } : {}),
-    assetByPort,
-  };
-}
-
-/**
- * 迭代节点：按 `items` 逐行运行子工作流。
- *
- * - `parallel`：行之间没有数据依赖，按 `concurrency` 并发；`var.carry` 是常量。
- * - `serial`：逐行串行，`var.carry` 拿到上一行 `var.carryOut` 的值（连镜 / 场景连续）。
- *
- * 子节点的产物不写回节点（并行行会互相覆盖），而是记在行作用域里；最终只发布
- * `results` / `carry` 两个值，以及每行的状态。
- */
-async function runBatch(
-  node: BoardNode,
-  signal: AbortSignal,
-  parentScope?: RunScope,
-): Promise<AdapterResult> {
-  const board = useBoardStore();
-  const definition = nodeDefinition("batch");
-  const mode = String(paramValue(definition, node.data.params, "mode") ?? "parallel");
-  const rawConcurrency = Number(paramValue(definition, node.data.params, "concurrency") ?? 3);
-  const concurrency = Math.max(1, Math.min(8, Number.isFinite(rawConcurrency) ? rawConcurrency : 3));
-  const errorPolicy = String(paramValue(definition, node.data.params, "errorPolicy") ?? "continue");
-  const items = normalizeItems(upstreamValue(node.id, "items", parentScope));
-  const initialCarry = upstreamValue(node.id, "carry", parentScope);
-
-  const childIds = new Set(node.data.children ?? []);
-  const children = board.nodes.filter((item) => childIds.has(item.id));
-  const edges = board.edges.filter(
-    (edge) => childIds.has(edge.source) && childIds.has(edge.target),
-  );
-  const order = topologicalOrder(children, edges);
-  const resultNode = children.find((item) => item.type === "var.result");
-  const carryNode = children.find((item) => item.type === "var.carryOut");
-
-  const rows: Record<string, { status?: string; error?: string }> = {};
-  const results: unknown[] = new Array(items.length).fill(null);
-  let done = 0;
-  let finalCarry = initialCarry;
-
-  const publish = (): void => {
-    board.setNodeRuntime(node.id, {
-      rows: { ...rows },
-      progress: items.length > 0 ? done / items.length : 1,
-    });
-  };
-
-  const execute = async (item: unknown, index: number, carry: unknown) => {
-    const scope: RunScope = { row: { item, index, carry }, outputs: new Map() };
-    for (const child of order) {
-      if (signal.aborted) throw new Error("已取消");
-      if (child.data.ignored || child.data.bypassed) continue;
-      const cost = nodeCost(child) ?? { lane: "instant" as const, vramMb: 0, ramMb: 0 };
-      const release = await runLimiter.acquire(cost);
-      try {
-        const result = await runAdapter(child, child.id, signal, scope);
-        scope.outputs.set(child.id, await rowOutputsOf(child, result));
-      } finally {
-        release();
-      }
-    }
-    return {
-      result: resultNode ? upstreamValue(resultNode.id, "value", scope) : null,
-      carry: carryNode ? upstreamValue(carryNode.id, "value", scope) : carry,
-    };
-  };
-
-  const mark = (index: number, patch: { status: string; error?: string }): void => {
-    rows[String(index)] = patch;
-    done += 1;
-    publish();
-  };
-
-  if (mode === "serial") {
-    let carry = initialCarry;
-    for (let index = 0; index < items.length; index += 1) {
-      try {
-        const out = await execute(items[index], index, carry);
-        results[index] = out.result;
-        carry = out.carry;
-        mark(index, { status: "done" });
-      } catch (error) {
-        mark(index, { status: "error", error: messageOf(error) });
-        if (errorPolicy === "terminate") throw error;
-      }
-    }
-    finalCarry = carry;
-  } else {
-    let cursor = 0;
-    const worker = async (): Promise<void> => {
-      for (;;) {
-        const index = cursor;
-        cursor += 1;
-        if (index >= items.length) return;
-        try {
-          const out = await execute(items[index], index, initialCarry);
-          results[index] = out.result;
-          mark(index, { status: "done" });
-        } catch (error) {
-          mark(index, { status: "error", error: messageOf(error) });
-          if (errorPolicy === "terminate") throw error;
-        }
-      }
-    };
-    const workers = Math.min(concurrency, Math.max(1, items.length));
-    await Promise.all(Array.from({ length: workers }, () => worker()));
-  }
-
-  publish();
-  return { values: { results, carry: finalCarry } };
-}
 
 async function runOne(nodeId: string): Promise<boolean> {
   const board = useBoardStore();
@@ -1135,14 +960,7 @@ async function runOne(nodeId: string): Promise<boolean> {
     durationMs: undefined,
   });
   try {
-    const cost = nodeCost(node) ?? { lane: "instant" as const, vramMb: 0, ramMb: 0 };
-    const release = await runLimiter.acquire(cost);
-    let result: AdapterResult;
-    try {
-      result = await runAdapter(node, nodeId, signal);
-    } finally {
-      release();
-    }
+    const result = await runAdapter(node, nodeId, signal);
     const { byPort, primary, imported } = await registerOutputs(result);
     const outputs = byPort;
     const outputPorts = portsOf(node, portContext()).outputs;
@@ -1412,8 +1230,6 @@ export function useBoardRun() {
     enqueueBatch(order.filter(isRunnableNode).map((node) => node.id));
     for (const node of order) {
       if (node.type === "group") continue;
-      // 容器成员由迭代节点在行内调度，主流程不碰它们的状态。
-      if (isBatchChild(node.id)) continue;
       if (!isRunnableNode(node)) board.setNodeRuntime(node.id, { status: "skipped" });
     }
   }

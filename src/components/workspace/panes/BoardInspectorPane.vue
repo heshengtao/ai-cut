@@ -756,7 +756,7 @@ function portReady(port: BoardPortSpec): boolean {
 </script>
 
 <template>
-  <div class="board-inspector">
+  <div class="board-inspector ab-canvas">
     <template v-if="node && definition">
       <!-- 节点标题卡 -->
       <div class="inspector-node-title">

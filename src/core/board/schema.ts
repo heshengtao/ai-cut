@@ -168,17 +168,6 @@ function normalizeNode(raw: unknown): BoardNode | null {
   }
   const values = normalizeValues(rawData.values);
   if (values) data.values = values;
-  if (isObject(rawData.rows)) {
-    const rows: Record<string, { status?: string; error?: string }> = {};
-    for (const [key, item] of Object.entries(rawData.rows)) {
-      if (!/^\d{1,6}$/.test(key) || !isObject(item)) continue;
-      rows[key] = {
-        ...(typeof item.status === "string" ? { status: item.status } : {}),
-        ...(typeof item.error === "string" ? { error: item.error.slice(0, 500) } : {}),
-      };
-    }
-    if (Object.keys(rows).length > 0) data.rows = rows;
-  }
   if (Array.isArray(rawData.outputAssetIds)) {
     const ids = rawData.outputAssetIds.filter(
       (id): id is string => typeof id === "string" && id.length > 0,

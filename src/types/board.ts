@@ -248,11 +248,6 @@ export interface BoardNodeData {
    * 这两者表达不了的值，避免把所有输出都塞成一个万能字符串。
    */
   values?: Record<string, unknown>;
-  /**
-   * 迭代节点的行状态：`行序号 → { status, error }`。
-   * 只存状态，不存整行产物（产物在 `values.results` 里）。
-   */
-  rows?: Record<string, { status?: string; error?: string }>;
   /** 本次运行开始的时间戳（毫秒）；用于运行计时。 */
   startedAt?: number;
   /** 上一次运行的耗时（毫秒）；完成后用于节点角标。 */
