@@ -12,6 +12,9 @@ const props = defineProps<EdgeProps>();
 
 const gradientId = `flow-edge-${String(useId()).replace(/[^a-zA-Z0-9_-]/g, "")}`;
 
+/** 循环开始 / 结束之间的配对线（不参与数据流，用虚线区分）。 */
+const isPair = computed(() => Boolean((props.data as { pair?: boolean } | undefined)?.pair));
+
 const path = computed(() => {
   const { sourceX, sourceY, targetX, targetY } = props;
   const gap = Math.abs(targetX - sourceX);
@@ -21,7 +24,11 @@ const path = computed(() => {
 </script>
 
 <template>
-  <g class="flow-edge" :data-selected="selected ? 'true' : undefined">
+  <g
+    class="flow-edge"
+    :data-selected="selected ? 'true' : undefined"
+    :data-pair="isPair ? 'true' : undefined"
+  >
     <defs>
       <linearGradient
         :id="gradientId"
@@ -45,6 +52,20 @@ const path = computed(() => {
 </template>
 
 <style scoped>
+/* 循环开始 / 结束的配对线：虚线，和不参与数据流这件事一致。 */
+.flow-edge[data-pair="true"] .flow-edge-core {
+  stroke-dasharray: 7 6;
+  opacity: 0.7;
+}
+
+.flow-edge[data-pair="true"] .flow-edge-flow {
+  display: none;
+}
+
+.flow-edge[data-pair="true"] .flow-edge-glow {
+  opacity: 0.1;
+}
+
 .flow-edge-glow {
   fill: none;
   stroke: rgb(var(--md-primary));
@@ -100,7 +121,21 @@ const path = computed(() => {
   stroke-width: 3.8;
   filter: drop-shadow(0 0 9px rgb(var(--md-primary) / 0.85));
 }
-.flow-edge[data-selected="true"] .flow-edge-glow {
+.flow-edge[data-selected="true"] /* 循环开始 / 结束的配对线：虚线，和不参与数据流这件事一致。 */
+.flow-edge[data-pair="true"] .flow-edge-core {
+  stroke-dasharray: 7 6;
+  opacity: 0.7;
+}
+
+.flow-edge[data-pair="true"] .flow-edge-flow {
+  display: none;
+}
+
+.flow-edge[data-pair="true"] .flow-edge-glow {
+  opacity: 0.1;
+}
+
+.flow-edge-glow {
   opacity: 0.34;
 }
 .flow-edge[data-selected="true"] .flow-edge-dot {
@@ -122,7 +157,21 @@ const path = computed(() => {
 }
 @media (prefers-reduced-motion: reduce) {
   .flow-edge-flow,
-  .flow-edge-glow {
+  /* 循环开始 / 结束的配对线：虚线，和不参与数据流这件事一致。 */
+.flow-edge[data-pair="true"] .flow-edge-core {
+  stroke-dasharray: 7 6;
+  opacity: 0.7;
+}
+
+.flow-edge[data-pair="true"] .flow-edge-flow {
+  display: none;
+}
+
+.flow-edge[data-pair="true"] .flow-edge-glow {
+  opacity: 0.1;
+}
+
+.flow-edge-glow {
     animation: none;
   }
 }

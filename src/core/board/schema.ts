@@ -276,6 +276,7 @@ export function normalizeBoard(raw: unknown, portTypeOf?: (nodeType: string, por
       if (typeof source !== "string" || typeof target !== "string") continue;
       if (typeof sourcePort !== "string" || typeof targetPort !== "string") continue;
       if (!nodeIds.has(source) || !nodeIds.has(target)) continue;
+      const kind = item.kind === "pair" ? ("pair" as const) : undefined;
       if (source === target) continue;
       if (portTypeOf) {
         const from = portTypeOf(source, sourcePort, "out");
@@ -283,7 +284,7 @@ export function normalizeBoard(raw: unknown, portTypeOf?: (nodeType: string, por
         if (!from || !to || !isPortType(from) || !isPortType(to)) continue;
       }
       seen.add(id);
-      edges.push({ id, source, sourcePort, target, targetPort });
+      edges.push({ id, source, sourcePort, target, targetPort, ...(kind ? { kind } : {}) });
     }
   }
   const rawViewport = isObject(raw.viewport) ? raw.viewport : {};

@@ -248,6 +248,8 @@ export interface BoardNodeData {
    * 这两者表达不了的值，避免把所有输出都塞成一个万能字符串。
    */
   values?: Record<string, unknown>;
+  /** 循环开始 / 结束节点的配对 id：删一个，另一个和配对线一起消失。 */
+  pairId?: string;
   /** 本次运行开始的时间戳（毫秒）；用于运行计时。 */
   startedAt?: number;
   /** 上一次运行的耗时（毫秒）；完成后用于节点角标。 */
@@ -286,6 +288,8 @@ export interface BoardEdge {
   sourcePort: string;
   target: string;
   targetPort: string;
+  /** `pair` 是循环开始 / 结束之间的配对线：只表达配对，不参与数据流。 */
+  kind?: "pair";
 }
 
 export interface BoardViewport {

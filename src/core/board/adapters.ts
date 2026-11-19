@@ -103,6 +103,8 @@ const BUILTIN_TYPES = new Set([
   "model.demux",
   "input.value",
   "display.value",
+  "loop.start",
+  "loop.end",
   "group",
 ]);
 

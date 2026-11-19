@@ -332,6 +332,7 @@ function syncEdges(): void {
     sourceHandle: "out",
     target: edge.target,
     targetHandle: "in",
+    data: edge.kind === "pair" ? { pair: true } : undefined,
   }));
 }
 
@@ -1110,6 +1111,7 @@ function onPaneClick(): void {
   // 只清选择；菜单由"点外面关闭"负责——否则"拖线到空白松手"弹出来的兼容节点菜单
   // 会被同一轮鼠标抬起的 pane click 立刻关掉。
   board.select([]);
+  selectedEdgeId.value = null;
 }
 
 function onNodeCtx(payload: NodeMouseEvent): void {
@@ -1406,6 +1408,18 @@ function onKeyDown(event: KeyboardEvent): void {
   }
   if (
     (event.key === "Delete" || event.key === "Backspace") &&
+    board.selection.length === 0 &&
+    selectedEdgeId.value &&
+    !mod
+  ) {
+    // 选中连线（循环配对线）时，Delete 直接删线：配对线会连两端节点一起删。
+    event.preventDefault();
+    board.removeEdges([selectedEdgeId.value]);
+    selectedEdgeId.value = null;
+    return;
+  }
+  if (
+    (event.key === "Delete" || event.key === "Backspace") &&
     board.selection.length > 0 &&
     !mod
   ) {
@@ -1417,6 +1431,13 @@ function onKeyDown(event: KeyboardEvent): void {
     event.preventDefault();
     run.runNode(menu.value.nodeId);
   }
+}
+
+/** 当前选中的连线：循环配对线靠右键 / Delete 删除，删线等于解散这对循环。 */
+const selectedEdgeId = ref<string | null>(null);
+
+function onEdgeClick(payload: { edge: { id: string } }): void {
+  selectedEdgeId.value = payload.edge.id;
 }
 
 function onFlowInit(): void {
@@ -1496,9 +1517,10 @@ onUnmounted(() => {
       :is-valid-connection="isValidConnection"
       @init="onFlowInit"
       @connect="onConnect"
+      @edge-click="onEdgeClick"
+      @pane-click="onPaneClick"
       @node-click="onSelectNode"
       @node-double-click="onNodeDoubleClick"
-      @pane-click="onPaneClick"
       @node-context-menu="onNodeCtx"
       @selection-context-menu="onSelectionCtx"
       @edge-context-menu="onEdgeCtx"

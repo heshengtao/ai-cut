@@ -37,6 +37,12 @@ import {
 import { createRunSignals } from "@/core/board/runSignals";
 import { nodeDefinition, nodeOwner, paramValue, valueKindOf } from "@/core/board/registry";
 import { pluginHostCancel } from "@/core/pluginHostApi";
+import {
+  loopBodyIds,
+  loopEndOf,
+  normalizeItems,
+  slotCount,
+} from "@/core/board/loop";
 
 /**
  * 运行中的实时状态（文本流 / 进度 / 开始时间）。
@@ -492,6 +498,12 @@ export async function runAdapter(
   const model = splitModel(paramsOf(node).model);
 
   switch (node.type) {
+    case "loop.start":
+      return runLoop(node, signal);
+    case "loop.end":
+      // 结束节点只是接线终点：数组由循环开始节点在循环结束时写回。
+      return {};
+
     case "input.value": {
       // 端口类型跟着 `kind` 走；text 走 `text` 产物，其余走值产物。
       const kind = valueKindOf(node);
@@ -916,11 +928,76 @@ function blockedByDisabled(nodeId: string): boolean {
   return false;
 }
 
-/** 组节点只是框，不参与运行。 */
+/** 循环体成员（由开始节点在循环里逐个运行，不参与主流程调度）。 */
+function inLoopBody(nodeId: string): boolean {
+  const board = useBoardStore();
+  for (const start of board.nodes) {
+    if (start.type !== "loop.start") continue;
+    if (loopBodyIds(start.id, board.nodes, board.edges).includes(nodeId)) return true;
+  }
+  return false;
+}
+
+/** 组节点只是框，不参与运行；循环结束与循环体由开始节点调度。 */
 function isRunnableNode(node: BoardNode): boolean {
   if (node.type === "group") return false;
+  if (node.type === "loop.end") return false;
+  if (inLoopBody(node.id)) return false;
   if (node.data.ignored || node.data.bypassed) return false;
   return !blockedByDisabled(node.id);
+}
+
+/**
+ * 循环开始节点：按模式跑完整段循环。
+ *
+ * 每一轮把 `item` / `index` 写进开始节点的值产物，循环体按拓扑序逐个运行
+ * （复用 `runOne`，所以子节点的状态、取消、素材入库都与普通运行一致）；每轮结束
+ * 读一次结束节点的槽位输入，最后把「每个槽位一个数组」写回结束节点。
+ */
+async function runLoop(start: BoardNode, signal: AbortSignal): Promise<AdapterResult> {
+  const board = useBoardStore();
+  const definition = nodeDefinition("loop.start");
+  const mode = String(paramValue(definition, start.data.params, "mode") ?? "array");
+  const end = loopEndOf(start, board.nodes);
+  if (!end) throw new Error("循环缺少结束节点");
+  const rawCount = Number(paramValue(definition, start.data.params, "count") ?? 4);
+  const count = Math.max(1, Math.min(999, Number.isFinite(rawCount) ? Math.round(rawCount) : 4));
+  const items =
+    mode === "array"
+      ? normalizeItems(upstreamValue(start.id, "items"))
+      : Array.from({ length: count }, () => null);
+
+  const bodyIds = loopBodyIds(start.id, board.nodes, board.edges);
+  const byId = new Map(board.nodes.map((node) => [node.id, node]));
+  const body = bodyIds
+    .map((id) => byId.get(id))
+    .filter((node): node is BoardNode => Boolean(node));
+  const bodyEdges = board.edges.filter(
+    (edge) =>
+      bodyIds.includes(edge.source) && bodyIds.includes(edge.target) && edge.kind !== "pair",
+  );
+  const order = topologicalOrder(body, bodyEdges);
+  const slots = slotCount(paramValue(nodeDefinition("loop.end"), end.data.params, "slots") ?? 1);
+  const collected: unknown[][] = Array.from({ length: slots }, () => []);
+
+  board.setNodeRuntime(end.id, { status: "running", error: undefined, values: {} });
+  for (let index = 0; index < items.length; index += 1) {
+    if (signal.aborted) throw new Error("已取消");
+    board.setNodeRuntime(start.id, { values: { item: items[index], index } });
+    for (const child of order) {
+      if (child.id === end.id) continue;
+      await runOne(child.id);
+    }
+    for (let slot = 1; slot <= slots; slot += 1) {
+      collected[slot - 1]!.push(upstreamValue(end.id, `in${slot}`));
+    }
+  }
+  const values: Record<string, unknown> = {};
+  for (let slot = 1; slot <= slots; slot += 1) {
+    values[`out${slot}`] = collected[slot - 1];
+  }
+  board.setNodeRuntime(end.id, { status: "done", error: undefined, values });
+  return { values: { item: null, index: items.length } };
 }
 
 /** 输出附件卡最多保留多少个产物（重复运行累积时防止无限膨胀）。 */
@@ -1229,7 +1306,8 @@ export function useBoardRun() {
     clearSkipStatuses();
     enqueueBatch(order.filter(isRunnableNode).map((node) => node.id));
     for (const node of order) {
-      if (node.type === "group") continue;
+      if (node.type === "group" || node.type === "loop.end") continue;
+      if (inLoopBody(node.id)) continue;
       if (!isRunnableNode(node)) board.setNodeRuntime(node.id, { status: "skipped" });
     }
   }

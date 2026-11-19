@@ -215,6 +215,36 @@ export const useBoardStore = defineStore("board", () => {
   }
 
   function addNode(node: BoardNode): void {
+    // 循环开始：连体创建结束节点 + 配对线，三者一起存在、一起消失。
+    if (node.type === "loop.start") {
+      const size = node.size ?? nodeDefinition("loop.start")?.defaultSize ?? { width: 360, height: 150 };
+      const endSize = nodeDefinition("loop.end")?.defaultSize ?? { width: 360, height: 150 };
+      const pairId = crypto.randomUUID();
+      const endId = crypto.randomUUID();
+      const start: BoardNode = { ...node, size, data: { ...node.data, pairId } };
+      const end: BoardNode = {
+        id: endId,
+        type: "loop.end",
+        position: { x: node.position.x + size.width + 96, y: node.position.y },
+        size: endSize,
+        data: { params: { slots: 1 }, bindings: {}, pairId },
+      };
+      const pairEdge: BoardEdge = {
+        id: crypto.randomUUID(),
+        source: start.id,
+        sourcePort: "pair",
+        target: endId,
+        targetPort: "pair",
+        kind: "pair",
+      };
+      commit(() => {
+        nodes.value = [...nodes.value, start, end];
+        edges.value = [...edges.value, pairEdge];
+      });
+      selection.value = [start.id];
+      refreshGroupMembership([start.id]);
+      return;
+    }
     commit(() => {
       nodes.value = [...nodes.value, node];
     });
@@ -541,6 +571,14 @@ export const useBoardStore = defineStore("board", () => {
       wanted.add(id);
       const node = nodes.value.find((item) => item.id === id);
       if (node?.type === "group") for (const child of node.data.children ?? []) wanted.add(child);
+      // 循环开始 / 结束成对：删一个就连同另一个（配对线随端点一起被过滤掉）。
+      if (node?.data.pairId) {
+        for (const other of nodes.value) {
+          if (other.id !== node.id && other.data.pairId === node.data.pairId) {
+            wanted.add(other.id);
+          }
+        }
+      }
     }
     commit(() => {
       nodes.value = nodes.value
@@ -927,6 +965,11 @@ export const useBoardStore = defineStore("board", () => {
   function removeEdges(ids: string[]): void {
     if (ids.length === 0) return;
     const wanted = new Set(ids);
+    // 删掉配对线 = 解散这对循环：两个端点节点一起删。
+    const pairEnds = edges.value
+      .filter((edge) => wanted.has(edge.id) && edge.kind === "pair")
+      .flatMap((edge) => [edge.source, edge.target]);
+    if (pairEnds.length > 0) removeNodes([...new Set(pairEnds)]);
     commit(() => {
       edges.value = edges.value.filter((edge) => !wanted.has(edge.id));
     });

@@ -12,6 +12,7 @@ import type {
   BoardPortType,
 } from "@/types/board";
 import { isDataTypeId } from "./dataTypes";
+import { slotCount } from "./loop";
 
 /**
  * 注册表版本号。
@@ -206,7 +207,73 @@ export function valueKindOf(node: BoardNode): BoardPortType {
   return isDataTypeId(raw) ? raw : "text";
 }
 
+/**
+ * 循环：开始 / 结束成对出现，用一根配对线相连。
+ *
+ * 开始节点两种模式：吃一个数组（逐项循环到数组末尾）或按次数循环。
+ * 每轮通过 `item` / `index` 两个逻辑端口把当前项与轮次送进循环体；节点 UI 上
+ * 仍然只有一个输出锚点，具体用哪个输出由下游在检查器里选。
+ */
+const LOOP_START: BoardNodeDefinition = {
+  type: "loop.start",
+  titleKey: "board.node.loopStart",
+  category: "group",
+  order: 40,
+  inputs: [{ id: "items", type: "json", labelKey: "board.port.items" }],
+  outputs: [
+    { id: "item", type: "any", labelKey: "board.port.item" },
+    { id: "index", type: "integer", labelKey: "board.port.index" },
+  ],
+  params: [
+    {
+      id: "mode",
+      labelKey: "board.param.loopMode",
+      kind: "select",
+      default: "array",
+      options: [
+        { value: "array", labelKey: "board.loopMode.array" },
+        { value: "count", labelKey: "board.loopMode.count" },
+      ],
+    },
+    {
+      id: "count",
+      labelKey: "board.param.loopCount",
+      kind: "number",
+      default: 4,
+      min: 1,
+      max: 999,
+      visibleWhen: { param: "mode", equals: "count" },
+    },
+  ],
+  defaultSize: { width: 360, height: 150 },
+};
+
+/** 循环结束：收集循环体里的多个输出，按槽位输出一一对应的数组。 */
+const LOOP_END: BoardNodeDefinition = {
+  type: "loop.end",
+  titleKey: "board.node.loopEnd",
+  category: "group",
+  order: 41,
+  inputs: [{ id: "in1", type: "any", labelKey: "board.port.slot" }],
+  outputs: [{ id: "out1", type: "json", labelKey: "board.port.slot" }],
+  params: [
+    {
+      id: "slots",
+      labelKey: "board.param.loopSlots",
+      kind: "number",
+      default: 1,
+      min: 1,
+      max: 8,
+    },
+  ],
+  defaultSize: { width: 360, height: 150 },
+};
+
+/** 不在添加菜单里出现的节点（循环结束跟随开始节点创建）。 */
+const HIDDEN_NODES: BoardNodeDefinition[] = [LOOP_END];
+
 export const BOARD_NODES: BoardNodeDefinition[] = [
+  LOOP_START,
   INPUT_IMAGE,
   INPUT_VIDEO,
   INPUT_AUDIO,
@@ -219,7 +286,9 @@ export const BOARD_NODES: BoardNodeDefinition[] = [
   DISPLAY_VALUE,
 ];
 
-const BY_TYPE = new Map(BOARD_NODES.map((definition) => [definition.type, definition]));
+const BY_TYPE = new Map(
+  [...BOARD_NODES, ...HIDDEN_NODES].map((definition) => [definition.type, definition]),
+);
 
 /** 按类型取定义；画布里的未知类型（旧版本 / 未来插件）返回 null。 */
 export function nodeDefinition(type: string): BoardNodeDefinition | null {
@@ -550,6 +619,31 @@ export function portsOf(
   const definition = nodeDefinition(node.type);
   // 插件缺失时用工程里存的端口快照兜底，端口与连线都还在。
   if (!definition) return node.data.ports ?? { inputs: [], outputs: [] };
+  if (definition.type === "loop.start") {
+    const mode = String(paramValue(definition, node.data.params, "mode") ?? "array");
+    return {
+      inputs:
+        mode === "count"
+          ? []
+          : [{ id: "items", type: "json", labelKey: "board.port.items" }],
+      outputs: definition.outputs,
+    };
+  }
+  if (definition.type === "loop.end") {
+    const count = slotCount(paramValue(definition, node.data.params, "slots") ?? 1);
+    return {
+      inputs: Array.from({ length: count }, (_, index) => ({
+        id: `in${index + 1}`,
+        type: "any" as const,
+        labelKey: "board.port.slot",
+      })),
+      outputs: Array.from({ length: count }, (_, index) => ({
+        id: `out${index + 1}`,
+        type: "json" as const,
+        labelKey: "board.port.slot",
+      })),
+    };
+  }
   if (definition.type === "input.value") {
     // 值输入的端口类型跟着 `params.kind` 走：插件注册了新类型，这里自动生效。
     const port: BoardPortSpec = { id: "value", type: valueKindOf(node), labelKey: "board.port.value" };
