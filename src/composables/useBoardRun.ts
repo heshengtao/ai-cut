@@ -238,6 +238,11 @@ function upstreamValue(nodeId: string, portId: string): unknown {
 
 /** 值节点参数 → 输出值。JSON 文本解析失败时原样返回，不把一次运行弄挂。 */
 export function parseValueParam(kind: BoardPortType, raw: unknown): unknown {
+  if (kind === "integer") {
+    const value = typeof raw === "number" ? raw : Number(raw);
+    // 整数类型的值永远取整，避免 2.5 个镜头这种脏数据流到下游。
+    return Number.isFinite(value) ? Math.trunc(value) : 0;
+  }
   if (kind === "number") {
     const value = typeof raw === "number" ? raw : Number(raw);
     return Number.isFinite(value) ? value : 0;

@@ -24,6 +24,9 @@ const i18n = useI18n();
 
 const kind = computed(() => valueKindOf(props.node));
 const editor = computed(() => dataTypeSpec(kind.value).inline ?? "text");
+/** 整数只收整数；浮点允许三位小数。 */
+const decimals = computed(() => (kind.value === "integer" ? 0 : 3));
+const step = computed(() => (kind.value === "integer" ? 1 : 0.1));
 const text = computed(() => {
   if (props.value === null || props.value === undefined) return "";
   if (typeof props.value === "string") return props.value;
@@ -54,7 +57,11 @@ const label = computed(() => i18n.t(props.spec.labelKey));
         class="value-editor-number"
         :model-value="number"
         :label="label"
-        input-width="72px"
+        :decimals="decimals"
+        :step="step"
+        :min="-999999"
+        :max="999999"
+        input-width="84px"
         @update:model-value="emit('update', $event)"
       />
     </div>

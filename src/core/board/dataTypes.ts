@@ -15,7 +15,8 @@ const COLORS = {
   image: "#c084fc",
   video: "#fb7185",
   audio: "#f59e0b",
-  number: "#60a5fa",
+  integer: "#60a5fa",
+  number: "#38bdf8",
   boolean: "#34d399",
   json: "#a3e635",
   any: "#94a3b8",
@@ -40,7 +41,17 @@ export const CORE_DATA_TYPES: DataTypeSpec[] = [
   spec("image", "Image", ["blob", "stream"], { mime: "image/*", color: COLORS.image }),
   spec("video", "Video", ["blob", "stream"], { mime: "video/*", color: COLORS.video }),
   spec("audio", "Audio", ["blob", "stream"], { mime: "audio/*", color: COLORS.audio }),
-  spec("number", "Number", ["inline"], { inline: "number", color: COLORS.number }),
+  // 整数与浮点分开：编辑器精度、运行时解析都不同；连线上互相兼容，避免用错类型接不上。
+  spec("integer", "Integer", ["inline"], {
+    inline: "number",
+    color: COLORS.integer,
+    accepts: ["number"],
+  }),
+  spec("number", "Float", ["inline"], {
+    inline: "number",
+    color: COLORS.number,
+    accepts: ["integer"],
+  }),
   spec("boolean", "Boolean", ["inline"], { inline: "boolean", color: COLORS.boolean }),
   spec("json", "JSON", ["inline", "blob"], {
     mime: "application/json",

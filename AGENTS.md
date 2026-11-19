@@ -100,7 +100,7 @@ Canvas plugin invariants:
   plugin must leave no node types, commands, panes, data types or message keys behind.
   Duplicate ids are hard errors that name the current owner (do not silently overwrite).
 - **Data types are a registry, not an enum**: core ids live in `core/board/dataTypes.ts`
-  (`text/image/video/audio/number/boolean/json/any`); plugins add more through
+  (`text/image/video/audio/integer/number/boolean/json/any`); plugins add more through
   `ctx.dataTypes.register`. Connection checks go through `portsConnectable` (semantic type +
   channel), never through a hard-coded union. Unknown types must still load with a fallback
   spec — a project opened while a plugin is disabled keeps its ports and edges.

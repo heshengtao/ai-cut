@@ -19,11 +19,21 @@ describe("data types registry", () => {
 
   it("内置类型齐全，且 any 能接一切", () => {
     expect(CORE_DATA_TYPES.map((spec) => spec.id)).toContain("number");
+    expect(CORE_DATA_TYPES.map((spec) => spec.id)).toContain("integer");
     expect(CORE_DATA_TYPES.map((spec) => spec.id)).toContain("json");
     expect(typesCompatible("any", "number")).toBe(true);
     expect(typesCompatible("number", "any")).toBe(true);
     expect(typesCompatible("number", "text")).toBe(false);
     expect(portsConnectable("image", "text")).toBe(false);
+  });
+
+  it("整数与浮点互相兼容，但仍是两个类型", () => {
+    expect(typesCompatible("integer", "number")).toBe(true);
+    expect(typesCompatible("number", "integer")).toBe(true);
+    expect(portsConnectable("integer", "number")).toBe(true);
+    expect(inlineDataTypeSpecs().map((spec) => spec.id)).toEqual(
+      expect.arrayContaining(["integer", "number"]),
+    );
   });
 
   it("通道决定「怎么搬」：文本可 inline 也可 blob，图片不吃 inline", () => {
