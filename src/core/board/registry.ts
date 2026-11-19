@@ -162,7 +162,7 @@ const VALUE_PARAMS: BoardNodeDefinition["params"] = [
     labelKey: "board.param.valueKind",
     kind: "component",
     control: "core.valueKind",
-    default: "text",
+    default: "number",
   },
   {
     id: "value",
@@ -180,21 +180,23 @@ const INPUT_VALUE: BoardNodeDefinition = {
   order: 14,
   inputs: [],
   outputs: [{ id: "value", type: "number", labelKey: "board.port.value" }],
-  params: VALUE_PARAMS.map((spec) =>
-    spec.id === "kind" ? { ...spec, default: "number" } : spec,
-  ),
-  defaultSize: { width: MEDIA_WIDTH, height: 180 },
+  params: VALUE_PARAMS,
+  defaultSize: { width: MEDIA_WIDTH, height: 200 },
 };
 
+/**
+ * 值显示：不固定类型——输入输出都是 `any`，按实际值渲染（数字 / 布尔 / JSON / 文本）。
+ * 这样一张卡可以接任何值端口，不需要用户先选类型再连线。
+ */
 const DISPLAY_VALUE: BoardNodeDefinition = {
   type: "display.value",
   titleKey: "board.node.displayValue",
   category: "display",
   order: 34,
-  inputs: [{ id: "value", type: "text", labelKey: "board.port.value" }],
-  outputs: [{ id: "value", type: "text", labelKey: "board.port.value" }],
-  params: VALUE_PARAMS,
-  defaultSize: { width: MEDIA_WIDTH, height: 170 },
+  inputs: [{ id: "value", type: "any", labelKey: "board.port.value" }],
+  outputs: [{ id: "value", type: "any", labelKey: "board.port.value" }],
+  params: [],
+  defaultSize: { width: MEDIA_WIDTH, height: 180 },
 };
 
 /** 值节点当前选的类型（没选 / 坏数据时回落到定义里的默认）。 */
@@ -548,13 +550,15 @@ export function portsOf(
   const definition = nodeDefinition(node.type);
   // 插件缺失时用工程里存的端口快照兜底，端口与连线都还在。
   if (!definition) return node.data.ports ?? { inputs: [], outputs: [] };
-  if (definition.type === "input.value" || definition.type === "display.value") {
-    // 值节点的端口类型跟着 `params.kind` 走：插件注册了新类型，这里自动生效。
-    const kind = valueKindOf(node);
-    const port: BoardPortSpec = { id: "value", type: kind, labelKey: "board.port.value" };
-    return definition.type === "display.value"
-      ? { inputs: [port], outputs: [port] }
-      : { inputs: [], outputs: [port] };
+  if (definition.type === "input.value") {
+    // 值输入的端口类型跟着 `params.kind` 走：插件注册了新类型，这里自动生效。
+    const port: BoardPortSpec = { id: "value", type: valueKindOf(node), labelKey: "board.port.value" };
+    return { inputs: [], outputs: [port] };
+  }
+  if (definition.type === "display.value") {
+    // 显示节点不锁类型：任何值都能接进来，按实际值渲染。
+    const port: BoardPortSpec = { id: "value", type: "any", labelKey: "board.port.value" };
+    return { inputs: [port], outputs: [port] };
   }
   if (definition.type === "model.video") {
     const dynamic = videoInputsFor(node, context) ?? [FRAME_INIT, FRAME_END];

@@ -28,6 +28,7 @@ import {
   XMarkIcon,
 } from "@heroicons/vue/24/outline";
 import { useI18n } from "@/i18n";
+import { controlFor } from "@/core/plugins/controls";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
 import NumberField from "@/components/common/NumberField.vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
@@ -366,6 +367,12 @@ function patchParams(patch: Record<string, unknown>): void {
   const current = node.value;
   if (!current) return;
   board.updateNodeData(current.id, { params: { ...current.data.params, ...patch } });
+}
+
+/** 参数的原始值（不转字符串）：组件控件要拿 number / boolean 本身。 */
+function paramRaw(spec: BoardParamSpec): unknown {
+  const current = node.value?.data.params[spec.id];
+  return current === undefined || current === null ? spec.default : current;
 }
 
 function paramValue(spec: BoardParamSpec): string {
@@ -969,8 +976,16 @@ function portReady(port: BoardPortSpec): boolean {
         <!-- 节点自己的设定：每个参数一个 md-field（没有分区标题） -->
         <div v-for="spec in params" :key="spec.id" class="md-field">
           <label>{{ i18n.t(spec.labelKey) }}</label>
+          <component
+            :is="controlFor(spec.control ?? '') ?? 'input'"
+            v-if="spec.kind === 'component'"
+            :node="node"
+            :spec="spec"
+            :value="paramRaw(spec)"
+            @update="setParam(spec, $event)"
+          />
           <BoardSizeControl
-            v-if="spec.kind === 'size'"
+            v-else-if="spec.kind === 'size'"
             :node="node ?? undefined"
             variant="inspector"
             @update="patchParams"

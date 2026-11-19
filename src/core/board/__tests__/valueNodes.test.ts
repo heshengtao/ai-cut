@@ -13,7 +13,7 @@ describe("value nodes", () => {
     resetDataTypes();
   });
 
-  it("两个值节点都注册在册，且默认类型不同", () => {
+  it("两个值节点都注册在册；输入有默认类型，显示不锁类型", () => {
     expect(nodeDefinition("input.value")).toBeTruthy();
     expect(nodeDefinition("display.value")).toBeTruthy();
     expect(valueKindOf(valueNode("a", "input.value"))).toBe("number");
@@ -27,12 +27,12 @@ describe("value nodes", () => {
     ]);
     expect(json.inputs).toEqual([]);
 
-    const display = portsOf(valueNode("b", "display.value", { kind: "boolean" }));
+    const display = portsOf(valueNode("b", "display.value"));
     expect(display.inputs).toEqual([
-      { id: "value", type: "boolean", labelKey: "board.port.value" },
+      { id: "value", type: "any", labelKey: "board.port.value" },
     ]);
     expect(display.outputs).toEqual([
-      { id: "value", type: "boolean", labelKey: "board.port.value" },
+      { id: "value", type: "any", labelKey: "board.port.value" },
     ]);
   });
 

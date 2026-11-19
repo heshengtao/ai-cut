@@ -22,7 +22,6 @@ import {
   portsOf,
   splitModelValue,
   stemsForFamily,
-  valueKindOf,
   visibleParams,
 } from "@/core/board/registry";
 import { useBoardStore } from "@/stores/board";
@@ -338,10 +337,21 @@ const textHtml = computed(() => renderMarkdown(textPreview.value));
 /** 模型节点：只有模型节点有输出附件卡（输入 / 显示节点的内容就是卡片本身）。 */
 const isModel = computed(() => definition.value?.category === "model");
 
-/** 值显示节点：卡片上直接给出上游发布的值（模型节点才有附件卡）。 */
+/** 值节点：一张安静的表面，编辑器 / 值本身占满整张卡（没有参数行、没有标签）。 */
+const isValueNode = computed(
+  () => node.value?.type === "display.value" || node.value?.type === "input.value",
+);
 const isValueDisplay = computed(() => node.value?.type === "display.value");
-const valuePreviewKind = computed(() => (node.value ? valueKindOf(node.value) : "text"));
+const valueSpec = computed(() => definition.value?.params.find((spec) => spec.id === "value"));
 const valuePreviewRaw = computed<unknown>(() => node.value?.data.values?.value ?? null);
+/** 显示节点不锁类型：按实际值的形状决定怎么渲染。 */
+const valuePreviewKind = computed(() => {
+  const raw = valuePreviewRaw.value;
+  if (typeof raw === "number") return "number";
+  if (typeof raw === "boolean") return "boolean";
+  if (raw !== null && typeof raw === "object") return "json";
+  return "text";
+});
 const valuePreviewEmpty = computed(() => {
   const raw = valuePreviewRaw.value;
   return raw === null || raw === undefined || raw === "";
@@ -1001,6 +1011,12 @@ function paramValue(spec: BoardParamSpec): string {
   return raw;
 }
 
+/** 参数的原始值（不转字符串）：值节点编辑器要拿 number / boolean 本身。 */
+function paramRaw(spec: BoardParamSpec): unknown {
+  const current = node.value?.data.params[spec.id];
+  return current === undefined || current === null ? spec.default : current;
+}
+
 function paramBool(spec: BoardParamSpec): boolean {
   const current = node.value?.data.params[spec.id];
   return typeof current === "boolean" ? current : spec.default === true;
@@ -1597,6 +1613,40 @@ function cycleOutput(): void {
         </div>
       </div>
 
+      <!-- ============ 值节点：一条安静的表面，编辑器 / 值本身占满整张卡 ============ -->
+      <div
+        v-else-if="isValueNode"
+        class="value-card"
+        :data-kind="valuePreviewKind"
+        :data-display="isValueDisplay ? 'true' : 'false'"
+      >
+        <div v-if="!isValueDisplay" class="value-input-body">
+          <component
+            :is="controlFor('core.value') ?? 'input'"
+            v-if="valueSpec"
+            :node="node"
+            :spec="valueSpec"
+            :value="paramRaw(valueSpec)"
+            @update="setParam(valueSpec, $event)"
+          />
+        </div>
+        <div
+          v-else
+          class="value-display-body"
+          :data-long="valuePreviewText.length > 80 ? 'true' : undefined"
+        >
+          <span v-if="valuePreviewEmpty" class="value-display-empty">—</span>
+          <span
+            v-else-if="valuePreviewKind === 'boolean'"
+            class="value-display-boolean"
+            :data-value="valuePreviewText"
+          >{{ valuePreviewText }}</span>
+          <pre v-else-if="valuePreviewKind === 'json'" class="value-display-pre">{{ valuePreviewText }}</pre>
+          <span v-else-if="valuePreviewKind === 'number'" class="value-display-number">{{ valuePreviewText }}</span>
+          <span v-else class="value-display-text">{{ valuePreviewText }}</span>
+        </div>
+      </div>
+
       <!-- ============ 模型节点：表格卡（ai-board mn-card） ============ -->
       <div v-else class="mn-card" :data-kind="kind" :data-status="status">
         <header class="mn-head">
@@ -1684,13 +1734,6 @@ function cycleOutput(): void {
               @change="setParam(spec, ($event.target as HTMLInputElement).value)"
             />
           </label>
-        </div>
-
-        <!-- 值显示：上游发布的值直接排在卡片上（值节点没有输出附件卡）。 -->
-        <div v-if="isValueDisplay" class="value-preview nodrag nowheel" :data-kind="valuePreviewKind">
-          <span v-if="valuePreviewEmpty" class="value-preview-empty">{{ i18n.t("board.value.empty") }}</span>
-          <pre v-else-if="valuePreviewKind === 'json' || typeof valuePreviewRaw === 'object'" class="value-preview-pre">{{ valuePreviewText }}</pre>
-          <span v-else class="value-preview-text">{{ valuePreviewText }}</span>
         </div>
 
         <!-- 产物在卡片下方的输出附件卡里；卡片主体只留参数与运行状态。 -->
@@ -2949,32 +2992,137 @@ function cycleOutput(): void {
 .mn-params::-webkit-scrollbar {
   width: 4px;
 }
-.value-preview {
-  margin: 0 12px 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface-2);
-  max-height: 160px;
+/* ============ 值节点：一条安静的表面，编辑器 / 值本身占满整张卡 ============ */
+.value-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid var(--node-surface-border, rgb(var(--md-outline-variant) / 0.42));
+  color: rgb(var(--md-on-surface));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 14px 34px rgb(0 0 0 / 0.22);
+}
+
+.value-card[data-display="false"] {
+  padding: 12px;
+  background:
+    radial-gradient(120% 80% at 12% 0%, rgb(var(--md-primary) / 0.16), transparent 60%),
+    linear-gradient(
+      148deg,
+      rgb(var(--md-primary-container) / 0.44),
+      rgb(var(--node-card-top) / 0.95) 52%,
+      rgb(var(--node-card-bottom) / 0.96)
+    );
+}
+
+.value-card[data-display="true"] {
+  align-items: center;
+  justify-content: center;
+  padding: 20px 18px;
+  background:
+    radial-gradient(110% 80% at 0% 0%, rgb(var(--md-primary) / 0.1), transparent 58%),
+    linear-gradient(155deg, rgb(var(--node-card-top) / 0.97), rgb(var(--node-card-bottom) / 0.96));
+}
+
+.value-input-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgb(var(--md-on-surface) / 0.07);
+  transition: background-color 160ms var(--md-ease-emphasized, ease);
+}
+
+.value-input-body:hover {
+  background: rgb(var(--md-on-surface) / 0.09);
+}
+
+.value-input-body:focus-within {
+  background: rgb(var(--md-on-surface) / 0.105);
+}
+
+.value-display-body {
+  width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: auto;
-  font-size: 12px;
-  line-height: 1.5;
+  text-align: center;
 }
 
-.value-preview-empty {
-  color: var(--text-dim);
+.value-display-empty {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 22px;
+  line-height: 1;
+  color: rgb(var(--md-on-surface-muted) / 0.45);
 }
 
-.value-preview-pre {
+.value-display-number {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+  overflow-wrap: anywhere;
+}
+
+.value-display-text {
+  display: block;
+  max-width: 30ch;
+  color: rgb(var(--md-on-surface));
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.value-display-body[data-long="true"] .value-display-text {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 450;
+}
+
+.value-display-boolean {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgb(var(--md-error) / 0.12);
+  color: rgb(var(--md-error));
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.value-display-boolean[data-value="true"] {
+  background: rgb(52 211 153 / 0.14);
+  color: #34d399;
+}
+
+.value-display-pre {
   margin: 0;
+  max-width: 100%;
+  max-height: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgb(var(--md-surface-container-lowest) / 0.38);
+  color: rgb(var(--md-on-surface));
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: left;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11px;
-}
-
-.value-preview-text {
-  word-break: break-word;
+  overflow: auto;
 }
 
 .mn-params::-webkit-scrollbar-thumb {

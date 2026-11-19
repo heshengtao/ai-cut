@@ -2530,6 +2530,7 @@ const zh: Record<string, string> = {
   "board.type.json": "JSON",
   "board.type.any": "任意",
   "board.value.empty": "暂无值",
+  "board.value.legacyText": "文本（遗留）",
   "board.value.true": "是",
   "board.value.false": "否",
 

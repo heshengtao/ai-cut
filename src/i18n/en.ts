@@ -2530,6 +2530,7 @@ const en: Record<string, string> = {
   "board.type.json": "JSON",
   "board.type.any": "Any",
   "board.value.empty": "No value",
+  "board.value.legacyText": "Text (legacy)",
   "board.value.true": "True",
   "board.value.false": "False",
   "board.node.inputImage": "Image input",

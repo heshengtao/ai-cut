@@ -21,13 +21,22 @@ const emit = defineEmits<{ update: [value: unknown] }>();
 
 const i18n = useI18n();
 
-const options = computed<SelectOption[]>(() =>
-  inlineDataTypeSpecs().map((item) => {
-    const key = `board.type.${item.id}`;
-    const label = i18n.t(key);
-    return { id: String(item.id), label: label === key ? item.label : label };
-  }),
-);
+const options = computed<SelectOption[]>(() => {
+  // 文本走专用的文本输入 / 显示节点，值得不在值节点里再出现一次。
+  const list = inlineDataTypeSpecs()
+    .filter((item) => item.id !== "text")
+    .map((item) => {
+      const key = `board.type.${item.id}`;
+      const label = i18n.t(key);
+      return { id: String(item.id), label: label === key ? item.label : label };
+    });
+  // 旧工程里存过 text：给一个只读的遗留项，避免下拉显示空白。
+  const current = props.value;
+  if (current === "text" && !list.some((item) => item.id === "text")) {
+    list.unshift({ id: "text", label: i18n.t("board.value.legacyText") });
+  }
+  return list;
+});
 
 const current = computed(() =>
   typeof props.value === "string" && props.value ? props.value : "text",
