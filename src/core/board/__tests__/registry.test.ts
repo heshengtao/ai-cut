@@ -269,8 +269,15 @@ describe("registry", () => {
     for (const type of ["display.image", "display.video", "display.audio", "display.text"]) {
       const definition = nodeDefinition(type);
       expect(definition).not.toBeNull();
-      expect(definition!.inputs).toHaveLength(1);
-      expect(definition!.outputs).toHaveLength(1);
+      // 除了原始的透传端口，还多一个「整组数组」端口（`list`）。
+      expect(definition!.inputs.map((port) => port.id)).toEqual([
+        type.split(".")[1],
+        "list",
+      ]);
+      expect(definition!.outputs.map((port) => port.id)).toEqual([
+        type.split(".")[1],
+        "list",
+      ]);
       expect(definition!.outputs[0].type).toBe(type.split(".")[1]);
     }
   });

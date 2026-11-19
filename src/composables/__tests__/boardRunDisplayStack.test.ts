@@ -97,6 +97,7 @@ describe("图片显示节点的多图牌堆", () => {
       assets: ["a1", "a2", "a3"],
       assetId: "a2",
       kind: "image",
+      values: { list: ["a1", "a2", "a3"] },
     });
   });
 
@@ -113,6 +114,7 @@ describe("图片显示节点的多图牌堆", () => {
       assets: ["a3"],
       assetId: "a3",
       kind: "image",
+      values: { list: ["a3"] },
     });
   });
 

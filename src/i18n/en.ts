@@ -2562,6 +2562,7 @@ const en: Record<string, string> = {
   "board.port.item": "Current item",
   "board.port.index": "Index",
   "board.port.slot": "Value",
+  "board.port.list": "List",
   "board.node.displayImage": "Image display",
   "board.node.displayVideo": "Video display",
   "board.node.displayAudio": "Audio display",

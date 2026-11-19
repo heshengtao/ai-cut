@@ -213,6 +213,11 @@ export interface BoardNodeData {
   assetIds?: string[];
   /** 牌堆当前展示的下标。 */
   stackIndex?: number;
+  /**
+   * 非媒体输入 / 显示节点的多值栈（文本段、JSON 值）。
+   * 图片 / 视频 / 音频用 `assetIds`，这里只放文本与值。
+   */
+  items?: unknown[];
   /** 最近一次运行的产物（素材 id，产物运行完自动入库）。 */
   outputAssetId?: string;
   /**

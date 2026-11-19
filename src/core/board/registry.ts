@@ -33,8 +33,23 @@ export const MEDIA_WIDTH = 380;
 /** 模型节点统一宽度（比输入 / 显示略宽，参数控件排得下）。 */
 export const MODEL_WIDTH = 400;
 
-const IMAGE_OUT = [{ id: "image", type: "image", labelKey: "board.port.image" }] as const;
-const IMAGE_IN = [{ id: "image", type: "image", labelKey: "board.port.image" }] as const;
+/**
+ * 多值节点的第二个逻辑输出：整摞值的数组（json）。
+ *
+ * 节点 UI 仍然只有一个输出锚点；具体接当前值还是整组数组，在下游的
+ * 「输出连线」里选。数组里装的是素材 id / 文本段 / JSON 值，循环节点可以直接吃。
+ */
+const LIST_OUT = { id: "list", type: "json", labelKey: "board.port.list" } as const;
+const LIST_IN = { id: "list", type: "json", labelKey: "board.port.list" } as const;
+
+const IMAGE_OUT = [
+  { id: "image", type: "image", labelKey: "board.port.image" },
+  LIST_OUT,
+] as const;
+const IMAGE_IN = [
+  { id: "image", type: "image", labelKey: "board.port.image" },
+  LIST_IN,
+] as const;
 
 /** 输入节点：把素材 / 文本送进画布。 */
 const INPUT_IMAGE: BoardNodeDefinition = {
@@ -56,7 +71,10 @@ const INPUT_VIDEO: BoardNodeDefinition = {
   category: "input",
   order: 11,
   inputs: [],
-  outputs: [{ id: "video", type: "video", labelKey: "board.port.video" }],
+  outputs: [
+    { id: "video", type: "video", labelKey: "board.port.video" },
+    LIST_OUT,
+  ],
   params: [],
   defaultSize: { width: MEDIA_WIDTH, height: 260 },
   lockAspectRatio: true,
@@ -69,7 +87,10 @@ const INPUT_AUDIO: BoardNodeDefinition = {
   category: "input",
   order: 12,
   inputs: [],
-  outputs: [{ id: "audio", type: "audio", labelKey: "board.port.audio" }],
+  outputs: [
+    { id: "audio", type: "audio", labelKey: "board.port.audio" },
+    LIST_OUT,
+  ],
   params: [],
   defaultSize: { width: MEDIA_WIDTH, height: 180 },
   assetKind: "audio",
@@ -81,7 +102,10 @@ const INPUT_TEXT: BoardNodeDefinition = {
   category: "input",
   order: 13,
   inputs: [],
-  outputs: [{ id: "text", type: "text", labelKey: "board.port.text" }],
+  outputs: [
+    { id: "text", type: "text", labelKey: "board.port.text" },
+    LIST_OUT,
+  ],
   params: [{ id: "text", labelKey: "board.param.text", kind: "longtext", default: "" }],
   defaultSize: { width: MEDIA_WIDTH, height: 200 },
 };
@@ -107,8 +131,14 @@ const DISPLAY_VIDEO: BoardNodeDefinition = {
   titleKey: "board.node.displayVideo",
   category: "display",
   order: 31,
-  inputs: [{ id: "video", type: "video", labelKey: "board.port.video" }],
-  outputs: [{ id: "video", type: "video", labelKey: "board.port.video" }],
+  inputs: [
+    { id: "video", type: "video", labelKey: "board.port.video" },
+    LIST_IN,
+  ],
+  outputs: [
+    { id: "video", type: "video", labelKey: "board.port.video" },
+    LIST_OUT,
+  ],
   params: [],
   defaultSize: { width: MEDIA_WIDTH, height: 260 },
   lockAspectRatio: true,
@@ -120,8 +150,14 @@ const DISPLAY_AUDIO: BoardNodeDefinition = {
   titleKey: "board.node.displayAudio",
   category: "display",
   order: 32,
-  inputs: [{ id: "audio", type: "audio", labelKey: "board.port.audio" }],
-  outputs: [{ id: "audio", type: "audio", labelKey: "board.port.audio" }],
+  inputs: [
+    { id: "audio", type: "audio", labelKey: "board.port.audio" },
+    LIST_IN,
+  ],
+  outputs: [
+    { id: "audio", type: "audio", labelKey: "board.port.audio" },
+    LIST_OUT,
+  ],
   params: [],
   defaultSize: { width: MEDIA_WIDTH, height: 180 },
   assetKind: "audio",
@@ -132,8 +168,14 @@ const DISPLAY_TEXT: BoardNodeDefinition = {
   titleKey: "board.node.displayText",
   category: "display",
   order: 33,
-  inputs: [{ id: "text", type: "text", labelKey: "board.port.text" }],
-  outputs: [{ id: "text", type: "text", labelKey: "board.port.text" }],
+  inputs: [
+    { id: "text", type: "text", labelKey: "board.port.text" },
+    LIST_IN,
+  ],
+  outputs: [
+    { id: "text", type: "text", labelKey: "board.port.text" },
+    LIST_OUT,
+  ],
   // 文本显示默认 Markdown，可切纯文本（两种都用同一份发布文本）。
   params: [
     {
@@ -650,12 +692,12 @@ export function portsOf(
   if (definition.type === "input.value") {
     // 值输入的端口类型跟着 `params.kind` 走：插件注册了新类型，这里自动生效。
     const port: BoardPortSpec = { id: "value", type: valueKindOf(node), labelKey: "board.port.value" };
-    return { inputs: [], outputs: [port] };
+    return { inputs: [], outputs: [port, LIST_OUT] };
   }
   if (definition.type === "display.value") {
     // 显示节点不锁类型：任何值都能接进来，按实际值渲染。
     const port: BoardPortSpec = { id: "value", type: "any", labelKey: "board.port.value" };
-    return { inputs: [port], outputs: [port] };
+    return { inputs: [port, LIST_IN], outputs: [port, LIST_OUT] };
   }
   if (definition.type === "model.video") {
     const dynamic = videoInputsFor(node, context) ?? [FRAME_INIT, FRAME_END];
@@ -1023,8 +1065,14 @@ const MODEL_ENHANCE: BoardNodeDefinition = {
   titleKey: "board.node.modelEnhance",
   category: "model",
   order: 55,
-  inputs: [{ id: "video", type: "video", labelKey: "board.port.video" }],
-  outputs: [{ id: "video", type: "video", labelKey: "board.port.video" }],
+  inputs: [
+    { id: "video", type: "video", labelKey: "board.port.video" },
+    LIST_IN,
+  ],
+  outputs: [
+    { id: "video", type: "video", labelKey: "board.port.video" },
+    LIST_OUT,
+  ],
   params: [
     {
       id: "op",

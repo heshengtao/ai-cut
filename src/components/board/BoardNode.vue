@@ -32,6 +32,13 @@ import { fileUrl, importAssetAt, kindFromPath, pickMediaFiles } from "@/core/med
 import { uploadLocalFile } from "@/platform/files";
 import { addAsset } from "@/core/ops";
 import { toast } from "@/composables/useToast";
+import StackBar from "./StackBar.vue";
+import {
+  replaceCurrent,
+  stackKindOf,
+  stackOf,
+  stackPatch,
+} from "@/core/board/stacks";
 import { nodeIcon } from "./nodeIcons";
 import BoardMediaPicker from "./BoardMediaPicker.vue";
 import BoardSizeControl from "./BoardSizeControl.vue";
@@ -308,9 +315,28 @@ const upstreamLiveText = computed(() => {
   return edge ? run.liveRuns[edge.source]?.text ?? "" : "";
 });
 
+/** 当前节点的多值栈（文本 / 值 / 视频 / 音频；图片有自己的牌堆 UI）。 */
+const stackInfo = computed(() =>
+  node.value ? stackOf(node.value) : { items: [] as unknown[], index: 0 },
+);
+const stackCount = computed(() => stackInfo.value.items.length);
+const stackPos = computed(() => stackInfo.value.index);
+const stackKind = computed(() => (node.value ? stackKindOf(node.value) : "value"));
+/** 画布上的牌堆胶囊：图片已有自己的牌堆，这里只给文本 / 值 / 视频 / 音频。 */
+const showStackBar = computed(() => {
+  const current = node.value;
+  if (!current) return false;
+  if (!current.type.startsWith("input.") && !current.type.startsWith("display.")) return false;
+  if (stackKind.value === "image") return false;
+  return stackCount.value > 0 || current.type.startsWith("input.");
+});
+const stackEditable = computed(() => node.value?.type.startsWith("input.") ?? false);
+
 const textPreview = computed(() => {
   const current = node.value;
   if (!current) return "";
+  const stackItem = stackInfo.value.items[stackInfo.value.index];
+  if (typeof stackItem === "string" && stackItem) return stackItem;
   // 显示节点优先显示上游的实时流；上游没在跑时读运行发布的文本。
   // 输入节点显示自己正在编辑的内容。
   if (isDisplay.value) return upstreamLiveText.value || current.data.outputText || "";
@@ -343,7 +369,11 @@ const isValueNode = computed(
 );
 const isValueDisplay = computed(() => node.value?.type === "display.value");
 const valueSpec = computed(() => definition.value?.params.find((spec) => spec.id === "value"));
-const valuePreviewRaw = computed<unknown>(() => node.value?.data.values?.value ?? null);
+const valuePreviewRaw = computed<unknown>(() => {
+  const item = stackInfo.value.items[stackInfo.value.index];
+  if (isValueDisplay.value && stackCount.value > 0) return item ?? null;
+  return node.value?.data.values?.value ?? null;
+});
 /** 显示节点不锁类型：按实际值的形状决定怎么渲染。 */
 const valuePreviewKind = computed(() => {
   const raw = valuePreviewRaw.value;
@@ -882,8 +912,14 @@ const statusLabel = computed(() => {
 
 /** 文本输入节点正在编辑的内容。 */
 const textValue = computed(() => {
-  const current = node.value?.data.params.text;
-  return typeof current === "string" ? current : "";
+  const current = node.value;
+  if (!current) return "";
+  if (current.type === "input.text") {
+    const item = stackInfo.value.items[stackInfo.value.index];
+    return typeof item === "string" ? item : "";
+  }
+  const text = current.data.params.text;
+  return typeof text === "string" ? text : "";
 });
 
 function patchParams(patch: Record<string, unknown>): void {
@@ -893,11 +929,61 @@ function patchParams(patch: Record<string, unknown>): void {
 }
 
 function setText(event: Event): void {
-  patchParams({ text: (event.target as HTMLTextAreaElement).value });
+  const current = node.value;
+  const next = (event.target as HTMLTextAreaElement).value;
+  if (current?.type === "input.text") {
+    const replaced = replaceCurrent(current, next);
+    board.updateNodeData(current.id, {
+      ...stackPatch(current, replaced.items, replaced.index),
+      params: { ...current.data.params, text: replaced.items[replaced.index] ?? "" },
+    });
+    return;
+  }
+  patchParams({ text: next });
 }
 
 function clearText(): void {
+  const current = node.value;
+  if (current?.type === "input.text") {
+    const replaced = replaceCurrent(current, "");
+    board.updateNodeData(current.id, {
+      ...stackPatch(current, replaced.items, replaced.index),
+      params: { ...current.data.params, text: "" },
+    });
+    return;
+  }
   patchParams({ text: "" });
+}
+
+/** 牌堆操作：切换 / 追加 / 删除当前项。 */
+function shiftStack(delta: number): void {
+  const current = node.value;
+  if (!current || stackCount.value < 2) return;
+  const next = (stackPos.value + delta + stackCount.value) % stackCount.value;
+  board.updateNodeData(current.id, stackPatch(current, stackInfo.value.items, next));
+}
+
+function addStackItem(): void {
+  const current = node.value;
+  if (!current) return;
+  if (stackKind.value === "image" || stackKind.value === "video" || stackKind.value === "audio") {
+    void pickFiles();
+    return;
+  }
+  const kind = stackKind.value;
+  const seed = kind === "text" ? "" : 0;
+  const items = [...stackInfo.value.items, seed];
+  board.updateNodeData(current.id, stackPatch(current, items, items.length - 1));
+}
+
+function removeStackItem(): void {
+  const current = node.value;
+  if (!current || stackCount.value === 0) return;
+  const items = stackInfo.value.items.filter((_, index) => index !== stackPos.value);
+  board.updateNodeData(
+    current.id,
+    stackPatch(current, items, Math.max(0, Math.min(items.length - 1, stackPos.value))),
+  );
 }
 
 async function copyTextValue(): Promise<void> {
@@ -1013,8 +1099,26 @@ function paramValue(spec: BoardParamSpec): string {
 
 /** 参数的原始值（不转字符串）：值节点编辑器要拿 number / boolean 本身。 */
 function paramRaw(spec: BoardParamSpec): unknown {
-  const current = node.value?.data.params[spec.id];
-  return current === undefined || current === null ? spec.default : current;
+  const current = node.value;
+  if (current?.type === "input.value" && spec.id === "value" && stackCount.value > 0) {
+    return stackInfo.value.items[stackInfo.value.index] ?? spec.default;
+  }
+  const stored = current?.data.params[spec.id];
+  return stored === undefined || stored === null ? spec.default : stored;
+}
+
+/** 值输入编辑当前那一张：多值时写 items，否则写参数。 */
+function setValueParam(spec: BoardParamSpec, value: unknown): void {
+  const current = node.value;
+  if (current?.type === "input.value" && stackCount.value > 0) {
+    const replaced = replaceCurrent(current, value);
+    board.updateNodeData(current.id, {
+      ...stackPatch(current, replaced.items, replaced.index),
+      params: { ...current.data.params, [spec.id]: value },
+    });
+    return;
+  }
+  setParam(spec, value);
 }
 
 function paramBool(spec: BoardParamSpec): boolean {
@@ -1373,6 +1477,16 @@ function cycleOutput(): void {
 
     <!-- 内容舞台：图片 / 视频 / 音频是整张作品卡，文本与模型是排版卡 -->
     <div class="node-surface" :data-kind="kind">
+      <StackBar
+        v-if="showStackBar"
+        class="node-stack-bar"
+        :count="stackCount"
+        :index="stackPos"
+        :editable="stackEditable"
+        @shift="shiftStack"
+        @add="addStackItem"
+        @remove="removeStackItem"
+      />
       <div v-if="error" class="node-error">{{ error }}</div>
 
       <!--
@@ -1627,7 +1741,7 @@ function cycleOutput(): void {
             :node="node"
             :spec="valueSpec"
             :value="paramRaw(valueSpec)"
-            @update="setParam(valueSpec, $event)"
+            @update="setValueParam(valueSpec, $event)"
           />
         </div>
         <div
@@ -1988,6 +2102,14 @@ function cycleOutput(): void {
 }
 .board-node.ignored .node-surface {
   opacity: 0.55;
+}
+
+/* 多值牌堆胶囊：浮在卡片右上角，不挡内容。 */
+.node-stack-bar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 7;
 }
 
 /* ============ 浮动标签 ============ */

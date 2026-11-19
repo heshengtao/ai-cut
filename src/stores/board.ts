@@ -61,6 +61,7 @@ function cloneNodes(nodes: BoardNode[]): BoardNode[] {
       ...(node.data.outputs ? { outputs: { ...node.data.outputs } } : {}),
       ...(node.data.values ? { values: { ...node.data.values } } : {}),
       ...(node.data.assetIds ? { assetIds: [...node.data.assetIds] } : {}),
+      ...(node.data.items ? { items: [...node.data.items] } : {}),
       ...(node.data.outputAssetIds ? { outputAssetIds: [...node.data.outputAssetIds] } : {}),
     },
   }));
@@ -436,6 +437,7 @@ export const useBoardStore = defineStore("board", () => {
         ? {
             ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
             ...(node.data.assetIds ? { assetIds: [...node.data.assetIds] } : {}),
+      ...(node.data.items ? { items: [...node.data.items] } : {}),
             ...(node.data.stackIndex !== undefined
               ? { stackIndex: node.data.stackIndex }
               : {}),

@@ -151,6 +151,12 @@ function normalizeNode(raw: unknown): BoardNode | null {
   if (ports) data.ports = ports;
   if (typeof rawData.title === "string" && rawData.title) data.title = rawData.title;
   if (typeof rawData.assetId === "string" && rawData.assetId) data.assetId = rawData.assetId;
+  if (Array.isArray(rawData.items)) {
+    const items = rawData.items
+      .filter((item) => isJsonValue(item, 0))
+      .slice(0, 200);
+    if (items.length > 0) data.items = items;
+  }
   if (Array.isArray(rawData.assetIds)) {
     const ids = rawData.assetIds.filter(
       (id): id is string => typeof id === "string" && id.length > 0,

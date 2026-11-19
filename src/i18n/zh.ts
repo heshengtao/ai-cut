@@ -2563,6 +2563,7 @@ const zh: Record<string, string> = {
   "board.port.item": "当前项",
   "board.port.index": "序号",
   "board.port.slot": "值",
+  "board.port.list": "整组",
   "board.node.displayImage": "图片显示",
   "board.node.displayVideo": "视频显示",
   "board.node.displayAudio": "音频显示",

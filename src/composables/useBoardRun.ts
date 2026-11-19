@@ -37,6 +37,7 @@ import {
 import { createRunSignals } from "@/core/board/runSignals";
 import { nodeDefinition, nodeOwner, paramValue, valueKindOf } from "@/core/board/registry";
 import { pluginHostCancel } from "@/core/pluginHostApi";
+import { stackOf } from "@/core/board/stacks";
 import {
   loopBodyIds,
   loopEndOf,
@@ -507,64 +508,107 @@ export async function runAdapter(
     case "input.value": {
       // 端口类型跟着 `kind` 走；text 走 `text` 产物，其余走值产物。
       const kind = valueKindOf(node);
-      const raw = paramValue(nodeDefinition(node.type), node.data.params, "value");
-      const value = parseValueParam(kind, raw);
-      if (kind === "text") {
-        return { values: { value }, text: typeof value === "string" ? value : "" };
+      const stack = stackOf(node);
+      const definition = nodeDefinition(node.type);
+      const parsed = stack.items.map((item) => parseValueParam(kind, item));
+      if (parsed.length === 0) {
+        const value = parseValueParam(kind, paramValue(definition, node.data.params, "value"));
+        return { values: { value, list: [value] } };
       }
-      return { values: { value } };
+      const value = parsed[stack.index] ?? null;
+      if (kind === "text") {
+        return { values: { value, list: parsed }, text: typeof value === "string" ? value : "" };
+      }
+      return { values: { value, list: parsed } };
     }
 
     case "display.value": {
-      const value = upstreamValue(nodeId, "value");
+      const list = upstreamValue(nodeId, "list");
+      const source = list === null || list === undefined ? upstreamValue(nodeId, "value") : null;
+      const items = list === null || list === undefined ? normalizeItems(source) : normalizeItems(list);
+      const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
+      const value = items[index] ?? null;
       return typeof value === "string"
-        ? { values: { value }, text: value }
-        : { values: { value } };
+        ? { values: { value, list: items }, text: value }
+        : { values: { value, list: items } };
     }
 
-    case "input.image": {
-      const project = useProjectStore();
-      const ids = node.data.assetIds ?? (node.data.assetId ? [node.data.assetId] : []);
-      const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, ids.length - 1));
-      const asset = ids.length > 0
-        ? project.doc.assets.find((item) => item.id === ids[index])
-        : undefined;
-      if (!asset) throw new Error("图片输入还没有选择图片");
-      return { assetId: asset.id, kind: "image" };
-    }
-
+    case "input.image":
     case "input.video":
     case "input.audio": {
       const project = useProjectStore();
-      const asset = node.data.assetId
-        ? project.doc.assets.find((item) => item.id === node.data.assetId)
+      const stack = stackOf(node);
+      const ids = stack.items.filter((item): item is string => typeof item === "string");
+      const asset = ids.length > 0
+        ? project.doc.assets.find((item) => item.id === ids[stack.index])
         : undefined;
-      if (!asset) throw new Error(node.type === "input.video" ? "视频输入还没有选择视频" : "音频输入还没有选择音频");
-      return { assetId: asset.id, kind: asset.kind };
+      if (!asset) {
+        throw new Error(
+          node.type === "input.image"
+            ? "图片输入还没有选择图片"
+            : node.type === "input.video"
+              ? "视频输入还没有选择视频"
+              : "音频输入还没有选择音频",
+        );
+      }
+      return { assetId: asset.id, kind: asset.kind, values: { list: ids } };
     }
 
-    case "input.text":
-      return { text: textParam(node, "text") };
+    case "input.text": {
+      const stack = stackOf(node);
+      const items = stack.items.filter((item): item is string => typeof item === "string");
+      const current = items[stack.index] ?? textParam(node, "text");
+      return { text: current, values: { list: items } };
+    }
 
     case "display.image": {
       // 上游一次出多张时整摞都接过来：卡片按「牌堆」叠放，`assetId` 是当前发布那张。
+      const listValue = upstreamValue(node.id, "list");
+      if (listValue !== null && listValue !== undefined) {
+        const items = normalizeItems(listValue).filter(
+          (item): item is string => typeof item === "string",
+        );
+        const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
+        return { assets: items, assetId: items[index], kind: "image", values: { list: items } };
+      }
       const upstream = upstreamAssets(node.id, "image");
       if (upstream.ids.length === 0) throw new Error("缺少上游素材：先连接并运行上游节点");
-      return { assets: upstream.ids, assetId: upstream.primary, kind: "image" };
+      return {
+        assets: upstream.ids,
+        assetId: upstream.primary,
+        kind: "image",
+        values: { list: upstream.ids },
+      };
     }
 
     case "display.video":
     case "display.audio": {
       const port = node.type.slice("display.".length);
+      const listValue = upstreamValue(node.id, "list");
+      if (listValue !== null && listValue !== undefined) {
+        const items = normalizeItems(listValue).filter(
+          (item): item is string => typeof item === "string",
+        );
+        const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
+        return { assetId: items[index], kind: port as AssetKind, values: { list: items } };
+      }
       const input = upstreamAsset(node.id, port);
       if (!input) throw new Error("缺少上游素材：先连接并运行上游节点");
-      return { assetId: input.assetId, kind: port as AssetKind };
+      return { assetId: input.assetId, kind: port as AssetKind, values: { list: [input.assetId] } };
     }
 
     case "display.text": {
+      const listValue = upstreamValue(node.id, "list");
+      if (listValue !== null && listValue !== undefined) {
+        const items = normalizeItems(listValue).filter(
+          (item): item is string => typeof item === "string",
+        );
+        const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
+        return { text: items[index] ?? "", values: { list: items } };
+      }
       const text = upstreamText(node.id, "text");
       if (text === null) throw new Error("缺少上游文本：先连接并运行上游节点");
-      return { text };
+      return { text, values: { list: [text] } };
     }
 
     case "model.image": {
@@ -1082,6 +1126,8 @@ async function runOne(nodeId: string): Promise<boolean> {
         ? { outputText: result.text, outputReasoning: result.reasoning ?? "" }
         : {}),
       ...(result.values !== undefined ? { values: result.values } : {}),
+      // 整组产物同时落一份到 `items`：显示节点靠它做牌堆切换（下拉 / 计数）。
+      ...(Array.isArray(result.values?.list) ? { items: result.values.list } : {}),
     });
     return true;
   } catch (error) {
