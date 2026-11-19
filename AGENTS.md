@@ -74,6 +74,30 @@
 - When adding items, add `menu.*` keys to **both** `src/i18n/zh.ts` and `src/i18n/en.ts`, and
   extend `src/composables/__tests__/timelineMenus.test.ts` for the block-type rule.
 
+## Canvas node UX (mandatory)
+
+Five rules every canvas node (built-in or plugin) must follow; full note in
+[`docs/canvas-node-design.md`](docs/canvas-node-design.md).
+
+1. **One in, one out.** A node renders exactly one input handle and one output handle — never one
+   per logical port. Logical ports live in `portsOf()` and are chosen in the inspector; an edge only
+   records `sourcePort` / `targetPort`.
+2. **Inputs are chosen in the inspector.** The target node's input section lists the upstream
+   outputs; inputs with `max > 1` multi-select and keep that order. Nothing is picked on the output
+   side.
+3. **Outputs publish everything.** One output endpoint publishes every value the node can produce
+   (`values` / `outputText` / assets); downstream nodes pick which one they consume in their own
+   input list. `edge.sourcePort` wins; type matching is only a fallback for legacy edges.
+4. **Outputs live in an attachment.** Live / final / multiple products belong in an expandable
+   attachment under the card (like the model output dock or the value stack capsule), with switching
+   between products — not inside the card body.
+5. **Cards stay clean and full.** The card fills the node and shows only the essential attributes;
+   advanced options, input selection, "add input", slot counts and the like live in the inspector.
+   This also means a node can be restructured without rewiring the graph.
+
+Keep `docs/plugins.md` in sync for plugin authors; cite an exception in the design note before
+breaking a rule.
+
 ## Plugins (canvas extensions)
 
 Two different things share the word "plugin":
