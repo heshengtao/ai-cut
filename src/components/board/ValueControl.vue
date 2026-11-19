@@ -54,6 +54,7 @@ const label = computed(() => i18n.t(props.spec.labelKey));
         class="value-editor-number"
         :model-value="number"
         :label="label"
+        input-width="72px"
         @update:model-value="emit('update', $event)"
       />
     </div>
@@ -115,13 +116,17 @@ const label = computed(() => i18n.t(props.spec.labelKey));
 }
 
 .value-editor :deep(.value-editor-number) {
-  width: 100%;
-  max-width: 220px;
-}
-
-.value-editor :deep(.value-editor-number .md-number) {
+  /* 不要把步进器拉成整行：保持自身宽度，整体居中，数字才真的在中间。 */
+  width: auto;
+  height: 42px;
   border: 0;
   background: rgb(var(--md-surface-container-lowest) / 0.34);
+}
+
+.value-editor :deep(.value-editor-number .step-input) {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .value-editor-boolean {
@@ -139,7 +144,8 @@ const label = computed(() => i18n.t(props.spec.labelKey));
 .value-editor-textarea {
   flex: 1 1 auto;
   width: 100%;
-  min-height: 0;
+  /* 卡内是 flex 撑满；检查器里没有高度上下文，靠 min-height 保证是多行框。 */
+  min-height: 96px;
   padding: 8px 10px;
   border: 0;
   border-radius: 12px;

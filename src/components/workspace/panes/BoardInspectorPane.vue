@@ -2024,6 +2024,21 @@ button.binding-note:hover {
   width: 22px;
   height: 22px;
 }
+/* 值节点的编辑器在卡上是无边界的；检查器里要看起来像一个输入框。 */
+.md-field :deep(.value-editor-textarea) {
+  box-sizing: border-box;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.6);
+  border-radius: 10px;
+  background: rgb(var(--md-surface-container-lowest) / 0.4);
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.md-field :deep(.value-editor-boolean),
+.md-field :deep(.step) {
+  width: fit-content;
+}
+
 .inspector-empty-title {
   margin: 0;
   font-size: 12px;
