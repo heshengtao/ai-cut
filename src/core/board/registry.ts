@@ -216,7 +216,8 @@ export function valueKindOf(node: BoardNode): BoardPortType {
  */
 const LOOP_START: BoardNodeDefinition = {
   type: "loop.start",
-  titleKey: "board.node.loopStart",
+  // 添加菜单里就叫「循环」：它和配对的结束节点是同一个东西的两端。
+  titleKey: "board.node.loop",
   category: "group",
   order: 40,
   inputs: [{ id: "items", type: "json", labelKey: "board.port.items" }],
@@ -259,11 +260,13 @@ const LOOP_END: BoardNodeDefinition = {
   params: [
     {
       id: "slots",
-      labelKey: "board.param.loopSlots",
+      labelKey: "board.param.loopInputs",
       kind: "number",
       default: 1,
       min: 1,
       max: 8,
+      // 输入数量不在节点卡片上改：检查器的输入区用「新建输入」增删。
+      inspectorOnly: true,
     },
   ],
   defaultSize: { width: 360, height: 150 },

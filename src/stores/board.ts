@@ -975,6 +975,43 @@ export const useBoardStore = defineStore("board", () => {
     });
   }
 
+  /**
+   * 循环结束节点的输入数量：检查器用「新建输入 / 删除」调。
+   *
+   * 减少输入时把落在被删端口上的连线一起剪掉（`in3` / `out3` 不存在了，
+   * 留着就是悬空边）。
+   */
+  function setLoopInputCount(nodeId: string, count: number): void {
+    const node = nodes.value.find((item) => item.id === nodeId);
+    if (!node || node.type !== "loop.end") return;
+    const next = Math.max(1, Math.min(8, Math.round(count)));
+    const previous = Math.max(1, Math.min(8, Number(node.data.params.slots) || 1));
+    if (next === previous) return;
+    const removed = new Set<string>();
+    if (next < previous) {
+      for (let index = next + 1; index <= previous; index += 1) {
+        removed.add(`in${index}`);
+        removed.add(`out${index}`);
+      }
+    }
+    commit(() => {
+      nodes.value = nodes.value.map((item) =>
+        item.id === nodeId
+          ? { ...item, data: { ...item.data, params: { ...item.data.params, slots: next } } }
+          : item,
+      );
+      if (removed.size > 0) {
+        edges.value = edges.value.filter(
+          (edge) =>
+            !(
+              (edge.target === nodeId && removed.has(edge.targetPort)) ||
+              (edge.source === nodeId && removed.has(edge.sourcePort))
+            ),
+        );
+      }
+    });
+  }
+
   function setViewport(next: BoardViewport): void {
     viewport.value = { ...next };
     schedule();
@@ -1050,6 +1087,7 @@ export const useBoardStore = defineStore("board", () => {
     bindPort,
     setEdgeSourcePort,
     removeEdges,
+    setLoopInputCount,
     setViewport,
     select,
     clear,

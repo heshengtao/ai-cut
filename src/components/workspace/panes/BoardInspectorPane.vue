@@ -150,6 +150,43 @@ const params = computed<BoardParamSpec[]>(() =>
   visibleParams(definition.value, node.value?.data.params ?? {}),
 );
 
+/** 循环结束节点：输入数量不在参数区改，走输入区的「新建输入」。 */
+const isLoopEnd = computed(() => node.value?.type === "loop.end");
+const nodeParams = computed(() =>
+  params.value.filter((spec) => !(isLoopEnd.value && spec.id === "slots")),
+);
+const loopInputRows = computed(() => {
+  const current = node.value;
+  if (!current || current.type !== "loop.end") return [];
+  const slots = Math.max(1, Math.min(8, Number(current.data.params.slots) || 1));
+  return Array.from({ length: slots }, (_, index) => {
+    const portId = `in${index + 1}`;
+    const edge = board.edges.find(
+      (item) => item.target === current.id && item.targetPort === portId,
+    );
+    const source = edge ? board.nodes.find((item) => item.id === edge.source) : null;
+    return {
+      portId,
+      index: index + 1,
+      source: source ? displayTitleOf(source) : null,
+    };
+  });
+});
+
+function addLoopInput(): void {
+  const current = node.value;
+  if (!current || current.type !== "loop.end") return;
+  const slots = Math.max(1, Number(current.data.params.slots) || 1);
+  board.setLoopInputCount(current.id, slots + 1);
+}
+
+function removeLoopInput(): void {
+  const current = node.value;
+  if (!current || current.type !== "loop.end") return;
+  const slots = Math.max(1, Number(current.data.params.slots) || 1);
+  board.setLoopInputCount(current.id, slots - 1);
+}
+
 /** 端口显示名（同类型多路输入已经合并成一个端口，直接用端口标签）。 */
 function portLabel(port: BoardPortSpec): string {
   return i18n.t(port.labelKey);
@@ -912,6 +949,33 @@ function portReady(port: BoardPortSpec): boolean {
           </div>
         </section>
 
+        <!-- 循环结束节点的输入：新建输入 / 删除，不放在节点卡片上 -->
+        <section v-if="isLoopEnd" class="binding-section">
+          <div class="binding-head">
+            <PlusIcon />
+            <span>{{ i18n.t("board.loop.inputs") }}</span>
+            <span class="binding-count">{{ loopInputRows.length }}</span>
+          </div>
+          <div v-for="row in loopInputRows" :key="row.portId" class="binding-row">
+            <div class="binding-label">
+              <span>{{ i18n.t("board.loop.inputN", { n: row.index }) }}</span>
+              <span class="binding-type">{{ row.source ?? "—" }}</span>
+            </div>
+            <button
+              class="binding-remove"
+              type="button"
+              :disabled="loopInputRows.length <= 1"
+              :title="i18n.t('board.loop.removeInput')"
+              @click="removeLoopInput"
+            >
+              <XMarkIcon />
+            </button>
+          </div>
+          <button class="md-button" type="button" @click="addLoopInput">
+            {{ i18n.t("board.loop.addInput") }}
+          </button>
+        </section>
+
         <!-- 输出（只列类型 / 数量，不重复展示内容；内容在节点下方的附件卡里） -->
         <section v-if="hasOutput" class="binding-section output-section">
           <div class="binding-head">
@@ -974,7 +1038,7 @@ function portReady(port: BoardPortSpec): boolean {
         </div>
 
         <!-- 节点自己的设定：每个参数一个 md-field（没有分区标题） -->
-        <div v-for="spec in params" :key="spec.id" class="md-field">
+        <div v-for="spec in nodeParams" :key="spec.id" class="md-field">
           <label>{{ i18n.t(spec.labelKey) }}</label>
           <component
             :is="controlFor(spec.control ?? '') ?? 'input'"
