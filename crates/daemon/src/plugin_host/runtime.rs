@@ -28,8 +28,12 @@ pub struct SpawnOptions {
 
 impl Default for Budget {
     fn default() -> Self {
+        // 宿主半是**同步**的：一次 `run()` 往往要「提交任务 → 排队 → 轮询到生成结束 →
+        // 下载」，十分钟上下很常见（插件靠 `ctx.sleep` 轮询）。30 秒会把正常任务当失控
+        // 脚本打断，所以默认给足 30 分钟；用户中途取消走 `cancel()`（`ctx.cancelled()`
+        // 会变 true），不会真等满。
         Self {
-            timeout: Duration::from_secs(30),
+            timeout: Duration::from_secs(30 * 60),
         }
     }
 }
@@ -46,6 +50,8 @@ pub struct HostRuntime {
     plugin_id: String,
     tx: Option<Sender<Command>>,
     budget: Budget,
+    /// 与 JS 侧 `ctx.cancelled()` 同一个标志：置位后中断处理器会打断正在跑的脚本。
+    cancelled: Arc<Mutex<bool>>,
 }
 
 impl HostRuntime {
@@ -94,6 +100,7 @@ impl HostRuntime {
                 plugin_id,
                 tx: Some(tx),
                 budget,
+                cancelled,
             }),
             Ok(Err(error)) => Err(error),
             Err(_) => Err("插件线程异常退出".to_string()),
@@ -108,10 +115,20 @@ impl HostRuntime {
         self.budget
     }
 
+    /// 请求取消：置位后 JS 侧的中断处理器会在下一条字节码处打断正在跑的 `run()`。
+    ///
+    /// 不需要等 actor 空闲——它正卡在一次长轮询里也照样生效（这正是 `stop` 卡不住
+    /// 正在运行的任务的原因）。
+    pub fn cancel(&self) {
+        *self.cancelled.lock().unwrap() = true;
+    }
+
     pub fn invoke(&self, input: String) -> Result<String, String> {
         let Some(tx) = &self.tx else {
             return Err("插件宿主半已停止".to_string());
         };
+        // 每次调用都是一次新的运行：上一次被取消不该毒化这一次（取消只作用于当前这次）。
+        *self.cancelled.lock().unwrap() = false;
         let (reply_tx, reply_rx) = channel();
         tx.send(Command::Invoke {
             input,
@@ -125,6 +142,9 @@ impl HostRuntime {
     }
 
     pub fn stop(&self) {
+        // 先置取消标志：正在跑的 `run()` 会在下一条字节码处被打断，actor 才能走到
+        // `Command::Stop`（否则它要等整次调用跑完，长任务等于停不下来）。
+        self.cancel();
         if let Some(tx) = &self.tx {
             let (ack_tx, ack_rx) = channel();
             if tx.send(Command::Stop(ack_tx)).is_ok() {
@@ -229,7 +249,9 @@ impl PluginState {
         });
         *self.deadline.lock().unwrap() = None;
         if *self.cancelled.lock().unwrap() {
-            return Err("插件已被停止".to_string());
+            // 中断处理器已经打断脚本：把「取消」翻译成一句人能读的原因
+            // （`result` 这时是 QuickJS 的 interrupted 异常）。
+            return Err("插件运行已取消".to_string());
         }
         result
     }

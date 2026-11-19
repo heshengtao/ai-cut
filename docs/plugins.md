@@ -90,6 +90,9 @@ export default {
 | `ctx.host.run(input)` | 调宿主半的 `run(input)`，拿到字符串结果 |
 
 `io` 提供 `param(id)` / `text(portId)` / `asset(portId)` / `refs(kind)` / `progress(v, msg)`。
+`param(id)` 取的是**实际生效的值**：用户没改过的参数返回定义里的 `default`（节点卡片上
+显示的就是它），所以基址 / 端点这类「有默认值、通常不用改」的参数直接读即可；用户主动
+清空时拿到的是空串，不会被默认值顶回去。
 节点产物用返回值表达：`{ paths: [绝对路径] }`（自动入库）、`{ text }`（文本产物）、
 `{ pathByPort }`（多端口）、`{ assetId }`（透传已有素材）。
 
@@ -131,9 +134,16 @@ globalThis.__AICUT_PLUGIN__ = {
 CPU、不影响别的插件），每次轮询后检查 `ctx.cancelled()`。对限速 1 次/秒的接口，
 间隔给 1.2 s 左右。
 
+一次 `run()` 的预算是 **30 分钟**（提交任务 + 轮询到出片 + 下载都算在里面）。超时或
+用户点「停止运行」时，宿主会打断脚本并让这次调用返回错误——所以轮询循环里必须检查
+`ctx.cancelled()`，否则你会在服务端已经出片之后才被强行中断。界面在等待期间**不会**
+被冻住（调用跑在阻塞线程池上），但节点会一直显示「运行中」，进度只在开始时会上报一次。
+`ctx.http.request` 对 **GET / HEAD** 会自动重试两次（连接被掐断这类抖动不会打断整次轮询），
+POST 一律不重试——提交这类请求请自己在插件里做幂等。
+
 ## 4. 本地调试
 
-1. 「插件扩展」面板 →「导入本地目录」，选插件目录（`kind = linked`，不复制源码）；
+1. 「应用扩展」面板 →「导入本地目录」，选插件目录（`kind = linked`，不复制源码）；
 2. 改 `client.js` 后点面板的刷新/重进面板即可重新加载（客户端半按 `rev` 热替换）；
 3. 改 `host.js` 后需要禁用再启用该插件（宿主半重建 QuickJS 运行时）；
 4. 移除插件**不会**删除你的源目录。
@@ -145,7 +155,7 @@ CPU、不影响别的插件），每次轮询后检查 `ctx.cancelled()`。对�
    `source`（`{"type":"npm"}` 或 `{"type":"tgz","url":"https://…"}`）、
    `engines.aicut`、`sha256`、`size`；
 3. 索引是静态 JSON（`format: 1`），软件默认指向作者维护的
-   `https://raw.githubusercontent.com/heshengtao/ai-cut-plugin-market/main/index.json`，
+   `https://heshengtao.github.io/ai-cut-plugin/index.json`（GitHub Pages；raw 地址同样可读，但部分网络下会被 reset），
    用户也可以改成任意 HTTPS 索引。
 
 `sources` 只支持 `npm` 与 `tgz`：**不支持 `git`** ——那意味着宿主要替插件构建，

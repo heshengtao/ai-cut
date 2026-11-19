@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { adapterFor, pluginNodeType, registerAdapter } from "../adapters";
-import type { BoardNode } from "@/types/board";
+import { adapterFor, paramReader, pluginNodeType, registerAdapter } from "../adapters";
+import { registerNodeDefinition } from "../registry";
+import type { BoardNode, BoardNodeDefinition } from "@/types/board";
 
 function node(type: string): BoardNode {
   return {
@@ -63,5 +64,67 @@ describe("adapter registry", () => {
       },
     });
     expect(seen).toEqual(["n1", false, "function"]);
+  });
+});
+
+describe("paramReader", () => {
+  // 第三方插件节点的真实形态：参数控件带 `default`，`data.params` 只存用户改过的。
+  const definition: BoardNodeDefinition = {
+    type: "ext.demo.params",
+    titleKey: "demo",
+    category: "model",
+    order: 1,
+    inputs: [],
+    outputs: [],
+    params: [
+      { id: "base", labelKey: "base", kind: "text", default: "https://www.runlive.top/mnmx" },
+      { id: "duration", labelKey: "duration", kind: "number", default: 5 },
+      { id: "key", labelKey: "key", kind: "text", default: "" },
+    ],
+    defaultSize: { width: 300, height: 200 },
+    cost: { lane: "api", ramMb: 16 },
+  };
+
+  function withDefinition<T>(run: () => T): T {
+    const dispose = registerNodeDefinition(definition, "@demo/params");
+    try {
+      return run();
+    } finally {
+      dispose();
+    }
+  }
+
+  it("参数没落盘时回落到定义里的默认值（卡片显示什么，run 就拿到什么）", () => {
+    withDefinition(() => {
+      const read = paramReader(node("ext.demo.params"));
+      expect(read("base")).toBe("https://www.runlive.top/mnmx");
+      expect(read<number>("duration")).toBe(5);
+      // 声明了默认值就能读到；没有声明过的 id 依旧是 undefined。
+      expect(read("nope")).toBeUndefined();
+    });
+  });
+
+  it("用户存过的值优先，包括主动清空的空串", () => {
+    withDefinition(() => {
+      const stored: BoardNode = {
+        ...node("ext.demo.params"),
+        data: { params: { base: "", key: "card-1" }, bindings: {} },
+      };
+      const read = paramReader(stored);
+      expect(read("base")).toBe("");
+      expect(read("key")).toBe("card-1");
+      expect(read<number>("duration")).toBe(5);
+    });
+  });
+
+  it("null 与未设置等价；插件被卸载（定义缺失）时不炸", () => {
+    withDefinition(() => {
+      const nulled: BoardNode = {
+        ...node("ext.demo.params"),
+        data: { params: { base: null }, bindings: {} },
+      };
+      expect(paramReader(nulled)("base")).toBe("https://www.runlive.top/mnmx");
+    });
+    expect(paramReader(node("ext.gone.type"))("base")).toBeUndefined();
   });
 });

@@ -23,6 +23,7 @@ import { cloudGenImage, cloudGenVideo } from "@/core/cloudGenApi";
 import {
   adapterFor,
   dispatchAdapter,
+  paramReader,
   type AdapterIO,
   type AdapterResult,
 } from "@/core/board/adapters";
@@ -34,6 +35,8 @@ import {
   updateLiveRun,
 } from "@/core/board/liveRuns";
 import { createRunSignals } from "@/core/board/runSignals";
+import { nodeOwner } from "@/core/board/registry";
+import { pluginHostCancel } from "@/core/pluginHostApi";
 
 /**
  * 运行中的实时状态（文本流 / 进度 / 开始时间）。
@@ -55,6 +58,7 @@ import {
   isReferenceVideoModel,
   portsOf,
   publishedAssetId,
+  publishedAssetIds,
   splitModelValue,
   stemPortId,
 } from "@/core/board/registry";
@@ -229,6 +233,36 @@ function upstreamAsset(
 }
 
 /**
+ * 上游已经**发布**的整摞素材（按端口取；`primary` 是上游当前对外发布的那张）。
+ *
+ * 图片显示节点用整摞做多图牌堆，单张节点只用 `primary`——两者语义都从
+ * `publishedAssetIds` 来，不会出现「显示节点只拿到第一张」的割裂。
+ */
+function upstreamAssets(
+  nodeId: string,
+  portId: string,
+): { ids: string[]; primary?: string } {
+  const board = useBoardStore();
+  const project = useProjectStore();
+  const context = portContext();
+  const target = board.nodes.find((item) => item.id === nodeId);
+  const targetPort = target
+    ? portsOf(target, context).inputs.find((port) => port.id === portId)
+    : null;
+  const source = resolveUpstream(
+    nodeId,
+    portId,
+    (targetPort?.type as "image" | "video" | "audio" | undefined) ?? "any",
+  );
+  if (!source) return { ids: [] };
+  const primary = publishedAssetId(source.node, source.portId, context);
+  const ids = publishedAssetIds(source.node, source.portId, context).filter((id) =>
+    project.doc.assets.some((asset) => asset.id === id),
+  );
+  return { ids, primary: primary && ids.includes(primary) ? primary : ids[0] };
+}
+
+/**
  * 收集某个类型的所有上游参考（按检查器里排好的顺序）。
  *
  * 同类型多路输入合并成一个端口后，一个端口可能挂着多条连线；这里逐条
@@ -357,16 +391,19 @@ function liveProgressPct(node: BoardNode): number | null {
   }
 }
 
-/** 单个节点的适配器：把画布参数翻译成现有 API 的调用。 */
-async function runAdapter(
+/** 单个节点的适配器：把画布参数翻译成现有 API 的调用。（导出给单测。） */
+export async function runAdapter(
   node: BoardNode,
   nodeId: string,
   signal: AbortSignal = new AbortController().signal,
 ): Promise<AdapterResult> {
   const route = dispatchAdapter(node.type);
   if (route === "plugin") {
+    const readParam = paramReader(node);
     const io: AdapterIO = {
-      param: <T,>(id: string) => node.data.params[id] as T | undefined,
+      // 只读 `data.params` 的话，没被用户改过的参数就是 `undefined`——卡片上明明
+      // 显示着定义里的默认值（插件作者也因此以为 `io.param` 拿得到），要回落。
+      param: <T,>(id: string) => readParam<T>(id),
       text: (portId) => upstreamText(nodeId, portId),
       asset: (portId) => {
         const found = upstreamAsset(nodeId, portId);
@@ -376,7 +413,19 @@ async function runAdapter(
       progress: (value, message) =>
         updateLiveRun(nodeId, { progress: value, message: message ?? null }),
     };
-    return adapterFor(node.type)!({ node, nodeId, signal, io });
+    // 宿主半的 `run()` 是同步的，前端 abort 不会让它自己停下来：停止运行时要显式
+    // 通知 daemon 取消（`ctx.cancelled()` 变 true），否则它会一直跑到服务端结束。
+    const owner = nodeOwner(node.type);
+    const onAbort = (): void => {
+      if (owner) void pluginHostCancel(owner).catch(() => {});
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      return await adapterFor(node.type)!({ node, nodeId, signal, io });
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
   }
   if (route === "unknown") throw new Error(`节点 ${node.type} 不支持运行`);
   const imageGen = useImageGenStore();
@@ -412,7 +461,13 @@ async function runAdapter(
     case "input.text":
       return { text: textParam(node, "text") };
 
-    case "display.image":
+    case "display.image": {
+      // 上游一次出多张时整摞都接过来：卡片按「牌堆」叠放，`assetId` 是当前发布那张。
+      const upstream = upstreamAssets(node.id, "image");
+      if (upstream.ids.length === 0) throw new Error("缺少上游素材：先连接并运行上游节点");
+      return { assets: upstream.ids, assetId: upstream.primary, kind: "image" };
+    }
+
     case "display.video":
     case "display.audio": {
       const port = node.type.slice("display.".length);
@@ -759,7 +814,11 @@ async function registerOutputs(result: AdapterResult): Promise<RegisteredOutputs
     const id = byPath.get(path);
     if (id) byPort[portId] = id;
   }
-  const primary = result.assetId ?? (result.paths?.[0] ? byPath.get(result.paths[0]) : undefined);
+  // 透传整摞（`assets`）时没有 `assetId` 也能发布：第一张就是当前发布那张。
+  const primary =
+    result.assetId ??
+    result.assets?.[0] ??
+    (result.paths?.[0] ? byPath.get(result.paths[0]) : undefined);
   return { byPort, primary, imported };
 }
 
@@ -845,13 +904,16 @@ async function runOne(nodeId: string): Promise<boolean> {
         ? board.nodes.find((item) => item.id === nodeId)?.data.outputAssetIds ?? []
         : [];
     const current =
-      outputPorts.length > 1
-        ? outputPorts.map((port) => outputs[port.id]).filter((id): id is string => Boolean(id))
-        : imported.length > 0
-          ? imported
-          : primary
-            ? [primary]
-            : [];
+      // 透传节点（图片显示）把上游整摞一起发布，卡片才能按牌堆叠放。
+      result.assets && result.assets.length > 0
+        ? result.assets
+        : outputPorts.length > 1
+          ? outputPorts.map((port) => outputs[port.id]).filter((id): id is string => Boolean(id))
+          : imported.length > 0
+            ? imported
+            : primary
+              ? [primary]
+              : [];
     const all = [...new Set([...previous, ...current])].slice(-MAX_OUTPUTS);
     const outputAssetId = outputs[firstPort] ?? imported[0] ?? previous[0];
     const kept = Object.fromEntries(

@@ -533,19 +533,19 @@ export function useRuntimeSetup() {
   };
 }
 
-/**
- * **AI 变声**：当前 ONNX Runtime 后端 + MeanVC2 完整模型包。
- *
- * 模型包包含五张转换图和音色编码器：没有编码器就导入不了音色，新用户也就无法变声，
- * 所以它们是一个下载项，不再拆成「基础模型 / 可选编码器」两条。
- *
- * 与视频 / 画图不同，这里没有独立的引擎进程：ONNX Runtime 是进程内加载的，
- * 缺本体 / CUDA 组件时要和 `useRuntimeSetup` 一样在装完后提示重启。
- *
- * 只检查**当前生效的后端**，不硬推推荐档：CPU 是随包内置的，机器再强也不该为了
- * 一次变声先下几 GB CUDA。用户可以在弹窗里主动换成别的后端。
- */
-export function useVoiceSetup(modelId: () => string = () => "meanvc2-int8") {
+/** 通用 ONNX 运行时 + 模型准备（变声 / 对齐器 / TTS 共用）。 */
+interface OnnxModelSetupOptions {
+  /** 记忆键（`voice` / `aligner` / `tts` / `tts-dub`）。 */
+  feature: string;
+  /** 弹窗标题的 i18n key。 */
+  titleKey: string;
+  /** 需要补齐的本地模型；云端 / 未选来源时返回空数组。 */
+  targets: () => (ModelStatus | null)[];
+  /** 返回 `false` 时完全跳过检查（例如选中云端 TTS 服务）。 */
+  enabled?: () => boolean;
+}
+
+function useOnnxModelSetup(options: OnnxModelSetupOptions) {
   const i18n = useI18n();
   const device = useDeviceStore();
   const runtimes = useRuntimesStore();
@@ -566,14 +566,19 @@ export function useVoiceSetup(modelId: () => string = () => "meanvc2-int8") {
   }
 
   function build(override?: string): SetupPlan | null {
+    if (options.enabled && !options.enabled()) {
+      runtimePending = false;
+      return null;
+    }
     const kind = override ?? pending.value ?? defaultKind();
     const option = optionOf(kind);
-    const model = models.byId(modelId());
     const deps: SetupDep[] = [];
     if (option?.available) {
       deps.push(...runtimeDeps(option, runtimes.items, (key) => i18n.t(key)));
     }
-    if (model && !model.installed) deps.push(modelDep(model));
+    for (const model of options.targets()) {
+      if (model && !model.installed) deps.push(modelDep(model));
+    }
     if (deps.length === 0) {
       runtimePending = false;
       return null;
@@ -582,7 +587,7 @@ export function useVoiceSetup(modelId: () => string = () => "meanvc2-int8") {
     runtimePending = deps.some((dep) => dep.kind !== "model");
     const reason = reasonFor(i18n, device.device, kind);
     return {
-      title: i18n.t("setup.title.voice"),
+      title: i18n.t(options.titleKey),
       // 只有模型缺失时不要写「这台机器适合用 CUDA」——用户会以为还要下引擎。
       lead:
         option && runtimePending
@@ -608,7 +613,7 @@ export function useVoiceSetup(modelId: () => string = () => "meanvc2-int8") {
   }
 
   const session = useSetupSession({
-    feature: "voice",
+    feature: options.feature,
     build: () => build(),
     applyBackend: async () => {
       // 纯模型下载不用碰后端；只有补运行时 / 组件时才需要重新读一次状态。
@@ -623,7 +628,7 @@ export function useVoiceSetup(modelId: () => string = () => "meanvc2-int8") {
   /**
    * 缺什么补什么；返回 `true` = 已经能跑。
    *
-   * 与其它 setup 不同，这里是**异步**的：变声的「引擎」是 ONNX Runtime，
+   * 与其它 setup 不同，这里是**异步**的：这里的「引擎」是 ONNX Runtime，
    * 它的就绪信息要和模型清单一起读回来，否则第一次打开会把缺引擎误判成就绪。
    */
   async function ensure(): Promise<boolean> {
@@ -640,7 +645,6 @@ export function useVoiceSetup(modelId: () => string = () => "meanvc2-int8") {
     ) {
       await runtimes.load();
     }
-    // 变声模型是一个完整包（五张转换图 + 音色编码器），缺任何文件都按同一项补。
     const ready = session.ensure();
     if (!ready) pending.value = session.plan.value?.backend?.kind ?? defaultKind();
     return ready;
@@ -672,6 +676,27 @@ export function useVoiceSetup(modelId: () => string = () => "meanvc2-int8") {
 }
 
 /**
+ * **AI 变声**：当前 ONNX Runtime 后端 + MeanVC2 完整模型包。
+ *
+ * 模型包包含五张转换图和音色编码器：没有编码器就导入不了音色，新用户也就无法变声，
+ * 所以它们是一个下载项，不再拆成「基础模型 / 可选编码器」两条。
+ *
+ * 与视频 / 画图不同，这里没有独立的引擎进程：ONNX Runtime 是进程内加载的，
+ * 缺本体 / CUDA 组件时要和 `useRuntimeSetup` 一样在装完后提示重启。
+ *
+ * 只检查**当前生效的后端**，不硬推推荐档：CPU 是随包内置的，机器再强也不该为了
+ * 一次变声先下几 GB CUDA。用户可以在弹窗里主动换成别的后端。
+ */
+export function useVoiceSetup(modelId: () => string = () => "meanvc2-int8") {
+  const models = useModelsStore();
+  return useOnnxModelSetup({
+    feature: "voice",
+    titleKey: "setup.title.voice",
+    targets: () => [models.byId(modelId())],
+  });
+}
+
+/**
  * 剪口播的「对齐器准备」：**模型 + 当前后端缺的运行时组件**一起补。
  *
  * 云端识别只给文本时，词时间完全依赖本地 Qwen3 对齐器；所以第一次用
@@ -679,114 +704,41 @@ export function useVoiceSetup(modelId: () => string = () => "meanvc2-int8") {
  * 而不是只装权重、回头因为 ORT 运行时缺失再失败一次。
  */
 export function useAlignerSetup(modelId = "qwen3-aligner-0.6b-q4") {
-  const i18n = useI18n();
-  const device = useDeviceStore();
-  const runtimes = useRuntimesStore();
   const models = useModelsStore();
-  const pending = ref<string | null>(null);
-  let runtimePending = false;
-
-  function optionOf(kind: string) {
-    return device.info?.options.find((option) => option.kind === kind) ?? null;
-  }
-
-  function defaultKind(): string {
-    const info = device.info;
-    if (!info) return "cpu";
-    const preferred = info.options.find((option) => option.kind === info.preference);
-    return preferred?.available ? preferred.kind : info.recommended;
-  }
-
-  function build(override?: string): SetupPlan | null {
-    const kind = override ?? pending.value ?? defaultKind();
-    const option = optionOf(kind);
-    const model = models.byId(modelId);
-    const deps: SetupDep[] = [];
-    if (option?.available) {
-      deps.push(...runtimeDeps(option, runtimes.items, (key) => i18n.t(key)));
-    }
-    if (model && !model.installed) deps.push(modelDep(model));
-    if (deps.length === 0) {
-      runtimePending = false;
-      return null;
-    }
-
-    runtimePending = deps.some((dep) => dep.kind !== "model");
-    const reason = reasonFor(i18n, device.device, kind);
-    return {
-      title: i18n.t("setup.title.aligner"),
-      lead: option && runtimePending
-        ? i18n.t("setup.lead", { backend: option.label, reason })
-        : i18n.t("setup.leadModel"),
-      deps,
-      totalBytes: totalBytes(deps),
-      backend:
-        runtimePending && option?.available
-          ? {
-              kind,
-              label: option.label,
-              reason,
-              recommended: device.info?.recommended === kind,
-              choices: (device.info?.options ?? [])
-                .filter((item) => item.available)
-                .map((item) => ({ kind: item.kind, label: item.label })),
-            }
-          : null,
-      restartAfter: runtimePending,
-    };
-  }
-
-  const session = useSetupSession({
+  return useOnnxModelSetup({
     feature: "aligner",
-    build: () => build(),
-    applyBackend: async () => {
-      if (!runtimePending) return false;
-      const kind = pending.value ?? defaultKind();
-      const info = await aiSetBackend(kind as BackendPreference);
-      device.info = info;
-      return info.restart_required;
-    },
+    titleKey: "setup.title.aligner",
+    targets: () => [models.byId(modelId)],
   });
-
-  async function ensure(): Promise<boolean> {
-    if (models.catalog.length === 0) await models.load();
-    if (device.info === null) await device.load();
-    const info = device.info;
-    const current = info?.options.find((option) => option.kind === info.preference);
-    if (
-      current?.available &&
-      (!current.runtime_installed || current.missing.length > 0) &&
-      runtimes.items.length === 0
-    ) {
-      await runtimes.load();
-    }
-    const ready = session.ensure();
-    if (!ready) pending.value = session.plan.value?.backend?.kind ?? defaultKind();
-    return ready;
-  }
-
-  function choose(kind: string): void {
-    pending.value = kind;
-    const next = build(kind);
-    session.plan.value = next;
-    session.open.value = next !== null;
-  }
-
-  return {
-    open: session.open,
-    plan: session.plan,
-    running: session.running,
-    forced: session.forced,
-    failed: session.failed,
-    progress: session.progress,
-    ensure,
-    cancel: session.cancel,
-    confirm: () => session.confirmRun(true),
-    confirmBackground: () => session.confirmRun(false),
-    cancelDownload: session.cancelDownload,
-    retry: session.retry,
-    choose,
-    setDone: session.setDone,
-  };
 }
 
+/** 翻译配音要补的本地 TTS 来源；选中云端服务时完全跳过本地检查。 */
+export interface TtsSetupSource {
+  cloud: boolean;
+  /** 选中的本地 TTS 模型。 */
+  model: ModelStatus | null;
+  /** MOSS 家族需要的音频编解码器；其它家族传 `null`。 */
+  codec: ModelStatus | null;
+}
+
+/**
+ * **TTS 朗读 / 翻译配音**：当前 ONNX Runtime 后端 + 所选 TTS 模型（+ MOSS 编解码器）。
+ *
+ * 与变声 / 对齐器共用同一套「准备」向导：缺运行时、缺组件、缺权重都在这一个弹窗里
+ * 说清楚，确认后跳下载管理器并真正开始下载。选云端服务时不检查本地模型。
+ */
+export function useTtsSetup(
+  source: () => TtsSetupSource,
+  options: { feature: string; titleKey: string },
+) {
+  return useOnnxModelSetup({
+    feature: options.feature,
+    titleKey: options.titleKey,
+    enabled: () => !source().cloud,
+    targets: () => {
+      const current = source();
+      if (current.cloud) return [];
+      return [current.model, current.codec];
+    },
+  });
+}

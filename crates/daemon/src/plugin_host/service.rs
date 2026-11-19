@@ -78,9 +78,12 @@ pub fn forget(host: &Arc<dyn Host>, id: &str, app_version: &str) -> Result<Vec<P
 // ---------------------------------------------------------------------------
 
 /// 运行中的宿主半：`plugin id → HostRuntime`。进程内单例——插件线程绑定数据目录。
-static RUNNING: OnceLock<Mutex<HashMap<String, HostRuntime>>> = OnceLock::new();
+///
+/// 存 `Arc` 而不是裸值：一次 `invoke` 可能要跑几分钟（同步 `run()` 轮询到生成结束），
+/// 取句柄必须立刻放锁，否则 `stop` / 重载 / 别的插件全被这张表锁住。
+static RUNNING: OnceLock<Mutex<HashMap<String, Arc<HostRuntime>>>> = OnceLock::new();
 
-fn running_map() -> &'static Mutex<HashMap<String, HostRuntime>> {
+fn running_map() -> &'static Mutex<HashMap<String, Arc<HostRuntime>>> {
     RUNNING.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -115,22 +118,45 @@ pub fn start(
         budget: Budget::default(),
         data_root: data_root(host, id),
         net: Some(super::NetHandle {
-            handle: tokio::runtime::Handle::current(),
+            // 不能是 `Handle::current()`：桌面端这个命令是同步调用，跑在没有 reactor
+            // 的主线程上，会 panic 并带崩进程（dev 启动即挂）。
+            handle: super::net_handle(),
             client: network.client()?,
         }),
     };
-    let runtime = HostRuntime::spawn(id.to_string(), source, options)?;
+    let runtime = Arc::new(HostRuntime::spawn(id.to_string(), source, options)?);
     running_map().lock().unwrap().insert(id.to_string(), runtime);
     Ok(())
 }
 
 /// 调插件宿主半的 `run(input)`；返回它给的字符串（约定是 JSON）。
+///
+/// **会阻塞**（整次 `run()` 的时长，可能是几分钟）：调用方不要放在 UI 线程上，
+/// 桌面壳用 `spawn_blocking`，HTTP RPC 用 `tokio::task::spawn_blocking`。
 pub fn invoke(id: &str, input: &str) -> Result<String, String> {
-    let map = running_map().lock().unwrap();
-    let runtime = map
-        .get(id)
-        .ok_or_else(|| format!("插件 {id} 的宿主半没有运行"))?;
+    let runtime = {
+        let map = running_map().lock().unwrap();
+        map.get(id).cloned()
+    }
+    .ok_or_else(|| format!("插件 {id} 的宿主半没有运行"))?;
     runtime.invoke(input.to_string())
+}
+
+/// 取消**正在跑的那一次** `run()`（`ctx.cancelled()` 会变成 true，宿主半应当尽快返回）。
+///
+/// 与 `stop` 的区别：宿主半继续活着，下一次调用照常能跑。前端「停止运行」用它。
+pub fn cancel(id: &str) -> bool {
+    let runtime = {
+        let map = running_map().lock().unwrap();
+        map.get(id).cloned()
+    };
+    match runtime {
+        Some(runtime) => {
+            runtime.cancel();
+            true
+        }
+        None => false,
+    }
 }
 
 /// 停掉宿主半；没有在跑也返回 `false` 而不是报错。

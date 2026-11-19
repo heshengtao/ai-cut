@@ -58,25 +58,53 @@ pub fn plugin_host_remove(app: AppHandle, id: String) -> Result<serde_json::Valu
 /// 给前端复用的状态结构（仅类型用途，避免 tauri 宏推导不到）。
 pub type PluginHostStatus = PluginStatus;
 
+// 这三个命令都会**阻塞**（一次 run 可能轮询几分钟），必须 `async` + `spawn_blocking`：
+// Tauri 的同步命令跑在 IPC 消息线程（macOS 就是主线程）上，阻塞它等于整个界面冻住，
+// 连视频预览和窗口都不再响应。
+
 #[tauri::command]
-pub fn plugin_host_start(
+pub async fn plugin_host_start(
     app: AppHandle,
     network: State<'_, Arc<NetworkRuntime>>,
     id: String,
 ) -> Result<serde_json::Value, String> {
-    aicut_daemon::plugin_host::service::start(&host_of(&app), network.inner().as_ref(), &id)?;
+    let network = Arc::clone(network.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        aicut_daemon::plugin_host::service::start(&host_of(&app), network.as_ref(), &id)
+    })
+    .await
+    .map_err(|error| format!("启动插件失败：{error}"))??;
     Ok(serde_json::json!({ "running": true }))
 }
 
 #[tauri::command]
-pub fn plugin_host_invoke(id: String, input: String) -> Result<serde_json::Value, String> {
-    let output = aicut_daemon::plugin_host::service::invoke(&id, &input)?;
+pub async fn plugin_host_invoke(id: String, input: String) -> Result<serde_json::Value, String> {
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        aicut_daemon::plugin_host::service::invoke(&id, &input)
+    })
+    .await
+    .map_err(|error| format!("插件调用失败：{error}"))??;
     Ok(serde_json::json!({ "output": output }))
 }
 
+/// 取消正在跑的那次 `run()`（宿主半继续活着）。前端「停止运行」调用它。
 #[tauri::command]
-pub fn plugin_host_stop(id: String) -> Result<serde_json::Value, String> {
-    let stopped = aicut_daemon::plugin_host::service::stop(&id);
+pub async fn plugin_host_cancel(id: String) -> Result<serde_json::Value, String> {
+    let cancelled = tauri::async_runtime::spawn_blocking(move || {
+        aicut_daemon::plugin_host::service::cancel(&id)
+    })
+    .await
+    .map_err(|error| format!("取消插件调用失败：{error}"))?;
+    Ok(serde_json::json!({ "cancelled": cancelled }))
+}
+
+#[tauri::command]
+pub async fn plugin_host_stop(id: String) -> Result<serde_json::Value, String> {
+    let stopped = tauri::async_runtime::spawn_blocking(move || {
+        aicut_daemon::plugin_host::service::stop(&id)
+    })
+    .await
+    .map_err(|error| format!("停止插件失败：{error}"))?;
     Ok(serde_json::json!({
         "stopped": stopped,
         "running": aicut_daemon::plugin_host::service::running(),

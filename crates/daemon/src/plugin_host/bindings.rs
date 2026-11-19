@@ -258,6 +258,32 @@ fn header_map(headers: &str) -> Result<Vec<(String, String)>, String> {
     Ok(out)
 }
 
+/// 把 reqwest 错误连同**底层原因**一起打出来。
+///
+/// 只 `to_string()` 的话只会得到一句「error sending request for url (…)」——连接被拒、
+/// DNS、TLS、超时全被吞掉，插件作者和用户都无从下手。
+fn describe(error: &reqwest::Error) -> String {
+    let mut text = error.to_string();
+    let mut cause = std::error::Error::source(error);
+    while let Some(source) = cause {
+        text.push_str(&format!(" ← {source}"));
+        cause = source.source();
+    }
+    let kind = if error.is_connect() {
+        "连接失败"
+    } else if error.is_timeout() {
+        "超时"
+    } else if error.is_body() {
+        "读取响应体失败"
+    } else {
+        ""
+    };
+    if !kind.is_empty() {
+        text.push_str(&format!("（{kind}）"));
+    }
+    text
+}
+
 fn apply_headers(
     mut request: reqwest::RequestBuilder,
     headers: &str,
@@ -266,6 +292,18 @@ fn apply_headers(
         request = request.header(key, value);
     }
     Ok(request)
+}
+
+/// 幂等请求的重试次数与退避（毫秒）。
+///
+/// 长任务插件会在一根长连接上连着轮询几百次（1.2 秒一次、几分钟），中途被服务端 /
+/// 中间代理掐掉一次连接是很常见的；以前这一下就把整次运行打死了。GET / HEAD 重发不会
+/// 产生副作用，所以宿主替插件重试；POST 一律不重试（可能重复下单 / 重复扣积分）。
+const IDEMPOTENT_RETRIES: usize = 2;
+const RETRY_BACKOFF_MS: [u64; 2] = [300, 800];
+
+fn retryable(error: &reqwest::Error) -> bool {
+    error.is_connect() || error.is_request() || error.is_timeout()
 }
 
 fn request_text(
@@ -277,23 +315,65 @@ fn request_text(
 ) -> Result<String, String> {
     let method = reqwest::Method::from_bytes(method.to_ascii_uppercase().as_bytes())
         .map_err(|error| format!("HTTP 方法不合法：{error}"))?;
+    let idempotent = matches!(method, reqwest::Method::GET | reqwest::Method::HEAD);
+    let retries = if idempotent { IDEMPOTENT_RETRIES } else { 0 };
     let client = net.client.clone();
     let url = url.to_string();
     let headers = headers.to_string();
     let body = body.to_string();
     net.handle.block_on(async move {
-        let mut request = client.request(method, &url);
-        request = apply_headers(request, &headers)?;
-        if !body.is_empty() {
-            request = request.body(body);
+        let mut attempt = 0usize;
+        loop {
+            let mut request = client.request(method.clone(), &url);
+            request = apply_headers(request, &headers)?;
+            if !body.is_empty() {
+                request = request.body(body.clone());
+            }
+            let error = match request.send().await {
+                Ok(response) => {
+                    let status = response.status().as_u16();
+                    let text = response
+                        .text()
+                        .await
+                        .map_err(|error| format!("读取响应失败：{}", describe(&error)))?;
+                    return Ok(serde_json::json!({ "status": status, "text": text }).to_string());
+                }
+                Err(error) => error,
+            };
+            if attempt < retries && retryable(&error) {
+                tokio::time::sleep(std::time::Duration::from_millis(RETRY_BACKOFF_MS[attempt])).await;
+                attempt += 1;
+                continue;
+            }
+            let hint = if retries == 0 {
+                ""
+            } else {
+                "（已重试，仍失败）"
+            };
+            return Err(format!("请求失败：{}{hint}", describe(&error)));
         }
-        let response = request.send().await.map_err(|error| format!("请求失败：{error}"))?;
-        let status = response.status().as_u16();
-        let text = response
-            .text()
-            .await
-            .map_err(|error| format!("读取响应失败：{error}"))?;
-        Ok(serde_json::json!({ "status": status, "text": text }).to_string())
+    })
+}
+
+/// 按扩展名猜 multipart 的 Content-Type（猜不到就不设，交给 reqwest 的默认值）。
+fn mime_for(name: &str) -> Option<&'static str> {
+    let extension = Path::new(name).extension()?.to_string_lossy().to_ascii_lowercase();
+    Some(match extension.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "bmp" => "image/bmp",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" => "audio/ogg",
+        "flac" => "audio/flac",
+        "m4a" => "audio/mp4",
+        "aac" => "audio/aac",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        _ => return None,
     })
 }
 
@@ -304,7 +384,10 @@ fn download_bytes(net: &NetHandle, url: &str, headers: &str) -> Result<Vec<u8>, 
     net.handle.block_on(async move {
         let request = client.get(&url);
         let request = apply_headers(request, &headers)?;
-        let response = request.send().await.map_err(|error| format!("下载失败：{error}"))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|error| format!("下载失败：{}", describe(&error)))?;
         if !response.status().is_success() {
             return Err(format!("下载返回 HTTP {}", response.status().as_u16()));
         }
@@ -355,7 +438,14 @@ fn multipart(
                 .file_name()
                 .map(|item| item.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "file.bin".to_string());
-            let part = reqwest::multipart::Part::bytes(bytes).file_name(name);
+            // 按扩展名补 Content-Type：不少服务端（例如 MiniMax 代理）按 MIME 判断
+            // 素材类型，缺省 application/octet-stream 会被当成「不认识的格式」。
+            let mime = mime_for(&name);
+            let mut part = reqwest::multipart::Part::bytes(bytes).file_name(name);
+            if let Some(mime) = mime {
+                // 取的全是内置常量，只有「不是合法 MIME 字面量」才会失败——那是编码错误。
+                part = part.mime_str(mime).expect("内置 MIME 常量应当合法");
+            }
             form = form.part(key.clone(), part);
         }
     }
@@ -369,12 +459,12 @@ fn multipart(
             .multipart(form)
             .send()
             .await
-            .map_err(|error| format!("提交失败：{error}"))?;
+            .map_err(|error| format!("提交失败：{}", describe(&error)))?;
         let status = response.status().as_u16();
         let text = response
             .text()
             .await
-            .map_err(|error| format!("读取响应失败：{error}"))?;
+            .map_err(|error| format!("读取响应失败：{}", describe(&error)))?;
         Ok(serde_json::json!({ "status": status, "text": text }).to_string())
     })
 }
@@ -503,6 +593,8 @@ mod tests {
         });
 
         let runtime = tokio::runtime::Runtime::new().unwrap();
+        // 生产路径由 `require_net` 负责装加密实现，测试里绕过了它，自己补一次。
+        ensure_crypto_provider();
         let net = NetHandle {
             handle: runtime.handle().clone(),
             client: reqwest::Client::new(),
@@ -517,5 +609,141 @@ mod tests {
         "#
         );
         assert_eq!(run_script(dir.path(), &script, Some(net)).unwrap(), "200:true");
+    }
+
+    /// 生产那条路径：`net_handle()` 的**自有运行时** + 真实 reqwest 请求。
+    fn production_net() -> NetHandle {
+        ensure_crypto_provider();
+        NetHandle {
+            handle: super::super::net_handle(),
+            client: crate::network::NetworkRuntime::load(None).client().unwrap(),
+        }
+    }
+
+    /// 一个「先掐一次连接、再正常响应」的本地服务器，返回地址与命中次数。
+    fn flaky_server() -> (std::net::SocketAddr, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&hits);
+        std::thread::spawn(move || {
+            for stream in server.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let index = counter.fetch_add(1, Ordering::SeqCst);
+                let mut buffer = [0u8; 2048];
+                let _ = stream.read(&mut buffer);
+                if index == 0 {
+                    // 长连接被服务端 / 中间代理掐掉：读到请求就直接断开，不给响应。
+                    drop(stream);
+                    continue;
+                }
+                let body = "{\"ok\":true}";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (addr, hits)
+    }
+
+    #[test]
+    fn get_is_retried_after_the_connection_drops() {
+        // 真实事故：插件轮询到第几百次时连接被掐，整次运行直接失败。GET 是幂等的，
+        // 宿主应当自己重试一次而不是把错误抛给插件。
+        let (addr, hits) = flaky_server();
+        let dir = tempfile::TempDir::new().unwrap();
+        let script = format!(
+            r#"
+          globalThis.__AICUT_PLUGIN__ = {{ id: "r", run() {{
+            const response = JSON.parse(ctx.http.request("GET", "http://{addr}/poll", "", ""));
+            return String(response.status) + " hits=" + String(response.status === 200);
+          }} }};
+        "#
+        );
+        let out = run_script(dir.path(), &script, Some(production_net())).unwrap();
+        assert!(out.starts_with("200"), "{out}");
+        assert!(hits.load(std::sync::atomic::Ordering::SeqCst) >= 2, "应当重试过：{out}");
+    }
+
+    #[test]
+    fn multipart_uploads_carry_a_content_type() {
+        // MiniMax H3 这类服务端按 MIME 判断素材类型；缺省 application/octet-stream 会被拒。
+        use std::io::{Read, Write};
+        use std::sync::mpsc::channel;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let image = dir.path().join("first.jpg");
+        std::fs::write(&image, b"\xff\xd8\xff\xd9").unwrap();
+
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = server.local_addr().unwrap();
+        let (tx, rx) = channel::<String>();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = server.accept() {
+                // 读超时当「请求收完了」：multipart 的字节数不确定，靠 EOF 会等死。
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(200)));
+                let mut captured = Vec::new();
+                let mut buffer = [0u8; 4096];
+                while captured.len() < 8192 {
+                    match stream.read(&mut buffer) {
+                        Ok(0) => break,
+                        Ok(count) => captured.extend_from_slice(&buffer[..count]),
+                        Err(_) => break,
+                    }
+                }
+                let _ = tx.send(String::from_utf8_lossy(&captured).into_owned());
+                let body = r#"{"success":true}"#;
+                let response = format!(
+                    "HTTP/1.1 202 Accepted\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+
+        let script = format!(
+            r#"
+          globalThis.__AICUT_PLUGIN__ = {{ id: "m", run() {{
+            const response = JSON.parse(ctx.http.multipart(
+              "http://{addr}/api/v1/tasks",
+              JSON.stringify({{ prompt: "hi" }}),
+              JSON.stringify({{ first_frame: "{path}" }}),
+              "{{}}",
+              "POST",
+            ));
+            return String(response.status);
+          }} }};
+        "#,
+            path = image.to_string_lossy()
+        );
+        let out = run_script(dir.path(), &script, Some(production_net())).unwrap();
+        assert_eq!(out, "202");
+
+        let request = rx.recv().unwrap().to_ascii_lowercase();
+        assert!(request.contains("content-type: image/jpeg"), "缺少 MIME:\n{request}");
+    }
+
+    #[test]
+    fn connect_errors_name_the_underlying_cause() {
+        // 没人监听的端口：错误里必须有底层原因和「连接失败」标记，不能只有
+        // 一句「error sending request for url」。
+        let dir = tempfile::TempDir::new().unwrap();
+        let script = r#"
+          globalThis.__AICUT_PLUGIN__ = { id: "c", run() {
+            try { ctx.http.request("GET", "http://127.0.0.1:1/", "", ""); return "no"; }
+            catch (error) { return String(error.message || error); }
+          } };
+        "#;
+        let out = run_script(dir.path(), script, Some(production_net())).unwrap();
+        assert!(out.contains("连接失败"), "{out}");
+        assert!(out.contains("←"), "错误里应当带上底层原因：{out}");
     }
 }

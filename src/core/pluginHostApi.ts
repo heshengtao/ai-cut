@@ -52,3 +52,13 @@ export async function pluginHostStop(id: string): Promise<string[]> {
   const result = await invoke<{ stopped: boolean; running: string[] }>("plugin_host_stop", { id });
   return result.running;
 }
+
+/**
+ * 取消**正在跑的那次** `run()`：宿主半看到 `ctx.cancelled()` 变 true 就应尽快返回。
+ *
+ * 与 `pluginHostStop` 的区别：宿主半继续活着，下一次调用照常能跑。
+ */
+export async function pluginHostCancel(id: string): Promise<boolean> {
+  const result = await invoke<{ cancelled: boolean }>("plugin_host_cancel", { id });
+  return result.cancelled;
+}

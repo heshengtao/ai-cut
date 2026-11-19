@@ -428,7 +428,7 @@ active ──hot-reload──▶ active'
 ### 13.2 默认源与仓库结构
 
 ```
-https://raw.githubusercontent.com/heshengtao/ai-cut-plugin-market/main/index.json
+https://heshengtao.github.io/ai-cut-plugin/index.json
 ```
 
 仓库只放：`index.json`、`icons/`、`scripts/build-index.mjs`（从一份包名列表生成索引，只读不执行）。**现在 `plugins: []`**，后续手工添加。

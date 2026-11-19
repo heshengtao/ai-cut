@@ -13,9 +13,13 @@ use super::super::registry::Registry;
 use super::index::{best_version, parse_index, LocalizedText, MarketIndex, MarketSource};
 use super::{CACHE_TTL_SECS, MAX_INDEX_BYTES, MAX_PAGE};
 
-/// 默认索引源：作者自控的 GitHub 仓库（现在是空索引）。
+/// 默认索引源：作者自控的 GitHub 仓库（现在是空索引），走 GitHub Pages。
+///
+/// 用 Pages 而不是 raw.githubusercontent.com：部分网络下 raw 的 TLS 连接会被 reset
+/// （curl 能过、Rust 的 TLS 栈被掐），`*.github.io` 走 Fastly，能稳定取到。
+/// 用户可以在「设置 → 插件市场」里改成任意 https 索引源。
 pub const DEFAULT_INDEX_URL: &str =
-    "https://raw.githubusercontent.com/heshengtao/ai-cut-plugin-market/main/index.json";
+    "https://heshengtao.github.io/ai-cut-plugin/index.json";
 
 const SOURCE_FILE: &str = "market.json";
 

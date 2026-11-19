@@ -72,8 +72,10 @@ import {
   useAlignerSetup,
   useEngineSetup,
   useRuntimeSetup,
+  useTtsSetup,
   useVoiceSetup,
 } from "@/composables/useAiSetup";
+import { TTS_SETTINGS_ACTION, useTtsChoice } from "@/composables/useTtsChoice";
 import { useModelChoiceStore } from "@/stores/modelChoice";
 import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
 import type { CloudGenPreset, CloudGenProvider } from "@/types/cloudGen";
@@ -599,121 +601,39 @@ async function stop(): Promise<void> {
 
 // ---- AI 朗读 ----
 
-const LOCAL_TTS = "local:";
-const CLOUD_TTS = "cloud:";
-const TTS_SETTINGS_ACTION = "tts-settings";
+/** 本地模型 / 云端服务共用一份列表，和「音频翻译 → 配音」完全一致。 */
+const {
+  codec: ttsCodec,
+  selectedId: selectedTtsModelId,
+  kind: selectedTtsKind,
+  sourceId: selectedTtsSourceId,
+  model: selectedTtsModel,
+  provider: selectedCloudProvider,
+  codecRequired: ttsCodecRequired,
+  missing: ttsMissing,
+  ready: ttsReady,
+  downloading: ttsDownloading,
+  options: ttsModelOptions,
+} = useTtsChoice("tts");
 
-const ttsModels = computed(() => models.catalog.filter((model) => model.feature === "tts"));
-const ttsCodec = computed(
-  () => models.catalog.find((model) => model.feature === "tts-codec") ?? null,
+/** 朗读的准备向导：缺模型 / 运行时都在这里补齐，装完自动重试。 */
+const ttsSetup = useTtsSetup(
+  () => ({
+    cloud: selectedTtsKind.value === "cloud",
+    model: selectedTtsModel.value,
+    codec: ttsCodecRequired.value ? ttsCodec.value : null,
+  }),
+  { feature: "tts", titleKey: "setup.title.voiceover" },
 );
-const cloudProviders = computed(() => tts.providers.filter((provider) => provider.enabled));
-
-/** 下拉里的全部候选 id（本地模型 / 云端服务用前缀区分）。 */
-const ttsOptionIds = computed(() => [
-  ...ttsModels.value.map((model) => `${LOCAL_TTS}${model.id}`),
-  ...cloudProviders.value.map((provider) => `${CLOUD_TTS}${provider.id}`),
-]);
-
-/**
- * 朗读用的模型 / 云端服务：选过哪个跨会话记住。
- * 没选过时：已装的本地模型 → 云端 → 第一个本地模型。
- */
-const selectedTtsModelId = computed<string | null>({
-  get: () => {
-    const saved = modelChoice.get("tts");
-    if (saved && ttsOptionIds.value.includes(saved)) return saved;
-    const installed = ttsModels.value.find((model) => model.installed);
-    if (installed) return `${LOCAL_TTS}${installed.id}`;
-    const cloud = cloudProviders.value[0];
-    if (cloud) return `${CLOUD_TTS}${cloud.id}`;
-    return ttsModels.value[0] ? `${LOCAL_TTS}${ttsModels.value[0].id}` : null;
-  },
-  set: (value) => modelChoice.set("tts", value),
-});
-const selectedTtsKind = computed<"local" | "cloud">(() =>
-  selectedTtsModelId.value?.startsWith(CLOUD_TTS) ? "cloud" : "local",
-);
-const selectedTtsSourceId = computed(() => {
-  const value = selectedTtsModelId.value ?? "";
-  if (value.startsWith(CLOUD_TTS)) return value.slice(CLOUD_TTS.length);
-  if (value.startsWith(LOCAL_TTS)) return value.slice(LOCAL_TTS.length);
-  return value;
-});
-const selectedTtsModel = computed(() =>
-  selectedTtsKind.value === "local"
-    ? ttsModels.value.find((model) => model.id === selectedTtsSourceId.value) ?? null
-    : null,
-);
-const selectedCloudProvider = computed(() =>
-  selectedTtsKind.value === "cloud"
-    ? cloudProviders.value.find((provider) => provider.id === selectedTtsSourceId.value) ?? null
-    : null,
-);
+const ttsSetupOpen = ttsSetup.open;
+const ttsSetupPlan = ttsSetup.plan;
+const ttsSetupForced = ttsSetup.forced;
 
 const needsReferenceText = computed(
   () => selectedTtsKind.value === "local" && selectedTtsModel.value?.family === "zipvoice",
 );
-const ttsCodecRequired = computed(
-  () => selectedTtsKind.value === "local" && selectedTtsModel.value?.family === "moss_tts_nano",
-);
 
-const ttsMissing = computed(() => {
-  if (selectedTtsKind.value === "cloud") return 0;
-  const modelMissing = selectedTtsModel.value ? missingBytes(selectedTtsModel.value) : 0;
-  const codecMissing =
-    ttsCodecRequired.value && ttsCodec.value ? missingBytes(ttsCodec.value) : 0;
-  return modelMissing + codecMissing;
-});
-
-const ttsReady = computed(() => {
-  if (selectedTtsKind.value === "cloud") return Boolean(selectedCloudProvider.value);
-  return Boolean(
-    selectedTtsModel.value?.installed &&
-      (!ttsCodecRequired.value || ttsCodec.value?.installed),
-  );
-});
-const ttsDownloading = computed(
-  () =>
-    selectedTtsKind.value === "local" &&
-    (models.busyId === selectedTtsModel.value?.id ||
-      (ttsCodecRequired.value &&
-        ttsCodec.value !== null &&
-        models.busyId === ttsCodec.value.id)),
-);
 const ttsBusy = computed(() => tts.running);
-
-const ttsModelOptions = computed<SelectOption[]>(() => {
-  const options: SelectOption[] = [
-    {
-      id: TTS_SETTINGS_ACTION,
-      label: i18n.t("ai.ttsSettings"),
-      hint: i18n.t("ai.ttsSettingsHint"),
-      action: true,
-    },
-  ];
-  for (const model of ttsModels.value) {
-    options.push({
-      id: `${LOCAL_TTS}${model.id}`,
-      label: model.name,
-      group: i18n.t("ai.voiceoverLocal"),
-      hint: model.installed
-        ? i18n.t("ai.modelReady")
-        : i18n.t("ai.modelNeedsDownload", { size: humanSize(missingBytes(model)) }),
-    });
-  }
-  for (const provider of cloudProviders.value) {
-    options.push({
-      id: `${CLOUD_TTS}${provider.id}`,
-      label: provider.name,
-      group: i18n.t("ai.voiceoverCloud"),
-      hint: provider.voice
-        ? i18n.t("ai.voiceoverCloudVoice", { voice: provider.voice })
-        : i18n.t("ai.voiceoverCloudHint"),
-    });
-  }
-  return options;
-});
 
 function onTtsSelectAction(id: string): void {
   if (id === TTS_SETTINGS_ACTION) layout.openSettings("tts");
@@ -929,33 +849,6 @@ const ttsNote = computed(() => {
     : i18n.t("ai.voiceoverNoText");
 });
 
-async function requestTtsModelDownload(): Promise<void> {
-  const model = selectedTtsModel.value;
-  if (!model) return;
-  const codec = ttsCodecRequired.value ? ttsCodec.value : null;
-  const pending = !model.installed ? model : codec && !codec.installed ? codec : null;
-  if (!pending) return;
-
-  const accepted = await confirm({
-    title: i18n.t("dialog.downloadModelTitle"),
-    message: i18n.t("dialog.downloadModelMessage", {
-      name: pending.name,
-      size: humanSize(ttsMissing.value),
-    }),
-    confirmText: i18n.t("dialog.downloadModelOk"),
-    cancelText: i18n.t("common.cancel"),
-  });
-  if (!accepted) return;
-
-  layout.openTab("models");
-  try {
-    if (!model.installed) await models.download(model.id);
-    if (codec && !codec.installed) await models.download(codec.id);
-  } catch {
-    // 错误已写进 models.error，下载管理器会显示。
-  }
-}
-
 async function placeTtsResults(results: TtsAudio[], clips: Clip[]): Promise<void> {
   if (results.length === 0) return;
 
@@ -1005,11 +898,18 @@ async function generateVoiceover(): Promise<void> {
 
   const cloudProvider = selectedCloudProvider.value;
   const localModel = selectedTtsModel.value;
-  if (!cloudProvider && !localModel) return;
-  if (!ttsReady.value) {
-    await requestTtsModelDownload();
+  if (!cloudProvider && !localModel) {
+    toast(i18n.t("ai.voiceoverNoModel"));
+    openTtsSettings();
     return;
   }
+
+  // 缺模型 / 运行时都走准备向导；确认下载后自动回到这里重试。
+  ttsSetup.setDone(() => {
+    void generateVoiceover();
+  });
+  if (!(await ttsSetup.ensure())) return;
+  ttsSetup.setDone(null);
 
   const clips = textClips.value;
   if (clips.length === 0) {
@@ -1276,7 +1176,49 @@ const translatePrompt = computed(
     TRANSLATE_LANGUAGES.find((language) => language.id === translateLanguage.value)
       ?.prompt ?? "English",
 );
-const dubModel = computed(() => ttsModels.value.find((model) => model.installed) ?? null);
+const dubTts = useTtsChoice("tts-dub");
+const {
+  selectedId: selectedDubModelId,
+  kind: dubKind,
+  model: dubLocalModel,
+  provider: dubCloudProvider,
+  codec: dubCodec,
+  codecRequired: dubCodecRequired,
+  missing: dubMissing,
+  ready: dubReady,
+  options: dubModelOptions,
+} = dubTts;
+
+/** 配音的准备向导：缺模型 / 运行时时弹框，下载完自动重试。 */
+const dubSetup = useTtsSetup(
+  () => ({
+    cloud: dubKind.value === "cloud",
+    model: dubLocalModel.value,
+    codec: dubCodecRequired.value ? dubCodec.value : null,
+  }),
+  { feature: "tts-dub", titleKey: "setup.title.dub" },
+);
+const dubSetupOpen = dubSetup.open;
+const dubSetupPlan = dubSetup.plan;
+const dubSetupForced = dubSetup.forced;
+
+const dubNote = computed(() => {
+  if (!translateDub.value) return i18n.t("audio.translateVoiceNote");
+  if (dubKind.value === "cloud") {
+    const provider = dubCloudProvider.value;
+    if (!provider) return i18n.t("audio.dubNoModel");
+    return provider.voice
+      ? i18n.t("ai.voiceoverCloudNote", { name: provider.name, voice: provider.voice })
+      : i18n.t("ai.voiceoverCloudNoteNoVoice", { name: provider.name });
+  }
+  const model = dubLocalModel.value;
+  if (!model) return i18n.t("audio.dubNoModel");
+  if (!dubReady.value) {
+    return i18n.t("ai.modelNeedsDownload", { size: humanSize(dubMissing.value) });
+  }
+  return i18n.t("audio.dubLocalNote", { name: model.name });
+});
+
 const translationBusy = computed(
   () => translationRunning.value || asr.running || tts.running || audioAi.running,
 );
@@ -1301,11 +1243,19 @@ async function generateTranslation(): Promise<void> {
     await requestModelDownload();
     return;
   }
-  const dub = dubModel.value;
-  const wantDub = translateDub.value && dub !== null;
-  if (translateDub.value && !wantDub) {
-    // 没有本地朗读模型时不阻断翻译：先出译文字幕。
-    toast(i18n.t("audio.dubNoModel"));
+  const wantDub = translateDub.value;
+  if (wantDub) {
+    if (!dubCloudProvider.value && !dubLocalModel.value) {
+      toast(i18n.t("audio.dubNoModel"));
+      openTtsSettings();
+      return;
+    }
+    // 缺配音模型 / 运行时：先弹准备向导，下载完自动回到这里重试。
+    dubSetup.setDone(() => {
+      void generateTranslation();
+    });
+    if (!(await dubSetup.ensure())) return;
+    dubSetup.setDone(null);
   }
 
   translationRunning.value = true;
@@ -1337,33 +1287,44 @@ async function generateTranslation(): Promise<void> {
       label: i18n.t("audio.translate"),
     });
 
-    // 2) 可选配音：默认用原片前 10 秒做参考音色
-    if (wantDub && dub) {
+    // 2) 可选配音：本地模型用原片前 10 秒做参考音色，云端用服务默认音色
+    if (wantDub) {
       try {
-        const referenceText = mapped
-          .filter((cue) => cue.start - current.clip.start < 10)
-          .map((cue) => cue.text)
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-        const reference = referenceText
-          ? await audioExtractReference(
-              current.asset.src,
-              current.clip.in ?? 0,
-              Math.min(current.clip.duration, 10),
-            )
-          : null;
         const items = translated.map((text, index) => ({
           id: String(index),
           text,
         }));
-        const audios = await tts.synthesize(
-          dub.id,
-          items,
-          null,
-          reference?.path ?? null,
-          referenceText || null,
-        );
+        let audios: TtsAudio[] = [];
+        if (dubCloudProvider.value) {
+          audios = await tts.synthesizeCloud(
+            dubCloudProvider.value.id,
+            items,
+            dubCloudProvider.value.voice || null,
+          );
+        } else {
+          const dub = dubLocalModel.value;
+          if (!dub) throw new Error(i18n.t("audio.dubNoModel"));
+          const referenceText = mapped
+            .filter((cue) => cue.start - current.clip.start < 10)
+            .map((cue) => cue.text)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
+          const reference = referenceText
+            ? await audioExtractReference(
+                current.asset.src,
+                current.clip.in ?? 0,
+                Math.min(current.clip.duration, 10),
+              )
+            : null;
+          audios = await tts.synthesize(
+            dub.id,
+            items,
+            null,
+            reference?.path ?? null,
+            referenceText || null,
+          );
+        }
         const imported: { audio: TtsAudio; asset: MediaAsset }[] = [];
         for (const audio of audios) {
           imported.push({ audio, asset: await importAssetAt(audio.path) });
@@ -2974,19 +2935,27 @@ onMounted(() => {
           />
         </div>
 
+        <div v-if="translateDub" class="param-field">
+          <span class="param-name">{{ i18n.t("audio.dubModel") }}</span>
+          <Md3Select
+            v-model="selectedDubModelId"
+            :options="dubModelOptions"
+            :label="i18n.t('audio.dubModel')"
+            :disabled="translationBusy"
+            @action="onTtsSelectAction"
+          />
+        </div>
+
         <div class="item-row">
           <div class="item-main">
-            <span class="item-note">
-              {{
-                translateDub && !dubModel
-                  ? i18n.t("audio.dubNoModel")
-                  : i18n.t("audio.translateVoiceNote")
-              }}
-            </span>
+            <span class="item-note">{{ dubNote }}</span>
           </div>
-          <button class="iface-btn" @click="layout.openTab('models')">
+          <button
+            class="iface-btn"
+            @click="dubCloudProvider ? openTtsSettings() : layout.openTab('models')"
+          >
             <CpuChipIcon class="w-[13px] h-[13px]" />
-            {{ i18n.t("ai.manageModels") }}
+            {{ i18n.t(dubCloudProvider ? "ai.ttsSettings" : "ai.manageModels") }}
           </button>
         </div>
 
@@ -3110,6 +3079,28 @@ onMounted(() => {
       @background="voiceSetup.confirmBackground()"
       @cancel-download="voiceSetup.cancelDownload()"
       @choose="voiceSetup.choose"
+    />
+    <AiSetupDialog
+      :open="ttsSetupOpen"
+      :plan="ttsSetupPlan"
+      :dismissible="!ttsSetupForced"
+      @update:open="(value: boolean) => (value ? undefined : ttsSetup.cancel())"
+      @cancel="ttsSetup.cancel()"
+      @confirm="ttsSetup.confirm()"
+      @background="ttsSetup.confirmBackground()"
+      @cancel-download="ttsSetup.cancelDownload()"
+      @choose="ttsSetup.choose"
+    />
+    <AiSetupDialog
+      :open="dubSetupOpen"
+      :plan="dubSetupPlan"
+      :dismissible="!dubSetupForced"
+      @update:open="(value: boolean) => (value ? undefined : dubSetup.cancel())"
+      @cancel="dubSetup.cancel()"
+      @confirm="dubSetup.confirm()"
+      @background="dubSetup.confirmBackground()"
+      @cancel-download="dubSetup.cancelDownload()"
+      @choose="dubSetup.choose"
     />
   </div>
 </template>

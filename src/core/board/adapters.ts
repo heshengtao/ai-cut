@@ -8,6 +8,8 @@
 import type { BoardNode } from "@/types/board";
 import type { AssetKind } from "@/types/project";
 
+import { nodeDefinition, paramValue } from "./registry";
+
 export interface AdapterResult {
   /** 产物路径（会自动入库）；单端口节点的多次产物都放这里。 */
   paths?: string[];
@@ -17,6 +19,11 @@ export interface AdapterResult {
   assetByPort?: Record<string, string>;
   /** 已有素材 id：只是把现有素材发布到输出，不重复入库。 */
   assetId?: string;
+  /**
+   * 已有素材 id 的**整摞**（同样不入库）：图片显示节点用它接住上游一次出的多张图，
+   * 卡片按「牌堆」叠放。`assetId` 仍然是当前对外发布的那一张，可以不在第一位。
+   */
+  assets?: string[];
   /** 文本产物（不入库）。 */
   text?: string;
   /** 文本模型的思考过程。 */
@@ -95,4 +102,17 @@ export function dispatchAdapter(type: string): "plugin" | "builtin" | "unknown" 
   if (adapterFor(type)) return "plugin";
   if (BUILTIN_TYPES.has(type)) return "builtin";
   return "unknown";
+}
+
+/**
+ * 插件适配器的参数读取器（`io.param`）。
+ *
+ * `data.params` 只存用户改过的值，所以必须回落到定义里的 `default`：卡片上看到什么
+ * 默认值，`run()` 里 `io.param()` 就该拿到什么。用户主动清空（存成 `""`）不算缺失。
+ */
+export function paramReader(
+  node: BoardNode,
+): <T = unknown>(id: string) => T | undefined {
+  const definition = nodeDefinition(node.type);
+  return <T,>(id: string) => paramValue(definition, node.data.params, id) as T | undefined;
 }

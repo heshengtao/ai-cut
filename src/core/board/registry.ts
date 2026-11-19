@@ -4,7 +4,22 @@
  * 一种能力一个节点；模型节点不区分本地/云端，模型下拉在检查器里切。
  * 本阶段先落 4 个输入 + 4 个显示节点，模型节点在后续阶段补齐。
  */
+import { shallowRef } from "vue";
 import type { BoardNode, BoardNodeDefinition, BoardPortSpec } from "@/types/board";
+
+/**
+ * 注册表版本号。
+ *
+ * 定义表本身是普通 Map（core 里不做响应式），但**画布必须知道插件什么时候注册 /
+ * 注销了节点**：插件是启动后异步装的，晚于画布挂载时，`ext.*` 节点会查不到定义而
+ * 渲染成空白（直到某个偶然的重渲染才恢复）。所有读定义的地方把版本号读一下即可。
+ */
+const registryRev = shallowRef(0);
+
+/** 当前注册表版本；在 `computed` / `watch` 里读它就能跟着插件注册刷新。 */
+export function boardRegistryRevision(): number {
+  return registryRev.value;
+}
 
 /** 输入 / 显示节点统一宽度。 */
 export const MEDIA_WIDTH = 380;
@@ -175,13 +190,24 @@ export function registerNodeDefinition(
   NODE_OWNERS.set(definition.type, owner);
   BOARD_NODES.push(definition);
   BY_TYPE.set(definition.type, definition);
+  registryRev.value += 1;
   return () => {
     if (NODE_OWNERS.get(definition.type) !== owner) return;
     NODE_OWNERS.delete(definition.type);
     BY_TYPE.delete(definition.type);
     const index = BOARD_NODES.indexOf(definition);
     if (index >= 0) BOARD_NODES.splice(index, 1);
+    registryRev.value += 1;
   };
+}
+
+/**
+ * 注册这个节点类型的插件 id（内置节点、未注册的类型返回 `null`）。
+ *
+ * 插件节点的 `run()` 是同步跑在宿主半线程上的：前端「停止运行」要按插件 id 去取消。
+ */
+export function nodeOwner(type: string): string | null {
+  return NODE_OWNERS.get(type) ?? null;
 }
 
 /** 某个端口在定义里的声明（归一化校验用）。 */
@@ -520,6 +546,46 @@ export function publishedAssetId(
 }
 
 /**
+ * 节点对外发布的**全部**产物 id（有序，`outputAssetId` 一定在里面）。
+ *
+ * 单端口节点用输出附件卡里攒下的 `outputAssetIds`（一次出多张 / 重复运行累积），
+ * 多端口节点各端口只有一张，按端口取。图片显示节点的多图牌堆靠它接住上游整摞图。
+ */
+export function publishedAssetIds(
+  node: BoardNode,
+  portId: string,
+  context?: BoardPortContext,
+): string[] {
+  const ports = portsOf(node, context).outputs;
+  if (ports.length > 1) {
+    const id = publishedAssetId(node, portId, context);
+    return id ? [id] : [];
+  }
+  const list = [...new Set(node.data.outputAssetIds ?? [])];
+  const primary = node.data.outputAssetId;
+  // 当前发布那张必须在这摞里（旧文档可能只有 outputAssetId，没有列表）。
+  if (primary && !list.includes(primary)) list.unshift(primary);
+  return list;
+}
+
+/**
+ * 参数的实际取值：`data.params` 里没有就回落到定义里的 `default`。
+ *
+ * `data.params` 只记**用户改过的**参数——新建节点是空对象，所以「控件上显示了默认值、
+ * 运行起来却是空」的唯一原因就是读参数的地方没走这条回落。卡片渲染、检查器、
+ * `visibleWhen` 判断和插件节点的 `io.param` 必须共用这一份逻辑。
+ */
+export function paramValue(
+  definition: BoardNodeDefinition | null | undefined,
+  values: Record<string, unknown> | undefined,
+  id: string,
+): unknown {
+  const stored = values?.[id];
+  if (stored !== undefined && stored !== null) return stored;
+  return definition?.params.find((spec) => spec.id === id)?.default;
+}
+
+/**
  * 当前要渲染的参数：按 `visibleWhen` 过滤掉不该出现的项
  * （例如「画面增强」选插帧时只显示插帧模型与倍数）。
  */
@@ -529,14 +595,10 @@ export function visibleParams(
 ): BoardNodeDefinition["params"] {
   if (!definition) return [];
   // 参数还没落进 `data.params`（新节点）时，要拿定义里的默认值来判断可见性。
-  const valueOf = (id: string): unknown => {
-    const stored = values[id];
-    if (stored !== undefined) return stored;
-    return definition.params.find((spec) => spec.id === id)?.default;
-  };
   return definition.params.filter((spec) => {
     if (!spec.visibleWhen) return true;
-    return String(valueOf(spec.visibleWhen.param) ?? "") === String(spec.visibleWhen.equals);
+    const value = paramValue(definition, values, spec.visibleWhen.param);
+    return String(value ?? "") === String(spec.visibleWhen.equals);
   });
 }
 

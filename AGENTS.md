@@ -104,6 +104,11 @@ Canvas plugin invariants:
   absolute path.
 - **Host half is synchronous**: network calls block the plugin's own actor thread. Polling
   loops burn that thread; keep timeouts short and check `ctx.cancelled()`.
+- **Never call `service::{start,invoke,stop}` from a Tauri sync command or inside an async
+  RPC handler**: one `run()` can poll for minutes, and a Tauri sync command runs on the IPC
+  (main) thread — the whole window freezes. They are `async fn` + `spawn_blocking` (desktop)
+  and `tokio::task::spawn_blocking` (`rpc.rs`); `service::invoke` must clone the runtime out
+  of `RUNNING` before blocking, or `stop`/cancel wait for the whole call.
 - QuickJS drop order matters: `Context` must be dropped before `Runtime`, and closures must
   not capture `rqtjs::Ctx` (take it as the first parameter instead) — otherwise
   `JS_FreeRuntime` asserts and aborts the process.

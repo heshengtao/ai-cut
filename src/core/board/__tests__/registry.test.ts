@@ -3,8 +3,10 @@ import {
   BOARD_NODES,
   isReferenceVideoModel,
   nodeDefinition,
+  paramValue,
   portOf,
   portsOf,
+  publishedAssetIds,
   visibleParams,
 } from "@/core/board/registry";
 import type { BoardNode } from "@/types/board";
@@ -302,5 +304,48 @@ describe("registry", () => {
       "upscaleModel",
       "scale",
     ]);
+  });
+
+  it("publishedAssetIds：单端口返回整摞，当前发布那张一定在里面", () => {
+    const stacked: BoardNode = {
+      id: "n",
+      type: "model.image",
+      position: { x: 0, y: 0 },
+      data: {
+        params: {},
+        bindings: {},
+        outputAssetIds: ["a1", "a2", "a3"],
+        outputAssetId: "a2",
+      },
+    };
+    expect(publishedAssetIds(stacked, "image")).toEqual(["a1", "a2", "a3"]);
+    // 旧文档只有 outputAssetId：也当成一摞（一张）。
+    const single: BoardNode = {
+      ...stacked,
+      data: { params: {}, bindings: {}, outputAssetId: "a9" },
+    };
+    expect(publishedAssetIds(single, "image")).toEqual(["a9"]);
+    // 列表里没有当前发布那张：补到最前面，不能让它丢。
+    const drifted: BoardNode = {
+      ...stacked,
+      data: {
+        params: {},
+        bindings: {},
+        outputAssetIds: ["a1", "a2"],
+        outputAssetId: "a3",
+      },
+    };
+    expect(publishedAssetIds(drifted, "image")).toEqual(["a3", "a1", "a2"]);
+  });
+
+  it("paramValue：没落盘 / 存成 null 都回落到定义默认值，存过的值（含空串）优先", () => {
+    const definition = nodeDefinition("display.text")!;
+    expect(paramValue(definition, {}, "mode")).toBe("markdown");
+    expect(paramValue(definition, { mode: null }, "mode")).toBe("markdown");
+    expect(paramValue(definition, { mode: "" }, "mode")).toBe("");
+    expect(paramValue(definition, { mode: "plain" }, "mode")).toBe("plain");
+    expect(paramValue(definition, undefined, "mode")).toBe("markdown");
+    expect(paramValue(definition, {}, "nope")).toBeUndefined();
+    expect(paramValue(null, {}, "mode")).toBeUndefined();
   });
 });

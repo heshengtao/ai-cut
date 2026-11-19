@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { BOARD_NODES, nodeDefinition, nodesByCategory, registerNodeDefinition } from "../registry";
+import { computed } from "vue";
+import {
+  BOARD_NODES,
+  boardRegistryRevision,
+  nodeDefinition,
+  nodesByCategory,
+  registerNodeDefinition,
+} from "../registry";
 import type { BoardNodeDefinition } from "@/types/board";
 
 const demo: BoardNodeDefinition = {
@@ -47,6 +54,25 @@ describe("node definition registry", () => {
     expect(() => nodesByCategory()).not.toThrow();
     expect(Object.values(nodesByCategory()).flat().some((item) => item.type === "ext.demo.rogue")).toBe(false);
     BOARD_NODES.splice(BOARD_NODES.indexOf(rogue), 1);
+  });
+
+  it("注册 / 注销会让版本号变化，读它的 computed 跟着重新取定义", () => {
+    // 真实事故：插件是启动后异步装的，晚于画布挂载时 `ext.*` 节点查不到定义，
+    // 卡片渲染成空白（直到某次偶然的重渲染才恢复）。画布读版本号就是为了这个。
+    const before = boardRegistryRevision();
+    const definition = computed(() => {
+      void boardRegistryRevision();
+      return nodeDefinition(demo.type);
+    });
+    expect(definition.value).toBeNull();
+
+    const dispose = registerNodeDefinition(demo, "@demo/plugin");
+    expect(boardRegistryRevision()).toBe(before + 1);
+    expect(definition.value).toEqual(demo);
+
+    dispose();
+    expect(boardRegistryRevision()).toBe(before + 2);
+    expect(definition.value).toBeNull();
   });
 
   it("includes a registered plugin node in its category", () => {

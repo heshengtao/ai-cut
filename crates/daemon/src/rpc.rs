@@ -1474,7 +1474,15 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
                 id: String,
             }
             let args: Args = from_value(args)?;
-            crate::plugin_host::service::start(&ctx.host, &ctx.network, &args.id)?;
+            // 起宿主半要等脚本执行完（可能读大文件 / 同步初始化），别占着 RPC 的执行器线程。
+            let host = Arc::clone(&ctx.host);
+            let network = Arc::clone(&ctx.network);
+            let id = args.id;
+            tokio::task::spawn_blocking(move || {
+                crate::plugin_host::service::start(&host, network.as_ref(), &id)
+            })
+            .await
+            .map_err(|error| error.to_string())??;
             Ok(json!({ "running": true }))
         }
         "plugin_host_invoke" => {
@@ -1484,8 +1492,28 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
                 input: String,
             }
             let args: Args = from_value(args)?;
-            let output = crate::plugin_host::service::invoke(&args.id, &args.input)?;
+            // `run()` 是同步的、可能跑几分钟（轮询到生成结束）：必须挪到阻塞线程池，
+            // 否则一个插件就把 HTTP RPC 的执行器线程占死。
+            let id = args.id;
+            let input = args.input;
+            let output =
+                tokio::task::spawn_blocking(move || crate::plugin_host::service::invoke(&id, &input))
+                    .await
+                    .map_err(|error| error.to_string())??;
             Ok(json!({ "output": output }))
+        }
+        "plugin_host_cancel" => {
+            #[derive(serde::Deserialize)]
+            struct Args {
+                id: String,
+            }
+            let args: Args = from_value(args)?;
+            let id = args.id;
+            let cancelled =
+                tokio::task::spawn_blocking(move || crate::plugin_host::service::cancel(&id))
+                    .await
+                    .map_err(|error| error.to_string())?;
+            Ok(json!({ "cancelled": cancelled }))
         }
         "plugin_host_stop" => {
             #[derive(serde::Deserialize)]
@@ -1493,7 +1521,11 @@ pub async fn dispatch(ctx: &RpcCtx, command: &str, args: Value) -> Result<Value,
                 id: String,
             }
             let args: Args = from_value(args)?;
-            let stopped = crate::plugin_host::service::stop(&args.id);
+            let id = args.id;
+            let stopped =
+                tokio::task::spawn_blocking(move || crate::plugin_host::service::stop(&id))
+                    .await
+                    .map_err(|error| error.to_string())?;
             Ok(json!({ "stopped": stopped, "running": crate::plugin_host::service::running() }))
         }
         "plugin_host_remove" => {

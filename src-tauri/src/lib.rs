@@ -40,7 +40,21 @@ mod voice_change;
 mod workflow;
 
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::Manager;
+
+/// 进程启动时刻：页面加载完成 / 前端首帧就绪各打一条耗时。
+///
+/// 「启动卡在 logo」是启动类问题的第一现场，有了这两行就能分清是 WebView 加载慢、
+/// 还是前端挂载慢（dev 模式下 vite 冷启动会明显拖长第一段）。
+static BOOT: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+fn boot_elapsed() -> String {
+    match BOOT.get() {
+        Some(start) => format!("{:.0}ms", start.elapsed().as_millis()),
+        None => "?".to_string(),
+    }
+}
 
 /// 创建主窗口，去掉系统自绘的标题栏：
 /// - macOS：Overlay 风格（保留原生红黄绿，去掉系统标题栏，内容延伸到顶部）
@@ -54,6 +68,7 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWind
             // 配置里是 `visible: false`：页面真的加载完再显示，避免用户先看到一块
             // 「只有底色」的黑屏。前端首帧就绪时还会调一次 `app_ready`（幂等）。
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                eprintln!("[boot] 页面加载完成（显示窗口）：{}", boot_elapsed());
                 let _ = window.show();
             }
         },
@@ -206,11 +221,13 @@ fn app_ready(window: tauri::WebviewWindow) {
     if window.label() != "main" {
         return;
     }
+    eprintln!("[boot] 前端首帧就绪：{}", boot_elapsed());
     let _ = window.show();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = BOOT.set(Instant::now());
     // 数据目录必须在**任何路径解析之前**定下来：模型、运行时、插件、历史都按它落盘。
     paths::init_from_args();
     tauri::Builder::default()
@@ -354,6 +371,7 @@ pub fn run() {
             plugin_host::plugin_host_remove,
             plugin_host::plugin_host_start,
             plugin_host::plugin_host_invoke,
+            plugin_host::plugin_host_cancel,
             plugin_host::plugin_host_stop,
             plugin_host::plugin_market_sources,
             plugin_host::plugin_market_set_source,
