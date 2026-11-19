@@ -2542,6 +2542,7 @@ const en: Record<string, string> = {
   "board.node.displayText": "Text display",
   "board.node.displayValue": "Value display",
   "board.node.loop": "Loop",
+  "board.node.loopStart": "Loop start",
   "board.param.loopInputs": "Inputs",
   "board.loop.inputs": "Inputs",
   "board.loop.inputN": "Input {n}",

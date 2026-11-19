@@ -2543,6 +2543,7 @@ const zh: Record<string, string> = {
   "board.node.displayText": "文本显示",
   "board.node.displayValue": "值显示",
   "board.node.loop": "循环",
+  "board.node.loopStart": "循环开始",
   "board.param.loopInputs": "输入数量",
   "board.loop.inputs": "输入",
   "board.loop.inputN": "输入 {n}",

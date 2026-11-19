@@ -8,6 +8,8 @@ import {
   registerNodeDefinition,
 } from "../registry";
 import type { BoardNodeDefinition } from "@/types/board";
+import zh from "@/i18n/zh";
+import zh from "@/i18n/zh";
 
 const demo: BoardNodeDefinition = {
   type: "ext.demo.node",
@@ -19,6 +21,26 @@ const demo: BoardNodeDefinition = {
   params: [],
   defaultSize: { width: 320, height: 200 },
 };
+
+describe("node registry i18n", () => {
+  it("内置节点的标题 / 端口 / 参数文案都有中文（新增节点别漏翻译）", () => {
+    for (const definition of BOARD_NODES) {
+      expect(zh[definition.titleKey], definition.type).toBeTruthy();
+      if (definition.menuTitleKey) {
+        expect(zh[definition.menuTitleKey], definition.type).toBeTruthy();
+      }
+      for (const port of [...definition.inputs, ...definition.outputs]) {
+        expect(zh[port.labelKey], `${definition.type}.${port.id}`).toBeTruthy();
+      }
+      for (const param of definition.params) {
+        expect(zh[param.labelKey], `${definition.type}.${param.id}`).toBeTruthy();
+        for (const option of param.options ?? []) {
+          expect(zh[option.labelKey], `${definition.type}.${param.id}.${option.value}`).toBeTruthy();
+        }
+      }
+    }
+  });
+});
 
 describe("node definition registry", () => {
   it("registers a plugin node and finds it by type", () => {
