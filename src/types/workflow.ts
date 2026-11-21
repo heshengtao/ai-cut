@@ -59,6 +59,8 @@ export interface WorkflowGroup {
   latest: WorkflowVersion;
   /** 新版本在前。 */
   versions: WorkflowVersion[];
+  /** 最新版本的标签（`workflow` / `subworkflow` / `api` …），库按它筛选。 */
+  tags: string[];
   origin?: string | null;
   historyKey?: string | null;
 }

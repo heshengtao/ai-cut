@@ -5,11 +5,13 @@ import {
   boardRegistryRevision,
   nodeDefinition,
   nodesByCategory,
+  portsOf,
   registerNodeDefinition,
 } from "../registry";
+import { callPorts } from "../workflowNodes";
 import type { BoardNodeDefinition } from "@/types/board";
 import zh from "@/i18n/zh";
-import zh from "@/i18n/zh";
+import en from "@/i18n/en";
 
 const demo: BoardNodeDefinition = {
   type: "ext.demo.node",
@@ -23,22 +25,50 @@ const demo: BoardNodeDefinition = {
 };
 
 describe("node registry i18n", () => {
-  it("内置节点的标题 / 端口 / 参数文案都有中文（新增节点别漏翻译）", () => {
+  it("内置节点的标题 / 端口 / 参数文案中英文都有（新增节点别漏翻译）", () => {
     for (const definition of BOARD_NODES) {
-      expect(zh[definition.titleKey], definition.type).toBeTruthy();
-      if (definition.menuTitleKey) {
-        expect(zh[definition.menuTitleKey], definition.type).toBeTruthy();
-      }
-      for (const port of [...definition.inputs, ...definition.outputs]) {
-        expect(zh[port.labelKey], `${definition.type}.${port.id}`).toBeTruthy();
-      }
-      for (const param of definition.params) {
-        expect(zh[param.labelKey], `${definition.type}.${param.id}`).toBeTruthy();
-        for (const option of param.options ?? []) {
-          expect(zh[option.labelKey], `${definition.type}.${param.id}.${option.value}`).toBeTruthy();
+      for (const dict of [zh, en] as const) {
+        expect(dict[definition.titleKey], `${definition.type}.titleKey`).toBeTruthy();
+        if (definition.menuTitleKey) {
+          expect(dict[definition.menuTitleKey], `${definition.type}.menuTitleKey`).toBeTruthy();
+        }
+        for (const port of [...definition.inputs, ...definition.outputs]) {
+          expect(dict[port.labelKey], `${definition.type}.${port.id}`).toBeTruthy();
+        }
+        for (const param of definition.params) {
+          expect(dict[param.labelKey], `${definition.type}.${param.id}`).toBeTruthy();
+          for (const option of param.options ?? []) {
+            expect(
+              dict[option.labelKey],
+              `${definition.type}.${param.id}.${option.value}`,
+            ).toBeTruthy();
+          }
         }
       }
     }
+  });
+});
+
+describe("group 分类也会发布输出", () => {
+  it("工作流嵌入节点属于 group 分类，但端口快照会发布输出（不能按分类过滤输出）", () => {
+    const definition = nodeDefinition("workflow.call");
+    expect(definition?.category).toBe("group");
+    const node = {
+      id: "call",
+      type: "workflow.call",
+      position: { x: 0, y: 0 },
+      data: {
+        params: {},
+        bindings: {},
+        ports: callPorts({
+          inputs: [{ id: "in-1", name: "prompt", label: "Prompt", type: "text" }],
+          outputs: [{ id: "out-1", name: "result", label: "Result", type: "text" }],
+        }),
+      },
+    };
+    expect(portsOf(node).outputs.map((port) => [port.id, port.type])).toEqual([
+      ["out-out-1", "text"],
+    ]);
   });
 });
 

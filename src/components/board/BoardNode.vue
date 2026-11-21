@@ -40,6 +40,8 @@ import {
   stackPatch,
 } from "@/core/board/stacks";
 import { nodeIcon } from "./nodeIcons";
+import { signatureOf } from "@/core/board/workflowNodes";
+import { useBoardLabels } from "@/composables/useBoardLabels";
 import BoardMediaPicker from "./BoardMediaPicker.vue";
 import BoardSizeControl from "./BoardSizeControl.vue";
 import BoardVideoPlayer from "./BoardVideoPlayer.vue";
@@ -101,6 +103,7 @@ const props = defineProps<{
 
 const i18n = useI18n();
 const board = useBoardStore();
+const { typeLabel } = useBoardLabels();
 const { updateNode, getViewport } = useVueFlow();
 const project = useProjectStore();
 const run = useBoardRun();
@@ -1067,6 +1070,69 @@ const allParams = computed(() =>
 );
 /** 卡片上只渲染常用参数；流式 / 思考强度 / topP 等只在检查器里出现。 */
 const modelParams = computed(() => allParams.value.filter((spec) => !spec.inspectorOnly));
+
+// ---- 工作流节点卡片（签名只读预览，增删在画布检查器） ----
+const isWorkflowNode = computed(() => {
+  const type = node.value?.type ?? "";
+  return type === "workflow.start" || type === "workflow.end" || type === "workflow.call";
+});
+const isWorkflowCall = computed(() => node.value?.type === "workflow.call");
+const callTargetName = computed(() => String(node.value?.data.params.workflowName ?? ""));
+const workflowSignature = computed(() =>
+  node.value ? signatureOf(node.value) : { inputs: [], outputs: [] },
+);
+const workflowRows = computed(() => {
+  const current = node.value;
+  if (!current) return [];
+  const decls =
+    current.type === "workflow.start"
+      ? workflowSignature.value.inputs
+      : workflowSignature.value.outputs;
+  return decls.map((decl) => {
+    const bound =
+      current.type === "workflow.end"
+        ? board.edges.some((edge) => edge.target === current.id && edge.targetPort === decl.id)
+        : true;
+    return {
+      id: decl.id,
+      label: (decl.label || decl.name || decl.id).trim(),
+      type: decl.type,
+      bound,
+    };
+  });
+});
+/** 嵌入节点跑完之后，把拿到的签名输出列在卡片上（结果不放卡片主体以外）。 */
+const callOutputs = computed(() => {
+  const current = node.value;
+  if (!current || current.type !== "workflow.call") return [];
+  const decls = current.data.signature?.outputs ?? [];
+  const values = current.data.values ?? {};
+  return decls
+    .filter((decl) => values[`out-${decl.id}`] !== undefined && values[`out-${decl.id}`] !== null)
+    .map((decl) => ({
+      id: decl.id,
+      label: (decl.label || decl.name || decl.id).trim(),
+      type: decl.type,
+    }));
+});
+
+const workflowSubtitle = computed(() => {
+  const count = workflowRows.value.length;
+  if (isWorkflowCall.value) return i18n.t("board.node.workflowCall");
+  return count > 0
+    ? i18n.t("board.canvas.signatureSummary", {
+        inputs: workflowSignature.value.inputs.length,
+        outputs: workflowSignature.value.outputs.length,
+      })
+    : i18n.t("board.canvas.signatureNone");
+});
+const workflowFoot = computed(() =>
+  node.value?.type === "workflow.start"
+    ? i18n.t("board.inspect.workflowInputs")
+    : node.value?.type === "workflow.end"
+      ? i18n.t("board.inspect.workflowOutputs")
+      : i18n.t("board.inspect.workflowTarget"),
+);
 const needsCloud = computed(() => allParams.value.some((spec) => Boolean(spec.model?.capability)));
 const needsCloudTts = computed(() => allParams.value.some((spec) => spec.model?.cloud === "tts"));
 const needsCloudAsr = computed(() => allParams.value.some((spec) => spec.model?.cloud === "asr"));
@@ -1365,7 +1431,7 @@ function outputLabel(asset: MediaAsset): string {
   const outputs = node.value?.data.outputs ?? {};
   const portId = Object.keys(outputs).find((key) => outputs[key] === asset.id);
   const port = ports.value.outputs.find((item) => item.id === portId);
-  return port ? i18n.t(port.labelKey) : asset.name;
+  return port ? port.label?.trim() || i18n.t(port.labelKey) : asset.name;
 }
 
 /** 点一下当前图：切到牌堆里的下一张（和图片显示节点一致）。 */
@@ -1762,6 +1828,39 @@ function cycleOutput(): void {
       </div>
 
       <!-- ============ 模型节点：表格卡（ai-board mn-card） ============ -->
+      <!-- 工作流开始 / 结束 / 嵌入：卡片只列签名与目标，增删改在画布检查器里 -->
+      <div v-else-if="isWorkflowNode" class="mn-card wf-card" :data-kind="kind" :data-status="status">
+        <header class="wf-head">
+          <span class="wf-icon"><component :is="nodeIcon(node?.type ?? '')" /></span>
+          <div class="wf-heading">
+            <strong class="wf-title">{{ title }}</strong>
+            <span class="wf-subtitle">{{ workflowSubtitle }}</span>
+          </div>
+        </header>
+        <div v-if="isWorkflowCall" class="wf-target">
+          <span>{{ callTargetName || i18n.t("board.workflow.noTarget") }}</span>
+        </div>
+        <ul v-if="isWorkflowCall && callOutputs.length" class="wf-rows">
+          <li v-for="row in callOutputs" :key="row.id" class="wf-row" data-bound="true">
+            <span class="wf-row-key">{{ row.label }}</span>
+            <span class="wf-row-type">{{ typeLabel(row.type) }}</span>
+            <span class="wf-row-state">{{ i18n.t("board.inspect.published") }}</span>
+          </li>
+        </ul>
+        <ul v-else class="wf-rows">
+          <li v-for="row in workflowRows" :key="row.id" class="wf-row" :data-bound="row.bound ? 'true' : 'false'">
+            <span class="wf-row-key">{{ row.label }}</span>
+            <span class="wf-row-type">{{ typeLabel(row.type) }}</span>
+            <span class="wf-row-state">
+              {{ row.bound ? i18n.t("board.inspect.published") : i18n.t("board.inspect.outputReady") }}
+            </span>
+          </li>
+        </ul>
+        <footer class="wf-foot">
+          <span>{{ workflowFoot }}</span>
+        </footer>
+      </div>
+
       <div v-else class="mn-card" :data-kind="kind" :data-status="status">
         <header class="mn-head">
           <span class="mn-icon" aria-hidden="true">
@@ -3855,4 +3954,127 @@ function cycleOutput(): void {
 .board-node[data-selected="true"] .node-resize {
   opacity: 1;
 }
+
+/* ---------------- 工作流节点卡片 ----------------
+   卡面样式直接复用 `.mn-card`（渐变底 / 描边 / 圆角 / 阴影），这里只补布局。
+   新增颜色一律用 main.css 里真实存在的 MD3 token，别再发明 `--surface-*`。 */
+.wf-card {
+  gap: 8px;
+}
+
+.wf-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.wf-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: rgb(var(--md-primary-container) / 0.62);
+  color: rgb(var(--md-on-primary-container));
+}
+
+.wf-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.wf-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.wf-title {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-subtitle {
+  font-size: 10px;
+  line-height: 14px;
+  color: rgb(var(--md-on-surface-muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-target {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 9px;
+  background: rgb(var(--md-surface-container-high) / 0.66);
+  font-size: 12px;
+  color: rgb(var(--md-on-surface-variant));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+}
+
+.wf-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: rgb(var(--md-surface-container-high) / 0.55);
+}
+
+.wf-row-key {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-row-type {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgb(var(--md-surface-container-highest) / 0.8);
+  font-size: 10px;
+  color: rgb(var(--md-on-surface-muted));
+}
+
+.wf-row-state {
+  flex: none;
+  font-size: 10px;
+  color: rgb(var(--md-on-surface-muted));
+}
+
+.wf-row[data-bound="true"] .wf-row-state {
+  color: rgb(var(--md-tertiary));
+}
+
+.wf-foot {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: rgb(var(--md-on-surface-muted));
+}
+
 </style>

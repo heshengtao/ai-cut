@@ -14,10 +14,20 @@ import StageView from "@/components/workspace/StageView.vue";
 import TimelinePane from "@/components/workspace/TimelinePane.vue";
 import SettingsView from "@/components/settings/SettingsView.vue";
 import WorkflowSaveDialog from "@/components/board/WorkflowSaveDialog.vue";
+import ClearCanvasDialog from "@/components/board/ClearCanvasDialog.vue";
+import CanvasPublishDialog from "@/components/board/CanvasPublishDialog.vue";
 import { useLayoutStore } from "@/stores/layout";
+import { useViewStore } from "@/stores/view";
 import { isLinux, isTauri, isWindows } from "@/utils/platform";
 
 const layout = useLayoutStore();
+const view = useViewStore();
+
+/**
+ * 时间线只属于预览界面：画布 / 剧集与时间线无关，进入时隐藏。
+ * 只读取 view，不改 layout.showTimeline，切回预览时原来的显示 / 隐藏状态不变。
+ */
+const timelineVisible = computed(() => view.view === "preview" && layout.showTimeline);
 
 /** 竖屏时间线：面板打开时用持久化高度；只显示时间线时铺满右栏。 */
 const portraitTimelineStyle = computed(() => {
@@ -56,11 +66,11 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
             <RightPanel :style="{ flex: '1 1 auto', width: '100%', height: 'auto', minHeight: 0 }" />
           </div>
 
-          <template v-if="layout.showPanel && layout.showTimeline">
+          <template v-if="layout.showPanel && timelineVisible">
             <PanelResizer side="bottom" @resize="layout.resizeTimeline" />
           </template>
 
-          <TimelinePane v-if="layout.showTimeline" :style="portraitTimelineStyle" />
+          <TimelinePane v-if="timelineVisible" :style="portraitTimelineStyle" />
         </div>
       </div>
 
@@ -68,7 +78,7 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
         <!-- 中：预览（上）+ 时间线（下） -->
         <main class="app-main">
           <StageView />
-          <template v-if="layout.showTimeline">
+          <template v-if="timelineVisible">
             <PanelResizer side="bottom" @resize="layout.resizeTimeline" />
             <TimelinePane :style="{ height: `${layout.timelineHeight}px` }" />
           </template>
@@ -84,6 +94,10 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
 
     <!-- 保存工作流：全局单例，画布工具栏 / 工作流库 / 文件菜单共用 -->
     <WorkflowSaveDialog />
+    <!-- 清空未保存的画布：三选一（保存并清空 / 直接清空 / 取消） -->
+    <ClearCanvasDialog />
+    <!-- 发布工作流：画布列表行上的「发布」按钮打开 -->
+    <CanvasPublishDialog />
   </div>
 </template>
 

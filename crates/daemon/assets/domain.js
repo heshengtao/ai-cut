@@ -34,6 +34,62 @@ var AICUT = (() => {
     view: () => view
   });
 
+  // src/types/board.ts
+  var BOARD_VERSION = 1;
+  var DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 };
+
+  // src/core/board/dataTypes.ts
+  var COLORS = {
+    text: "#8b93f8",
+    image: "#c084fc",
+    video: "#fb7185",
+    audio: "#f59e0b",
+    integer: "#60a5fa",
+    number: "#38bdf8",
+    boolean: "#34d399",
+    json: "#a3e635",
+    any: "#94a3b8"
+  };
+  function spec(id, label, channels, extra = {}) {
+    return { id, label, channels, ...extra };
+  }
+  var CORE_DATA_TYPES = [
+    spec("text", "Text", ["inline", "blob"], {
+      mime: "text/*",
+      inline: "text",
+      color: COLORS.text
+    }),
+    spec("image", "Image", ["blob", "stream"], { mime: "image/*", color: COLORS.image }),
+    spec("video", "Video", ["blob", "stream"], { mime: "video/*", color: COLORS.video }),
+    spec("audio", "Audio", ["blob", "stream"], { mime: "audio/*", color: COLORS.audio }),
+    // 整数与浮点分开：编辑器精度、运行时解析都不同；连线上互相兼容，避免用错类型接不上。
+    spec("integer", "Integer", ["inline"], {
+      inline: "number",
+      color: COLORS.integer,
+      accepts: ["number"]
+    }),
+    spec("number", "Float", ["inline"], {
+      inline: "number",
+      color: COLORS.number,
+      accepts: ["integer"]
+    }),
+    spec("boolean", "Boolean", ["inline"], { inline: "boolean", color: COLORS.boolean }),
+    spec("json", "JSON", ["inline", "blob"], {
+      mime: "application/json",
+      inline: "json",
+      color: COLORS.json
+    }),
+    spec("any", "Any", ["inline", "blob", "stream"], { color: COLORS.any })
+  ];
+  var REGISTRY = /* @__PURE__ */ new Map();
+  for (const item of CORE_DATA_TYPES) {
+    REGISTRY.set(item.id, { spec: item, owner: "core" });
+  }
+  var ID_PATTERN = /^[a-z][a-z0-9_.-]{0,47}$/i;
+  function isDataTypeId(value) {
+    return typeof value === "string" && ID_PATTERN.test(value);
+  }
+
   // src/i18n/en.ts
   var en = {
     // ---- Common ----
@@ -106,6 +162,8 @@ var AICUT = (() => {
     "topbar.menu.import": "Import media\u2026",
     "topbar.menu.history": "Project history",
     "topbar.menu.workflowGroup": "Workflow",
+    "topbar.menu.workflowSave": "Save workflow to library",
+    "topbar.menu.workflowLibrary": "Open the workflow library",
     "topbar.menu.workflowExport": "Export workflow\u2026",
     "topbar.menu.workflowImport": "Import workflow\u2026",
     "topbar.menu.saveGroup": "Save & export",
@@ -197,6 +255,39 @@ var AICUT = (() => {
     "panel.modelsHint": "Model and plugin downloads",
     "panel.plugins": "OFX plugins",
     "panel.pluginsHint": "Open installed OpenFX plugins",
+    "panel.extensions": "App extensions",
+    "panel.extensionsHint": "Third-party app extensions that add canvas nodes, commands and copy",
+    "extensions.title": "App extensions",
+    "extensions.subtitle": "Third-party app extensions that add canvas nodes, commands and copy",
+    "extensions.empty": "No app extensions imported yet",
+    "extensions.loading": "Loading app extensions\u2026",
+    "extensions.install": "Import folder",
+    "extensions.enable": "Enable",
+    "extensions.reload": "Reload",
+    "extensions.disable": "Disable",
+    "extensions.incompatible": "Incompatible",
+    "extensions.confirmRemove": "Remove app extension {name}? (the source folder on disk is kept)",
+    "extensions.tabInstalled": "Installed",
+    "extensions.tabDiscover": "Discover",
+    "extensions.search": "Search app extensions",
+    "extensions.refresh": "Refresh",
+    "extensions.installFromMarket": "Install",
+    "extensions.updateTo": "Update to {version}",
+    "extensions.marketEmpty": "This index has no app extensions yet",
+    "extensions.subInstalled": "{count} app extensions",
+    "extensions.subDiscover": "{count} available",
+    "extensions.marketSource": "Index URL",
+    "extensions.marketOnline": "Index: online",
+    "extensions.marketCached": "Index: cached",
+    "extensions.marketStale": "Index: offline cache",
+    "extensions.marketUnknown": "Index: not loaded",
+    "extensions.marketSourceSettings": "Index settings",
+    "extensions.marketUpdate": "Update available",
+    "extensions.marketInstalled": "Installed",
+    "extensions.enabled": "Enabled",
+    "extensions.disabled": "Disabled",
+    "extensions.kindStore": "Managed",
+    "extensions.kindLinked": "Local folder",
     "panel.pluginEditor": "Parameters",
     "panel.pluginEditorHint": "Edit the selected OFX effect parameters",
     "panel.emptyTitle": "No panels open",
@@ -425,8 +516,10 @@ var AICUT = (() => {
     "audio.lang.fr": "French",
     "audio.lang.de": "German",
     "audio.dub": "Also generate dub",
-    "audio.translateVoiceNote": "Dub uses an installed local TTS model",
-    "audio.dubNoModel": "No TTS model installed; subtitles only",
+    "audio.dubModel": "Dub model",
+    "audio.translateVoiceNote": "Dubbing uses the selected TTS model (local or cloud)",
+    "audio.dubNoModel": "No dubbing model available \u2014 choose or configure one first",
+    "audio.dubLocalNote": "Local dub \xB7 {name}",
     "audio.dubTrack": "Dub",
     "audio.translatedSubtitleTrack": "Translated subtitles",
     "audio.translateDone": "Created {count} translated subtitles",
@@ -1180,6 +1273,7 @@ var AICUT = (() => {
     "ai.agent": "Clip agent",
     "ai.agentHint": "Chat-driven editing on the timeline",
     "ai.run": "Open",
+    "ai.pluginPageHint": "Page provided by a plugin",
     "ai.mcpServer": "MCP server",
     "ai.mcpOn": "Enabled \u2014 harnesses can connect",
     "ai.mcpOff": "Disabled",
@@ -1486,6 +1580,7 @@ var AICUT = (() => {
     "ai.voiceoverDownloadingModel": "Downloading voice model from {source}",
     "ai.voiceoverSelected": "{count} text clips selected",
     "ai.voiceoverNoText": "Select one or more text clips first",
+    "ai.voiceoverNoModel": "Pick a voice model or configure a cloud TTS service first",
     "ai.voiceoverTrack": "Voiceover",
     "ai.voiceoverDone": "Generated {count} voiceover clips",
     "ai.voiceoverFailed": "Voiceover failed: {error}",
@@ -2126,6 +2221,15 @@ var AICUT = (() => {
     "settings.store.saving": "Saving\u2026",
     "settings.store.saved": "Download source settings saved",
     "settings.store.saveFailed": "Save failed: {error}",
+    "settings.market.group": "App extension index source",
+    "settings.market.url": "Index URL",
+    "settings.market.urlHint": "Static JSON index for the app extension store. HTTPS only (localhost http is allowed).",
+    "settings.market.urlPlaceholder": "https://heshengtao.github.io/ai-cut-plugin/index.json",
+    "settings.market.saveHint": "Saving an empty URL restores the default source. The app fetches and validates the index; the UI only gets one page.",
+    "settings.market.reset": "Restore default",
+    "settings.market.save": "Save",
+    "settings.market.saving": "Saving\u2026",
+    "settings.market.saved": "Saved",
     "settings.plugins.group": "OFX plugin registry",
     "settings.plugins.url": "Registry URL",
     "settings.plugins.urlHint": "Leave empty to use the official GitHub raw registry.",
@@ -2247,6 +2351,8 @@ var AICUT = (() => {
     "cutReview.noCloudService": "The selected recognition service is disabled \u2014 enable it in Settings \u2192 Speech recognition.",
     "ai.cutCloudNeedsAligner": "No word timings from this service; the local aligner fills them in",
     "setup.title.voice": "Set up \u201CAI voice change\u201D",
+    "setup.title.voiceover": "Prepare AI voiceover",
+    "setup.title.dub": "Prepare dubbing for audio translation",
     "setup.title.runtime": "Set up the local AI runtime",
     "setup.lead": "This machine works best with {backend} ({reason}). These need to be downloaded first:",
     "setup.leadModel": "These model weights are still missing:",
@@ -2451,6 +2557,7 @@ var AICUT = (() => {
     "board.pan": "Pan mode",
     "board.zoomOut": "Zoom out",
     "board.zoom": "{value}%",
+    "board.zoomGroup": "Zoom",
     // ---- Board nodes ----
     "board.undo": "Undo",
     "board.redo": "Redo",
@@ -2460,14 +2567,53 @@ var AICUT = (() => {
     "board.category.input": "Input",
     "board.category.display": "Display",
     "board.category.model": "Model",
+    "board.category.group": "Logic",
+    "board.type.text": "Text",
+    "board.type.image": "Image",
+    "board.type.video": "Video",
+    "board.type.audio": "Audio",
+    "board.type.integer": "Integer",
+    "board.type.number": "Float",
+    "board.type.boolean": "Boolean",
+    "board.type.json": "JSON",
+    "board.type.any": "Any",
+    "board.value.empty": "No value",
+    "board.value.legacyText": "Text (legacy)",
+    "board.value.true": "True",
+    "board.value.false": "False",
     "board.node.inputImage": "Image input",
     "board.node.inputVideo": "Video input",
     "board.node.inputAudio": "Audio input",
     "board.node.inputText": "Text input",
+    "board.node.inputValue": "Value input",
+    "board.node.displayText": "Text display",
+    "board.node.displayValue": "Value display",
+    "board.node.loop": "Loop",
+    "board.node.loopStart": "Loop start",
+    "board.param.loopInputs": "Inputs",
+    "board.loop.inputs": "Inputs",
+    "board.loop.inputN": "Input {n}",
+    "board.loop.addInput": "Add input",
+    "board.loop.removeInput": "Remove input",
+    "board.port.number": "Number",
+    "board.port.integer": "Integer",
+    "board.port.boolean": "Boolean",
+    "board.port.json": "JSON",
+    "board.port.any": "Any",
+    "board.node.loopEnd": "Loop end",
+    "board.param.loopMode": "Loop mode",
+    "board.param.loopCount": "Iterations",
+    "board.param.loopSlots": "Output slots",
+    "board.loopMode.array": "Over array",
+    "board.loopMode.count": "Fixed count",
+    "board.port.items": "Items",
+    "board.port.item": "Current item",
+    "board.port.index": "Index",
+    "board.port.slot": "Value",
+    "board.port.list": "List",
     "board.node.displayImage": "Image display",
     "board.node.displayVideo": "Video display",
     "board.node.displayAudio": "Audio display",
-    "board.node.displayText": "Text display",
     "board.node.noAsset": "No media yet",
     "board.node.noText": "Empty text",
     "board.node.modelHint": "Model node",
@@ -2475,6 +2621,7 @@ var AICUT = (() => {
     "board.port.video": "Video",
     "board.port.audio": "Audio",
     "board.port.text": "Text",
+    "board.port.value": "Value",
     "board.port.prompt": "Prompt input",
     "board.port.negative": "Negative prompt input",
     "board.port.stemVocals": "Vocals",
@@ -2485,6 +2632,8 @@ var AICUT = (() => {
     "board.port.stemPiano": "Piano",
     "board.port.stemAccompaniment": "Accompaniment",
     "board.param.textMode": "Display",
+    "board.param.valueKind": "Value type",
+    "board.param.value": "Value",
     "board.textMode.markdown": "Markdown",
     "board.textMode.plain": "Plain text",
     "board.inspect.localGroup": "Local engines",
@@ -2492,13 +2641,20 @@ var AICUT = (() => {
     "board.status.skipped": "Skipped",
     "board.node.group": "Group",
     "board.group.count": "{count} nodes",
-    "board.group.empty": "Add nodes to this group: select them and press \u2318G, or right-click \u201CCreate group\u201D",
+    "board.group.empty": "Drag nodes into this frame, or select nodes and press \u2318G.",
+    "board.group.tone": "Frame tone",
+    "board.group.tone.lavender": "Lavender",
+    "board.group.tone.blue": "Blue",
+    "board.group.tone.green": "Green",
+    "board.group.tone.coral": "Coral",
+    "board.group.tone.amber": "Amber",
     "board.group.needSelection": "Select at least two nodes to create a group",
     "board.run.runHint": "Run the whole workflow in dependency order",
     "board.run.alwaysHint": "When an upstream output updates, run the nodes after it",
     "board.ctx.bypass": "Bypass node",
     "board.ctx.bypassOff": "Remove bypass",
     "board.ctx.groupCreate": "Create group",
+    "board.ctx.groupCreateHint": "Box the selected nodes into a group (\u2318G)",
     "board.ctx.groupSelect": "Select group members",
     "board.ctx.ungroup": "Ungroup",
     // ---- Workflow library / group nodes / parallel scheduling ----
@@ -2540,16 +2696,17 @@ var AICUT = (() => {
     "board.library.emptyCanvas": "The canvas is empty \u2014 add nodes before saving",
     "board.library.openLibrary": "Open the workflow library",
     "board.library.builtin.textToImage": "Text to image",
-    "board.library.builtin.textToImageHint": "Text \u2192 image generation \u2192 image display",
+    "board.library.builtin.textToImageHint": "Text \u2192 image generation \u2192 image display (pick a model in the inspector)",
     "board.library.builtin.imageEdit": "Reference image edit",
-    "board.library.builtin.imageEditHint": "Reference image + prompt \u2192 image generation \u2192 image display",
+    "board.library.builtin.imageEditHint": "Reference image + prompt \u2192 image generation \u2192 image display (pick a model in the inspector)",
     "board.library.builtin.imageToVideo": "Image to video",
-    "board.library.builtin.imageToVideoHint": "First frame + prompt \u2192 video generation \u2192 video display",
+    "board.library.builtin.imageToVideoHint": "First frame + prompt \u2192 video generation \u2192 video display (pick a model in the inspector)",
     "board.library.builtin.textRevise": "Text rewrite",
-    "board.library.builtin.textReviseHint": "Text \u2192 text generation \u2192 text display",
-    "board.ctx.copy": "Copy nodes",
-    "board.ctx.cut": "Cut nodes",
-    "board.ctx.paste": "Paste nodes",
+    "board.library.builtin.textReviseHint": "Text \u2192 text generation \u2192 text display (pick a text model)",
+    "board.ctx.copy": "Copy",
+    "board.ctx.selectionHint": "{count} nodes selected \u2014 actions apply to all",
+    "board.ctx.cut": "Cut",
+    "board.ctx.paste": "Paste",
     "board.ctx.copied": "Copied {count} nodes",
     "board.ctx.pasted": "Pasted {count} nodes",
     "board.ctx.groupRun": "Run the whole group",
@@ -2576,8 +2733,8 @@ var AICUT = (() => {
     "board.status.thinking": "Thinking\u2026",
     "board.status.processing": "Processing",
     "board.status.generating": "Generating",
-    "panel.boardInspector": "Node inspector",
-    "panel.boardInspectorHint": "Parameters, media and run state of a canvas node",
+    "panel.boardInspector": "Canvas inspector",
+    "panel.boardInspectorHint": "Canvas list, node parameters, workflow signature and publishing",
     "panel.workflowLibrary": "Workflow library",
     "panel.workflowLibraryHint": "Default workflows and saved canvases, with versions",
     "board.inspect.node": "Node",
@@ -2615,8 +2772,12 @@ var AICUT = (() => {
     "board.param.negative": "Negative prompt",
     "board.param.negativeVideoHint": "Some cloud video services accept a negative prompt; local models use their built-in negative terms.",
     "board.param.negativeOptionalHint": "You can also connect a text node to Negative prompt input in the inspector; the link wins over this field.",
-    "board.param.width": "Width",
-    "board.param.height": "Height",
+    "board.param.size": "Resolution",
+    "board.param.sizeHint": "Output size / aspect ratio of the generated media \u2014 unrelated to the node card size (drag its bottom-right corner for that).",
+    "board.param.sizeCustom": "Custom\u2026",
+    "board.param.sizeAuto": "Set by the model / input media (no size parameter)",
+    "board.param.width": "Output width",
+    "board.param.height": "Output height",
     "board.param.steps": "Steps",
     "board.param.seed": "Seed",
     "board.param.seconds": "Seconds",
@@ -2687,10 +2848,11 @@ var AICUT = (() => {
     "board.inspect.chars": "{count} chars",
     "board.ctx.ignore": "Disable node",
     "board.ctx.enable": "Enable node",
-    "board.ctx.duplicate": "Duplicate node",
+    "board.ctx.duplicate": "Duplicate",
     "board.dropHint": "Drop to import and create an input node",
     "board.inspect.download": "Download",
-    "board.ctx.download": "Download",
+    "board.ctx.download": "Download media",
+    "board.ctx.downloadHint": "Save the node\u2019s selected media / published output as a file",
     "board.download.done": "Saved {name}",
     "board.ctx.run": "Run node",
     "board.ctx.rebuild": "Rebuild node",
@@ -2702,7 +2864,7 @@ var AICUT = (() => {
     "board.ctx.clear": "Clear canvas",
     "board.clear": "Clear",
     "board.clearTitle": "Clear canvas",
-    "board.clearMessage": "The current workflow is saved to the library first; media and timeline are untouched.",
+    "board.clearMessage": "Only this canvas is cleared \u2014 no new workflow version is saved. The media library and timeline are untouched.",
     "board.addSearch": "Search nodes\u2026",
     "board.addNoResults": "No matching node",
     "board.run.repeatTimes": "Repeat count",
@@ -2742,6 +2904,9 @@ var AICUT = (() => {
     "board.node.copyText": "Copy text",
     "board.node.clearText": "Clear text",
     "board.node.textCopied": "Text copied",
+    "board.node.missingPlugin": "Node definition missing",
+    "board.node.missingPluginHint": "The plugin did not load (disabled / incompatible / installing). The node and its edges are kept and will show up once the plugin is back.",
+    "board.node.copyOutputText": "Copy all text",
     "board.node.play": "Play",
     "board.node.pause": "Pause",
     "board.node.mute": "Mute",
@@ -2792,9 +2957,6 @@ var AICUT = (() => {
     "board.inspect.notRun": "Not run",
     "board.inspect.title": "Title",
     "board.inspect.titlePlaceholder": "Node title",
-    "board.inspect.size": "Size",
-    "board.inspect.width": "Width",
-    "board.inspect.height": "Height",
     "board.inspect.mediaSection": "Media",
     "board.inspect.mediaHint": "Pick a local file or add straight from the library; images can stack.",
     "board.inspect.aspectHint": "Image nodes resize their height to the asset ratio.",
@@ -2814,7 +2976,100 @@ var AICUT = (() => {
     "board.run.modeShort.manual": "Manual",
     "board.run.modeShort.always": "Auto",
     "board.run.modeShort.repeat": "Repeat",
-    "board.resize.hint": "Drag the bottom-right corner to resize"
+    "board.resize.hint": "Drag the bottom-right corner to resize",
+    // ---- Canvas inspector / multiple canvases / workflow signature ----
+    "board.canvas.title": "Canvas",
+    "board.canvas.list": "Canvases",
+    "board.canvas.count": "{count}",
+    "board.canvas.current": "Current",
+    "board.canvas.defaultTitle": "Canvas {n}",
+    "board.canvas.copySuffix": "copy",
+    "board.canvas.new": "New canvas",
+    "board.canvas.duplicate": "Duplicate canvas",
+    "board.canvas.rename": "Rename canvas",
+    "board.canvas.delete": "Delete canvas",
+    "board.canvas.deleteTitle": "Delete canvas",
+    "board.canvas.deleteMessage": "Delete \u201C{name}\u201D? Its nodes and edges go with it; versions already saved to the workflow library are untouched.",
+    "board.canvas.switch": "Switch",
+    "board.canvas.emptyTitle": "No node selected",
+    "board.canvas.emptyHint": "Click empty canvas space to come back here. This list manages every canvas in the project.",
+    "board.canvas.selectHint": "Select a node to edit its parameters; click empty space to return to the canvas list.",
+    "board.canvas.nodeCount": "{count} nodes",
+    "board.canvas.publish": "Publish workflow",
+    "board.canvas.publishHint": "A canvas with a paired workflow start/end and a valid graph can be saved as a callable sub-workflow or API.",
+    "board.canvas.publishReady": "Ready to publish",
+    "board.canvas.publishBlocked": "Not publishable yet",
+    "board.canvas.api": "Callable API",
+    "board.canvas.apiHint": "Expose it to AI Harness / MCP callers (filter \u201CAPI\u201D in the workflow library).",
+    "board.canvas.subworkflow": "Embeddable",
+    "board.canvas.subworkflowHint": "Let other canvases call it with the \u201CEmbed workflow\u201D node (filter \u201CSub-workflow\u201D in the library).",
+    "board.canvas.savePublish": "Save & publish",
+    "board.canvas.savedPublish": "Published: {name} v{version}",
+    "board.canvas.publishName": "Workflow name",
+    "board.canvas.signature": "Signature",
+    "board.canvas.signatureSummary": "{inputs} inputs \xB7 {outputs} outputs",
+    "board.canvas.signatureNone": "No inputs or outputs declared",
+    "board.canvas.problemCount": "{count} problems",
+    "board.canvas.problem.missingStart": "Missing workflow start node",
+    "board.canvas.problem.missingEnd": "Missing workflow end node",
+    "board.canvas.problem.multipleStart": "Only one workflow start node is allowed",
+    "board.canvas.problem.multipleEnd": "Only one workflow end node is allowed",
+    "board.canvas.problem.pairBroken": "The workflow start/end nodes are not paired",
+    "board.canvas.problem.inputNameEmpty": "An input has no name",
+    "board.canvas.problem.outputNameEmpty": "An output has no name",
+    "board.canvas.problem.duplicateInput": "Duplicate input name: {name}",
+    "board.canvas.problem.duplicateOutput": "Duplicate output name: {name}",
+    "board.canvas.problem.unknownType": "Unknown type: {name} \u2192 {type}",
+    "board.canvas.problem.unboundOutput": "Output \u201C{name}\u201D has no upstream",
+    "board.canvas.problem.cycle": "The canvas has a cycle and cannot run in order",
+    "board.inspect.workflowInputs": "Workflow inputs",
+    "board.inspect.workflowOutputs": "Workflow outputs",
+    "board.inspect.addSignatureInput": "Add input",
+    "board.inspect.addSignatureOutput": "Add output",
+    "board.inspect.signatureName": "Name",
+    "board.inspect.signatureLabel": "Label",
+    "board.inspect.signatureType": "Type",
+    "board.inspect.signatureDefault": "Default",
+    "board.inspect.signatureRequired": "Required",
+    "board.inspect.signatureRemove": "Remove this row",
+    "board.inspect.signatureEmpty": "Nothing declared yet. Use the button below to add a row.",
+    "board.inspect.workflowTarget": "Target workflow",
+    "board.inspect.workflowTargetEmpty": "Pick a sub-workflow to embed",
+    "board.inspect.workflowTargetHint": "The child\u2019s inputs and outputs come from its start/end nodes; rows map by signature port.",
+    "board.inspect.workflowMissing": "The target workflow no longer exists; ports and edges are kept and the run reports it.",
+    "board.inspect.workflowTargetPublished": "No published sub-workflow yet \u2014 publish a canvas from the canvas inspector or the workflow library first.",
+    "board.inspect.signatureTypeHint": "Types come from the data-type registry \u2014 plugin types show up here too.",
+    "board.node.workflow": "Sub-workflow",
+    "board.node.workflowStart": "Workflow start",
+    "board.node.workflowEnd": "Workflow end",
+    "board.node.workflowCall": "Embed workflow",
+    "board.node.workflowEmbed": "Embed workflow",
+    "board.param.workflow": "Target workflow",
+    "board.param.workflowName": "Workflow name",
+    "board.port.workflowInput": "Input",
+    "board.port.workflowOutput": "Output",
+    "board.workflow.defaultInput": "Prompt",
+    "board.workflow.defaultOutput": "Result",
+    "board.workflow.newInput": "Input {n}",
+    "board.workflow.newOutput": "Output {n}",
+    "board.workflow.noTarget": "No workflow selected to embed",
+    "board.workflow.missingInput": "Missing required input: {name}",
+    "board.workflow.notRunnable": "\u201C{name}\u201D is missing a paired workflow start/end",
+    "board.workflow.missing": "Workflow \u201C{name}\u201D was not found (it may have been deleted)",
+    "board.workflow.cycle": "Nested workflow cycle: {name}",
+    "board.workflow.tooDeep": "Nested workflows exceed 8 levels: {name}",
+    "board.loop.source": "Source",
+    "board.library.filterWorkflow": "Sub-workflows",
+    "board.library.filterApi": "API",
+    "board.library.badgeWorkflow": "Sub-workflow",
+    "board.library.badgeApi": "API",
+    "board.library.publishHint": "Save a signed workflow to the library so it can be embedded or called through the API / AI Harness.",
+    "board.clear.unsavedTitle": "Clear canvas",
+    "board.clear.unsavedMessage": "This canvas has not been saved as a workflow yet. Clearing now loses what you built.",
+    "board.clear.saveAndClear": "Save & clear",
+    "board.clear.clearWithoutSave": "Clear without saving",
+    "board.clear.cleared": "Canvas cleared",
+    "board.run.stopped": "Cancelled"
   };
   var en_default = en;
 
@@ -2890,6 +3145,8 @@ var AICUT = (() => {
     "topbar.menu.import": "\u5BFC\u5165\u7D20\u6750\u2026",
     "topbar.menu.history": "\u5386\u53F2\u5DE5\u7A0B",
     "topbar.menu.workflowGroup": "\u5DE5\u4F5C\u6D41",
+    "topbar.menu.workflowSave": "\u4FDD\u5B58\u5DE5\u4F5C\u6D41\u5230\u5E93",
+    "topbar.menu.workflowLibrary": "\u6253\u5F00\u5DE5\u4F5C\u6D41\u5E93",
     "topbar.menu.workflowExport": "\u5BFC\u51FA\u5DE5\u4F5C\u6D41\u2026",
     "topbar.menu.workflowImport": "\u5BFC\u5165\u5DE5\u4F5C\u6D41\u2026",
     "topbar.menu.saveGroup": "\u4FDD\u5B58\u4E0E\u5BFC\u51FA",
@@ -2981,6 +3238,39 @@ var AICUT = (() => {
     "panel.modelsHint": "\u6A21\u578B\u4E0E\u63D2\u4EF6\u4E0B\u8F7D",
     "panel.plugins": "OFX \u63D2\u4EF6",
     "panel.pluginsHint": "\u6253\u5F00\u5DF2\u5B89\u88C5\u7684 OpenFX \u63D2\u4EF6",
+    "panel.extensions": "\u5E94\u7528\u6269\u5C55",
+    "panel.extensionsHint": "\u80FD\u52A0\u753B\u5E03\u8282\u70B9\u3001\u547D\u4EE4\u4E0E\u6587\u6848\u7684\u7B2C\u4E09\u65B9\u5E94\u7528\u6269\u5C55",
+    "extensions.title": "\u5E94\u7528\u6269\u5C55",
+    "extensions.subtitle": "\u80FD\u52A0\u753B\u5E03\u8282\u70B9\u3001\u547D\u4EE4\u4E0E\u6587\u6848\u7684\u7B2C\u4E09\u65B9\u5E94\u7528\u6269\u5C55",
+    "extensions.empty": "\u8FD8\u6CA1\u6709\u5BFC\u5165\u4EFB\u4F55\u5E94\u7528\u6269\u5C55",
+    "extensions.loading": "\u6B63\u5728\u8BFB\u53D6\u5E94\u7528\u6269\u5C55\u2026",
+    "extensions.install": "\u5BFC\u5165\u672C\u5730\u76EE\u5F55",
+    "extensions.enable": "\u542F\u7528",
+    "extensions.reload": "\u91CD\u65B0\u52A0\u8F7D",
+    "extensions.disable": "\u7981\u7528",
+    "extensions.incompatible": "\u7248\u672C\u4E0D\u517C\u5BB9",
+    "extensions.confirmRemove": "\u79FB\u9664\u5E94\u7528\u6269\u5C55 {name}\uFF1F\uFF08\u4E0D\u4F1A\u5220\u9664\u78C1\u76D8\u4E0A\u7684\u6E90\u76EE\u5F55\uFF09",
+    "extensions.tabInstalled": "\u5DF2\u5B89\u88C5",
+    "extensions.tabDiscover": "\u53D1\u73B0",
+    "extensions.search": "\u641C\u7D22\u5E94\u7528\u6269\u5C55",
+    "extensions.refresh": "\u5237\u65B0",
+    "extensions.installFromMarket": "\u5B89\u88C5",
+    "extensions.updateTo": "\u66F4\u65B0\u5230 {version}",
+    "extensions.marketEmpty": "\u8FD9\u4E2A\u7D22\u5F15\u91CC\u8FD8\u6CA1\u6709\u5E94\u7528\u6269\u5C55",
+    "extensions.subInstalled": "{count} \u4E2A\u5E94\u7528\u6269\u5C55",
+    "extensions.subDiscover": "{count} \u4E2A\u53EF\u5B89\u88C5",
+    "extensions.marketSource": "\u7D22\u5F15\u6E90",
+    "extensions.marketOnline": "\u7D22\u5F15\uFF1A\u5728\u7EBF",
+    "extensions.marketCached": "\u7D22\u5F15\uFF1A\u7F13\u5B58",
+    "extensions.marketStale": "\u7D22\u5F15\uFF1A\u79BB\u7EBF\u7F13\u5B58",
+    "extensions.marketUnknown": "\u7D22\u5F15\uFF1A\u672A\u52A0\u8F7D",
+    "extensions.marketSourceSettings": "\u7D22\u5F15\u6E90\u8BBE\u7F6E",
+    "extensions.marketUpdate": "\u6709\u65B0\u7248\u672C",
+    "extensions.marketInstalled": "\u5DF2\u5B89\u88C5",
+    "extensions.enabled": "\u5DF2\u542F\u7528",
+    "extensions.disabled": "\u5DF2\u7981\u7528",
+    "extensions.kindStore": "\u6258\u7BA1\u5B89\u88C5",
+    "extensions.kindLinked": "\u672C\u5730\u76EE\u5F55",
     "panel.pluginEditor": "\u53C2\u6570\u754C\u9762",
     "panel.pluginEditorHint": "\u7F16\u8F91\u5F53\u524D OFX \u7279\u6548\u7684\u53C2\u6570",
     "panel.emptyTitle": "\u8FD8\u6CA1\u6709\u6253\u5F00\u7684\u9762\u677F",
@@ -3209,8 +3499,10 @@ var AICUT = (() => {
     "audio.lang.fr": "\u6CD5\u8BED",
     "audio.lang.de": "\u5FB7\u8BED",
     "audio.dub": "\u540C\u65F6\u751F\u6210\u914D\u97F3",
-    "audio.translateVoiceNote": "\u914D\u97F3\u4F7F\u7528\u5DF2\u5B89\u88C5\u7684\u672C\u5730\u6717\u8BFB\u6A21\u578B",
-    "audio.dubNoModel": "\u672A\u5B89\u88C5\u6717\u8BFB\u6A21\u578B\uFF0C\u53EA\u80FD\u751F\u6210\u8BD1\u6587\u5B57\u5E55",
+    "audio.dubModel": "\u914D\u97F3\u6A21\u578B",
+    "audio.translateVoiceNote": "\u914D\u97F3\u4F7F\u7528\u6240\u9009 TTS \u6A21\u578B\uFF08\u672C\u5730\u6216\u4E91\u7AEF\uFF09",
+    "audio.dubNoModel": "\u6CA1\u6709\u53EF\u7528\u7684\u914D\u97F3\u6A21\u578B\uFF0C\u8BF7\u5148\u9009\u62E9\u6216\u914D\u7F6E\u4E00\u4E2A",
+    "audio.dubLocalNote": "\u672C\u5730\u914D\u97F3 \xB7 {name}",
     "audio.dubTrack": "\u8BD1\u97F3",
     "audio.translatedSubtitleTrack": "\u8BD1\u6587\u5B57\u5E55",
     "audio.translateDone": "\u5DF2\u751F\u6210 {count} \u6761\u8BD1\u6587\u5B57\u5E55",
@@ -3964,6 +4256,7 @@ var AICUT = (() => {
     "ai.agent": "\u526A\u8F91\u667A\u80FD\u4F53",
     "ai.agentHint": "\u5BF9\u8BDD\u5F0F\u526A\u8F91\uFF0C\u76F4\u63A5\u6539\u65F6\u95F4\u7EBF",
     "ai.run": "\u6253\u5F00",
+    "ai.pluginPageHint": "\u63D2\u4EF6\u63D0\u4F9B\u7684\u9875\u9762",
     "ai.mcpServer": "MCP \u670D\u52A1\u5668",
     "ai.mcpOn": "\u5DF2\u5F00\u542F\uFF0CHarness \u53EF\u4EE5\u8FDE\u63A5",
     "ai.mcpOff": "\u5DF2\u5173\u95ED",
@@ -4270,6 +4563,7 @@ var AICUT = (() => {
     "ai.voiceoverDownloadingModel": "\u6B63\u5728\u4ECE {source} \u4E0B\u8F7D\u6717\u8BFB\u6A21\u578B",
     "ai.voiceoverSelected": "\u5DF2\u9009\u4E2D {count} \u6BB5\u6587\u5B57",
     "ai.voiceoverNoText": "\u5148\u9009\u4E2D\u4E00\u6BB5\u6216\u591A\u6BB5\u6587\u5B57\u7247\u6BB5",
+    "ai.voiceoverNoModel": "\u5148\u9009\u62E9\u4E00\u4E2A\u6717\u8BFB\u6A21\u578B\u6216\u914D\u7F6E\u4E91\u7AEF TTS \u670D\u52A1",
     "ai.voiceoverTrack": "\u6717\u8BFB",
     "ai.voiceoverDone": "\u5DF2\u751F\u6210 {count} \u6BB5\u6717\u8BFB",
     "ai.voiceoverFailed": "\u751F\u6210\u6717\u8BFB\u5931\u8D25\uFF1A{error}",
@@ -4910,6 +5204,15 @@ var AICUT = (() => {
     "settings.store.saving": "\u4FDD\u5B58\u4E2D\u2026",
     "settings.store.saved": "\u5DF2\u4FDD\u5B58\u4E0B\u8F7D\u6E90\u8BBE\u7F6E",
     "settings.store.saveFailed": "\u4FDD\u5B58\u5931\u8D25\uFF1A{error}",
+    "settings.market.group": "\u5E94\u7528\u6269\u5C55\u7D22\u5F15\u6E90",
+    "settings.market.url": "\u7D22\u5F15\u5730\u5740",
+    "settings.market.urlHint": "\u5E94\u7528\u6269\u5C55\u5546\u5E97\u7684\u9759\u6001 JSON \u7D22\u5F15\uFF1B\u53EA\u652F\u6301 https\uFF08\u672C\u673A http \u4F8B\u5916\uFF09\u3002",
+    "settings.market.urlPlaceholder": "https://heshengtao.github.io/ai-cut-plugin/index.json",
+    "settings.market.saveHint": "\u7559\u7A7A\u4FDD\u5B58 = \u6062\u590D\u9ED8\u8BA4\u6E90\u3002\u7D22\u5F15\u7531\u8F6F\u4EF6\u6293\u53D6\u4E0E\u6821\u9A8C\uFF0C\u754C\u9762\u53EA\u53D6\u4E00\u9875\u7ED3\u679C\u3002",
+    "settings.market.reset": "\u6062\u590D\u9ED8\u8BA4",
+    "settings.market.save": "\u4FDD\u5B58",
+    "settings.market.saving": "\u4FDD\u5B58\u4E2D\u2026",
+    "settings.market.saved": "\u5DF2\u4FDD\u5B58",
     "settings.plugins.group": "OFX \u63D2\u4EF6\u6CE8\u518C\u8868",
     "settings.plugins.url": "\u6CE8\u518C\u8868\u5730\u5740",
     "settings.plugins.urlHint": "\u7559\u7A7A = \u4F7F\u7528\u5B98\u65B9 GitHub raw \u6CE8\u518C\u8868\u3002",
@@ -5031,6 +5334,8 @@ var AICUT = (() => {
     "cutReview.noCloudService": "\u6240\u9009\u8BC6\u522B\u670D\u52A1\u672A\u542F\u7528\uFF0C\u8BF7\u5728\u8BBE\u7F6E \u2192 \u8BED\u97F3\u8BC6\u522B\u91CC\u542F\u7528\u3002",
     "ai.cutCloudNeedsAligner": "\u8BE5\u670D\u52A1\u65E0\u8BCD\u7EA7\u65F6\u95F4\u6233\uFF0C\u526A\u53E3\u64AD\u4F1A\u7528\u672C\u5730\u5BF9\u9F50\u5668\u8865\u65F6\u95F4",
     "setup.title.voice": "\u51C6\u5907\u300CAI \u53D8\u58F0\u300D",
+    "setup.title.voiceover": "\u51C6\u5907\u300CAI \u6717\u8BFB\u300D",
+    "setup.title.dub": "\u51C6\u5907\u300C\u97F3\u9891\u7FFB\u8BD1\u300D\u914D\u97F3",
     "setup.title.runtime": "\u51C6\u5907\u672C\u5730 AI \u8FD0\u884C\u65F6",
     "setup.lead": "\u8FD9\u53F0\u673A\u5668\u9002\u5408\u7528 {backend}\uFF08{reason}\uFF09\u3002\u4EE5\u4E0B\u5185\u5BB9\u9700\u8981\u5148\u4E0B\u8F7D\uFF1A",
     "setup.leadModel": "\u8FD8\u7F3A\u4EE5\u4E0B\u6A21\u578B\u6743\u91CD\uFF1A",
@@ -5235,6 +5540,7 @@ var AICUT = (() => {
     "board.pan": "\u62D6\u52A8\u6A21\u5F0F",
     "board.zoomOut": "\u7F29\u5C0F",
     "board.zoom": "{value}%",
+    "board.zoomGroup": "\u7F29\u653E",
     // ---- 画布节点 ----
     "board.undo": "\u64A4\u9500",
     "board.redo": "\u91CD\u505A",
@@ -5244,14 +5550,53 @@ var AICUT = (() => {
     "board.category.input": "\u8F93\u5165",
     "board.category.display": "\u663E\u793A",
     "board.category.model": "\u6A21\u578B",
+    "board.category.group": "\u903B\u8F91",
+    "board.type.text": "\u6587\u672C",
+    "board.type.image": "\u56FE\u7247",
+    "board.type.video": "\u89C6\u9891",
+    "board.type.audio": "\u97F3\u9891",
+    "board.type.integer": "\u6574\u6570",
+    "board.type.number": "\u6D6E\u70B9\u6570",
+    "board.type.boolean": "\u5E03\u5C14\u503C",
+    "board.type.json": "JSON",
+    "board.type.any": "\u4EFB\u610F",
+    "board.value.empty": "\u6682\u65E0\u503C",
+    "board.value.legacyText": "\u6587\u672C\uFF08\u9057\u7559\uFF09",
+    "board.value.true": "\u662F",
+    "board.value.false": "\u5426",
     "board.node.inputImage": "\u56FE\u7247\u8F93\u5165",
     "board.node.inputVideo": "\u89C6\u9891\u8F93\u5165",
     "board.node.inputAudio": "\u97F3\u9891\u8F93\u5165",
     "board.node.inputText": "\u6587\u672C\u8F93\u5165",
+    "board.node.inputValue": "\u503C\u8F93\u5165",
+    "board.node.displayText": "\u6587\u672C\u663E\u793A",
+    "board.node.displayValue": "\u503C\u663E\u793A",
+    "board.node.loop": "\u5FAA\u73AF",
+    "board.node.loopStart": "\u5FAA\u73AF\u5F00\u59CB",
+    "board.param.loopInputs": "\u8F93\u5165\u6570\u91CF",
+    "board.loop.inputs": "\u8F93\u5165",
+    "board.loop.inputN": "\u8F93\u5165 {n}",
+    "board.loop.addInput": "\u65B0\u5EFA\u8F93\u5165",
+    "board.loop.removeInput": "\u5220\u9664\u8F93\u5165",
+    "board.port.number": "\u6570\u5B57",
+    "board.port.integer": "\u6574\u6570",
+    "board.port.boolean": "\u5E03\u5C14\u503C",
+    "board.port.json": "JSON",
+    "board.port.any": "\u4EFB\u610F",
+    "board.node.loopEnd": "\u5FAA\u73AF\u7ED3\u675F",
+    "board.param.loopMode": "\u5FAA\u73AF\u65B9\u5F0F",
+    "board.param.loopCount": "\u5FAA\u73AF\u6B21\u6570",
+    "board.param.loopSlots": "\u8F93\u51FA\u69FD\u4F4D",
+    "board.loopMode.array": "\u6309\u6570\u7EC4",
+    "board.loopMode.count": "\u6309\u6B21\u6570",
+    "board.port.items": "\u5217\u8868",
+    "board.port.item": "\u5F53\u524D\u9879",
+    "board.port.index": "\u5E8F\u53F7",
+    "board.port.slot": "\u503C",
+    "board.port.list": "\u6574\u7EC4",
     "board.node.displayImage": "\u56FE\u7247\u663E\u793A",
     "board.node.displayVideo": "\u89C6\u9891\u663E\u793A",
     "board.node.displayAudio": "\u97F3\u9891\u663E\u793A",
-    "board.node.displayText": "\u6587\u672C\u663E\u793A",
     "board.node.noAsset": "\u672A\u9009\u62E9\u7D20\u6750",
     "board.node.noText": "\u7A7A\u6587\u672C",
     "board.node.modelHint": "\u6A21\u578B\u8282\u70B9",
@@ -5259,6 +5604,7 @@ var AICUT = (() => {
     "board.port.video": "\u89C6\u9891",
     "board.port.audio": "\u97F3\u9891",
     "board.port.text": "\u6587\u672C",
+    "board.port.value": "\u503C",
     "board.port.prompt": "\u63D0\u793A\u8BCD\u8F93\u5165",
     "board.port.negative": "\u53CD\u5411\u63D0\u793A\u8BCD\u8F93\u5165",
     "board.port.stemVocals": "\u4EBA\u58F0",
@@ -5269,6 +5615,8 @@ var AICUT = (() => {
     "board.port.stemPiano": "\u94A2\u7434",
     "board.port.stemAccompaniment": "\u4F34\u594F",
     "board.param.textMode": "\u663E\u793A\u65B9\u5F0F",
+    "board.param.valueKind": "\u503C\u7C7B\u578B",
+    "board.param.value": "\u503C",
     "board.textMode.markdown": "Markdown",
     "board.textMode.plain": "\u7EAF\u6587\u672C",
     "board.inspect.localGroup": "\u672C\u5730\u5F15\u64CE",
@@ -5276,13 +5624,20 @@ var AICUT = (() => {
     "board.status.skipped": "\u5DF2\u8DF3\u8FC7",
     "board.node.group": "\u7EC4",
     "board.group.count": "{count} \u4E2A\u8282\u70B9",
-    "board.group.empty": "\u628A\u8282\u70B9\u9009\u8FDB\u8FD9\u4E2A\u7EC4\uFF1A\u9009\u4E2D\u8282\u70B9\u540E\u6309 \u2318G\uFF0C\u6216\u53F3\u952E\u300C\u521B\u5EFA\u7EC4\u300D",
+    "board.group.empty": "\u628A\u8282\u70B9\u62D6\u8FDB\u8FD9\u4E2A\u6846\uFF0C\u6216\u9009\u4E2D\u8282\u70B9\u540E\u6309 \u2318G \u521B\u5EFA\u7EC4",
+    "board.group.tone": "\u7EC4\u6846\u8272\u8C03",
+    "board.group.tone.lavender": "\u85B0\u8863\u8349",
+    "board.group.tone.blue": "\u84DD\u8272",
+    "board.group.tone.green": "\u7EFF\u8272",
+    "board.group.tone.coral": "\u73CA\u745A",
+    "board.group.tone.amber": "\u7425\u73C0",
     "board.group.needSelection": "\u5148\u9009\u4E2D\u81F3\u5C11\u4E24\u4E2A\u8282\u70B9\uFF0C\u518D\u521B\u5EFA\u7EC4",
     "board.run.runHint": "\u8FD0\u884C\u6574\u4E2A\u5DE5\u4F5C\u6D41\uFF08\u6309\u4F9D\u8D56\u987A\u5E8F\uFF09",
     "board.run.alwaysHint": "\u4E0A\u6E38\u8F93\u51FA\u66F4\u65B0\u540E\uFF0C\u81EA\u52A8\u8FD0\u884C\u5B83\u540E\u9762\u7684\u8282\u70B9",
     "board.ctx.bypass": "\u65C1\u8DEF\u8282\u70B9",
     "board.ctx.bypassOff": "\u53D6\u6D88\u65C1\u8DEF",
     "board.ctx.groupCreate": "\u521B\u5EFA\u7EC4",
+    "board.ctx.groupCreateHint": "\u628A\u9009\u4E2D\u7684\u8282\u70B9\u6846\u8FDB\u4E00\u4E2A\u7EC4\uFF08\u5FEB\u6377\u952E \u2318G\uFF09",
     "board.ctx.groupSelect": "\u9009\u4E2D\u7EC4\u5185\u8282\u70B9",
     "board.ctx.ungroup": "\u89E3\u6563\u7EC4",
     // ---- 工作流库 / 组节点 / 并行调度 ----
@@ -5324,16 +5679,17 @@ var AICUT = (() => {
     "board.library.emptyCanvas": "\u753B\u5E03\u662F\u7A7A\u7684\uFF0C\u5148\u6DFB\u52A0\u8282\u70B9\u518D\u4FDD\u5B58",
     "board.library.openLibrary": "\u6253\u5F00\u5DE5\u4F5C\u6D41\u5E93",
     "board.library.builtin.textToImage": "\u6587\u751F\u56FE",
-    "board.library.builtin.textToImageHint": "\u6587\u672C \u2192 \u56FE\u50CF\u751F\u6210 \u2192 \u56FE\u7247\u663E\u793A",
+    "board.library.builtin.textToImageHint": "\u6587\u672C \u2192 \u56FE\u50CF\u751F\u6210 \u2192 \u56FE\u7247\u663E\u793A\uFF08\u5728\u68C0\u67E5\u5668\u9009\u597D\u6A21\u578B\uFF09",
     "board.library.builtin.imageEdit": "\u53C2\u8003\u56FE\u6539\u56FE",
-    "board.library.builtin.imageEditHint": "\u53C2\u8003\u56FE + \u6307\u4EE4 \u2192 \u56FE\u50CF\u751F\u6210 \u2192 \u56FE\u7247\u663E\u793A",
+    "board.library.builtin.imageEditHint": "\u53C2\u8003\u56FE + \u6307\u4EE4 \u2192 \u56FE\u50CF\u751F\u6210 \u2192 \u56FE\u7247\u663E\u793A\uFF08\u5728\u68C0\u67E5\u5668\u9009\u597D\u6A21\u578B\uFF09",
     "board.library.builtin.imageToVideo": "\u56FE\u751F\u89C6\u9891",
-    "board.library.builtin.imageToVideoHint": "\u9996\u5E27 + \u63D0\u793A\u8BCD \u2192 \u89C6\u9891\u751F\u6210 \u2192 \u89C6\u9891\u663E\u793A",
+    "board.library.builtin.imageToVideoHint": "\u9996\u5E27 + \u63D0\u793A\u8BCD \u2192 \u89C6\u9891\u751F\u6210 \u2192 \u89C6\u9891\u663E\u793A\uFF08\u5728\u68C0\u67E5\u5668\u9009\u597D\u6A21\u578B\uFF09",
     "board.library.builtin.textRevise": "\u6587\u672C\u6539\u5199",
-    "board.library.builtin.textReviseHint": "\u6587\u672C \u2192 \u6587\u672C\u751F\u6210 \u2192 \u6587\u672C\u663E\u793A",
-    "board.ctx.copy": "\u590D\u5236\u8282\u70B9",
-    "board.ctx.cut": "\u526A\u5207\u8282\u70B9",
-    "board.ctx.paste": "\u7C98\u8D34\u8282\u70B9",
+    "board.library.builtin.textReviseHint": "\u6587\u672C \u2192 \u6587\u672C\u751F\u6210 \u2192 \u6587\u672C\u663E\u793A\uFF08\u9009\u597D\u6587\u672C\u6A21\u578B\uFF09",
+    "board.ctx.copy": "\u590D\u5236",
+    "board.ctx.selectionHint": "\u5DF2\u9009 {count} \u4E2A\u8282\u70B9\uFF0C\u4EE5\u4E0B\u64CD\u4F5C\u4F5C\u7528\u4E8E\u5168\u90E8",
+    "board.ctx.cut": "\u526A\u5207",
+    "board.ctx.paste": "\u7C98\u8D34",
     "board.ctx.copied": "\u5DF2\u590D\u5236 {count} \u4E2A\u8282\u70B9",
     "board.ctx.pasted": "\u5DF2\u7C98\u8D34 {count} \u4E2A\u8282\u70B9",
     "board.ctx.groupRun": "\u8FD0\u884C\u6574\u7EC4",
@@ -5360,8 +5716,8 @@ var AICUT = (() => {
     "board.status.thinking": "\u601D\u8003\u4E2D",
     "board.status.processing": "\u5904\u7406\u4E2D",
     "board.status.generating": "\u751F\u6210\u4E2D",
-    "panel.boardInspector": "\u8282\u70B9\u68C0\u67E5\u5668",
-    "panel.boardInspectorHint": "\u753B\u5E03\u8282\u70B9\u7684\u53C2\u6570\u3001\u7D20\u6750\u4E0E\u8FD0\u884C\u72B6\u6001",
+    "panel.boardInspector": "\u753B\u5E03\u68C0\u67E5\u5668",
+    "panel.boardInspectorHint": "\u753B\u5E03\u5217\u8868\u3001\u8282\u70B9\u53C2\u6570\u3001\u5DE5\u4F5C\u6D41\u7B7E\u540D\u4E0E\u53D1\u5E03",
     "panel.workflowLibrary": "\u5DE5\u4F5C\u6D41\u5E93",
     "panel.workflowLibraryHint": "\u9ED8\u8BA4\u5DE5\u4F5C\u6D41\u4E0E\u4FDD\u5B58\u8FC7\u7684\u753B\u5E03\uFF08\u5E26\u7248\u672C\uFF09",
     "board.inspect.node": "\u8282\u70B9",
@@ -5399,8 +5755,12 @@ var AICUT = (() => {
     "board.param.negative": "\u53CD\u5411\u63D0\u793A\u8BCD",
     "board.param.negativeVideoHint": "\u90E8\u5206\u4E91\u7AEF\u89C6\u9891\u670D\u52A1\u652F\u6301\u8D1F\u5411\u63D0\u793A\u8BCD\uFF1B\u672C\u5730\u6A21\u578B\u4F7F\u7528\u5BB6\u65CF\u5185\u7F6E\u7684\u8D1F\u5411\u8BCD\u3002",
     "board.param.negativeOptionalHint": "\u4E5F\u53EF\u4EE5\u4ECE\u68C0\u67E5\u5668\u7684\u300C\u53CD\u5411\u63D0\u793A\u8BCD\u8F93\u5165\u300D\u8FDE\u4E00\u4E2A\u6587\u672C\u8282\u70B9\uFF1B\u8FDE\u7EBF\u4F18\u5148\u4E8E\u8FD9\u91CC\u7684\u5185\u5BB9\u3002",
-    "board.param.width": "\u5BBD",
-    "board.param.height": "\u9AD8",
+    "board.param.size": "\u5206\u8FA8\u7387",
+    "board.param.sizeHint": "\u751F\u6210\u7ED3\u679C\u7684\u8F93\u51FA\u5C3A\u5BF8 / \u753B\u5E45\uFF0C\u548C\u8282\u70B9\u5361\u7247\u5927\u5C0F\u65E0\u5173\uFF08\u5361\u7247\u5927\u5C0F\u62D6\u53F3\u4E0B\u89D2\u8C03\u6574\uFF09\u3002",
+    "board.param.sizeCustom": "\u81EA\u5B9A\u4E49\u2026",
+    "board.param.sizeAuto": "\u7531\u6A21\u578B / \u8F93\u5165\u7D20\u6750\u51B3\u5B9A\uFF08\u63A5\u53E3\u4E0D\u4F20\u5C3A\u5BF8\uFF09",
+    "board.param.width": "\u751F\u6210\u5BBD\u5EA6",
+    "board.param.height": "\u751F\u6210\u9AD8\u5EA6",
     "board.param.steps": "\u91C7\u6837\u6B65\u6570",
     "board.param.seed": "\u968F\u673A\u79CD\u5B50",
     "board.param.seconds": "\u65F6\u957F\uFF08\u79D2\uFF09",
@@ -5471,10 +5831,11 @@ var AICUT = (() => {
     "board.inspect.chars": "{count} \u5B57",
     "board.ctx.ignore": "\u7981\u7528\u8282\u70B9",
     "board.ctx.enable": "\u542F\u7528\u8282\u70B9",
-    "board.ctx.duplicate": "\u590D\u5236\u8282\u70B9",
+    "board.ctx.duplicate": "\u521B\u5EFA\u526F\u672C",
     "board.dropHint": "\u677E\u624B\u5BFC\u5165\u7D20\u6750\u5E76\u521B\u5EFA\u8F93\u5165\u8282\u70B9",
     "board.inspect.download": "\u4E0B\u8F7D\u5230\u672C\u5730",
-    "board.ctx.download": "\u4E0B\u8F7D\u5230\u672C\u5730",
+    "board.ctx.download": "\u4E0B\u8F7D\u7D20\u6750\u5230\u672C\u5730",
+    "board.ctx.downloadHint": "\u628A\u8282\u70B9\u5F53\u524D\u9009\u4E2D\u7684\u7D20\u6750 / \u5DF2\u53D1\u5E03\u7684\u4EA7\u7269\u53E6\u5B58\u4E3A\u6587\u4EF6",
     "board.download.done": "\u5DF2\u4FDD\u5B58 {name}",
     "board.ctx.run": "\u8FD0\u884C\u6B64\u8282\u70B9",
     "board.ctx.rebuild": "\u91CD\u5EFA\u8282\u70B9",
@@ -5486,7 +5847,7 @@ var AICUT = (() => {
     "board.ctx.clear": "\u6E05\u7A7A\u753B\u5E03",
     "board.clear": "\u6E05\u7A7A",
     "board.clearTitle": "\u6E05\u7A7A\u753B\u5E03",
-    "board.clearMessage": "\u6E05\u7A7A\u4E4B\u524D\u4F1A\u5148\u628A\u5F53\u524D\u5DE5\u4F5C\u6D41\u4FDD\u5B58\u5230\u5DE5\u4F5C\u6D41\u5E93\uFF1B\u7D20\u6750\u5E93\u4E0E\u65F6\u95F4\u7EBF\u4E0D\u53D7\u5F71\u54CD\u3002",
+    "board.clearMessage": "\u53EA\u6E05\u7A7A\u8FD9\u5F20\u753B\u5E03\uFF0C\u4E0D\u4F1A\u81EA\u52A8\u5F80\u5DE5\u4F5C\u6D41\u5E93\u4FDD\u5B58\u65B0\u7248\u672C\uFF1B\u7D20\u6750\u5E93\u4E0E\u65F6\u95F4\u7EBF\u4E0D\u53D7\u5F71\u54CD\u3002",
     "board.addSearch": "\u641C\u7D22\u8282\u70B9\u2026",
     "board.addNoResults": "\u6CA1\u6709\u5339\u914D\u7684\u8282\u70B9",
     "board.run.repeatTimes": "\u91CD\u590D\u6B21\u6570",
@@ -5526,6 +5887,9 @@ var AICUT = (() => {
     "board.node.copyText": "\u590D\u5236\u6587\u672C",
     "board.node.clearText": "\u6E05\u7A7A\u6587\u672C",
     "board.node.textCopied": "\u5DF2\u590D\u5236\u6587\u672C",
+    "board.node.missingPlugin": "\u8282\u70B9\u5B9A\u4E49\u7F3A\u5931",
+    "board.node.missingPluginHint": "\u63D2\u4EF6\u6CA1\u52A0\u8F7D\u6210\u529F\uFF08\u88AB\u7981\u7528 / \u7248\u672C\u4E0D\u517C\u5BB9 / \u5B89\u88C5\u4E2D\uFF09\u3002\u8282\u70B9\u4E0E\u8FDE\u7EBF\u90FD\u8FD8\u5728\uFF0C\u63D2\u4EF6\u6062\u590D\u540E\u4F1A\u81EA\u52A8\u663E\u793A\u3002",
+    "board.node.copyOutputText": "\u590D\u5236\u5168\u90E8\u6587\u672C",
     "board.node.play": "\u64AD\u653E",
     "board.node.pause": "\u6682\u505C",
     "board.node.mute": "\u9759\u97F3",
@@ -5576,9 +5940,6 @@ var AICUT = (() => {
     "board.inspect.notRun": "\u672A\u8FD0\u884C",
     "board.inspect.title": "\u6807\u9898",
     "board.inspect.titlePlaceholder": "\u8282\u70B9\u6807\u9898",
-    "board.inspect.size": "\u5C3A\u5BF8",
-    "board.inspect.width": "\u5BBD\u5EA6",
-    "board.inspect.height": "\u9AD8\u5EA6",
     "board.inspect.mediaSection": "\u7D20\u6750",
     "board.inspect.mediaHint": "\u4ECE\u672C\u5730\u9009\u62E9\uFF0C\u6216\u76F4\u63A5\u4ECE\u7D20\u6750\u5E93\u6DFB\u52A0\uFF1B\u56FE\u7247\u53EF\u4EE5\u5806\u591A\u5F20\u3002",
     "board.inspect.aspectHint": "\u56FE\u7247\u8282\u70B9\u4F1A\u6309\u7D20\u6750\u6BD4\u4F8B\u81EA\u52A8\u8C03\u6574\u9AD8\u5EA6\u3002",
@@ -5598,7 +5959,100 @@ var AICUT = (() => {
     "board.run.modeShort.manual": "\u624B\u52A8",
     "board.run.modeShort.always": "\u81EA\u52A8",
     "board.run.modeShort.repeat": "\u91CD\u590D",
-    "board.resize.hint": "\u62D6\u52A8\u53F3\u4E0B\u89D2\u8C03\u6574\u8282\u70B9\u5C3A\u5BF8"
+    "board.resize.hint": "\u62D6\u52A8\u53F3\u4E0B\u89D2\u8C03\u6574\u8282\u70B9\u5C3A\u5BF8",
+    // ---- 画布检查器 / 多画布 / 工作流签名 ----
+    "board.canvas.title": "\u753B\u5E03",
+    "board.canvas.list": "\u753B\u5E03\u5217\u8868",
+    "board.canvas.count": "{count} \u5F20",
+    "board.canvas.current": "\u5F53\u524D",
+    "board.canvas.defaultTitle": "\u753B\u5E03 {n}",
+    "board.canvas.copySuffix": "\u526F\u672C",
+    "board.canvas.new": "\u65B0\u5EFA\u753B\u5E03",
+    "board.canvas.duplicate": "\u590D\u5236\u753B\u5E03",
+    "board.canvas.rename": "\u91CD\u547D\u540D\u753B\u5E03",
+    "board.canvas.delete": "\u5220\u9664\u753B\u5E03",
+    "board.canvas.deleteTitle": "\u5220\u9664\u753B\u5E03",
+    "board.canvas.deleteMessage": "\u5220\u9664\u300C{name}\u300D\uFF1F\u753B\u5E03\u91CC\u7684\u8282\u70B9\u548C\u8FDE\u7EBF\u4F1A\u4E00\u8D77\u5220\u6389\uFF1B\u5DF2\u4FDD\u5B58\u5230\u5DE5\u4F5C\u6D41\u5E93\u7684\u7248\u672C\u4E0D\u53D7\u5F71\u54CD\u3002",
+    "board.canvas.switch": "\u5207\u6362",
+    "board.canvas.emptyTitle": "\u6CA1\u6709\u9009\u4E2D\u8282\u70B9",
+    "board.canvas.emptyHint": "\u70B9\u753B\u5E03\u7A7A\u767D\u5904\u56DE\u5230\u8FD9\u91CC\u3002\u8FD9\u91CC\u7BA1\u7406\u5F53\u524D\u5DE5\u7A0B\u7684\u5168\u90E8\u753B\u5E03\u3002",
+    "board.canvas.selectHint": "\u9009\u4E2D\u4E00\u4E2A\u8282\u70B9\u7F16\u8F91\u5B83\u7684\u53C2\u6570\uFF1B\u70B9\u7A7A\u767D\u5904\u56DE\u5230\u753B\u5E03\u5217\u8868\u3002",
+    "board.canvas.nodeCount": "{count} \u4E2A\u8282\u70B9",
+    "board.canvas.publish": "\u53D1\u5E03\u5DE5\u4F5C\u6D41",
+    "board.canvas.publishHint": "\u753B\u5E03\u6709\u6210\u5BF9\u7684\u5DE5\u4F5C\u6D41\u5F00\u59CB / \u7ED3\u675F\u8282\u70B9\u4E14\u642D\u5EFA\u5B8C\u6574\u65F6\uFF0C\u53EF\u4EE5\u4FDD\u5B58\u6210\u53EF\u8C03\u7528\u7684\u5B50\u5DE5\u4F5C\u6D41\u6216 API\u3002",
+    "board.canvas.publishReady": "\u53EF\u4EE5\u53D1\u5E03",
+    "board.canvas.publishBlocked": "\u8FD8\u4E0D\u80FD\u53D1\u5E03",
+    "board.canvas.api": "\u53EF\u8C03\u7528 API",
+    "board.canvas.apiHint": "\u66B4\u9732\u6210 AI Harness / MCP \u53EF\u8C03\u7528\u7684\u5DE5\u4F5C\u6D41\uFF08\u5DE5\u4F5C\u6D41\u5E93\u6309\u300CAPI\u300D\u7B5B\u9009\uFF09\u3002",
+    "board.canvas.subworkflow": "\u53EF\u88AB\u5D4C\u5165",
+    "board.canvas.subworkflowHint": "\u5141\u8BB8\u522B\u7684\u753B\u5E03\u7528\u300C\u5D4C\u5165\u5DE5\u4F5C\u6D41\u300D\u8282\u70B9\u8C03\u7528\u5B83\uFF08\u5DE5\u4F5C\u6D41\u5E93\u6309\u300C\u5B50\u5DE5\u4F5C\u6D41\u300D\u7B5B\u9009\uFF09\u3002",
+    "board.canvas.savePublish": "\u4FDD\u5B58\u5E76\u53D1\u5E03",
+    "board.canvas.savedPublish": "\u5DF2\u53D1\u5E03\uFF1A{name} v{version}",
+    "board.canvas.publishName": "\u5DE5\u4F5C\u6D41\u540D\u79F0",
+    "board.canvas.signature": "\u7B7E\u540D",
+    "board.canvas.signatureSummary": "{inputs} \u4E2A\u8F93\u5165 \xB7 {outputs} \u4E2A\u8F93\u51FA",
+    "board.canvas.signatureNone": "\u8FD8\u6CA1\u6709\u58F0\u660E\u8F93\u5165\u8F93\u51FA",
+    "board.canvas.problemCount": "{count} \u4E2A\u95EE\u9898",
+    "board.canvas.problem.missingStart": "\u7F3A\u5C11\u5DE5\u4F5C\u6D41\u5F00\u59CB\u8282\u70B9",
+    "board.canvas.problem.missingEnd": "\u7F3A\u5C11\u5DE5\u4F5C\u6D41\u7ED3\u675F\u8282\u70B9",
+    "board.canvas.problem.multipleStart": "\u5DE5\u4F5C\u6D41\u5F00\u59CB\u8282\u70B9\u53EA\u80FD\u6709\u4E00\u4E2A",
+    "board.canvas.problem.multipleEnd": "\u5DE5\u4F5C\u6D41\u7ED3\u675F\u8282\u70B9\u53EA\u80FD\u6709\u4E00\u4E2A",
+    "board.canvas.problem.pairBroken": "\u5DE5\u4F5C\u6D41\u5F00\u59CB / \u7ED3\u675F\u8282\u70B9\u6CA1\u6709\u914D\u5BF9",
+    "board.canvas.problem.inputNameEmpty": "\u6709\u8F93\u5165\u6CA1\u6709\u540D\u5B57",
+    "board.canvas.problem.outputNameEmpty": "\u6709\u8F93\u51FA\u6CA1\u6709\u540D\u5B57",
+    "board.canvas.problem.duplicateInput": "\u8F93\u5165\u540D\u5B57\u91CD\u590D\uFF1A{name}",
+    "board.canvas.problem.duplicateOutput": "\u8F93\u51FA\u540D\u5B57\u91CD\u590D\uFF1A{name}",
+    "board.canvas.problem.unknownType": "\u7C7B\u578B\u6CA1\u6709\u6CE8\u518C\uFF1A{name} \u2192 {type}",
+    "board.canvas.problem.unboundOutput": "\u8F93\u51FA\u300C{name}\u300D\u8FD8\u6CA1\u6709\u63A5\u4E0A\u6E38",
+    "board.canvas.problem.cycle": "\u753B\u5E03\u91CC\u6709\u73AF\uFF0C\u65E0\u6CD5\u6309\u987A\u5E8F\u6267\u884C",
+    "board.inspect.workflowInputs": "\u5DE5\u4F5C\u6D41\u8F93\u5165",
+    "board.inspect.workflowOutputs": "\u5DE5\u4F5C\u6D41\u8F93\u51FA",
+    "board.inspect.addSignatureInput": "\u65B0\u5EFA\u8F93\u5165",
+    "board.inspect.addSignatureOutput": "\u65B0\u5EFA\u8F93\u51FA",
+    "board.inspect.signatureName": "\u540D\u79F0",
+    "board.inspect.signatureLabel": "\u6807\u7B7E",
+    "board.inspect.signatureType": "\u7C7B\u578B",
+    "board.inspect.signatureDefault": "\u9ED8\u8BA4\u503C",
+    "board.inspect.signatureRequired": "\u5FC5\u586B",
+    "board.inspect.signatureRemove": "\u5220\u9664\u8FD9\u4E00\u884C",
+    "board.inspect.signatureEmpty": "\u8FD8\u6CA1\u6709\u58F0\u660E\uFF0C\u70B9\u4E0B\u9762\u7684\u6309\u94AE\u52A0\u4E00\u884C\u3002",
+    "board.inspect.workflowTarget": "\u76EE\u6807\u5DE5\u4F5C\u6D41",
+    "board.inspect.workflowTargetEmpty": "\u9009\u62E9\u8981\u5D4C\u5165\u7684\u5B50\u5DE5\u4F5C\u6D41",
+    "board.inspect.workflowTargetHint": "\u5B50\u5DE5\u4F5C\u6D41\u7684\u8F93\u5165 / \u8F93\u51FA\u7531\u5B83\u7684\u5F00\u59CB / \u7ED3\u675F\u8282\u70B9\u58F0\u660E\uFF0C\u8FD9\u91CC\u6309\u7B7E\u540D\u7AEF\u53E3\u6620\u5C04\u3002",
+    "board.inspect.workflowMissing": "\u76EE\u6807\u5DE5\u4F5C\u6D41\u5DF2\u4E0D\u5B58\u5728\uFF1B\u7AEF\u53E3\u4E0E\u8FDE\u7EBF\u4FDD\u7559\uFF0C\u8FD0\u884C\u65F6\u4F1A\u7ED9\u51FA\u660E\u786E\u62A5\u9519\u3002",
+    "board.inspect.workflowTargetPublished": "\u8FD8\u6CA1\u6709\u53D1\u5E03\u4E3A\u5B50\u5DE5\u4F5C\u6D41\u7684\u5DE5\u4F5C\u6D41\uFF1B\u5148\u5728\u5DE5\u4F5C\u6D41\u5E93 / \u753B\u5E03\u68C0\u67E5\u5668\u91CC\u53D1\u5E03\u4E00\u5F20\u3002",
+    "board.inspect.signatureTypeHint": "\u7C7B\u578B\u6765\u81EA\u6570\u636E\u7C7B\u578B\u6CE8\u518C\u8868\uFF0C\u63D2\u4EF6\u6CE8\u518C\u7684\u7C7B\u578B\u4E5F\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002",
+    "board.node.workflow": "\u5B50\u5DE5\u4F5C\u6D41",
+    "board.node.workflowStart": "\u5DE5\u4F5C\u6D41\u5F00\u59CB",
+    "board.node.workflowEnd": "\u5DE5\u4F5C\u6D41\u7ED3\u675F",
+    "board.node.workflowCall": "\u5D4C\u5165\u5DE5\u4F5C\u6D41",
+    "board.node.workflowEmbed": "\u5D4C\u5165\u5DE5\u4F5C\u6D41",
+    "board.param.workflow": "\u76EE\u6807\u5DE5\u4F5C\u6D41",
+    "board.param.workflowName": "\u5DE5\u4F5C\u6D41\u540D\u79F0",
+    "board.port.workflowInput": "\u8F93\u5165",
+    "board.port.workflowOutput": "\u8F93\u51FA",
+    "board.workflow.defaultInput": "\u63D0\u793A\u8BCD",
+    "board.workflow.defaultOutput": "\u7ED3\u679C",
+    "board.workflow.newInput": "\u8F93\u5165 {n}",
+    "board.workflow.newOutput": "\u8F93\u51FA {n}",
+    "board.workflow.noTarget": "\u8FD8\u6CA1\u6709\u9009\u62E9\u8981\u5D4C\u5165\u7684\u5DE5\u4F5C\u6D41",
+    "board.workflow.missingInput": "\u7F3A\u5C11\u5FC5\u586B\u8F93\u5165\uFF1A{name}",
+    "board.workflow.notRunnable": "\u300C{name}\u300D\u7F3A\u5C11\u6210\u5BF9\u7684\u5DE5\u4F5C\u6D41\u5F00\u59CB / \u7ED3\u675F\u8282\u70B9",
+    "board.workflow.missing": "\u627E\u4E0D\u5230\u5DE5\u4F5C\u6D41\u300C{name}\u300D\uFF08\u53EF\u80FD\u5DF2\u88AB\u5220\u9664\uFF09",
+    "board.workflow.cycle": "\u5DE5\u4F5C\u6D41\u5D4C\u5957\u6210\u73AF\uFF1A{name}",
+    "board.workflow.tooDeep": "\u5DE5\u4F5C\u6D41\u5D4C\u5957\u8D85\u8FC7 8 \u5C42\uFF1A{name}",
+    "board.loop.source": "\u6765\u6E90",
+    "board.library.filterWorkflow": "\u5B50\u5DE5\u4F5C\u6D41",
+    "board.library.filterApi": "API",
+    "board.library.badgeWorkflow": "\u5B50\u5DE5\u4F5C\u6D41",
+    "board.library.badgeApi": "API",
+    "board.library.publishHint": "\u628A\u5E26\u7B7E\u540D\u7684\u5DE5\u4F5C\u6D41\u4FDD\u5B58\u5230\u5E93\u91CC\uFF0C\u4E4B\u540E\u53EF\u4EE5\u88AB\u5D4C\u5165\u6216\u901A\u8FC7 API / AI Harness \u8C03\u7528\u3002",
+    "board.clear.unsavedTitle": "\u6E05\u7A7A\u753B\u5E03",
+    "board.clear.unsavedMessage": "\u5F53\u524D\u753B\u5E03\u8FD8\u6CA1\u4FDD\u5B58\u6210\u5DE5\u4F5C\u6D41\u3002\u76F4\u63A5\u6E05\u7A7A\u4F1A\u4E22\u6389\u8FD9\u6B21\u642D\u5EFA\u7684\u5185\u5BB9\u3002",
+    "board.clear.saveAndClear": "\u4FDD\u5B58\u5E76\u6E05\u7A7A",
+    "board.clear.clearWithoutSave": "\u76F4\u63A5\u6E05\u7A7A",
+    "board.clear.cleared": "\u753B\u5E03\u5DF2\u6E05\u7A7A",
+    "board.run.stopped": "\u5DF2\u53D6\u6D88"
   };
   var zh_default = zh;
 
@@ -5609,13 +6063,24 @@ var AICUT = (() => {
   ];
   var FALLBACK = LOCALES[0].id;
   var MESSAGES = { zh: zh_default, en: en_default };
+  var PLUGIN_MESSAGES = /* @__PURE__ */ new Map();
+  function pluginMessage(key) {
+    if (!key.startsWith("@")) return null;
+    const dot = key.indexOf(".");
+    if (dot <= 1) return null;
+    const pluginId = key.slice(1, dot);
+    const inner = key.slice(dot + 1);
+    const dicts = PLUGIN_MESSAGES.get(pluginId);
+    if (!dicts) return null;
+    return dicts[current]?.[inner] ?? dicts.en?.[inner] ?? dicts[FALLBACK]?.[inner] ?? null;
+  }
   var current = FALLBACK;
   function setTranslateLocale(next) {
     current = next;
   }
   function t(key, vars) {
     const dict = MESSAGES[current] ?? MESSAGES[FALLBACK];
-    let text = dict[key] ?? MESSAGES[FALLBACK][key] ?? key;
+    let text = dict[key] ?? MESSAGES[FALLBACK][key] ?? pluginMessage(key) ?? key;
     if (vars) {
       for (const [name, value] of Object.entries(vars)) {
         text = text.replaceAll(`{${name}}`, String(value));
@@ -5624,8 +6089,374 @@ var AICUT = (() => {
     return text;
   }
 
-  // src/core/episodes.ts
+  // src/core/board/workflowNodes.ts
+  function newDeclId(prefix) {
+    const cryptoApi = globalThis.crypto;
+    if (cryptoApi?.randomUUID) return `${prefix}-${cryptoApi.randomUUID()}`;
+    return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  function cleanText(value, fallback = "") {
+    return typeof value === "string" ? value : fallback;
+  }
+  function normalizePortDecl(raw, index) {
+    if (!raw || typeof raw !== "object") return null;
+    const item = raw;
+    const id = cleanText(item.id).trim() || newDeclId(index % 2 === 0 ? "in" : "out");
+    const type = isDataTypeId(item.type) ? item.type : "any";
+    const label = cleanText(item.label).trim();
+    const name = cleanText(item.name).trim() || label || `field_${index + 1}`;
+    const decl = { id, name, label: label || name, type };
+    if (item.required === true) decl.required = true;
+    if (item.default !== void 0 && isJsonish(item.default, 0)) decl.default = item.default;
+    return decl;
+  }
+  function isJsonish(value, depth) {
+    if (depth > 3) return false;
+    if (value === null) return true;
+    const kind = typeof value;
+    if (kind === "string" || kind === "boolean") return true;
+    if (kind === "number") return Number.isFinite(value);
+    if (Array.isArray(value)) return value.every((item) => isJsonish(item, depth + 1));
+    if (kind === "object") {
+      return Object.values(value).every(
+        (item) => isJsonish(item, depth + 1)
+      );
+    }
+    return false;
+  }
+  var MAX_DECLS = 32;
+  function normalizeSignature(raw) {
+    if (!raw || typeof raw !== "object") return void 0;
+    const value = raw;
+    const list = (input) => Array.isArray(input) ? input.slice(0, MAX_DECLS).map((item, index) => normalizePortDecl(item, index)).filter((item) => item !== null) : [];
+    const signature = { inputs: list(value.inputs), outputs: list(value.outputs) };
+    if (signature.inputs.length === 0 && signature.outputs.length === 0) return void 0;
+    return signature;
+  }
+
+  // src/core/board/schema.ts
+  function emptyBoard() {
+    return {
+      version: BOARD_VERSION,
+      nodes: [],
+      edges: [],
+      viewport: { ...DEFAULT_VIEWPORT },
+      updatedAt: Date.now()
+    };
+  }
+  function isObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+  function isPortType(value) {
+    return isDataTypeId(value);
+  }
+  var MAX_VALUE_BYTES = 64 * 1024;
+  var MAX_VALUE_DEPTH = 4;
+  function isJsonValue(value, depth) {
+    if (depth > MAX_VALUE_DEPTH) return false;
+    if (value === null) return true;
+    const kind = typeof value;
+    if (kind === "string" || kind === "boolean") return true;
+    if (kind === "number") return Number.isFinite(value);
+    if (Array.isArray(value)) return value.every((item) => isJsonValue(item, depth + 1));
+    if (isObject(value)) {
+      return Object.values(value).every((item) => isJsonValue(item, depth + 1));
+    }
+    return false;
+  }
+  function normalizeValues(raw) {
+    if (!isObject(raw)) return void 0;
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (!isDataTypeId(key)) continue;
+      if (value === void 0) continue;
+      if (!isJsonValue(value, 0)) continue;
+      out[key] = value;
+    }
+    const keys = Object.keys(out);
+    if (keys.length === 0) return void 0;
+    let encoded = "";
+    try {
+      encoded = JSON.stringify(out);
+    } catch {
+      return void 0;
+    }
+    return encoded.length > MAX_VALUE_BYTES ? void 0 : out;
+  }
+  function normalizeParams(raw) {
+    if (!isObject(raw)) return {};
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (value === void 0) continue;
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        out[key] = value;
+      }
+    }
+    return out;
+  }
+  function normalizePorts(raw) {
+    if (!isObject(raw)) return void 0;
+    const inputs = normalizePortList(raw.inputs);
+    const outputs = normalizePortList(raw.outputs);
+    if (inputs === null || outputs === null) return void 0;
+    return { inputs, outputs };
+  }
+  function normalizePortList(raw) {
+    if (!Array.isArray(raw)) return null;
+    const list = [];
+    for (const item of raw) {
+      if (!isObject(item)) return null;
+      if (typeof item.id !== "string" || !item.id) return null;
+      if (!isPortType(item.type)) return null;
+      if (typeof item.labelKey !== "string") return null;
+      list.push({
+        id: item.id,
+        type: item.type,
+        labelKey: item.labelKey,
+        ...typeof item.label === "string" && item.label ? { label: item.label } : {},
+        ...typeof item.max === "number" ? { max: item.max } : {},
+        ...item.channel === "inline" || item.channel === "blob" || item.channel === "stream" ? { channel: item.channel } : {}
+      });
+    }
+    return list;
+  }
+  function normalizeBindings(raw) {
+    if (!isObject(raw)) return {};
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (!isObject(value)) continue;
+      if (typeof value.nodeId !== "string" || typeof value.portId !== "string") continue;
+      out[key] = { nodeId: value.nodeId, portId: value.portId };
+    }
+    return out;
+  }
+  function normalizeNode(raw) {
+    if (!isObject(raw)) return null;
+    if (typeof raw.id !== "string" || !raw.id || typeof raw.type !== "string" || !raw.type) return null;
+    const position = isObject(raw.position) ? raw.position : {};
+    const x = typeof position.x === "number" && Number.isFinite(position.x) ? position.x : 0;
+    const y = typeof position.y === "number" && Number.isFinite(position.y) ? position.y : 0;
+    const rawData = isObject(raw.data) ? raw.data : {};
+    const data = {
+      params: normalizeParams(rawData.params),
+      bindings: normalizeBindings(rawData.bindings)
+    };
+    const ports = normalizePorts(rawData.ports);
+    if (ports) data.ports = ports;
+    if (typeof rawData.pairId === "string" && rawData.pairId) data.pairId = rawData.pairId;
+    const signature = normalizeSignature(rawData.signature);
+    if (signature) data.signature = signature;
+    if (typeof rawData.title === "string" && rawData.title) data.title = rawData.title;
+    if (typeof rawData.assetId === "string" && rawData.assetId) data.assetId = rawData.assetId;
+    if (Array.isArray(rawData.items)) {
+      const items = rawData.items.filter((item) => isJsonValue(item, 0)).slice(0, 200);
+      if (items.length > 0) data.items = items;
+    }
+    if (Array.isArray(rawData.assetIds)) {
+      const ids = rawData.assetIds.filter(
+        (id) => typeof id === "string" && id.length > 0
+      );
+      if (ids.length > 0) {
+        data.assetIds = ids;
+        if (!data.assetId) data.assetId = ids[0];
+      }
+    }
+    if (typeof rawData.stackIndex === "number" && Number.isFinite(rawData.stackIndex)) {
+      data.stackIndex = Math.max(0, Math.floor(rawData.stackIndex));
+    }
+    if (typeof rawData.outputAssetId === "string" && rawData.outputAssetId) {
+      data.outputAssetId = rawData.outputAssetId;
+    }
+    const values = normalizeValues(rawData.values);
+    if (values) data.values = values;
+    if (Array.isArray(rawData.outputAssetIds)) {
+      const ids = rawData.outputAssetIds.filter(
+        (id) => typeof id === "string" && id.length > 0
+      );
+      if (ids.length > 0) {
+        data.outputAssetIds = [...new Set(ids)];
+        if (!data.outputAssetId || !data.outputAssetIds.includes(data.outputAssetId)) {
+          data.outputAssetId = data.outputAssetIds[0];
+        }
+      }
+    }
+    if (isObject(rawData.outputs)) {
+      const outputs = {};
+      for (const [portId, assetId] of Object.entries(rawData.outputs)) {
+        if (typeof assetId === "string" && assetId) outputs[portId] = assetId;
+      }
+      if (Object.keys(outputs).length > 0) data.outputs = outputs;
+    }
+    if (rawData.outputOpen === false) data.outputOpen = false;
+    if (typeof rawData.outputText === "string" && rawData.outputText) data.outputText = rawData.outputText;
+    if (typeof rawData.outputReasoning === "string" && rawData.outputReasoning) {
+      data.outputReasoning = rawData.outputReasoning;
+    }
+    if (typeof rawData.startedAt === "number" && Number.isFinite(rawData.startedAt)) {
+      data.startedAt = rawData.startedAt;
+    }
+    if (typeof rawData.durationMs === "number" && Number.isFinite(rawData.durationMs)) {
+      data.durationMs = Math.max(0, rawData.durationMs);
+    }
+    if (typeof rawData.error === "string" && rawData.error) data.error = rawData.error;
+    if (typeof rawData.progress === "number" && Number.isFinite(rawData.progress)) {
+      data.progress = Math.max(0, Math.min(1, rawData.progress));
+    }
+    if (rawData.ignored === true) data.ignored = true;
+    if (rawData.bypassed === true) data.bypassed = true;
+    const tone = rawData.tone;
+    if (tone === "lavender" || tone === "blue" || tone === "green" || tone === "coral" || tone === "amber") {
+      data.tone = tone;
+    }
+    if (Array.isArray(rawData.children)) {
+      const children = rawData.children.filter(
+        (id) => typeof id === "string" && id.length > 0
+      );
+      if (children.length > 0) data.children = [...new Set(children)];
+    }
+    const status = rawData.status;
+    if (status === "idle" || status === "queued" || status === "running" || status === "done" || status === "error" || status === "stale" || status === "skipped") {
+      data.status = status;
+    }
+    const node = { id: raw.id, type: raw.type, position: { x, y }, data };
+    if (isObject(raw.size)) {
+      const width = typeof raw.size.width === "number" ? raw.size.width : 0;
+      const height = typeof raw.size.height === "number" ? raw.size.height : 0;
+      if (width > 80 && height > 60) node.size = { width, height };
+    }
+    return node;
+  }
+  function normalizeBoardSource(raw) {
+    if (!isObject(raw)) return void 0;
+    const source = {};
+    if (typeof raw.rootId === "string" && raw.rootId) source.rootId = raw.rootId;
+    if (typeof raw.builtinId === "string" && raw.builtinId) source.builtinId = raw.builtinId;
+    if (typeof raw.name === "string" && raw.name) source.name = raw.name;
+    if (typeof raw.version === "number" && Number.isFinite(raw.version)) {
+      source.version = Math.max(1, Math.floor(raw.version));
+    }
+    return Object.keys(source).length > 0 ? source : void 0;
+  }
+  function normalizeBoard(raw, portTypeOf) {
+    if (!isObject(raw)) return emptyBoard();
+    const nodes = Array.isArray(raw.nodes) ? raw.nodes.map(normalizeNode).filter((node) => node !== null) : [];
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const edges = [];
+    const seen = /* @__PURE__ */ new Set();
+    if (Array.isArray(raw.edges)) {
+      for (const item of raw.edges) {
+        if (!isObject(item)) continue;
+        const { id, source: source2, sourcePort, target, targetPort } = item;
+        if (typeof id !== "string" || !id || seen.has(id)) continue;
+        if (typeof source2 !== "string" || typeof target !== "string") continue;
+        if (typeof sourcePort !== "string" || typeof targetPort !== "string") continue;
+        if (!nodeIds.has(source2) || !nodeIds.has(target)) continue;
+        const kind = item.kind === "pair" ? "pair" : void 0;
+        if (source2 === target) continue;
+        if (portTypeOf) {
+          const from = portTypeOf(source2, sourcePort, "out");
+          const to = portTypeOf(target, targetPort, "in");
+          if (!from || !to || !isPortType(from) || !isPortType(to)) continue;
+        }
+        seen.add(id);
+        edges.push({ id, source: source2, sourcePort, target, targetPort, ...kind ? { kind } : {} });
+      }
+    }
+    const rawViewport = isObject(raw.viewport) ? raw.viewport : {};
+    const zoom = typeof rawViewport.zoom === "number" && Number.isFinite(rawViewport.zoom) ? Math.min(2.2, Math.max(0.15, rawViewport.zoom)) : 1;
+    const viewport = {
+      x: typeof rawViewport.x === "number" && Number.isFinite(rawViewport.x) ? rawViewport.x : 0,
+      y: typeof rawViewport.y === "number" && Number.isFinite(rawViewport.y) ? rawViewport.y : 0,
+      zoom
+    };
+    const source = normalizeBoardSource(raw.source);
+    return {
+      version: BOARD_VERSION,
+      nodes,
+      edges,
+      viewport,
+      updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
+      ...source ? { source } : {}
+    };
+  }
+
+  // src/core/board/projectBoards.ts
   var attached = /* @__PURE__ */ new WeakSet();
+  function isBoardViewAttached(doc2) {
+    return attached.has(doc2);
+  }
+  function newCanvasId() {
+    const cryptoApi = globalThis.crypto;
+    if (cryptoApi?.randomUUID) return `canvas-${cryptoApi.randomUUID()}`;
+    return `canvas-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  function defaultTitle(index) {
+    return t("board.canvas.defaultTitle", { n: index });
+  }
+  function looksLikeBoard(value) {
+    if (!value || typeof value !== "object") return false;
+    const doc2 = value;
+    return Array.isArray(doc2.nodes) && Array.isArray(doc2.edges);
+  }
+  function attachBoardView(input) {
+    const descriptor = Object.getOwnPropertyDescriptor(input, "board");
+    const hasAccessor = Boolean(descriptor?.get);
+    const raw = input.boards;
+    const list = Array.isArray(raw) && raw.length > 0 ? raw : [];
+    const ownBoard = !hasAccessor && looksLikeBoard(descriptor?.value) ? descriptor?.value : void 0;
+    let boards;
+    if (list.length === 0) {
+      const doc2 = ownBoard ? normalizeBoard(ownBoard) : emptyBoard();
+      boards = [{ id: newCanvasId(), title: defaultTitle(1), doc: doc2 }];
+    } else {
+      const activeIndex = Math.max(
+        0,
+        list.findIndex((canvas) => canvas.id === input.activeBoardId)
+      );
+      const patched = ownBoard && list[activeIndex]?.doc !== ownBoard ? normalizeBoard(ownBoard) : void 0;
+      let changed = patched !== void 0;
+      boards = list.map((canvas, index) => {
+        const id = typeof canvas?.id === "string" && canvas.id ? canvas.id : newCanvasId();
+        const title = typeof canvas?.title === "string" && canvas.title.trim() ? canvas.title : defaultTitle(index + 1);
+        const doc2 = patched && index === activeIndex ? patched : looksLikeBoard(canvas?.doc) ? canvas.doc : normalizeBoard(canvas?.doc);
+        if (id !== canvas?.id || title !== canvas?.title || doc2 !== canvas?.doc) changed = true;
+        return { id, title, doc: doc2 };
+      });
+      if (!changed && attached.has(input) && hasAccessor && input.boards === list) {
+        return input;
+      }
+    }
+    const active = boards.find((canvas) => canvas.id === input.activeBoardId) ?? boards[0];
+    const next = { ...input, boards, activeBoardId: active.id };
+    delete next.board;
+    Object.defineProperty(next, "board", {
+      // 和 episodes 的 tracks / markers 一样是**可枚举**访问器：
+      // `{ ...doc }` 展开时把活动画布文档带过去，外部展开过的文档仍然有 `board`。
+      // 代价是 JSON 里会出现一份重复，由 `serializeProject()` 负责剔除。
+      enumerable: true,
+      configurable: true,
+      get: () => {
+        const current2 = next.boards ?? [];
+        return (current2.find((canvas) => canvas.id === next.activeBoardId) ?? current2[0])?.doc;
+      },
+      set: (value) => {
+        if (!value) return;
+        const current2 = next.boards ?? [];
+        const index = Math.max(
+          0,
+          current2.findIndex((canvas) => canvas.id === next.activeBoardId)
+        );
+        next.boards = current2.map(
+          (canvas, item) => item === index ? { ...canvas, doc: value } : canvas
+        );
+      }
+    });
+    attached.add(next);
+    return next;
+  }
+
+  // src/core/episodes.ts
+  var attached2 = /* @__PURE__ */ new WeakSet();
   function hasEpisodes(doc2) {
     const episodes = doc2.episodes;
     return Array.isArray(episodes) && episodes.length > 0;
@@ -5683,7 +6514,7 @@ var AICUT = (() => {
         set: (value) => replaceActiveEpisode(doc2, { markers: value })
       }
     });
-    attached.add(doc2);
+    attached2.add(doc2);
     return doc2;
   }
   function attachEpisodeView(input) {
@@ -5693,7 +6524,7 @@ var AICUT = (() => {
     const markerAccessor = Boolean(Object.getOwnPropertyDescriptor(doc2, "markers")?.get);
     const ownTracks = !trackAccessor && Array.isArray(doc2.tracks);
     const ownMarkers = !markerAccessor && Array.isArray(doc2.markers);
-    if (attached.has(doc2) && doc2.activeEpisodeId === target.id && trackAccessor && markerAccessor) {
+    if (attached2.has(doc2) && isBoardViewAttached(doc2) && doc2.activeEpisodeId === target.id && trackAccessor && markerAccessor) {
       return doc2;
     }
     const tracks = ownTracks ? doc2.tracks : target.tracks;
@@ -5704,7 +6535,7 @@ var AICUT = (() => {
     const next = { ...doc2, episodes, activeEpisodeId: target.id };
     delete next.tracks;
     delete next.markers;
-    return defineView(next);
+    return defineView(attachBoardView(next));
   }
   function patchProjectMeta(doc2, patch) {
     const next = { ...doc2, ...patch };
@@ -7143,188 +7974,13 @@ var AICUT = (() => {
     return { doc: next, affected: diffAffected(doc2, next) };
   }
 
-  // src/types/board.ts
-  var BOARD_VERSION = 1;
-  var DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 };
-
-  // src/core/board/schema.ts
-  function emptyBoard() {
-    return {
-      version: BOARD_VERSION,
-      nodes: [],
-      edges: [],
-      viewport: { ...DEFAULT_VIEWPORT },
-      updatedAt: Date.now()
-    };
-  }
-  var PORT_TYPES = ["text", "image", "video", "audio", "any"];
-  function isObject(value) {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-  }
-  function isPortType(value) {
-    return typeof value === "string" && PORT_TYPES.includes(value);
-  }
-  function normalizeParams(raw) {
-    if (!isObject(raw)) return {};
-    const out = {};
-    for (const [key, value] of Object.entries(raw)) {
-      if (value === void 0) continue;
-      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-        out[key] = value;
-      }
-    }
-    return out;
-  }
-  function normalizeBindings(raw) {
-    if (!isObject(raw)) return {};
-    const out = {};
-    for (const [key, value] of Object.entries(raw)) {
-      if (!isObject(value)) continue;
-      if (typeof value.nodeId !== "string" || typeof value.portId !== "string") continue;
-      out[key] = { nodeId: value.nodeId, portId: value.portId };
-    }
-    return out;
-  }
-  function normalizeNode(raw) {
-    if (!isObject(raw)) return null;
-    if (typeof raw.id !== "string" || !raw.id || typeof raw.type !== "string" || !raw.type) return null;
-    const position = isObject(raw.position) ? raw.position : {};
-    const x = typeof position.x === "number" && Number.isFinite(position.x) ? position.x : 0;
-    const y = typeof position.y === "number" && Number.isFinite(position.y) ? position.y : 0;
-    const rawData = isObject(raw.data) ? raw.data : {};
-    const data = {
-      params: normalizeParams(rawData.params),
-      bindings: normalizeBindings(rawData.bindings)
-    };
-    if (typeof rawData.title === "string" && rawData.title) data.title = rawData.title;
-    if (typeof rawData.assetId === "string" && rawData.assetId) data.assetId = rawData.assetId;
-    if (Array.isArray(rawData.assetIds)) {
-      const ids = rawData.assetIds.filter(
-        (id) => typeof id === "string" && id.length > 0
-      );
-      if (ids.length > 0) {
-        data.assetIds = ids;
-        if (!data.assetId) data.assetId = ids[0];
-      }
-    }
-    if (typeof rawData.stackIndex === "number" && Number.isFinite(rawData.stackIndex)) {
-      data.stackIndex = Math.max(0, Math.floor(rawData.stackIndex));
-    }
-    if (typeof rawData.outputAssetId === "string" && rawData.outputAssetId) {
-      data.outputAssetId = rawData.outputAssetId;
-    }
-    if (Array.isArray(rawData.outputAssetIds)) {
-      const ids = rawData.outputAssetIds.filter(
-        (id) => typeof id === "string" && id.length > 0
-      );
-      if (ids.length > 0) {
-        data.outputAssetIds = [...new Set(ids)];
-        if (!data.outputAssetId || !data.outputAssetIds.includes(data.outputAssetId)) {
-          data.outputAssetId = data.outputAssetIds[0];
-        }
-      }
-    }
-    if (isObject(rawData.outputs)) {
-      const outputs = {};
-      for (const [portId, assetId] of Object.entries(rawData.outputs)) {
-        if (typeof assetId === "string" && assetId) outputs[portId] = assetId;
-      }
-      if (Object.keys(outputs).length > 0) data.outputs = outputs;
-    }
-    if (rawData.outputOpen === false) data.outputOpen = false;
-    if (typeof rawData.outputText === "string" && rawData.outputText) data.outputText = rawData.outputText;
-    if (typeof rawData.outputReasoning === "string" && rawData.outputReasoning) {
-      data.outputReasoning = rawData.outputReasoning;
-    }
-    if (typeof rawData.startedAt === "number" && Number.isFinite(rawData.startedAt)) {
-      data.startedAt = rawData.startedAt;
-    }
-    if (typeof rawData.durationMs === "number" && Number.isFinite(rawData.durationMs)) {
-      data.durationMs = Math.max(0, rawData.durationMs);
-    }
-    if (typeof rawData.error === "string" && rawData.error) data.error = rawData.error;
-    if (typeof rawData.progress === "number" && Number.isFinite(rawData.progress)) {
-      data.progress = Math.max(0, Math.min(1, rawData.progress));
-    }
-    if (rawData.ignored === true) data.ignored = true;
-    if (rawData.bypassed === true) data.bypassed = true;
-    if (Array.isArray(rawData.children)) {
-      const children = rawData.children.filter(
-        (id) => typeof id === "string" && id.length > 0
-      );
-      if (children.length > 0) data.children = [...new Set(children)];
-    }
-    const status = rawData.status;
-    if (status === "idle" || status === "queued" || status === "running" || status === "done" || status === "error" || status === "stale" || status === "skipped") {
-      data.status = status;
-    }
-    const node = { id: raw.id, type: raw.type, position: { x, y }, data };
-    if (isObject(raw.size)) {
-      const width = typeof raw.size.width === "number" ? raw.size.width : 0;
-      const height = typeof raw.size.height === "number" ? raw.size.height : 0;
-      if (width > 80 && height > 60) node.size = { width, height };
-    }
-    return node;
-  }
-  function normalizeBoardSource(raw) {
-    if (!isObject(raw)) return void 0;
-    const source = {};
-    if (typeof raw.rootId === "string" && raw.rootId) source.rootId = raw.rootId;
-    if (typeof raw.builtinId === "string" && raw.builtinId) source.builtinId = raw.builtinId;
-    if (typeof raw.name === "string" && raw.name) source.name = raw.name;
-    if (typeof raw.version === "number" && Number.isFinite(raw.version)) {
-      source.version = Math.max(1, Math.floor(raw.version));
-    }
-    return Object.keys(source).length > 0 ? source : void 0;
-  }
-  function normalizeBoard(raw, portTypeOf) {
-    if (!isObject(raw)) return emptyBoard();
-    const nodes = Array.isArray(raw.nodes) ? raw.nodes.map(normalizeNode).filter((node) => node !== null) : [];
-    const nodeIds = new Set(nodes.map((node) => node.id));
-    const edges = [];
-    const seen = /* @__PURE__ */ new Set();
-    if (Array.isArray(raw.edges)) {
-      for (const item of raw.edges) {
-        if (!isObject(item)) continue;
-        const { id, source: source2, sourcePort, target, targetPort } = item;
-        if (typeof id !== "string" || !id || seen.has(id)) continue;
-        if (typeof source2 !== "string" || typeof target !== "string") continue;
-        if (typeof sourcePort !== "string" || typeof targetPort !== "string") continue;
-        if (!nodeIds.has(source2) || !nodeIds.has(target)) continue;
-        if (source2 === target) continue;
-        if (portTypeOf) {
-          const from = portTypeOf(source2, sourcePort, "out");
-          const to = portTypeOf(target, targetPort, "in");
-          if (!from || !to || !isPortType(from) || !isPortType(to)) continue;
-        }
-        seen.add(id);
-        edges.push({ id, source: source2, sourcePort, target, targetPort });
-      }
-    }
-    const rawViewport = isObject(raw.viewport) ? raw.viewport : {};
-    const zoom = typeof rawViewport.zoom === "number" && Number.isFinite(rawViewport.zoom) ? Math.min(2.2, Math.max(0.15, rawViewport.zoom)) : 1;
-    const viewport = {
-      x: typeof rawViewport.x === "number" && Number.isFinite(rawViewport.x) ? rawViewport.x : 0,
-      y: typeof rawViewport.y === "number" && Number.isFinite(rawViewport.y) ? rawViewport.y : 0,
-      zoom
-    };
-    const source = normalizeBoardSource(raw.source);
-    return {
-      version: BOARD_VERSION,
-      nodes,
-      edges,
-      viewport,
-      updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : Date.now(),
-      ...source ? { source } : {}
-    };
-  }
-
   // src/core/serialize.ts
   function serializeProject(project) {
     const doc2 = attachEpisodeView(project);
     const wire = { ...doc2 };
     delete wire.tracks;
     delete wire.markers;
+    delete wire.board;
     return JSON.stringify(wire, null, 2);
   }
   function isObject2(v) {
@@ -7539,8 +8195,16 @@ var AICUT = (() => {
     }));
     const doc2 = patchProjectMeta(migrated, { episodes });
     const cutScopes2 = normalizeCutScopes(doc2);
+    const boards = Array.isArray(doc2.boards) ? doc2.boards.map((canvas) => ({
+      ...canvas,
+      doc: normalizeBoard(canvas.doc)
+    })) : void 0;
     const board = doc2.board === void 0 ? void 0 : normalizeBoard(doc2.board);
-    return patchProjectMeta(doc2, { cutScopes: cutScopes2, board });
+    return patchProjectMeta(doc2, {
+      cutScopes: cutScopes2,
+      ...boards ? { boards } : {},
+      ...board ? { board } : {}
+    });
   }
   function parseProject(json) {
     let raw;

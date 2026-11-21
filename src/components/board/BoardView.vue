@@ -57,7 +57,6 @@ import BoardEdgeCard from "./BoardEdge.vue";
 import BoardMenu from "./BoardMenu.vue";
 import NumberField from "@/components/common/NumberField.vue";
 import FloppyDiskIcon from "@/components/common/icons/FloppyDiskIcon.vue";
-import PanelIcon from "@/components/common/PanelIcon.vue";
 import type { BoardMenuItem } from "./BoardMenuList.vue";
 import { categoryIcon, nodeIcon } from "./nodeIcons";
 import { useI18n } from "@/i18n";
@@ -550,7 +549,9 @@ function addNode(type: string, at?: { x: number; y: number }, data?: Partial<Boa
     data: { params: {}, bindings: {}, ...data },
   });
   void nextTick(() => {
-    if (board.nodes.length === 1) void fitView({ padding: 0.35, duration: 260 });
+    if (board.nodes.length === 1) {
+      void fitView({ padding: 0.35, duration: 260, maxZoom: FIT_MAX_ZOOM });
+    }
   });
   return id;
 }
@@ -1071,7 +1072,19 @@ const menuItems = computed<BoardMenuItem[]>(() => {
       id: "fit",
       label: i18n.t("board.fit"),
       icon: ArrowsPointingOutIcon,
-      run: () => void fitView({ padding: 0.2, duration: 260 }),
+      run: () =>
+        void fitView({ padding: 0.2, duration: 260, maxZoom: FIT_MAX_ZOOM }),
+    },
+    {
+      kind: "action",
+      id: "canvas-list",
+      label: i18n.t("board.ctx.canvasList"),
+      icon: Squares2X2Icon,
+      run: () => {
+        // 画布列表在画布检查器里：清掉选中，切到该面板。
+        board.select([]);
+        layout.openTab("boardInspector");
+      },
     },
     { kind: "separator", id: "pane-sep-2" },
     {
@@ -1444,6 +1457,9 @@ function onFlowInit(): void {
   void setViewport({ x: board.viewport.x, y: board.viewport.y, zoom: board.viewport.zoom });
 }
 
+/** 「适应画布」的缩放上限：100%。只有一个节点时 fit 会把它放到很大、占满全屏。 */
+const FIT_MAX_ZOOM = 1;
+
 /**
  * 本进程是否已经自动「适应画布」过。
  *
@@ -1460,15 +1476,54 @@ function fitOnFirstEnter(): void {
   if (fittedOnEnter) return;
   if (board.nodes.length === 0) return;
   fittedOnEnter = true;
-  void fitView({ padding: 0.2, duration: 260 }).then((done) => {
-    if (!done) return;
-    const viewport = getViewport();
-    board.setViewport(viewport);
-    liveZoom.value = viewport.zoom;
-  });
+  void fitCanvas();
 }
 
 onNodesInitialized(fitOnFirstEnter);
+
+/** 把当前视图写回画布文档（fit 之后保存，切回来还是这个视角）。 */
+function rememberViewport(): void {
+  const viewport = getViewport();
+  board.setViewport(viewport);
+  liveZoom.value = viewport.zoom;
+}
+
+/**
+ * 适应画布：等新画布的节点进 Vue Flow 之后再 fit。
+ *
+ * 切换画布时会换掉整份节点，Vue Flow 需要一帧测量尺寸；直接 fit 会按旧尺寸算，
+ * 所以这里连等两个 tick。空画布不 fit（没有可居中的东西）。
+ */
+async function fitCanvas(): Promise<void> {
+  if (board.nodes.length === 0) return;
+  // 节点刚换进 Vue Flow 时可能还没测量完尺寸：fitView 会返回 false，隔一帧重试。
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await nextTick();
+    if (attempt > 0) await new Promise<void>((resolve) => setTimeout(resolve, 32));
+    const done = await fitView({
+      padding: 0.2,
+      duration: attempt === 0 ? 260 : 0,
+      maxZoom: FIT_MAX_ZOOM,
+    });
+    if (!done) continue;
+    rememberViewport();
+    return;
+  }
+}
+
+/**
+ * 切换画布：主动适应一次。
+ *
+ * 每张画布虽然各存了视口，但刚切过去时用户最容易「咦，节点去哪了」——
+ * 统一 fit 一次，比沿用可能已经漂走的旧视角更可靠。
+ */
+watch(
+  () => board.activeCanvasId,
+  async (id, previous) => {
+    if (!id || id === previous) return;
+    await fitCanvas();
+  },
+);
 
 onMounted(() => {
   layout.openTab("boardInspector");
@@ -1706,7 +1761,13 @@ onUnmounted(() => {
         <TableCellsIcon />
       </button>
       <span class="board-sep" aria-hidden="true" />
-      <button class="board-tool" type="button" :title="i18n.t('board.fit')" @click="fitView({ padding: 0.2 })">
+      <button
+        class="board-tool"
+        type="button"
+        :title="i18n.t('board.fit')"
+        :aria-label="i18n.t('board.fit')"
+        @click="fitView({ padding: 0.2, maxZoom: FIT_MAX_ZOOM })"
+      >
         <ArrowsPointingOutIcon />
       </button>
       <span class="board-sep" aria-hidden="true" />
@@ -1737,18 +1798,6 @@ onUnmounted(() => {
         @click="clearBoard()"
       >
         <TrashIcon />
-      </button>
-      <span class="board-sep" aria-hidden="true" />
-      <button
-        class="board-tool"
-        type="button"
-        :class="{ on: layout.showTimeline }"
-        :title="layout.showTimeline ? i18n.t('board.hideTimeline') : i18n.t('board.showTimeline')"
-        :aria-label="layout.showTimeline ? i18n.t('board.hideTimeline') : i18n.t('board.showTimeline')"
-        :aria-expanded="layout.showTimeline"
-        @click="layout.showTimeline = !layout.showTimeline"
-      >
-        <PanelIcon side="bottom" :filled="layout.showTimeline" />
       </button>
     </div>
 

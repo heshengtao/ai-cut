@@ -20,6 +20,22 @@ export const FALLBACK: Locale = LOCALES[0].id;
 
 const MESSAGES: Record<Locale, Record<string, string>> = { zh, en };
 
+/**
+ * 这个字符串是不是一条已知的 i18n key？
+ *
+ * 用途：修复历史数据里误存的 key（早期版本把 `t()` 的返回值写进了画布标题，
+ * 缺词条时 `t()` 返回 key 本身，于是 `board.canvas.defaultTitle` 被持久化）。
+ * 只认「两段以上的点分小写 key + 词典里确实存在」，避免误伤用户起的名字。
+ */
+export function isKnownMessageKey(value: string): boolean {
+  const key = value?.trim();
+  if (!key || key.length > 64) return false;
+  if (!/^[a-z][a-z0-9_-]*(\.[a-z0-9_-]+)+$/i.test(key)) return false;
+  return LOCALES.some((locale) =>
+    Object.prototype.hasOwnProperty.call(MESSAGES[locale.id] ?? {}, key),
+  );
+}
+
 /** 插件词典：pluginId → 语言 → 文案。key 在插件侧的写法不带前缀。 */
 const PLUGIN_MESSAGES = new Map<string, Partial<Record<Locale, Record<string, string>>>>();
 

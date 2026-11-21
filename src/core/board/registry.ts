@@ -13,6 +13,15 @@ import type {
 } from "@/types/board";
 import { isDataTypeId } from "./dataTypes";
 import { slotCount } from "./loop";
+import {
+  WORKFLOW_CALL_TYPE,
+  WORKFLOW_END_TYPE,
+  WORKFLOW_START_TYPE,
+  callPorts,
+  endInputs,
+  endOutputs,
+  startPorts,
+} from "./workflowNodes";
 
 /**
  * 注册表版本号。
@@ -315,11 +324,75 @@ const LOOP_END: BoardNodeDefinition = {
   defaultSize: { width: 360, height: 150 },
 };
 
-/** 不在添加菜单里出现的节点（循环结束跟随开始节点创建）。 */
-const HIDDEN_NODES: BoardNodeDefinition[] = [LOOP_END];
+/**
+ * 工作流开始 / 结束：成对创建，声明这张画布的对外签名。
+ *
+ * 开始节点只有输出（声明的每个输入一个端口），结束节点只有输入（每个声明的
+ * 输出一个端口）；端口都是动态的，具体内容在检查器的签名区里增删。
+ */
+const WORKFLOW_START: BoardNodeDefinition = {
+  type: WORKFLOW_START_TYPE,
+  titleKey: "board.node.workflowStart",
+  menuTitleKey: "board.node.workflow",
+  category: "group",
+  order: 42,
+  inputs: [],
+  outputs: [],
+  params: [],
+  defaultSize: { width: 360, height: 170 },
+};
+
+const WORKFLOW_END: BoardNodeDefinition = {
+  type: WORKFLOW_END_TYPE,
+  titleKey: "board.node.workflowEnd",
+  category: "group",
+  order: 43,
+  inputs: [],
+  outputs: [],
+  params: [],
+  defaultSize: { width: 360, height: 170 },
+};
+
+/**
+ * 嵌入工作流：在父工作流里调用另一张画布（子工作流）。
+ *
+ * 端口由目标签名的快照生成（`data.ports`），所以插件离线、目标被删也不会把
+ * 连线变成悬空边；运行时会重新读目标并给出明确报错。
+ */
+const WORKFLOW_CALL: BoardNodeDefinition = {
+  type: WORKFLOW_CALL_TYPE,
+  titleKey: "board.node.workflowCall",
+  menuTitleKey: "board.node.workflowEmbed",
+  category: "group",
+  order: 44,
+  inputs: [],
+  outputs: [],
+  params: [
+    {
+      id: "workflow",
+      labelKey: "board.param.workflow",
+      kind: "text",
+      default: "",
+      inspectorOnly: true,
+    },
+    {
+      id: "workflowName",
+      labelKey: "board.param.workflowName",
+      kind: "text",
+      default: "",
+      inspectorOnly: true,
+    },
+  ],
+  defaultSize: { width: 360, height: 170 },
+};
+
+/** 不在添加菜单里出现的节点（循环 / 工作流结束跟随开始节点创建）。 */
+const HIDDEN_NODES: BoardNodeDefinition[] = [LOOP_END, WORKFLOW_END];
 
 export const BOARD_NODES: BoardNodeDefinition[] = [
   LOOP_START,
+  WORKFLOW_START,
+  WORKFLOW_CALL,
   INPUT_IMAGE,
   INPUT_VIDEO,
   INPUT_AUDIO,
@@ -683,6 +756,16 @@ export function portsOf(
         labelKey: "board.port.slot",
       })),
     };
+  }
+  if (definition.type === WORKFLOW_START_TYPE) {
+    return { inputs: [], outputs: startPorts(node) };
+  }
+  if (definition.type === WORKFLOW_END_TYPE) {
+    return { inputs: endInputs(node), outputs: endOutputs(node) };
+  }
+  if (definition.type === WORKFLOW_CALL_TYPE) {
+    // 端口快照：选目标时写入；目标被删也保留端口，运行时报错而不是丢连线。
+    return node.data.ports ?? callPorts({ inputs: [], outputs: [] });
   }
   if (definition.type === "input.value") {
     // 值输入的端口类型跟着 `params.kind` 走：插件注册了新类型，这里自动生效。

@@ -1,6 +1,7 @@
 /** 画布节点的图标映射（UI 侧）：与 ai-board 一样，节点选项与卡片头部都带图标。 */
 import {
   ArrowsPointingOutIcon,
+  ArrowPathRoundedSquareIcon,
   ArrowRightEndOnRectangleIcon,
   ChatBubbleLeftRightIcon,
   HashtagIcon,
@@ -14,6 +15,8 @@ import {
   ScissorsIcon,
   SparklesIcon,
   SpeakerWaveIcon,
+  StopCircleIcon,
+  PlayCircleIcon,
   Squares2X2Icon,
   Square3Stack3DIcon,
   VideoCameraIcon,
@@ -40,6 +43,11 @@ const NODE_ICONS: Record<string, unknown> = {
   "model.enhance": ArrowsPointingOutIcon,
   "model.separate": QueueListIcon,
   "model.demux": ScissorsIcon,
+  "loop.start": ArrowPathRoundedSquareIcon,
+  "loop.end": ArrowPathRoundedSquareIcon,
+  "workflow.start": PlayCircleIcon,
+  "workflow.end": StopCircleIcon,
+  "workflow.call": ArrowPathRoundedSquareIcon,
   group: Square3Stack3DIcon,
 };
 

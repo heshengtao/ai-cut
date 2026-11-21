@@ -105,6 +105,9 @@ const BUILTIN_TYPES = new Set([
   "display.value",
   "loop.start",
   "loop.end",
+  "workflow.start",
+  "workflow.end",
+  "workflow.call",
   "group",
 ]);
 

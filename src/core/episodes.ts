@@ -10,6 +10,7 @@
  * `attachEpisodeView()` 折返。本文件不许 import Vue / store。
  */
 import type { Episode, Marker, Project, Track } from "@/types/project";
+import { attachBoardView, isBoardViewAttached } from "@/core/board/projectBoards";
 import { t } from "@/i18n/translate";
 
 /** 已挂过投影的文档对象（同一个对象只挂一次）。 */
@@ -108,6 +109,7 @@ export function attachEpisodeView(input: Project): Project {
 
   if (
     attached.has(doc) &&
+    isBoardViewAttached(doc) &&
     doc.activeEpisodeId === target.id &&
     trackAccessor &&
     markerAccessor
@@ -123,7 +125,7 @@ export function attachEpisodeView(input: Project): Project {
   const next = { ...doc, episodes, activeEpisodeId: target.id } as Project;
   delete (next as Partial<Project>).tracks;
   delete (next as Partial<Project>).markers;
-  return defineView(next);
+  return defineView(attachBoardView(next));
 }
 
 /**

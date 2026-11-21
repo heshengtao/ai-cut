@@ -2,8 +2,8 @@
 /**
  * 主舞台：按顶栏视图切换「预览台 / 无限画布 / 剧集总览」。
  *
- * 只替换**预览台这一块**——下方时间线与右侧面板都不受影响，切走再切回来
- * 时间线位置、播放头、面板标签都保持原样。
+ * 只替换**预览台这一块**——右侧面板不受影响；时间线只属于预览界面，
+ * 画布 / 剧集视图里由 AppShell 隐藏，切回预览时恢复原来的显示 / 隐藏状态。
  */
 import PreviewStage from "./PreviewStage.vue";
 import BoardView from "@/components/board/BoardView.vue";

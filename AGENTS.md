@@ -74,6 +74,41 @@
 - When adding items, add `menu.*` keys to **both** `src/i18n/zh.ts` and `src/i18n/en.ts`, and
   extend `src/composables/__tests__/timelineMenus.test.ts` for the block-type rule.
 
+## Canvas documents & workflow nodes
+
+- A project owns **many canvases**: `doc.boards: BoardCanvas[]` + `activeBoardId` are the truth;
+  `doc.board` is an enumerable accessor for the active canvas (serialized as `boards` only —
+  `serializeProject` deletes the `board` projection). Any doc producer must go through
+  `attachEpisodeView()` / `attachBoardView()` (`src/core/board/projectBoards.ts`); never spread a
+  project and hand it to a store without folding it back.
+- Canvas edits stay out of the timeline command bus: the board store flushes into
+  `project.updateBoard()` (active canvas) on a 350 ms debounce.
+- `workflow.start` / `workflow.end` are a **pair** (shared `pairId`, pair edge, created/deleted
+  together, `workflow.end` is hidden from the add menu). They declare the canvas signature
+  (`data.signature` = `WorkflowPortDecl[]`); ports are the signature row ids, so renaming a row
+  never moves an edge. `workflow.call` embeds a published workflow and snapshots its ports into
+  `data.ports` (same mechanism as plugin nodes, so a deleted target keeps its wires and the run
+  errors clearly).
+- Signature types come from `core/board/dataTypes.ts`; plugin-registered types must be selectable
+  and valid without touching the workflow nodes.
+- Publishing is library metadata: `workflow_save` with tags `workflow` + `subworkflow` / `api`
+  (Rust already persists `tags`). The library filters on those tags, and the MCP tools
+  (`board_*`, `workflow_list` / `workflow_run`) read the same tags. The UI entry is a per-row
+  「发布」 button in the canvas list that opens a modal (`useCanvasPublish` + `CanvasPublishDialog`);
+  do not put publish configuration inline in the inspector.
+- Nested execution reuses the run engine through an explicit `RunScope`
+  (`src/composables/useBoardRun.ts`): never use a module-level "current board" for upstream reads,
+  parent nodes and nested nodes run concurrently. Depth limit 8, cycles detected through the call
+  trail; missing / cycle / depth problems are thrown errors, never silent empty results.
+- Clearing an **unsaved** canvas must ask (save & clear / clear without saving / cancel); never
+  auto-save a workflow version just because the user cleared the canvas.
+- Canvas titles: empty string means "auto name"; render it with `board.canvas.defaultTitle` at
+  display time (never persist the current language into the document). Type and tag labels in the
+  canvas UI go through `useBoardLabels()` (`board.type.<id>`, library badge keys) — plugin data
+  types fall back to the registry label.
+- Full design note (multi-canvas IR, signatures, publishing, MCP ops):
+  [`docs/canvas-workflow.md`](docs/canvas-workflow.md).
+
 ## Canvas node UX (mandatory)
 
 Five rules every canvas node (built-in or plugin) must follow; full note in
@@ -97,6 +132,11 @@ Five rules every canvas node (built-in or plugin) must follow; full note in
 
 Keep `docs/plugins.md` in sync for plugin authors; cite an exception in the design note before
 breaking a rule.
+
+Canvas CSS only uses tokens that `src/assets/main.css` actually defines (`--md-*`, `--node-*`,
+`--app-*`). A typo like `var(--surface-1)` makes the whole declaration invalid — the node silently
+renders transparent. `src/components/board/__tests__/cssTokens.test.ts` guards this; new card faces
+should reuse `.mn-card` (or `--node-surface-bg`) instead of inventing a surface color.
 
 ## Plugins (canvas extensions)
 

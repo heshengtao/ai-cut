@@ -29,6 +29,19 @@ pub async fn dispatch(
     }
     // 文档类工具：映射到 `agent_bridge` 的同名方法（参数形状与桌面 `tools.rs` 一致）。
     let (method, payload) = match name {
+        // 画布 / 工作流：桌面版走渲染进程的画布 store；无头版只能读工程快照。
+        // 快照里的 `boards` / `activeBoardId` 就是真相，读工具据此汇总。
+        "board_list_canvases" => return board_list_canvases(doc).await,
+        "board_get_canvas" => return board_get_canvas(doc, &args).await,
+        "workflow_list" => return Ok(workflow_list(host.as_ref())),
+        // 画布写入与工作流运行需要渲染进程的节点定义 / 运行器：明确报错，不伪造成功。
+        "board_create_canvas"
+        | "board_delete_canvas"
+        | "board_rename_canvas"
+        | "board_open_canvas"
+        | "board_apply_ops"
+        | "workflow_publish"
+        | "workflow_run" => return Err(desktop_only(name)),
         // 概览：桌面把 `get_project` 走 `project.overview`；这里统一用概览视图。
         "get_project" | "get_context" => ("project.context", json!({})),
         "get_clip" => ("project.clip", args),
@@ -1406,6 +1419,198 @@ pub async fn dispatch(
 
 
 
+
+// ---------------------------------------------------------------------------
+// 画布 / 工作流（读工程快照 + 工作流库）
+// ---------------------------------------------------------------------------
+
+/// 无头版没有渲染进程：画布写入与工作流运行明确报错，并指出去哪执行。
+fn desktop_only(tool: &str) -> String {
+    format!(
+        "工具 {tool} 还没有在浏览器/容器版本实现：画布写入与工作流运行需要桌面版的渲染进程（Tauri 窗口里的画布 store 与运行器，见 docs/docker-desktop-parity.md §12）"
+    )
+}
+
+/// 当前工程快照（画布读工具的数据源）。
+///
+/// 快照由领域层 `serializeProject` 写出：`boards` / `activeBoardId` 是真相，
+/// `board` 只是活动画布的访问器，不会出现在 JSON 里。
+async fn project_snapshot(doc: &DocHandle) -> Result<Value, String> {
+    let text = doc
+        .snapshot()
+        .await
+        .map_err(|error| format!("读取工程快照失败，无法读取画布：{error}"))?;
+    serde_json::from_str(&text).map_err(|error| format!("工程快照不是合法 JSON：{error}"))
+}
+
+fn boards_of(snapshot: &Value) -> &[Value] {
+    snapshot
+        .get("boards")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+}
+
+/// 活动画布 id；`activeBoardId` 失效时回落到第一张（与 `projectBoards.activeCanvas` 一致）。
+fn active_canvas_id(snapshot: &Value) -> String {
+    let boards = boards_of(snapshot);
+    let declared = snapshot
+        .get("activeBoardId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if boards
+        .iter()
+        .any(|canvas| canvas.get("id").and_then(Value::as_str) == Some(declared))
+    {
+        return declared.to_string();
+    }
+    boards
+        .first()
+        .and_then(|canvas| canvas.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+/// 开始节点发布的输入 / 结束节点收集的输出（`data.signature`）。
+///
+/// 只读快照里的签名行，不复制前端的校验（`publishable` / `problems` 依赖节点
+/// 定义与类型注册表，留在桌面版回答）。
+fn signature_ports(nodes: &[Value], node_type: &str, field: &str) -> Vec<Value> {
+    nodes
+        .iter()
+        .find(|node| node.get("type").and_then(Value::as_str) == Some(node_type))
+        .and_then(|node| node.get("data"))
+        .and_then(|data| data.get("signature"))
+        .and_then(|signature| signature.get(field))
+        .and_then(Value::as_array)
+        .map(|decls| {
+            decls
+                .iter()
+                .map(|decl| {
+                    let name = decl
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .or_else(|| decl.get("label").and_then(Value::as_str))
+                        .or_else(|| decl.get("id").and_then(Value::as_str))
+                        .unwrap_or("");
+                    json!({
+                        "name": name,
+                        "type": decl.get("type").and_then(Value::as_str).unwrap_or("any"),
+                    })
+                })
+                .collect::<Vec<Value>>()
+        })
+        .unwrap_or_default()
+}
+
+/// 一张画布的摘要（字段与桌面 `canvasApi.canvasList` 同名；少 `publishable` / `problems`）。
+fn canvas_summary(canvas: &Value, active_id: &str) -> Value {
+    let id = canvas.get("id").and_then(Value::as_str).unwrap_or("");
+    let doc = canvas.get("doc").cloned().unwrap_or(Value::Null);
+    let nodes = doc
+        .get("nodes")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let edges = doc
+        .get("edges")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    json!({
+        "id": id,
+        "title": canvas.get("title").and_then(Value::as_str).unwrap_or(""),
+        "active": id == active_id,
+        "nodeCount": nodes.len(),
+        "edgeCount": edges.len(),
+        "source": doc.get("source").and_then(|source| source.get("name")),
+        "inputs": signature_ports(&nodes, "workflow.start", "inputs"),
+        "outputs": signature_ports(&nodes, "workflow.end", "outputs"),
+    })
+}
+
+/// `board.list` 的无头实现：从工程快照汇总画布列表。
+async fn board_list_canvases(doc: &DocHandle) -> Result<Value, String> {
+    let snapshot = project_snapshot(doc).await?;
+    let active = active_canvas_id(&snapshot);
+    let canvases: Vec<Value> = boards_of(&snapshot)
+        .iter()
+        .map(|canvas| canvas_summary(canvas, &active))
+        .collect();
+    Ok(json!({ "activeId": active, "canvases": canvases }))
+}
+
+/// `board.get` 的无头实现：从工程快照取一张画布的节点与连线。
+async fn board_get_canvas(doc: &DocHandle, args: &Value) -> Result<Value, String> {
+    let snapshot = project_snapshot(doc).await?;
+    let active = active_canvas_id(&snapshot);
+    let requested = args
+        .get("canvasId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty());
+    let id = requested.unwrap_or(active.as_str());
+    let canvas = boards_of(&snapshot)
+        .iter()
+        .find(|canvas| canvas.get("id").and_then(Value::as_str) == Some(id))
+        .ok_or_else(|| format!("画布不存在：{id}"))?;
+    let canvas_doc = canvas.get("doc").cloned().unwrap_or(Value::Null);
+    Ok(json!({
+        "canvas": canvas_summary(canvas, &active),
+        "nodes": canvas_doc.get("nodes").cloned().unwrap_or_else(|| json!([])),
+        "edges": canvas_doc.get("edges").cloned().unwrap_or_else(|| json!([])),
+    }))
+}
+
+/// `workflow.list` 的无头实现：只列发布过的卡片（标签 `api` / `subworkflow`），
+/// 每张卡片取最新版本，签名从快照里的开始 / 结束节点读出。
+fn workflow_list(host: &dyn Host) -> Value {
+    let mut latest: std::collections::HashMap<String, crate::workflow::WorkflowVersion> =
+        std::collections::HashMap::new();
+    for entry in crate::workflow::list(host.data_dir()) {
+        if !entry
+            .tags
+            .iter()
+            .any(|tag| tag == "api" || tag == "subworkflow")
+        {
+            continue;
+        }
+        let newer = latest
+            .get(&entry.root_id)
+            .map(|known| entry.version > known.version)
+            .unwrap_or(true);
+        if newer {
+            latest.insert(entry.root_id.clone(), entry);
+        }
+    }
+    let mut entries: Vec<_> = latest.into_values().collect();
+    entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let rows: Vec<Value> = entries
+        .into_iter()
+        .map(|entry| {
+            // 快照读不出来时仍列出条目（名字 / 标签可发现），签名留空。
+            let (inputs, outputs) = match crate::workflow::get(host.data_dir(), entry.id.clone()) {
+                Ok(snapshot) => {
+                    let nodes = snapshot.nodes.as_array().cloned().unwrap_or_default();
+                    (
+                        signature_ports(&nodes, "workflow.start", "inputs"),
+                        signature_ports(&nodes, "workflow.end", "outputs"),
+                    )
+                }
+                Err(_) => (Vec::new(), Vec::new()),
+            };
+            json!({
+                "rootId": entry.root_id,
+                "name": entry.name,
+                "version": entry.version,
+                "tags": entry.tags,
+                "inputs": inputs,
+                "outputs": outputs,
+            })
+        })
+        .collect();
+    Value::Array(rows)
+}
 
 /// 截断显示文本（保留前 `limit` 个字符，超出加省略号）。
 fn truncate_text(text: &str, limit: usize) -> String {
@@ -3186,6 +3391,219 @@ pub fn definitions() -> Vec<ToolDef> {
                 "properties": { "path": { "type": "string", "description": "目标 .json 绝对路径" } }
             }),
         },
+        // ---- 画布 / 工作流：多画布文档 + 库里已发布的工作流 ----
+        ToolDef {
+            name: "board_list_canvases",
+            description: "列出当前工程的所有画布（一个工程可以有多张画布）：id、标题、是否活动、节点/连线数、来源与工作流签名（开始节点声明的输入 / 结束节点声明的输出）。先看这张表，再决定读或改哪张画布。无头版从工程快照汇总这些字段；publishable / problems 由桌面版提供。",
+            parameters: json!({ "type": "object", "properties": {} }),
+        },
+        ToolDef {
+            name: "board_get_canvas",
+            description: "读取一张画布的完整内容（节点与连线）与摘要；省略 canvasId 时读当前活动画布。无头版直接读工程快照。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "canvasId": { "type": "string", "description": "画布 id；省略时用活动画布" }
+                }
+            }),
+        },
+        ToolDef {
+            name: "board_create_canvas",
+            description: "新建一张空画布并切换过去，返回新画布的 id 与标题（仅桌面版；无头/容器版会明确报错）。",
+            parameters: json!({
+                "type": "object",
+                "properties": { "title": { "type": "string", "description": "画布标题，省略时自动命名" } }
+            }),
+        },
+        ToolDef {
+            name: "board_delete_canvas",
+            description: "删除一张画布；工程至少保留一张画布，删最后一张会被拒绝（仅桌面版；无头/容器版会明确报错）。",
+            parameters: json!({
+                "type": "object",
+                "properties": { "canvasId": { "type": "string" } },
+                "required": ["canvasId"]
+            }),
+        },
+        ToolDef {
+            name: "board_rename_canvas",
+            description: "重命名一张画布（仅桌面版；无头/容器版会明确报错）。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "canvasId": { "type": "string" },
+                    "title": { "type": "string" }
+                },
+                "required": ["canvasId", "title"]
+            }),
+        },
+        ToolDef {
+            name: "board_open_canvas",
+            description: "切换活动画布（会先把当前画布的编辑落盘），返回新的 activeId（仅桌面版；无头/容器版会明确报错）。",
+            parameters: json!({
+                "type": "object",
+                "properties": { "canvasId": { "type": "string" } },
+                "required": ["canvasId"]
+            }),
+        },
+        ToolDef {
+            name: "board_apply_ops",
+            description: "在画布上原子地改节点与连线：按顺序执行 ops（add_node / update_node / remove_node / connect / disconnect / clear / load），整个调用进入一个撤销步（仅桌面版；无头/容器版会明确报错）。",
+            parameters: json!({
+                "type": "object",
+                "$defs": {
+                    "node": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string" },
+                            "type": { "type": "string", "description": "节点类型，如 input.text / model.image / workflow.call" },
+                            "position": {
+                                "type": "object",
+                                "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
+                                "required": ["x", "y"]
+                            },
+                            "size": {
+                                "type": "object",
+                                "properties": { "width": { "type": "number" }, "height": { "type": "number" } },
+                                "required": ["width", "height"]
+                            },
+                            "data": {
+                                "type": "object",
+                                "description": "节点数据；params / bindings 是通用字段，其余按节点类型（assetId / items / signature …）",
+                                "properties": {
+                                    "params": { "type": "object" },
+                                    "bindings": { "type": "object" }
+                                }
+                            }
+                        },
+                        "required": ["id", "type", "position", "data"]
+                    },
+                    "edge": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string" },
+                            "source": { "type": "string" },
+                            "sourcePort": { "type": "string" },
+                            "target": { "type": "string" },
+                            "targetPort": { "type": "string" },
+                            "kind": { "enum": ["pair"] }
+                        },
+                        "required": ["id", "source", "sourcePort", "target", "targetPort"]
+                    }
+                },
+                "properties": {
+                    "canvasId": { "type": "string", "description": "目标画布 id；省略时用活动画布" },
+                    "ops": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "oneOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": { "const": "add_node" },
+                                        "node": { "$ref": "#/$defs/node" }
+                                    },
+                                    "required": ["kind", "node"]
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": { "const": "update_node" },
+                                        "nodeId": { "type": "string" },
+                                        "patch": {
+                                            "type": "object",
+                                            "properties": {
+                                                "position": {
+                                                    "type": "object",
+                                                    "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
+                                                    "required": ["x", "y"]
+                                                },
+                                                "size": {
+                                                    "type": "object",
+                                                    "properties": { "width": { "type": "number" }, "height": { "type": "number" } },
+                                                    "required": ["width", "height"]
+                                                },
+                                                "data": { "type": "object", "description": "只合并给出的字段" }
+                                            }
+                                        }
+                                    },
+                                    "required": ["kind", "nodeId"]
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": { "const": "remove_node" },
+                                        "nodeIds": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+                                    },
+                                    "required": ["kind", "nodeIds"]
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": { "const": "connect" },
+                                        "edge": { "$ref": "#/$defs/edge" }
+                                    },
+                                    "required": ["kind", "edge"]
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": { "const": "disconnect" },
+                                        "edgeIds": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+                                    },
+                                    "required": ["kind", "edgeIds"]
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": { "kind": { "const": "clear" } },
+                                    "required": ["kind"]
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": { "const": "load" },
+                                        "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+                                        "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } }
+                                    },
+                                    "required": ["kind", "nodes", "edges"]
+                                }
+                            ]
+                        }
+                    }
+                },
+                "required": ["ops"]
+            }),
+        },
+        ToolDef {
+            name: "workflow_publish",
+            description: "把一张画布发布成工作流：校验签名与图，保存进工作流库并打标签（subworkflow / api）。桌面版专用：无头版没有画布运行器。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "canvasId": { "type": "string" },
+                    "name": { "type": "string" },
+                    "tags": { "type": "array", "items": { "type": "string" } }
+                }
+            }),
+        },
+        ToolDef {
+            name: "workflow_list",
+            description: "列出工作流库里已发布的工作流（标签含 api 或 subworkflow；每张卡片取最新版本），返回 rootId、名称、版本、标签与签名。workflow_run 只接受这里列出的条目。无头版直接读本机工作流库。",
+            parameters: json!({ "type": "object", "properties": {} }),
+        },
+        ToolDef {
+            name: "workflow_run",
+            description: "运行一张已发布的工作流，返回签名输出（键是结束节点声明的输出名）。只有带 api / subworkflow 标签的工作流能被调用（仅桌面版；无头/容器版会明确报错）。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "rootId": { "type": "string", "description": "workflow_list 返回的 rootId" },
+                    "workflowId": { "type": "string", "description": "rootId 的别名（也接受带版本的 id）" },
+                    "inputs": { "type": "object", "description": "按签名输入名传值：{ 名称: 值 }" }
+                },
+                "anyOf": [{ "required": ["rootId"] }, { "required": ["workflowId"] }]
+            }),
+        },
         ToolDef {
             name: "aicut_help",
             description: "取回能力域文档（渐进式披露）。留空返回索引，可选 pipeline / frameworks / storyboard / ai / review / timeline / assets / workflow / render。",
@@ -3694,6 +4112,16 @@ pub const TOOLS: &[&str] = &[
     "new_project",
     "open_project",
     "save_project",
+    "board_list_canvases",
+    "board_get_canvas",
+    "board_create_canvas",
+    "board_delete_canvas",
+    "board_rename_canvas",
+    "board_open_canvas",
+    "board_apply_ops",
+    "workflow_publish",
+    "workflow_list",
+    "workflow_run",
     "aicut_help",
     "cancel_ai",
     "download_model",
@@ -3742,5 +4170,69 @@ mod tests {
     fn document_tools_are_listed() {
         assert!(TOOLS.contains(&"apply_command"));
         assert!(TOOLS.contains(&"get_clip"));
+        // 画布 / 工作流工具与桌面版同名：读工具可无头执行，写工具明确报错。
+        assert!(TOOLS.contains(&"board_list_canvases"));
+        assert!(TOOLS.contains(&"workflow_publish"));
+    }
+
+    #[test]
+    fn desktop_only_tools_explain_the_limit() {
+        for tool in [
+            "board_create_canvas",
+            "board_apply_ops",
+            "workflow_publish",
+            "workflow_run",
+        ] {
+            let message = desktop_only(tool);
+            assert!(message.contains(tool), "{message}");
+            assert!(message.contains("渲染进程"), "{message}");
+            assert!(message.contains("§12"), "{message}");
+        }
+    }
+
+    #[test]
+    fn signature_ports_read_workflow_signatures() {
+        let nodes = json!([
+            {
+                "id": "s",
+                "type": "workflow.start",
+                "data": {
+                    "signature": {
+                        "inputs": [{ "id": "in-a", "name": "prompt", "label": "提示词", "type": "text" }],
+                        "outputs": []
+                    }
+                }
+            },
+            {
+                "id": "e",
+                "type": "workflow.end",
+                "data": {
+                    "signature": {
+                        "inputs": [],
+                        "outputs": [{ "id": "out-a", "name": "result", "label": "结果", "type": "image" }]
+                    }
+                }
+            }
+        ]);
+        let list = nodes.as_array().cloned().unwrap_or_default();
+        let inputs = signature_ports(&list, "workflow.start", "inputs");
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0]["name"], "prompt");
+        assert_eq!(inputs[0]["type"], "text");
+        let outputs = signature_ports(&list, "workflow.end", "outputs");
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0]["name"], "result");
+    }
+
+    #[test]
+    fn active_canvas_falls_back_to_first_board() {
+        let snapshot = json!({
+            "boards": [
+                { "id": "canvas-b", "title": "B", "doc": { "nodes": [], "edges": [] } },
+                { "id": "canvas-a", "title": "A", "doc": { "nodes": [], "edges": [] } }
+            ],
+            "activeBoardId": "missing"
+        });
+        assert_eq!(active_canvas_id(&snapshot), "canvas-b");
     }
 }

@@ -56,11 +56,34 @@ export function parseWorkflow(text: string): WorkflowPayload | null {
     return null;
   }
   if (!raw || typeof raw !== "object") return null;
-  const value = raw as { kind?: unknown; nodes?: unknown; edges?: unknown; board?: unknown };
-  // 整份工程：优先取它的 board 字段。
+  const value = raw as {
+    kind?: unknown;
+    nodes?: unknown;
+    edges?: unknown;
+    board?: unknown;
+    boards?: unknown;
+    activeBoardId?: unknown;
+  };
+  // 整份工程：优先取活动画布（新工程是 `boards` + `activeBoardId`，老工程是 `board`）。
+  const boards = Array.isArray(value.boards) ? value.boards : [];
+  const active =
+    boards.find(
+      (canvas) =>
+        canvas &&
+        typeof canvas === "object" &&
+        (canvas as { id?: unknown }).id === value.activeBoardId,
+    ) ?? boards[0];
+  const activeDoc =
+    active && typeof active === "object" ? (active as { doc?: unknown }).doc : undefined;
+  const projectBoard =
+    activeDoc && typeof activeDoc === "object"
+      ? activeDoc
+      : value.board && typeof value.board === "object"
+        ? value.board
+        : undefined;
   const source =
-    value.board && typeof value.board === "object"
-      ? (value.board as { nodes?: unknown; edges?: unknown })
+    projectBoard && typeof projectBoard === "object"
+      ? (projectBoard as { nodes?: unknown; edges?: unknown })
       : value;
   if (!Array.isArray(source.nodes) || !Array.isArray(source.edges)) return null;
   const normalized = normalizeBoard({

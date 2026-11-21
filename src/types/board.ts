@@ -95,6 +95,13 @@ export interface BoardPortSpec {
   type: BoardPortType;
   labelKey: string;
   /**
+   * 用户命名的端口（工作流开始 / 结束的签名行）。
+   *
+   * 签名端口的名字是用户数据，不能走 i18n key；有 `label` 时 UI 优先用它，
+   * 没有时才回落到 `labelKey` 的翻译。
+   */
+  label?: string;
+  /**
    * 这个输入端口最多能接几个上游（缺省 1）。
    *
    * 同类型的多路参考合并成一个端口（例如 H3 的 9 张参考图 = 一个 `image`
@@ -165,6 +172,36 @@ export interface BoardParamSpec {
    * 隐藏的参数不渲染，但仍然可以被读取（运行时按当前逻辑取用）。
    */
   visibleWhen?: { param: string; equals: unknown };
+}
+
+/**
+ * 工作流签名的一行：一个对外输入或输出。
+ *
+ * `id` 是稳定行 id（连线端口用它，改名不移动连线）；`name` 是结果对象里的键
+ * （对外 API 的字段名）；`type` 来自数据类型注册表，插件类型也合法。
+ */
+export interface WorkflowPortDecl {
+  id: string;
+  name: string;
+  label: string;
+  type: BoardPortType;
+  required?: boolean;
+  /** 输入行的默认值（没接上游、外部调用也没传时用它）。 */
+  default?: unknown;
+}
+
+/** 工作流开始 / 结束节点声明的签名。 */
+export interface WorkflowSignature {
+  inputs: WorkflowPortDecl[];
+  outputs: WorkflowPortDecl[];
+}
+
+/** 画布列表里的一项：画布身份 + 标题 + 文档。 */
+export interface BoardCanvas {
+  id: string;
+  /** 空字符串 = 自动名（「画布 N」按当前语言渲染，不把语言写进文档）。 */
+  title: string;
+  doc: BoardDoc;
 }
 
 /** 一个节点的静态定义（注册表项）。 */
@@ -257,6 +294,13 @@ export interface BoardNodeData {
   values?: Record<string, unknown>;
   /** 循环开始 / 结束节点的配对 id：删一个，另一个和配对线一起消失。 */
   pairId?: string;
+  /**
+   * 工作流开始 / 结束节点的签名（对外输入 / 输出）。
+   *
+   * 开始节点只填 `inputs`，结束节点只填 `outputs`；同一张画布的完整签名由
+   * `core/board/workflowNodes.ts` 把两个节点合起来算。
+   */
+  signature?: WorkflowSignature;
   /** 本次运行开始的时间戳（毫秒）；用于运行计时。 */
   startedAt?: number;
   /** 上一次运行的耗时（毫秒）；完成后用于节点角标。 */

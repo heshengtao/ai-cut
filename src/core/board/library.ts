@@ -52,6 +52,7 @@ export function builtinGroup(workflow: BuiltinWorkflow): WorkflowGroup {
     description: version.description,
     latest: version,
     versions: [version],
+    tags: version.tags,
     origin: null,
     historyKey: null,
   };
@@ -85,6 +86,7 @@ export function groupWorkflowVersions(versions: WorkflowVersion[]): WorkflowGrou
       description: latest.description,
       latest,
       versions: list,
+      tags: latest.tags ?? [],
       origin: latest.origin ?? null,
       historyKey: latest.historyKey ?? null,
     });
@@ -105,6 +107,30 @@ export async function listWorkflowGroups(): Promise<WorkflowGroup[]> {
   return [...builtinGroups(), ...groupWorkflowVersions(versions)];
 }
 
+/**
+ * 按**根工作流 id** 取最新版本快照。
+ *
+ * 画布上的「嵌入工作流」节点存的是 rootId（一张卡），不是某个版本 id
+ * （`<rootId>-v<n>`）；`workflow_get` 只认版本 id，所以这里先列一遍再取最新版。
+ * 已发布的新版本会被下一次运行自动用上（符合「跟随最新」的语义）。
+ */
+export async function readWorkflowRoot(rootId: string): Promise<WorkflowSnapshot | null> {
+  const id = rootId.trim();
+  if (!id) return null;
+  // 内置工作流 / 已经是版本 id：直接读。
+  if (isBuiltinWorkflowId(id)) return readWorkflow(id);
+  if (/^.+-(v\d+)$/.test(id)) return readWorkflow(id);
+  try {
+    const versions = await invoke<WorkflowVersion[]>("workflow_list");
+    const latest = versions
+      .filter((version) => version.rootId === id)
+      .sort((a, b) => b.version - a.version)[0];
+    return latest ? readWorkflow(latest.id) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 去掉运行期字段：保存到库里的工作流不该带着「上次运行中 / 失败」。 */
 export function cleanWorkflowNodes(nodes: BoardNode[]): BoardNode[] {
   return nodes.map((node) => ({
@@ -118,6 +144,17 @@ export function cleanWorkflowNodes(nodes: BoardNode[]): BoardNode[] {
       ...(node.data.outputs ? { outputs: { ...node.data.outputs } } : {}),
       ...(node.data.assetIds ? { assetIds: [...node.data.assetIds] } : {}),
       ...(node.data.outputAssetIds ? { outputAssetIds: [...node.data.outputAssetIds] } : {}),
+      ...(node.data.signature
+        ? {
+            signature: {
+              inputs: node.data.signature.inputs.map((decl) => ({ ...decl })),
+              outputs: node.data.signature.outputs.map((decl) => ({ ...decl })),
+            },
+          }
+        : {}),
+      ...(node.data.ports
+        ? { ports: { inputs: [...node.data.ports.inputs], outputs: [...node.data.ports.outputs] } }
+        : {}),
       status: undefined,
       error: undefined,
       progress: undefined,
@@ -140,6 +177,8 @@ export async function saveWorkflowToLibrary(args: {
   description?: string;
   origin?: string | null;
   historyKey?: string | null;
+  /** 工作流标签（`workflow` / `subworkflow` / `api`）：库与 MCP 都按它筛。 */
+  tags?: string[];
   nodes: BoardNode[];
   edges: BoardEdge[];
   thumbnail?: string | null;
@@ -150,7 +189,7 @@ export async function saveWorkflowToLibrary(args: {
     description: args.description ?? "",
     origin: args.origin ?? null,
     historyKey: args.historyKey ?? null,
-    tags: [],
+    tags: args.tags ?? [],
     nodes: JSON.stringify(cleanWorkflowNodes(args.nodes)),
     edges: JSON.stringify(cleanWorkflowEdges(args.edges)),
     thumbnail: args.thumbnail ?? null,

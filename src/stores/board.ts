@@ -1,8 +1,9 @@
 /**
  * 无限画布的运行时状态。
  *
- * 文档真相在 `project.doc.board`（随工程保存）；本 store 持有可交互的副本
- * （Vue Flow 直接绑 `nodes` / `edges`），改动防抖写回工程。
+ * 文档真相在 `project.doc.boards`（工程里的全部画布，随工程保存）；本 store 持有
+ * **活动画布**的可交互副本（Vue Flow 直接绑 `nodes` / `edges`），改动防抖写回工程。
+ * `project.doc.board` 是活动画布的可枚举访问器，不是第二份数据。
  *
  * 画布有**独立**的撤销栈：画布操作不进时间线历史，避免拖一次节点就多一步
  * 时间线撤销。
@@ -21,13 +22,25 @@ import {
 } from "@/core/board/registry";
 import { boardPortContext } from "@/composables/useBoardPortContext";
 import {
+  WORKFLOW_END_TYPE,
+  WORKFLOW_START_TYPE,
+  callPorts,
+  canvasWorkflow,
+  newDeclId,
+  normalizeSignature,
+} from "@/core/board/workflowNodes";
+import { t } from "@/i18n";
+import {
   BOARD_VERSION,
   DEFAULT_VIEWPORT,
   type BoardDoc,
   type BoardEdge,
   type BoardNode,
+  type BoardCanvas,
   type BoardNodeData,
   type BoardViewport,
+  type WorkflowPortDecl,
+  type WorkflowSignature,
 } from "@/types/board";
 import type { BoardWorkflowSource } from "@/types/workflow";
 
@@ -63,6 +76,18 @@ function cloneNodes(nodes: BoardNode[]): BoardNode[] {
       ...(node.data.assetIds ? { assetIds: [...node.data.assetIds] } : {}),
       ...(node.data.items ? { items: [...node.data.items] } : {}),
       ...(node.data.outputAssetIds ? { outputAssetIds: [...node.data.outputAssetIds] } : {}),
+      // 工作流签名是用户搭的结构：快照 / 剪贴板必须深拷贝，否则撤销会把新编辑带回去。
+      ...(node.data.signature
+        ? {
+            signature: {
+              inputs: node.data.signature.inputs.map((decl) => ({
+                ...decl,
+                ...(decl.default !== undefined ? { default: structuredClone(decl.default) } : {}),
+              })),
+              outputs: node.data.signature.outputs.map((decl) => ({ ...decl })),
+            },
+          }
+        : {}),
     },
   }));
 }
@@ -215,20 +240,89 @@ export const useBoardStore = defineStore("board", () => {
     schedule();
   }
 
+  /**
+   * 成对节点：添加时两个一起出现、用配对线相连、删除时一起消失。
+   *
+   * 循环（循环开始 → 循环结束）和工作流（工作流开始 → 工作流结束）共用这条
+   * 规则：`pairId` 是真相，配对线只表达结构。
+   */
+  const PAIR_ENDS: Record<
+    string,
+    { endType: string; data: () => BoardNodeData }
+  > = {
+    "loop.start": {
+      endType: "loop.end",
+      data: () => ({ params: { slots: 1 }, bindings: {} }),
+    },
+    [WORKFLOW_START_TYPE]: {
+      endType: WORKFLOW_END_TYPE,
+      data: () => ({
+        params: {},
+        bindings: {},
+        signature: { inputs: [], outputs: [] },
+      }),
+    },
+  };
+
+  /** 新建工作流开始节点时的默认签名（一个 text 输入，可改名 / 删掉）。 */
+  function defaultWorkflowInputs(): WorkflowSignature["inputs"] {
+    return [
+      {
+        id: newDeclId("in"),
+        name: "prompt",
+        label: t("board.workflow.defaultInput"),
+        type: "text",
+        required: true,
+        default: "",
+      },
+    ];
+  }
+
+  function defaultWorkflowOutputs(): WorkflowSignature["outputs"] {
+    return [
+      {
+        id: newDeclId("out"),
+        name: "result",
+        label: t("board.workflow.defaultOutput"),
+        type: "text",
+        required: true,
+      },
+    ];
+  }
+
   function addNode(node: BoardNode): void {
-    // 循环开始：连体创建结束节点 + 配对线，三者一起存在、一起消失。
-    if (node.type === "loop.start") {
-      const size = node.size ?? nodeDefinition("loop.start")?.defaultSize ?? { width: 360, height: 150 };
-      const endSize = nodeDefinition("loop.end")?.defaultSize ?? { width: 360, height: 150 };
+    // 成对节点：连体创建结束节点 + 配对线，三者一起存在、一起消失。
+    const pair = PAIR_ENDS[node.type];
+    if (pair) {
+      const size = node.size ?? nodeDefinition(node.type)?.defaultSize ?? { width: 360, height: 150 };
+      const endSize = nodeDefinition(pair.endType)?.defaultSize ?? { width: 360, height: 150 };
       const pairId = crypto.randomUUID();
       const endId = crypto.randomUUID();
-      const start: BoardNode = { ...node, size, data: { ...node.data, pairId } };
+      const signature =
+        node.type === WORKFLOW_START_TYPE
+          ? { inputs: defaultWorkflowInputs(), outputs: defaultWorkflowOutputs() }
+          : node.data.signature;
+      const start: BoardNode = {
+        ...node,
+        size,
+        data: {
+          ...node.data,
+          pairId,
+          ...(signature ? { signature } : {}),
+        },
+      };
       const end: BoardNode = {
         id: endId,
-        type: "loop.end",
+        type: pair.endType,
         position: { x: node.position.x + size.width + 96, y: node.position.y },
         size: endSize,
-        data: { params: { slots: 1 }, bindings: {}, pairId },
+        data: {
+          ...pair.data(),
+          pairId,
+          ...(node.type === WORKFLOW_START_TYPE
+            ? { signature: { inputs: [], outputs: defaultWorkflowOutputs() } }
+            : {}),
+        },
       };
       const pairEdge: BoardEdge = {
         id: crypto.randomUUID(),
@@ -445,6 +539,17 @@ export const useBoardStore = defineStore("board", () => {
         : {}),
       // 组节点：成员和启用状态是结构，不属于「运行结果」。
       ...(node.data.children ? { children: [...node.data.children] } : {}),
+      // 成对 id / 工作流签名 / 端口快照都是用户搭的结构，重建节点时必须保留。
+      ...(node.data.pairId ? { pairId: node.data.pairId } : {}),
+      ...(node.data.signature
+        ? {
+            signature: {
+              inputs: node.data.signature.inputs.map((decl) => ({ ...decl })),
+              outputs: node.data.signature.outputs.map((decl) => ({ ...decl })),
+            },
+          }
+        : {}),
+      ...(node.data.ports ? { ports: node.data.ports } : {}),
       ...(node.data.ignored ? { ignored: true } : {}),
       ...(node.data.bypassed ? { bypassed: true } : {}),
     };
@@ -573,7 +678,7 @@ export const useBoardStore = defineStore("board", () => {
       wanted.add(id);
       const node = nodes.value.find((item) => item.id === id);
       if (node?.type === "group") for (const child of node.data.children ?? []) wanted.add(child);
-      // 循环开始 / 结束成对：删一个就连同另一个（配对线随端点一起被过滤掉）。
+      // 成对节点（循环 / 工作流开始结束）：删一个就连同另一个（配对线随端点一起被过滤掉）。
       if (node?.data.pairId) {
         for (const other of nodes.value) {
           if (other.id !== node.id && other.data.pairId === node.data.pairId) {
@@ -1057,6 +1162,145 @@ export const useBoardStore = defineStore("board", () => {
     });
   }
 
+  /** 把落在不存在端口上的连线剪掉（签名行被删 / 类型变了之后）。 */
+  function pruneSignaturePorts(nodeId: string, signature: WorkflowSignature): void {
+    const node = nodes.value.find((item) => item.id === nodeId);
+    if (!node) return;
+    const valid = new Set<string>(["in", "out", "pair"]);
+    if (node.type === WORKFLOW_START_TYPE) {
+      for (const decl of signature.inputs) valid.add(decl.id);
+    } else if (node.type === WORKFLOW_END_TYPE) {
+      for (const decl of signature.outputs) {
+        valid.add(decl.id);
+        valid.add(`out-${decl.id}`);
+      }
+    }
+    const kept = edges.value.filter((edge) => {
+      if (edge.source === nodeId && !valid.has(edge.sourcePort)) return false;
+      if (edge.target === nodeId && !valid.has(edge.targetPort)) return false;
+      return true;
+    });
+    if (kept.length !== edges.value.length) edges.value = kept;
+  }
+
+  /**
+   * 改工作流开始 / 结束节点的签名。
+   *
+   * 行 id 稳定：改名不移动连线；删行才剪掉那一路连线。开始节点只写 inputs，
+   * 结束节点只写 outputs——两半永远各归各的。
+   */
+  function patchSignature(
+    nodeId: string,
+    mutate: (current: WorkflowSignature) => WorkflowSignature,
+  ): void {
+    const node = nodes.value.find((item) => item.id === nodeId);
+    if (!node) return;
+    if (node.type !== WORKFLOW_START_TYPE && node.type !== WORKFLOW_END_TYPE) return;
+    const current = normalizeSignature(node.data.signature) ?? { inputs: [], outputs: [] };
+    const next = mutate({
+      inputs: current.inputs.map((decl) => ({ ...decl })),
+      outputs: current.outputs.map((decl) => ({ ...decl })),
+    });
+    commit(() => {
+      nodes.value = nodes.value.map((item) =>
+        item.id === nodeId ? { ...item, data: { ...item.data, signature: next } } : item,
+      );
+    });
+    pruneSignaturePorts(nodeId, next);
+    markDownstreamStale(nodeId);
+  }
+
+  /** 加一行签名（默认 text 类型；类型和默认值在检查器里改）。 */
+  function addSignatureRow(nodeId: string, side: "inputs" | "outputs"): string | null {
+    const node = nodes.value.find((item) => item.id === nodeId);
+    if (!node) return null;
+    const signature = normalizeSignature(node.data.signature) ?? { inputs: [], outputs: [] };
+    const rows = side === "inputs" ? signature.inputs : signature.outputs;
+    const id = newDeclId(side === "inputs" ? "in" : "out");
+    const index = rows.length + 1;
+    const decl: WorkflowPortDecl = {
+      id,
+      name: `${side === "inputs" ? "input" : "output"}_${index}`,
+      label: t(side === "inputs" ? "board.workflow.newInput" : "board.workflow.newOutput", {
+        n: index,
+      }),
+      type: "text",
+    };
+    patchSignature(nodeId, (current) => ({
+      inputs: side === "inputs" ? [...current.inputs, decl] : current.inputs,
+      outputs: side === "outputs" ? [...current.outputs, decl] : current.outputs,
+    }));
+    return id;
+  }
+
+  /** 改一行签名；`patch.type` 变了就按新类型重新校验连线。 */
+  function updateSignatureRow(
+    nodeId: string,
+    side: "inputs" | "outputs",
+    declId: string,
+    patch: Partial<WorkflowPortDecl>,
+  ): void {
+    patchSignature(nodeId, (current) => ({
+      inputs:
+        side === "inputs"
+          ? current.inputs.map((decl) => (decl.id === declId ? { ...decl, ...patch } : decl))
+          : current.inputs,
+      outputs:
+        side === "outputs"
+          ? current.outputs.map((decl) => (decl.id === declId ? { ...decl, ...patch } : decl))
+          : current.outputs,
+    }));
+  }
+
+  /** 删一行签名，连带剪掉挂在这一路上的连线。 */
+  function removeSignatureRow(
+    nodeId: string,
+    side: "inputs" | "outputs",
+    declId: string,
+  ): void {
+    patchSignature(nodeId, (current) => ({
+      inputs: side === "inputs" ? current.inputs.filter((decl) => decl.id !== declId) : current.inputs,
+      outputs:
+        side === "outputs" ? current.outputs.filter((decl) => decl.id !== declId) : current.outputs,
+    }));
+  }
+
+  /**
+   * 选嵌入工作流的目标：把目标签名写成调用节点的端口快照。
+   *
+   * 端口快照（`data.ports`）是插件节点也在用的机制：目标被改名 / 删除后端口
+   * 与连线仍在，运行时给出明确报错，而不是静默丢边。
+   */
+  function setWorkflowCallTarget(
+    nodeId: string,
+    target: { rootId: string; name: string; signature: WorkflowSignature },
+  ): void {
+    const node = nodes.value.find((item) => item.id === nodeId);
+    if (!node || node.type !== "workflow.call") return;
+    const ports = callPorts(target.signature);
+    commit(() => {
+      nodes.value = nodes.value.map((item) =>
+        item.id === nodeId
+          ? {
+              ...item,
+              data: {
+                ...item.data,
+                params: { ...item.data.params, workflow: target.rootId, workflowName: target.name },
+                ports,
+                signature: target.signature,
+              },
+            }
+          : item,
+      );
+    });
+    const valid = new Set<string>(ports.inputs.map((port) => port.id));
+    const kept = edges.value.filter(
+      (edge) => !(edge.target === nodeId) || valid.has(edge.targetPort),
+    );
+    if (kept.length !== edges.value.length) edges.value = kept;
+    markDownstreamStale(nodeId);
+  }
+
   function setViewport(next: BoardViewport): void {
     viewport.value = { ...next };
     schedule();
@@ -1064,6 +1308,53 @@ export const useBoardStore = defineStore("board", () => {
 
   function select(ids: string[]): void {
     selection.value = [...ids];
+  }
+
+  // ---- 多画布 ------------------------------------------------------------
+  //
+  // 真相在 `project.doc.boards`，`doc.board` 是活动画布的访问器；本 store 只持有
+  // 活动画布的可交互副本。切画布前先 `flush()`，否则防抖窗口里的编辑会丢。
+
+  const canvases = computed<BoardCanvas[]>(() => project.doc.boards ?? []);
+  const activeCanvasId = computed(() => {
+    const list = canvases.value;
+    if (list.length === 0) return "";
+    return list.some((canvas) => canvas.id === project.doc.activeBoardId)
+      ? (project.doc.activeBoardId as string)
+      : list[0]!.id;
+  });
+  const activeCanvas = computed<BoardCanvas | null>(
+    () => canvases.value.find((canvas) => canvas.id === activeCanvasId.value) ?? null,
+  );
+  /** 当前画布是不是一个合法的工作流（恰好一对开始 / 结束且搭得通）。 */
+  const canvasWorkflowState = computed(() =>
+    canvasWorkflow(nodes.value),
+  );
+
+  function openCanvas(canvasId: string): void {
+    if (!canvasId || canvasId === activeCanvasId.value) return;
+    flush();
+    project.activateCanvasAction(canvasId);
+  }
+
+  function newCanvas(title?: string): void {
+    flush();
+    project.createCanvasAction(title);
+  }
+
+  function removeCanvas(canvasId: string): void {
+    if (canvases.value.length <= 1) return;
+    if (canvasId === activeCanvasId.value) flush();
+    project.deleteCanvasAction(canvasId);
+  }
+
+  function renameCanvas(canvasId: string, title: string): void {
+    project.renameCanvasAction(canvasId, title);
+  }
+
+  function duplicateCanvas(canvasId: string): void {
+    flush();
+    project.duplicateCanvasAction(canvasId);
   }
 
   /** 清空画布（保留工程 / 素材）。来源也一起清掉：清空后是新的一张画布。 */
@@ -1134,8 +1425,21 @@ export const useBoardStore = defineStore("board", () => {
     removeEdges,
     setLoopInputCount,
     removeLoopInputAt,
+    addSignatureRow,
+    updateSignatureRow,
+    removeSignatureRow,
+    setWorkflowCallTarget,
     setViewport,
     select,
+    canvases,
+    activeCanvasId,
+    activeCanvas,
+    canvasWorkflowState,
+    openCanvas,
+    newCanvas,
+    removeCanvas,
+    renameCanvas,
+    duplicateCanvas,
     clear,
     undo,
     redo,

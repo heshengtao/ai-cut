@@ -1,5 +1,5 @@
 /** AI Cut 的领域类型：工程文档及其组成部分。 */
-import type { BoardDoc } from "@/types/board";
+import type { BoardCanvas, BoardDoc } from "@/types/board";
 
 /** 素材类型。 */
 export type AssetKind = "video" | "audio" | "image";
@@ -378,8 +378,16 @@ export interface Project {
   markers: Marker[];
   /** 剪口组。缺省表示这个工程没剪过口播。工程级共享。 */
   cutScopes?: CutScope[];
-  /** 无限画布文档。工程级共享，所有分P 共用一张画布。 */
+  /** 无限画布文档。工程级共享，所有分P 共用。活动画布的别名（见 `boards`）。 */
   board?: BoardDoc;
+  /**
+   * 工程里的所有画布（工程级共享，所有分P 共用）。
+   *
+   * `board` 是指向 `activeBoardId` 那张画布的**不可枚举访问器**：写盘只落
+   * `boards`，读盘时由 `attachBoardView()` 折返，板上钉钉只有一份数据。
+   */
+  boards?: BoardCanvas[];
+  activeBoardId?: string;
 }
 
 /** 当前工程文档版本。 */

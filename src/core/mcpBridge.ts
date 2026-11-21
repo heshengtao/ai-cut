@@ -13,6 +13,19 @@ import { isCommandKind } from "@/types/events";
 import { EXPORT_ANCHORS } from "@/types/export";
 import type { ExportAnchor } from "@/types/export";
 import { useProjectStore } from "@/stores/project";
+import {
+  canvasApply,
+  canvasCreate,
+  canvasDelete,
+  canvasGet,
+  canvasList,
+  canvasOpen,
+  canvasRename,
+  workflowCatalog,
+  workflowPublish,
+  workflowRun,
+  type CanvasOp,
+} from "@/core/board/canvasApi";
 import { isTauri } from "@/utils/platform";
 import { t } from "@/i18n";
 import * as ai from "@/core/aiActions";
@@ -518,6 +531,49 @@ async function handle(
         actor: record.actor === "human" ? "human" : "agent",
         sessionId: optionalString(record.sessionId),
       });
+    // ---- 画布 / 工作流：原子化操作（MCP / 技能与 UI 共用同一份实现） ----
+    case "board.list":
+      return canvasList();
+    case "board.get":
+      return canvasGet(optionalString(record.canvasId));
+    case "board.create":
+      return canvasCreate(optionalString(record.title));
+    case "board.delete": {
+      const canvasId = optionalString(record.canvasId);
+      if (!canvasId) throw new Error("需要 canvasId");
+      return canvasDelete(canvasId);
+    }
+    case "board.rename": {
+      const canvasId = optionalString(record.canvasId);
+      const title = optionalString(record.title);
+      if (!canvasId || !title) throw new Error("需要 canvasId 与 title");
+      return canvasRename(canvasId, title);
+    }
+    case "board.open": {
+      const canvasId = optionalString(record.canvasId);
+      if (!canvasId) throw new Error("需要 canvasId");
+      return canvasOpen(canvasId);
+    }
+    case "board.apply":
+      return canvasApply(
+        (Array.isArray(record.ops) ? record.ops : []) as CanvasOp[],
+        optionalString(record.canvasId),
+      );
+    case "workflow.list":
+      return workflowCatalog();
+    case "workflow.publish":
+      return workflowPublish({
+        ...(optionalString(record.canvasId) ? { canvasId: optionalString(record.canvasId)! } : {}),
+        ...(optionalString(record.name) ? { name: optionalString(record.name)! } : {}),
+        ...(Array.isArray(record.tags)
+          ? { tags: record.tags.filter((tag): tag is string => typeof tag === "string") }
+          : {}),
+      });
+    case "workflow.run": {
+      const rootId = optionalString(record.rootId) ?? optionalString(record.workflowId);
+      if (!rootId) throw new Error("需要 rootId");
+      return workflowRun(rootId, asRecord(record.inputs));
+    }
     case "ai.models.list":
       return ai.listAiModels(asRecord(payload) as { feature?: string });
     case "ai.job.start":

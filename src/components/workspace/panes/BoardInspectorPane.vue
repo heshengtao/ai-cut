@@ -11,6 +11,7 @@
 import { computed, onMounted, ref } from "vue";
 import {
   ArrowDownTrayIcon,
+  ArrowPathIcon,
   ArrowUpTrayIcon,
   BoltIcon,
   ChevronDownIcon,
@@ -34,6 +35,7 @@ import NumberField from "@/components/common/NumberField.vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import BoardMediaPicker from "@/components/board/BoardMediaPicker.vue";
 import BoardSizeControl from "@/components/board/BoardSizeControl.vue";
+import BoardCanvasInspector from "@/components/board/BoardCanvasInspector.vue";
 import { useBoardStore } from "@/stores/board";
 import { useProjectStore } from "@/stores/project";
 import { usePlaybackStore } from "@/stores/playback";
@@ -52,6 +54,18 @@ import {
 import { BOARD_GROUP_TONES } from "@/types/board";
 import { portsCompatible } from "@/core/board/schema";
 import { ancestorIds } from "@/core/board/graph";
+import {
+  WORKFLOW_CALL_TYPE,
+  WORKFLOW_END_TYPE,
+  WORKFLOW_START_TYPE,
+  canvasWorkflow,
+  isFrameNode,
+  signatureOf,
+  typeChoices,
+} from "@/core/board/workflowNodes";
+import { readWorkflow } from "@/core/board/library";
+import { useWorkflowLibrary } from "@/composables/useWorkflowLibrary";
+import { useBoardLabels } from "@/composables/useBoardLabels";
 import { nodeIcon } from "@/components/board/nodeIcons";
 import { cloudGenConfig, cloudGenPresets } from "@/core/cloudGenApi";
 import {
@@ -86,6 +100,8 @@ const playback = usePlaybackStore();
 const layout = useLayoutStore();
 const models = useModelsStore();
 const run = useBoardRun();
+const library = useWorkflowLibrary();
+const { typeLabel } = useBoardLabels();
 const { download } = useAssetDownload();
 
 const cloudProviders = ref<CloudGenProvider[]>([]);
@@ -186,6 +202,204 @@ function removeLoopInput(index: number): void {
   board.removeLoopInputAt(current.id, index);
 }
 
+// ---- 工作流开始 / 结束 / 嵌入 --------------------------------------------
+//
+// 签名行的增删改都走 board store（有撤销），端口 id 稳定：改名不移动连线。
+const isWorkflowStart = computed(() => node.value?.type === WORKFLOW_START_TYPE);
+const isWorkflowEnd = computed(() => node.value?.type === WORKFLOW_END_TYPE);
+const isWorkflowCall = computed(() => node.value?.type === WORKFLOW_CALL_TYPE);
+/** 当前签名节点声明的那一半（开始 = 输入，结束 = 输出）。 */
+const signatureSide = computed<"inputs" | "outputs">(() =>
+  isWorkflowStart.value ? "inputs" : "outputs",
+);
+const signatureRows = computed(() =>
+  node.value ? signatureOf(node.value)[signatureSide.value] : [],
+);
+
+/** 类型下拉：内置 + 插件注册的类型（第三方类型自动出现）。 */
+const typeOptions = computed<SelectOption[]>(() =>
+  // 标签走 `board.type.<id>`；插件类型没有翻译时回落注册表 label。
+  typeChoices().map((item) => ({ id: item.value, label: typeLabel(item.value) })),
+);
+
+function addSignatureRow(): void {
+  if (!node.value) return;
+  board.addSignatureRow(node.value.id, signatureSide.value);
+}
+
+function updateSignatureDecl(declId: string, patch: Record<string, unknown>): void {
+  if (!node.value) return;
+  board.updateSignatureRow(node.value.id, signatureSide.value, declId, patch);
+}
+
+function removeSignatureDecl(declId: string): void {
+  if (!node.value) return;
+  board.removeSignatureRow(node.value.id, signatureSide.value, declId);
+}
+
+/** 签名行的虚拟端口：用现有的绑定下拉选择上游。 */
+function declPort(decl: { id: string; type: BoardPortType; label?: string; name?: string }): BoardPortSpec {
+  return {
+    id: decl.id,
+    type: decl.type,
+    labelKey: isWorkflowStart.value ? "board.port.workflowInput" : "board.port.workflowOutput",
+    label: decl.label || decl.name,
+  };
+}
+
+/**
+ * 嵌入工作流的目标下拉：只列**发布为子工作流 / API** 的用户工作流（排除自己）。
+ *
+ * 没发布的画布不进下拉：嵌入的是「已经约定好输入输出的工作流」，不是随手一张
+ * 画布；发布在画布检查器里做。
+ */
+const workflowTargets = computed<SelectOption[]>(() => {
+  const own = board.source?.rootId;
+  return library.groups.value
+    .filter(
+      (group) =>
+        !group.builtin &&
+        group.rootId !== own &&
+        (group.tags.includes("subworkflow") || group.tags.includes("api")),
+    )
+    .map((group) => ({ id: group.rootId, label: group.name }));
+});
+
+const callTargetId = computed(() => String(node.value?.data.params.workflow ?? ""));
+const callTargetName = computed(() => String(node.value?.data.params.workflowName ?? ""));
+const callPortsState = computed(() => node.value?.data.ports ?? null);
+
+async function selectWorkflowTarget(targetId: string): Promise<void> {
+  const current = node.value;
+  if (!current || current.type !== WORKFLOW_CALL_TYPE) return;
+  if (!targetId) {
+    board.setWorkflowCallTarget(current.id, {
+      rootId: "",
+      name: "",
+      signature: { inputs: [], outputs: [] },
+    });
+    return;
+  }
+  const group = library.groups.value.find((item) => item.rootId === targetId);
+  const snapshot = group ? await readWorkflow(group.latest.id) : null;
+  if (!snapshot) {
+    toast(i18n.t("board.workflow.missing", { name: group?.name ?? targetId }), "error");
+    return;
+  }
+  const workflow = canvasWorkflow(snapshot.nodes);
+  board.setWorkflowCallTarget(current.id, {
+    rootId: targetId,
+    name: group?.name ?? targetId,
+    signature: workflow.signature,
+  });
+  if (!workflow.start || !workflow.end) {
+    toast(i18n.t("board.workflow.notRunnable", { name: group?.name ?? targetId }), "error");
+  }
+}
+
+/** 重新读一次目标签名（对方加 / 删了输入输出之后手动刷新）。 */
+async function refreshWorkflowTarget(): Promise<void> {
+  if (!callTargetId.value) return;
+  await selectWorkflowTarget(callTargetId.value);
+}
+
+onMounted(() => {
+  void library.refresh();
+});
+
+/** 「循环结束 / 工作流结束」输入区的一行（来源选择 + 删除共用一套渲染）。 */
+interface SignatureInputRow {
+  id: string;
+  index: number;
+  name: string;
+  label: string;
+  type: BoardPortType;
+  required: boolean;
+  /** 循环槽位没有用户名字，只有序号。 */
+  named: boolean;
+  port: BoardPortSpec;
+  boundKey: string;
+  boundTitle: string | null;
+}
+
+const boundKeyOf = computed(() => (portId: string): string => {
+  const current = node.value;
+  if (!current) return "";
+  const edge = board.edges.find(
+    (item) => item.target === current.id && item.targetPort === portId,
+  );
+  if (!edge) return "";
+  return `${edge.source}:${edge.sourcePort}`;
+});
+
+const boundTitleOf = computed(() => (portId: string): string | null => {
+  const current = node.value;
+  if (!current) return null;
+  const edge = board.edges.find(
+    (item) => item.target === current.id && item.targetPort === portId,
+  );
+  if (!edge) return null;
+  const source = board.nodes.find((item) => item.id === edge.source);
+  return source ? displayTitleOf(source) : null;
+});
+
+/**
+ * 结束节点的输入行：
+ * - 循环结束：每行一个槽位（`in1..inN`），删除会重排后面的端口；
+ * - 工作流结束：每行是签名里的一个输出（名字 / 标签 / 类型 / 必填 + 来源）。
+ */
+const signatureInputRows = computed<SignatureInputRow[]>(() => {
+  const current = node.value;
+  if (!current) return [];
+  if (isLoopEnd.value) {
+    return loopInputRows.value.map((row) => ({
+      id: row.portId,
+      index: row.index,
+      name: "",
+      label: i18n.t("board.loop.inputN", { n: row.index }),
+      type: "any" as BoardPortType,
+      required: false,
+      named: false,
+      port: {
+        id: row.portId,
+        type: "any" as BoardPortType,
+        labelKey: "board.port.slot",
+      },
+      boundKey: boundKeyOf.value(row.portId),
+      boundTitle: boundTitleOf.value(row.portId),
+    }));
+  }
+  if (isWorkflowEnd.value) {
+    return signatureRows.value.map((decl, index) => ({
+      id: decl.id,
+      index: index + 1,
+      name: decl.name,
+      label: decl.label,
+      type: decl.type,
+      required: decl.required === true,
+      named: true,
+      port: declPort(decl),
+      boundKey: boundKeyOf.value(decl.id),
+      boundTitle: boundTitleOf.value(decl.id),
+    }));
+  }
+  return [];
+});
+
+function addEndInput(): void {
+  if (isLoopEnd.value) addLoopInput();
+  else addSignatureRow();
+}
+
+function removeEndInput(row: SignatureInputRow): void {
+  if (isLoopEnd.value) removeLoopInput(row.index - 1);
+  else removeSignatureDecl(row.id);
+}
+
+function setEndInputSource(row: SignatureInputRow, key: string): void {
+  setBinding(row.port, key);
+}
+
 /** 输入 / 显示 / 循环这类节点的多个输出是「一包值」，连线不用选端口。 */
 const isBundleOutputNode = computed(() => {
   const type = node.value?.type ?? "";
@@ -196,9 +410,14 @@ const isBundleOutputNode = computed(() => {
   );
 });
 
-/** 端口显示名（同类型多路输入已经合并成一个端口，直接用端口标签）。 */
+/**
+ * 端口显示名。
+ *
+ * 签名端口（工作流开始 / 结束 / 嵌入）的名字是用户数据，存在 `port.label`；
+ * 内置端口没有 label，走 i18n key。
+ */
 function portLabel(port: BoardPortSpec): string {
-  return i18n.t(port.labelKey);
+  return port.label?.trim() || i18n.t(port.labelKey);
 }
 
 /** 一个输入端口 + 它当前接的上游列表（顺序 = 运行时读取顺序）。 */
@@ -335,7 +554,8 @@ const upstreamOutputs = computed<UpstreamOutput[]>(() => {
   for (const item of board.nodes) {
     if (!ancestors.has(item.id)) continue;
     const spec = nodeDefinition(item.type);
-    if (!spec || spec.category === "group") continue;
+    // 只排除「组框」本身；工作流开始 / 结束 / 嵌入也是 group 分类，但会发布输出。
+    if (!spec || isFrameNode(item)) continue;
     for (const port of portsOf(item, portContext.value).outputs) {
       out.push({
         nodeId: item.id,
@@ -343,8 +563,8 @@ const upstreamOutputs = computed<UpstreamOutput[]>(() => {
         type: port.type,
         label:
           item.type.startsWith("loop.") || item.type.startsWith("input.") || item.type.startsWith("display.")
-            ? `${displayTitleOf(item)} · ${i18n.t(port.labelKey)} (${port.id})`
-            : `${displayTitleOf(item)} · ${i18n.t(port.labelKey)}`,
+            ? `${displayTitleOf(item)} · ${portLabel(port)} (${port.id})`
+            : `${displayTitleOf(item)} · ${portLabel(port)}`,
       });
     }
   }
@@ -717,8 +937,8 @@ function outputPortOptions(row: OutgoingRow): SelectOption[] {
     .filter((port) => !row.targetType || portsCompatible(port.type, row.targetType))
     .map((port) => ({
       id: port.id,
-      label: i18n.t(port.labelKey),
-      hint: port.type,
+      label: portLabel(port),
+      hint: typeLabel(port.type),
     }));
 }
 
@@ -806,7 +1026,8 @@ function portReady(port: BoardPortSpec): boolean {
 
 <template>
   <div class="board-inspector">
-    <template v-if="node && definition">
+    <BoardCanvasInspector v-if="!node" class="canvas-panel" />
+    <template v-else-if="node && definition">
       <!-- 节点标题卡 -->
       <div class="inspector-node-title">
         <span class="node-icon">
@@ -854,7 +1075,10 @@ function portReady(port: BoardPortSpec): boolean {
         </section>
 
         <!-- 输入参数（连线） -->
-        <section v-if="inputRows.length > 0" class="binding-section">
+        <section
+          v-if="inputRows.length > 0 && !isLoopEnd && !isWorkflowEnd"
+          class="binding-section"
+        >
           <div class="binding-head">
             <LinkIcon />
             <span>{{ i18n.t("board.inspect.inputsTitle") }}</span>
@@ -865,7 +1089,7 @@ function portReady(port: BoardPortSpec): boolean {
           <div v-for="row in inputRows" :key="row.port.id" class="binding-row">
             <div class="binding-label">
               <span>{{ portLabel(row.port) }}</span>
-              <span class="binding-type">{{ row.port.type }}</span>
+              <span class="binding-type">{{ typeLabel(row.port.type) }}</span>
               <span v-if="portMax(row.port) > 1" class="binding-count">
                 {{ row.entries.length }} / {{ portMax(row.port) }}
               </span>
@@ -961,30 +1185,223 @@ function portReady(port: BoardPortSpec): boolean {
           </div>
         </section>
 
-        <!-- 循环结束节点的输入：新建输入 / 删除，不放在节点卡片上 -->
-        <section v-if="isLoopEnd" class="binding-section">
+        <!-- 工作流开始：声明这张画布的对外输入（名字 / 标签 / 类型 / 默认值） -->
+        <section v-if="isWorkflowStart" class="binding-section">
           <div class="binding-head">
             <PlusIcon />
-            <span>{{ i18n.t("board.loop.inputs") }}</span>
-            <span class="binding-count">{{ loopInputRows.length }}</span>
+            <span>{{ i18n.t("board.inspect.workflowInputs") }}</span>
+            <span class="binding-count">{{ signatureRows.length }}</span>
           </div>
-          <div v-for="row in loopInputRows" :key="row.portId" class="binding-row loop-input-row">
-            <div class="binding-label">
-              <span>{{ i18n.t("board.loop.inputN", { n: row.index }) }}</span>
-              <span class="binding-type">{{ row.source ?? "—" }}</span>
+          <p class="inspector-hint">{{ i18n.t("board.inspect.signatureTypeHint") }}</p>
+          <div
+            v-for="(decl, index) in signatureRows"
+            :key="decl.id"
+            class="signature-card"
+          >
+            <div class="signature-card-head">
+              <span class="signature-index">
+                {{ i18n.t("board.workflow.inIndex", { n: index + 1 }) }}
+              </span>
+              <span class="signature-id">{{ decl.id }}</span>
+              <button
+                class="loop-input-remove"
+                type="button"
+                :title="i18n.t('board.inspect.signatureRemove')"
+                :aria-label="i18n.t('board.inspect.signatureRemove')"
+                @click="removeSignatureDecl(decl.id)"
+              >
+                <XMarkIcon />
+              </button>
             </div>
+            <div class="signature-grid">
+              <div class="md-field">
+                <label>{{ i18n.t("board.inspect.signatureName") }}</label>
+                <input
+                  class="md-input"
+                  type="text"
+                  :value="decl.name"
+                  @change="updateSignatureDecl(decl.id, { name: ($event.target as HTMLInputElement).value })"
+                />
+              </div>
+              <div class="md-field">
+                <label>{{ i18n.t("board.inspect.signatureLabel") }}</label>
+                <input
+                  class="md-input"
+                  type="text"
+                  :value="decl.label"
+                  @change="updateSignatureDecl(decl.id, { label: ($event.target as HTMLInputElement).value })"
+                />
+              </div>
+            </div>
+            <div class="md-field">
+              <label>{{ i18n.t("board.inspect.signatureType") }}</label>
+              <Md3Select
+                class="field-select"
+                :model-value="decl.type"
+                :options="typeOptions"
+                :label="i18n.t('board.inspect.signatureType')"
+                @select="updateSignatureDecl(decl.id, { type: $event })"
+              />
+            </div>
+            <div class="md-field">
+              <label>{{ i18n.t("board.inspect.signatureDefault") }}</label>
+              <input
+                class="md-input"
+                type="text"
+                :value="decl.default === undefined || decl.default === null ? '' : String(decl.default)"
+                :placeholder="i18n.t('board.inspect.signatureDefault')"
+                @change="updateSignatureDecl(decl.id, { default: ($event.target as HTMLInputElement).value })"
+              />
+            </div>
+            <div class="workflow-check">
+              <span>{{ i18n.t("board.inspect.signatureRequired") }}</span>
+              <ToggleSwitch
+                :model-value="decl.required === true"
+                :label="i18n.t('board.inspect.signatureRequired')"
+                @update:model-value="updateSignatureDecl(decl.id, { required: $event })"
+              />
+            </div>
+          </div>
+          <button class="md-button" type="button" @click="addSignatureRow">
+            {{ i18n.t("board.inspect.addSignatureInput") }}
+          </button>
+        </section>
+
+        <!-- 嵌入工作流：选目标 + 刷新签名；输入在下面的「输入」区按签名端口映射 -->
+        <section v-if="isWorkflowCall" class="binding-section">
+          <div class="binding-head">
+            <LinkIcon />
+            <span>{{ i18n.t("board.inspect.workflowTarget") }}</span>
             <button
-              class="loop-input-remove"
+              v-if="callTargetId"
+              class="signature-refresh"
               type="button"
-              :disabled="loopInputRows.length <= 1"
-              :title="i18n.t('board.loop.removeInput')"
-              @click="removeLoopInput(row.index - 1)"
+              :title="i18n.t('board.canvas.publish')"
+              @click="refreshWorkflowTarget"
             >
-              <XMarkIcon />
+              <ArrowPathIcon />
             </button>
           </div>
-          <button class="md-button" type="button" @click="addLoopInput">
-            {{ i18n.t("board.loop.addInput") }}
+          <p class="inspector-hint">{{ i18n.t("board.inspect.workflowTargetHint") }}</p>
+          <Md3Select
+            class="field-select"
+            :model-value="callTargetId"
+            :options="workflowTargets"
+            :label="i18n.t('board.inspect.workflowTarget')"
+            :placeholder="i18n.t('board.inspect.workflowTargetEmpty')"
+            :searchable="workflowTargets.length > 8"
+            @select="selectWorkflowTarget"
+          />
+          <p v-if="workflowTargets.length === 0" class="inspector-hint">
+            {{ i18n.t("board.inspect.workflowTargetPublished") }}
+          </p>
+          <p v-else-if="!callTargetId" class="inspector-hint">
+            {{ i18n.t("board.inspect.workflowTargetEmpty") }}
+          </p>
+          <p v-else-if="callTargetName" class="signature-target">
+            {{ callTargetName }}
+          </p>
+          <p v-if="callPortsState && callPortsState.outputs.length === 0" class="inspector-hint">
+            {{ i18n.t("board.inspect.workflowMissing") }}
+          </p>
+        </section>
+
+        <!-- 结束节点（循环 / 工作流）：每行 = 来源选择 + 删除；工作流结束还带名字 / 类型 / 必填 -->
+        <section v-if="isLoopEnd || isWorkflowEnd" class="binding-section">
+          <div class="binding-head">
+            <PlusIcon />
+            <span>
+              {{
+                isLoopEnd
+                  ? i18n.t("board.loop.inputs")
+                  : i18n.t("board.inspect.workflowOutputs")
+              }}
+            </span>
+            <span class="binding-count">{{ signatureInputRows.length }}</span>
+          </div>
+          <div
+            v-for="row in signatureInputRows"
+            :key="row.id"
+            class="signature-card"
+          >
+            <div class="signature-card-head">
+              <span class="signature-index">
+                {{
+                  row.named
+                    ? i18n.t("board.workflow.outIndex", { n: row.index })
+                    : i18n.t("board.workflow.inIndex", { n: row.index })
+                }}
+              </span>
+              <span class="signature-id">{{ row.named ? row.id : row.label }}</span>
+              <button
+                class="loop-input-remove"
+                type="button"
+                :disabled="isLoopEnd && signatureInputRows.length <= 1"
+                :title="i18n.t('board.inspect.signatureRemove')"
+                :aria-label="i18n.t('board.inspect.signatureRemove')"
+                @click="removeEndInput(row)"
+              >
+                <XMarkIcon />
+              </button>
+            </div>
+            <template v-if="row.named">
+              <div class="signature-grid">
+                <div class="md-field">
+                  <label>{{ i18n.t("board.inspect.signatureName") }}</label>
+                  <input
+                    class="md-input"
+                    type="text"
+                    :value="row.name"
+                    @change="updateSignatureDecl(row.id, { name: ($event.target as HTMLInputElement).value })"
+                  />
+                </div>
+                <div class="md-field">
+                  <label>{{ i18n.t("board.inspect.signatureType") }}</label>
+                  <Md3Select
+                    class="field-select"
+                    :model-value="row.type"
+                    :options="typeOptions"
+                    :label="i18n.t('board.inspect.signatureType')"
+                    @select="updateSignatureDecl(row.id, { type: $event })"
+                  />
+                </div>
+              </div>
+              <div class="md-field">
+                <label>{{ i18n.t("board.inspect.signatureLabel") }}</label>
+                <input
+                  class="md-input"
+                  type="text"
+                  :value="row.label"
+                  @change="updateSignatureDecl(row.id, { label: ($event.target as HTMLInputElement).value })"
+                />
+              </div>
+              <div class="workflow-check">
+                <span>{{ i18n.t("board.inspect.signatureRequired") }}</span>
+                <ToggleSwitch
+                  :model-value="row.required"
+                  :label="i18n.t('board.inspect.signatureRequired')"
+                  @update:model-value="updateSignatureDecl(row.id, { required: $event })"
+                />
+              </div>
+            </template>
+            <div class="md-field">
+              <label>{{ i18n.t("board.loop.source") }}</label>
+              <Md3Select
+                class="binding-select"
+                :model-value="row.boundKey"
+                :options="bindingOptions(row.port)"
+                :label="row.label"
+                :searchable="bindingOptions(row.port).length > 8"
+                @select="setEndInputSource(row, $event)"
+              />
+            </div>
+          </div>
+          <button class="md-button" type="button" @click="addEndInput">
+            {{
+              isLoopEnd
+                ? i18n.t("board.loop.addInput")
+                : i18n.t("board.inspect.addSignatureOutput")
+            }}
           </button>
         </section>
 
@@ -998,8 +1415,8 @@ function portReady(port: BoardPortSpec): boolean {
           <div v-for="port in outputPorts" :key="port.id" class="output-row">
             <div class="output-row-head">
               <span class="binding-label">
-                <span>{{ i18n.t(port.labelKey) }}</span>
-                <span class="binding-type">{{ port.type }}</span>
+                <span>{{ portLabel(port) }}</span>
+                <span class="binding-type">{{ typeLabel(port.type) }}</span>
               </span>
               <span class="output-state" :data-ready="portReady(port) ? 'true' : 'false'">
                 {{ portReady(port) ? i18n.t("board.inspect.published") : i18n.t("board.inspect.outputReady") }}
@@ -2168,5 +2585,90 @@ button.binding-note:hover {
   .asset-thumb-remove {
     transition: none;
   }
+}
+
+/* ---------------- 画布检查器 / 工作流签名 ---------------- */
+.canvas-panel {
+  /* 子组件自带内边距，抵消父级 padding，避免双重留白 */
+  margin: -16px -16px -22px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.signature-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.42);
+  background: rgb(var(--md-surface-container));
+}
+
+.signature-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.signature-index {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: rgb(var(--md-on-surface-muted));
+}
+
+.signature-id {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: rgb(var(--md-on-surface-muted));
+}
+
+.signature-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.workflow-check {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: rgb(var(--md-on-surface-variant));
+}
+
+.signature-refresh {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: rgb(var(--md-on-surface-muted));
+  cursor: pointer;
+}
+
+.signature-refresh:hover {
+  background: rgb(var(--md-surface-container-high));
+  color: rgb(var(--md-on-surface));
+}
+
+.signature-refresh svg {
+  width: 14px;
+  height: 14px;
+}
+
+.signature-target {
+  margin: 0;
+  font-size: 12px;
+  color: rgb(var(--md-on-surface-variant));
 }
 </style>

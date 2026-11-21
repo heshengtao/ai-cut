@@ -21,7 +21,7 @@ import {
 } from "@/core/board/library";
 import type { WorkflowGroup, WorkflowVersion } from "@/types/workflow";
 
-export type WorkflowFilter = "all" | "builtin" | "mine";
+export type WorkflowFilter = "all" | "builtin" | "mine" | "subworkflow" | "api";
 
 const groups = ref<WorkflowGroup[]>([]);
 const loading = ref(false);
@@ -31,11 +31,10 @@ const filter = ref<WorkflowFilter>("all");
 
 /** 保存对话框的状态（画布工具栏 / 面板 / 文件菜单都通过它打开）。 */
 const saveOpen = ref(false);
+/** 清空画布时「未保存」的三选一对话框。 */
+const clearOpen = ref(false);
 const saveName = ref("");
 const saveDescription = ref("");
-/** 「保存后是否清空画布」：清空按钮走同一条保存路径。 */
-let saveThenClear = false;
-
 let refreshing: Promise<void> | null = null;
 
 /** 按搜索词与「默认 / 我的」筛选后的工作流。 */
@@ -44,6 +43,8 @@ const visibleGroups = computed(() => {
   return groups.value.filter((group) => {
     if (filter.value === "builtin" && !group.builtin) return false;
     if (filter.value === "mine" && group.builtin) return false;
+    if (filter.value === "subworkflow" && !group.tags.includes("subworkflow")) return false;
+    if (filter.value === "api" && !group.tags.includes("api")) return false;
     if (!needle) return true;
     return (
       group.name.toLowerCase().includes(needle) ||
@@ -82,14 +83,13 @@ function defaultName(): string {
   return t("board.library.defaultName", { name: project.doc.name || t("board.library.untitled") });
 }
 
-/** 打开保存对话框；`thenClear` 为 true 时保存完顺手清空画布。 */
-function openSave(thenClear = false): void {
+/** 打开保存对话框（只保存，不清空；清空走带提醒的 `clearCanvas`）。 */
+function openSave(): void {
   const board = useBoardStore();
   if (board.nodes.length === 0) {
     toast(t("board.library.emptyCanvas"), "error");
     return;
   }
-  saveThenClear = thenClear;
   saveName.value = defaultName();
   saveDescription.value = "";
   saveOpen.value = true;
@@ -97,7 +97,6 @@ function openSave(thenClear = false): void {
 
 function closeSave(): void {
   saveOpen.value = false;
-  saveThenClear = false;
 }
 
 /**
@@ -108,7 +107,10 @@ function closeSave(): void {
  * - 画布是从默认工作流改出来的 → 新建一个用户工作流（记下 origin），而不是改默认；
  * - 同一历史（同一工程）下同名的保存也会被 daemon 归到同一个工作流。
  */
-async function saveCurrent(name?: string, options: { silent?: boolean } = {}): Promise<WorkflowVersion | null> {
+async function saveCurrent(
+  name?: string,
+  options: { silent?: boolean; tags?: string[] } = {},
+): Promise<WorkflowVersion | null> {
   const board = useBoardStore();
   const project = useProjectStore();
   if (board.nodes.length === 0) {
@@ -127,6 +129,7 @@ async function saveCurrent(name?: string, options: { silent?: boolean } = {}): P
       description: saveDescription.value.trim(),
       origin,
       historyKey: historyKeyFor(project.doc, project.filePath),
+      tags: options.tags,
       nodes: board.nodes,
       edges: board.edges,
     });
@@ -148,17 +151,21 @@ async function saveCurrent(name?: string, options: { silent?: boolean } = {}): P
   }
 }
 
-/** 对话框提交：保存（必要时清空画布）。 */
+/** 对话框提交：保存当前画布。 */
 async function submitSave(): Promise<void> {
-  const thenClear = saveThenClear;
   const version = await saveCurrent();
   if (!version) return;
   saveOpen.value = false;
-  saveThenClear = false;
-  if (thenClear) {
-    useBoardStore().clear();
-    toast(t("board.library.savedAndCleared", { name: version.name }));
-  }
+}
+
+/** 发布当前画布：保存一个新版本，并打上 `workflow` / `subworkflow` / `api` 标签。 */
+async function publishCurrent(options: {
+  name: string;
+  tags: string[];
+}): Promise<WorkflowVersion | null> {
+  const version = await saveCurrent(options.name, { tags: options.tags, silent: true });
+  if (version) await refresh(true);
+  return version;
 }
 
 /** 把工作流插入画布（默认工作流直接展开内置模板）。 */
@@ -230,13 +237,20 @@ async function renameGroup(group: WorkflowGroup, name: string): Promise<void> {
 }
 
 /**
- * 清空画布：先把当前工作流快速保存到库（和历史工程一致的「先留一份」），
- * 再清空。
+ * 清空画布。
+ *
+ * 纪律：**不再自动保存**。清空一张从没保存过的画布之前弹三选一对话框
+ * （保存并清空 / 直接清空 / 取消），避免每清一次就在库里多一张工作流。
+ * 已经属于某个工作流的画布只做一次普通确认——库里的版本已经在。
  */
 async function clearCanvas(): Promise<void> {
   const board = useBoardStore();
   if (board.nodes.length === 0) {
     board.clear();
+    return;
+  }
+  if (!board.source?.rootId) {
+    clearOpen.value = true;
     return;
   }
   const accepted = await confirm({
@@ -246,15 +260,31 @@ async function clearCanvas(): Promise<void> {
     destructive: true,
   });
   if (!accepted) return;
-  // 已经有来源就直接追加版本；没有来源时沿用上次保存用的名字（或工程名）。
+  board.clear();
+  toast(t("board.clear.cleared"));
+}
+
+function closeClear(): void {
+  clearOpen.value = false;
+}
+
+/** 未保存画布：先保存成一个工作流再清空。 */
+async function clearWithSave(): Promise<void> {
+  const board = useBoardStore();
   const name = board.source?.name || defaultName();
   const version = await saveCurrent(name, { silent: true });
+  if (!version) return;
+  clearOpen.value = false;
   board.clear();
-  if (version) {
-    toast(t("board.library.savedAndCleared", { name: version.name }));
-  } else {
-    toast(t("board.library.clearedWithoutSave"), "error");
-  }
+  toast(t("board.library.savedAndCleared", { name: version.name }));
+}
+
+/** 未保存画布：不保存，直接清空。 */
+function clearWithoutSave(): void {
+  const board = useBoardStore();
+  clearOpen.value = false;
+  board.clear();
+  toast(t("board.clear.cleared"));
 }
 
 /** 拖拽载荷里恢复工作流用（BoardView 调用）。 */
@@ -273,16 +303,21 @@ export function useWorkflowLibrary() {
     query,
     filter,
     saveOpen,
+    clearOpen,
     saveName,
     saveDescription,
     refresh,
     openSave,
     closeSave,
     saveCurrent,
+    publishCurrent,
     submitSave,
     insertWorkflow,
     removeGroup,
     renameGroup,
     clearCanvas,
+    closeClear,
+    clearWithSave,
+    clearWithoutSave,
   };
 }

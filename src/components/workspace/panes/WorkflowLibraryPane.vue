@@ -21,6 +21,7 @@ import { clearDragPayload, setDragPayload } from "@/core/dragPayload";
 import { useWorkflowLibrary, type WorkflowFilter } from "@/composables/useWorkflowLibrary";
 import { useBoardStore } from "@/stores/board";
 import { useI18n } from "@/i18n";
+import { isKnownMessageKey } from "@/i18n/translate";
 import type { WorkflowGroup, WorkflowVersion } from "@/types/workflow";
 
 const i18n = useI18n();
@@ -35,6 +36,8 @@ const FILTERS: { id: WorkflowFilter; labelKey: string }[] = [
   { id: "all", labelKey: "board.library.filterAll" },
   { id: "builtin", labelKey: "board.library.filterBuiltin" },
   { id: "mine", labelKey: "board.library.filterMine" },
+  { id: "subworkflow", labelKey: "board.library.filterWorkflow" },
+  { id: "api", labelKey: "board.library.filterApi" },
 ];
 
 const sourceLabel = computed(() => {
@@ -48,6 +51,13 @@ const sourceLabel = computed(() => {
 onMounted(() => {
   void library.refresh();
 });
+
+/** 工作流名：空名 / 历史泄漏的 i18n key 都显示成「未命名工作流」。 */
+function displayName(group: WorkflowGroup): string {
+  const name = group.name?.trim();
+  if (!name || isKnownMessageKey(name)) return i18n.t("board.library.untitledWorkflow");
+  return name;
+}
 
 function toggleVersions(rootId: string): void {
   const next = new Set(expanded.value);
@@ -173,12 +183,18 @@ function metaOf(group: WorkflowGroup): string {
         <div class="card-top">
           <span class="card-icon"><Square3Stack3DIcon /></span>
           <div class="card-title-wrap">
-            <h3 class="card-title">{{ group.name }}</h3>
+            <h3 class="card-title">{{ displayName(group) }}</h3>
             <p class="card-badges">
               <span class="badge" :data-kind="group.builtin ? 'builtin' : 'mine'">
                 {{ group.builtin ? i18n.t("board.library.builtinBadge") : i18n.t("board.library.mineBadge") }}
               </span>
               <span class="badge version">v{{ group.latest.version }}</span>
+              <span v-if="group.tags.includes('subworkflow')" class="badge publication">
+                {{ i18n.t("board.library.badgeWorkflow") }}
+              </span>
+              <span v-if="group.tags.includes('api')" class="badge publication api">
+                {{ i18n.t("board.library.badgeApi") }}
+              </span>
               <span v-if="library.currentGroup.value?.rootId === group.rootId" class="badge current">
                 {{ i18n.t("board.library.currentBadge") }}
               </span>
@@ -583,5 +599,15 @@ function metaOf(group: WorkflowGroup): string {
 .version-use:hover {
   background-color: rgb(var(--md-primary) / 0.16);
   color: rgb(var(--md-primary));
+}
+
+.workflow-card .badge.publication {
+  background: color-mix(in srgb, rgb(var(--md-primary)) 18%, transparent);
+  color: rgb(var(--md-primary));
+}
+
+.workflow-card .badge.publication.api {
+  background: color-mix(in srgb, rgb(var(--md-tertiary)) 20%, transparent);
+  color: rgb(var(--md-tertiary));
 }
 </style>

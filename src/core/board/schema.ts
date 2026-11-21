@@ -17,6 +17,7 @@ import {
   type BoardWorkflowSource,
 } from "@/types/board";
 import { isDataTypeId, portsConnectable } from "./dataTypes";
+import { normalizeSignature } from "./workflowNodes";
 
 /** 空画布文档。 */
 export function emptyBoard(): BoardDoc {
@@ -115,6 +116,7 @@ function normalizePortList(raw: unknown): BoardPortSpec[] | null {
       id: item.id,
       type: item.type,
       labelKey: item.labelKey,
+      ...(typeof item.label === "string" && item.label ? { label: item.label } : {}),
       ...(typeof item.max === "number" ? { max: item.max } : {}),
       ...(item.channel === "inline" || item.channel === "blob" || item.channel === "stream"
         ? { channel: item.channel }
@@ -149,6 +151,9 @@ function normalizeNode(raw: unknown): BoardNode | null {
   };
   const ports = normalizePorts(rawData.ports);
   if (ports) data.ports = ports;
+  if (typeof rawData.pairId === "string" && rawData.pairId) data.pairId = rawData.pairId;
+  const signature = normalizeSignature(rawData.signature);
+  if (signature) data.signature = signature;
   if (typeof rawData.title === "string" && rawData.title) data.title = rawData.title;
   if (typeof rawData.assetId === "string" && rawData.assetId) data.assetId = rawData.assetId;
   if (Array.isArray(rawData.items)) {

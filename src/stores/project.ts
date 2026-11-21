@@ -20,7 +20,8 @@ import type {
 import type { Project } from "@/types/project";
 import { newProject as makeProject } from "@/core/factory";
 import { parseProject, serializeProject } from "@/core/serialize";
-import { attachEpisodeView, patchProjectMeta, switchActiveEpisode } from "@/core/episodes";
+import { attachEpisodeView, switchActiveEpisode } from "@/core/episodes";
+import { activateCanvas, createCanvas, deleteCanvas, duplicateCanvas, renameCanvas, replaceCanvasDoc } from "@/core/board/projectBoards";
 import type { BoardDoc } from "@/types/board";
 import { applyCommandToDoc, applyCommandsToDoc, diffAffected } from "@/core/commands";
 import { recordProjectHistory, getProjectHistory, flushHistoryRecords } from "@/core/history";
@@ -684,9 +685,48 @@ export const useProjectStore = defineStore("project", () => {
    */
   function updateBoard(board: BoardDoc): void {
     if (readOnly.value) return;
-    doc.value = patchProjectMeta(doc.value, { board });
+    // 画布文档写回**活动画布**（`boards` 是真相，`doc.board` 只是访问器）。
+    doc.value = attachEpisodeView(
+      replaceCanvasDoc(doc.value, doc.value.activeBoardId ?? "", board),
+    );
     dirty.value = true;
     revision.value += 1;
+  }
+
+  /**
+   * 画布列表的结构性改动（新建 / 删除 / 改名 / 切换 / 复制）。
+   *
+   * 和 `updateBoard` 一样：画布是工程级文档、有自己的撤销栈，所以不进时间线历史，
+   * 只置 dirty 并推进 revision。活动画布内容由调用方（board store）先写回。
+   */
+  function patchCanvases(mutate: (doc: Project) => Project): boolean {
+    if (readOnly.value) return false;
+    const next = mutate(doc.value);
+    if (next === doc.value) return false;
+    doc.value = attachEpisodeView(next);
+    dirty.value = true;
+    revision.value += 1;
+    return true;
+  }
+
+  function createCanvasAction(title?: string): void {
+    patchCanvases((current) => createCanvas(current, title));
+  }
+
+  function deleteCanvasAction(canvasId: string): void {
+    patchCanvases((current) => deleteCanvas(current, canvasId));
+  }
+
+  function renameCanvasAction(canvasId: string, title: string): void {
+    patchCanvases((current) => renameCanvas(current, canvasId, title));
+  }
+
+  function activateCanvasAction(canvasId: string): void {
+    patchCanvases((current) => activateCanvas(current, canvasId));
+  }
+
+  function duplicateCanvasAction(canvasId: string): void {
+    patchCanvases((current) => duplicateCanvas(current, canvasId));
   }
 
   /**
@@ -925,6 +965,12 @@ export const useProjectStore = defineStore("project", () => {
     markSaved,
     switchEpisode,
     updateBoard,
+    patchCanvases,
+    createCanvasAction,
+    deleteCanvasAction,
+    renameCanvasAction,
+    activateCanvasAction,
+    duplicateCanvasAction,
     markOfflineAssets,
     setReadOnly,
     applyRemote,

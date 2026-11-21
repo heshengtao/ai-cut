@@ -36,6 +36,18 @@ import {
 } from "@/core/board/liveRuns";
 import { createRunSignals } from "@/core/board/runSignals";
 import { nodeDefinition, nodeOwner, paramValue, valueKindOf } from "@/core/board/registry";
+import {
+  WORKFLOW_CALL_TYPE,
+  WORKFLOW_END_TYPE,
+  WORKFLOW_START_TYPE,
+  canvasWorkflow,
+  declKey,
+  declPortId,
+  defaultValueFor,
+  endOutputPortId,
+  normalizeSignature,
+} from "@/core/board/workflowNodes";
+import { readWorkflowRoot } from "@/core/board/library";
 import { portsCompatible } from "@/core/board/schema";
 import { pluginHostCancel } from "@/core/pluginHostApi";
 import { stackOf } from "@/core/board/stacks";
@@ -45,6 +57,48 @@ import {
   normalizeItems,
   slotCount,
 } from "@/core/board/loop";
+
+/**
+ * 一次运行的「作用域」：节点 / 连线 / 运行时写回的落点。
+ *
+ * 顶层画布用全局作用域（board store）；嵌入子工作流时用**子作用域**——子图的
+ * 节点来自工作流快照，运行结果写回快照里的节点（不落盘）。作用域必须显式传入，
+ * 不能用模块级变量：父画布的 API 节点和子工作流节点会并发执行。
+ */
+export interface RunScope {
+  readonly nodes: BoardNode[];
+  readonly edges: BoardEdge[];
+  setRuntime(nodeId: string, patch: Partial<BoardNodeData>): void;
+  /** 调用栈（工作流 rootId / 画布 id），用于嵌套递归检测。 */
+  trail: string[];
+  /** 非空表示子作用域：不写实时运行状态 / 不弹进度。 */
+  keyPrefix: string;
+  /** 子作用域继承父节点的取消信号；为空时自己发一个。 */
+  signal?: AbortSignal;
+  /**
+   * 外部注入的工作流输入（节点 id → 行 id → 值）。
+   *
+   * 不写进 `data.values`：那是**输出**，跑完会被覆盖；注入值只活在这一次运行里。
+   */
+  injected?: Map<string, Record<string, unknown>>;
+}
+
+/** 顶层画布作用域（每次都读 store 当前引用，节点数组会被整体替换）。 */
+export function globalRunScope(): RunScope {
+  return {
+    get nodes() {
+      return useBoardStore().nodes;
+    },
+    get edges() {
+      return useBoardStore().edges;
+    },
+    setRuntime(nodeId, patch) {
+      useBoardStore().setNodeRuntime(nodeId, patch);
+    },
+    trail: [],
+    keyPrefix: "",
+  };
+}
 
 /**
  * 运行中的实时状态（文本流 / 进度 / 开始时间）。
@@ -83,7 +137,13 @@ import { topologicalOrder } from "@/core/board/graph";
 import { llmChat, llmChatStream } from "@/core/agentApi";
 import { t } from "@/i18n";
 import { splitLlmValue } from "@/composables/useBoardLlm";
-import type { BoardEdge, BoardNode, BoardPortType, BoardRunMode } from "@/types/board";
+import type {
+  BoardEdge,
+  BoardNode,
+  BoardNodeData,
+  BoardPortType,
+  BoardRunMode,
+} from "@/types/board";
 import type { LlmChatMessage, LlmContentPart } from "@/types/agent";
 import type { AssetKind } from "@/types/project";
 
@@ -147,12 +207,12 @@ function resolveUpstream(
   targetPortId: string,
   wanted: BoardPortType,
   seen: Set<string> = new Set(),
+  scope: RunScope = globalRunScope(),
 ): UpstreamRef | null {
-  const board = useBoardStore();
-  const edge = board.edges.find(
+  const edge = scope.edges.find(
     (item) => item.target === targetNodeId && item.targetPort === targetPortId,
   );
-  return edge ? resolveFromEdge(edge, wanted, seen) : null;
+  return edge ? resolveFromEdge(edge, wanted, seen, scope) : null;
 }
 
 /** 从一条连线往上找真正产出素材的节点（多路输入逐条解析）。 */
@@ -160,13 +220,13 @@ function resolveFromEdge(
   edge: BoardEdge,
   wanted: BoardPortType,
   seen: Set<string> = new Set(),
+  scope: RunScope = globalRunScope(),
 ): UpstreamRef | null {
-  const board = useBoardStore();
   const context = portContext();
   const key = `${edge.target}:${edge.targetPort}:${edge.id}`;
   if (seen.has(key)) return null;
   seen.add(key);
-  const source = board.nodes.find((item) => item.id === edge.source);
+  const source = scope.nodes.find((item) => item.id === edge.source);
   if (!source) return null;
   // 显示节点是「透传」的：下游直接拿它上游已经发布的值，不必等它自己先跑一遍
   // （和 ai-board 的 display 节点跟随实时输入一致）。
@@ -181,6 +241,7 @@ function resolveFromEdge(
         input.id,
         input.type === "any" ? wanted : input.type,
         seen,
+        scope,
       );
       if (next) return next;
     }
@@ -194,7 +255,7 @@ function resolveFromEdge(
     (port) => wanted === "any" || port.type === wanted || port.type === "any",
   );
   const connected = inputs.filter((port) =>
-    board.edges.some((item) => item.target === source.id && item.targetPort === port.id),
+    scope.edges.some((item) => item.target === source.id && item.targetPort === port.id),
   );
   for (const port of [...connected, ...inputs]) {
     const next = resolveUpstream(
@@ -202,6 +263,7 @@ function resolveFromEdge(
       port.id,
       port.type === "any" ? wanted : port.type,
       seen,
+      scope,
     );
     if (next) return next;
   }
@@ -234,10 +296,11 @@ function bundleRank(portType: BoardPortType, wanted: BoardPortType): number {
   return -1;
 }
 
-function bundlePick(
+function bundlePickScoped(
   node: BoardNode,
   wanted: BoardPortType,
   edgeId: string | undefined,
+  scope: RunScope = globalRunScope(),
 ): { portId: string; value: unknown } | null {
   const context = portContext();
   const project = useProjectStore();
@@ -245,7 +308,7 @@ function bundlePick(
   const ports = portsOf(node, context).outputs;
   // 输入端口在检查器里选的是哪一个输出：连线上的 `sourcePort` 说了算，
   // 这里不再按类型猜（用户选了 out2 就必须拿 out2）。
-  const edge = edgeId ? useBoardStore().edges.find((item) => item.id === edgeId) : null;
+  const edge = edgeId ? scope.edges.find((item) => item.id === edgeId) : null;
   if (edge && ports.some((port) => port.id === edge.sourcePort)) {
     return { portId: edge.sourcePort, value: publishedValue(node, edge.sourcePort) };
   }
@@ -276,13 +339,14 @@ function bundlePick(
   return { portId: picked.portId, value: picked.value };
 }
 
-function bundleValue(
+function bundleValueScoped(
   node: BoardNode,
   wanted: BoardPortType,
   edgeId: string | undefined,
+  scope: RunScope = globalRunScope(),
 ): unknown {
   if (!isBundleNode(node)) return undefined;
-  return bundlePick(node, wanted, edgeId)?.value;
+  return bundlePickScoped(node, wanted, edgeId, scope)?.value;
 }
 
 /**
@@ -291,11 +355,15 @@ function bundleValue(
  * 只读 `outputText`，不读输入节点的参数草案：画布是显式执行的，上游没有运行
  * 之前下游不应该拿到任何东西（否则改一个字就自动推进整条链）。
  */
-function upstreamText(nodeId: string, portId: string): string | null {
-  const source = resolveUpstream(nodeId, portId, "text");
+function upstreamTextScoped(
+  nodeId: string,
+  portId: string,
+  scope: RunScope = globalRunScope(),
+): string | null {
+  const source = resolveUpstream(nodeId, portId, "text", new Set(), scope);
   if (!source) return null;
   if (isBundleNode(source.node)) {
-    const value = bundleValue(source.node, "text", source.edgeId);
+    const value = bundleValueScoped(source.node, "text", source.edgeId, scope);
     if (value !== null && value !== undefined) return String(value);
   }
   // 值节点（`input.value`）选 text 类型时把值存在 `data.values` 里，其余节点存 `outputText`。
@@ -318,17 +386,20 @@ function publishedValue(node: BoardNode, portId: string): unknown {
 }
 
 /** 上游已经发布的值产物。 */
-function upstreamValue(nodeId: string, portId: string): unknown {
-  const board = useBoardStore();
+function upstreamValueScoped(
+  nodeId: string,
+  portId: string,
+  scope: RunScope = globalRunScope(),
+): unknown {
   const context = portContext();
-  const target = board.nodes.find((item) => item.id === nodeId);
+  const target = scope.nodes.find((item) => item.id === nodeId);
   const targetPort = target
     ? portsOf(target, context).inputs.find((port) => port.id === portId)
     : null;
-  const source = resolveUpstream(nodeId, portId, targetPort?.type ?? "any");
+  const source = resolveUpstream(nodeId, portId, targetPort?.type ?? "any", new Set(), scope);
   if (!source) return null;
   if (isBundleNode(source.node)) {
-    const value = bundleValue(source.node, targetPort?.type ?? "any", source.edgeId);
+    const value = bundleValueScoped(source.node, targetPort?.type ?? "any", source.edgeId, scope);
     if (value !== undefined) return value;
   }
   return publishedValue(source.node, source.portId);
@@ -360,14 +431,14 @@ export function parseValueParam(kind: BoardPortType, raw: unknown): unknown {
 }
 
 /** 上游已经**发布**的素材输出（按端口取；单端口节点仍读 `outputAssetId`）。 */
-function upstreamAsset(
+function upstreamAssetScoped(
   nodeId: string,
   portId: string,
+  scope: RunScope = globalRunScope(),
 ): { path: string; duration: number; assetId: string } | null {
-  const board = useBoardStore();
   const project = useProjectStore();
   const context = portContext();
-  const target = board.nodes.find((item) => item.id === nodeId);
+  const target = scope.nodes.find((item) => item.id === nodeId);
   const targetPort = target
     ? portsOf(target, context).inputs.find((port) => port.id === portId)
     : null;
@@ -375,11 +446,13 @@ function upstreamAsset(
     nodeId,
     portId,
     targetPort?.type ?? "any",
+    new Set(),
+    scope,
   );
   if (!source) return null;
   const assetId = isBundleNode(source.node)
     ? (() => {
-        const value = bundleValue(source.node, targetPort?.type ?? "any", source.edgeId);
+        const value = bundleValueScoped(source.node, targetPort?.type ?? "any", source.edgeId, scope);
         return typeof value === "string" ? value : null;
       })()
     : publishedAssetId(source.node, source.portId, context);
@@ -395,14 +468,14 @@ function upstreamAsset(
  * 图片显示节点用整摞做多图牌堆，单张节点只用 `primary`——两者语义都从
  * `publishedAssetIds` 来，不会出现「显示节点只拿到第一张」的割裂。
  */
-function upstreamAssets(
+function upstreamAssetsScoped(
   nodeId: string,
   portId: string,
+  scope: RunScope = globalRunScope(),
 ): { ids: string[]; primary?: string } {
-  const board = useBoardStore();
   const project = useProjectStore();
   const context = portContext();
-  const target = board.nodes.find((item) => item.id === nodeId);
+  const target = scope.nodes.find((item) => item.id === nodeId);
   const targetPort = target
     ? portsOf(target, context).inputs.find((port) => port.id === portId)
     : null;
@@ -410,10 +483,12 @@ function upstreamAssets(
     nodeId,
     portId,
     targetPort?.type ?? "any",
+    new Set(),
+    scope,
   );
   if (!source) return { ids: [] };
   if (isBundleNode(source.node)) {
-    const value = bundleValue(source.node, targetPort?.type ?? "any", source.edgeId);
+    const value = bundleValueScoped(source.node, targetPort?.type ?? "any", source.edgeId, scope);
     const list = Array.isArray(value)
       ? value
       : typeof value === "string"
@@ -438,11 +513,14 @@ function upstreamAssets(
  * 同类型多路输入合并成一个端口后，一个端口可能挂着多条连线；这里逐条
  * 沿连线解析（旁路 / 显示节点透传都算），失败或没连的直接跳过。
  */
-function collectRefs(nodeId: string, kind: "image" | "audio" | "video"): string[] {
-  const board = useBoardStore();
+function collectRefsScoped(
+  nodeId: string,
+  kind: "image" | "audio" | "video",
+  scope: RunScope = globalRunScope(),
+): string[] {
   const project = useProjectStore();
   const context = portContext();
-  const target = board.nodes.find((item) => item.id === nodeId);
+  const target = scope.nodes.find((item) => item.id === nodeId);
   if (!target) return [];
   const portIds = new Set(
     portsOf(target, context)
@@ -457,13 +535,13 @@ function collectRefs(nodeId: string, kind: "image" | "audio" | "video"): string[
   );
   if (portIds.size === 0) return [];
   const paths: string[] = [];
-  for (const edge of board.edges) {
+  for (const edge of scope.edges) {
     if (edge.target !== nodeId || !portIds.has(edge.targetPort)) continue;
-    const ref = resolveFromEdge(edge, kind);
+    const ref = resolveFromEdge(edge, kind, new Set(), scope);
     if (!ref) continue;
     const assetId = isBundleNode(ref.node)
       ? (() => {
-          const value = bundleValue(ref.node, kind, ref.edgeId);
+          const value = bundleValueScoped(ref.node, kind, ref.edgeId, scope);
           return typeof value === "string" ? value : null;
         })()
       : publishedAssetId(ref.node, ref.portId, context);
@@ -471,11 +549,6 @@ function collectRefs(nodeId: string, kind: "image" | "audio" | "video"): string[
     if (asset) paths.push(asset.src);
   }
   return paths;
-}
-
-/** 图像节点的参考图（一个 `ref` 端口可接多张，顺序就是检查器里的顺序）。 */
-function collectImageRefs(nodeId: string): string[] {
-  return collectRefs(nodeId, "image");
 }
 
 /** `local:<id>` / `cloud:<id>`（端口展开与运行共用同一套解析）。 */
@@ -571,7 +644,16 @@ export async function runAdapter(
   node: BoardNode,
   nodeId: string,
   signal: AbortSignal = new AbortController().signal,
+  scope: RunScope = globalRunScope(),
 ): Promise<AdapterResult> {
+  // 上游读取统一走本次运行的作用域：嵌入子工作流时读的是子图，不是当前画布。
+  const readText = (id: string, portId: string) => upstreamTextScoped(id, portId, scope);
+  const readValue = (id: string, portId: string) => upstreamValueScoped(id, portId, scope);
+  const readAsset = (id: string, portId: string) => upstreamAssetScoped(id, portId, scope);
+  const readAssets = (id: string, portId: string) => upstreamAssetsScoped(id, portId, scope);
+  const readRefs = (id: string, kind: "image" | "audio" | "video") =>
+    collectRefsScoped(id, kind, scope);
+  const readImageRefs = (id: string) => collectRefsScoped(id, "image", scope);
   const route = dispatchAdapter(node.type);
   if (route === "plugin") {
     const readParam = paramReader(node);
@@ -579,13 +661,13 @@ export async function runAdapter(
       // 只读 `data.params` 的话，没被用户改过的参数就是 `undefined`——卡片上明明
       // 显示着定义里的默认值（插件作者也因此以为 `io.param` 拿得到），要回落。
       param: <T,>(id: string) => readParam<T>(id),
-      text: (portId) => upstreamText(nodeId, portId),
+      text: (portId) => readText(nodeId, portId),
       asset: (portId) => {
-        const found = upstreamAsset(nodeId, portId);
+        const found = readAsset(nodeId, portId);
         return found ? { path: found.path, assetId: found.assetId } : null;
       },
-      refs: (kind) => collectRefs(nodeId, kind),
-      value: (portId) => upstreamValue(nodeId, portId),
+      refs: (kind) => readRefs(nodeId, kind),
+      value: (portId) => readValue(nodeId, portId),
       progress: (value, message) =>
         updateLiveRun(nodeId, { progress: value, message: message ?? null }),
     };
@@ -614,10 +696,16 @@ export async function runAdapter(
 
   switch (node.type) {
     case "loop.start":
-      return runLoop(node, signal);
+      return runLoop(node, signal, scope);
     case "loop.end":
       // 结束节点只是接线终点：数组由循环开始节点在循环结束时写回。
       return {};
+    case WORKFLOW_START_TYPE:
+      return runWorkflowStart(node, scope);
+    case WORKFLOW_END_TYPE:
+      return runWorkflowEnd(node, scope);
+    case WORKFLOW_CALL_TYPE:
+      return runWorkflowCall(node, signal, scope);
 
     case "input.value": {
       // 端口类型跟着 `kind` 走；text 走 `text` 产物，其余走值产物。
@@ -637,8 +725,8 @@ export async function runAdapter(
     }
 
     case "display.value": {
-      const list = upstreamValue(nodeId, "list");
-      const source = list === null || list === undefined ? upstreamValue(nodeId, "value") : null;
+      const list = readValue(nodeId, "list");
+      const source = list === null || list === undefined ? readValue(nodeId, "value") : null;
       const items = list === null || list === undefined ? normalizeItems(source) : normalizeItems(list);
       const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
       const value = items[index] ?? null;
@@ -677,7 +765,7 @@ export async function runAdapter(
 
     case "display.image": {
       // 上游一次出多张时整摞都接过来：卡片按「牌堆」叠放，`assetId` 是当前发布那张。
-      const listValue = upstreamValue(node.id, "list");
+      const listValue = readValue(node.id, "list");
       if (listValue !== null && listValue !== undefined) {
         const items = normalizeItems(listValue).filter(
           (item): item is string => typeof item === "string",
@@ -685,7 +773,7 @@ export async function runAdapter(
         const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
         return { assets: items, assetId: items[index], kind: "image", values: { list: items } };
       }
-      const upstream = upstreamAssets(node.id, "image");
+      const upstream = readAssets(node.id, "image");
       if (upstream.ids.length === 0) throw new Error("缺少上游素材：先连接并运行上游节点");
       return {
         assets: upstream.ids,
@@ -698,7 +786,7 @@ export async function runAdapter(
     case "display.video":
     case "display.audio": {
       const port = node.type.slice("display.".length);
-      const listValue = upstreamValue(node.id, "list");
+      const listValue = readValue(node.id, "list");
       if (listValue !== null && listValue !== undefined) {
         const items = normalizeItems(listValue).filter(
           (item): item is string => typeof item === "string",
@@ -706,13 +794,13 @@ export async function runAdapter(
         const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
         return { assetId: items[index], kind: port as AssetKind, values: { list: items } };
       }
-      const input = upstreamAsset(node.id, port);
+      const input = readAsset(node.id, port);
       if (!input) throw new Error("缺少上游素材：先连接并运行上游节点");
       return { assetId: input.assetId, kind: port as AssetKind, values: { list: [input.assetId] } };
     }
 
     case "display.text": {
-      const listValue = upstreamValue(node.id, "list");
+      const listValue = readValue(node.id, "list");
       if (listValue !== null && listValue !== undefined) {
         const items = normalizeItems(listValue).filter(
           (item): item is string => typeof item === "string",
@@ -720,7 +808,7 @@ export async function runAdapter(
         const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
         return { text: items[index] ?? "", values: { list: items } };
       }
-      const text = upstreamText(node.id, "text");
+      const text = readText(node.id, "text");
       if (text === null) throw new Error("缺少上游文本：先连接并运行上游节点");
       return { text, values: { list: [text] } };
     }
@@ -729,8 +817,8 @@ export async function runAdapter(
       // 文本与参考图都是可选的：只要有一个就能跑（文生图 / 图生图 / 指令改图）。
       // `prompt` / `negative` 既可以在节点上直接写，也可以从检查器连文本输入；
       // 连线优先（和 ai-board 的「端口覆盖参数」一致）。
-      const promptInput = (upstreamText(node.id, "prompt") ?? textParam(node, "prompt")).trim();
-      const refs = collectImageRefs(node.id);
+      const promptInput = (readText(node.id, "prompt") ?? textParam(node, "prompt")).trim();
+      const refs = readImageRefs(node.id);
       if (!promptInput && refs.length === 0) {
         throw new Error(t("board.node.imageNeedsInput"));
       }
@@ -741,7 +829,7 @@ export async function runAdapter(
       const sizeSpec = boardSizeSpecFor(node);
       const { width, height } = boardSizePixels(sizeSpec, node.data.params);
       const negative =
-        (upstreamText(node.id, "negative") ?? textParam(node, "negative")).trim() || undefined;
+        (readText(node.id, "negative") ?? textParam(node, "negative")).trim() || undefined;
       // 一次出多张：输出附件卡会把它们收在同一张卡里，可以来回切换。
       const count = Math.min(4, Math.max(1, Math.round(numberParam(node, "count", 1))));
       const paths: string[] = [];
@@ -783,22 +871,22 @@ export async function runAdapter(
 
     case "model.video": {
       // 提示词 / 反向提示词：检查器连了文本输入就用上游，否则用节点上的参数。
-      const prompt = (upstreamText(node.id, "prompt") ?? textParam(node, "prompt")).trim();
+      const prompt = (readText(node.id, "prompt") ?? textParam(node, "prompt")).trim();
       if (!prompt) throw new Error("提示词为空");
       const negative =
-        (upstreamText(node.id, "negative") ?? textParam(node, "negative")).trim() || undefined;
+        (readText(node.id, "negative") ?? textParam(node, "negative")).trim() || undefined;
       const sizeSpec = boardSizeSpecFor(node);
       const { width, height } = boardSizePixels(sizeSpec, node.data.params);
       // 只认分辨率档的服务（方舟 / MiniMax）额外把档位带上；比例由宽高换算。
       const resolution = boardSizeTier(sizeSpec, node.data.params) ?? undefined;
       const seconds = numberParam(node, "seconds", 5);
-      const init = upstreamAsset(node.id, "init");
-      const end = upstreamAsset(node.id, "end");
+      const init = readAsset(node.id, "init");
+      const end = readAsset(node.id, "end");
       // H3 Ref2VA：9 图 + 3 音频 + 3 视频按端口顺序收集（对应提示词的 <Picture N>）。
       const reference = isReferenceVideoModel(node, portContext());
-      const refImages = collectRefs(node.id, "image");
-      const refAudios = collectRefs(node.id, "audio");
-      const refVideos = collectRefs(node.id, "video");
+      const refImages = readRefs(node.id, "image");
+      const refAudios = readRefs(node.id, "audio");
+      const refVideos = readRefs(node.id, "video");
       if (reference && init) {
         throw new Error("参考模型不能同时接首帧：改用参考图端口");
       }
@@ -841,13 +929,13 @@ export async function runAdapter(
     }
 
     case "model.tts": {
-      const text = upstreamText(node.id, "text") ?? textParam(node, "text");
+      const text = readText(node.id, "text") ?? textParam(node, "text");
       if (!text.trim()) throw new Error("文本为空");
       if (!model) throw new Error("未选择模型");
       const items = [{ id: "board", text }];
       // 本地声音克隆模型：参考音频 + 参考文本（云端 TTS 用服务自己的音色 id）。
-      const referenceAudio = model.kind === "cloud" ? null : upstreamAsset(node.id, "refAudio");
-      const referenceText = model.kind === "cloud" ? null : upstreamText(node.id, "refText");
+      const referenceAudio = model.kind === "cloud" ? null : readAsset(node.id, "refAudio");
+      const referenceText = model.kind === "cloud" ? null : readText(node.id, "refText");
       const audios =
         model.kind === "cloud"
           ? await tts.synthesizeCloud(model.id, items, null)
@@ -864,7 +952,7 @@ export async function runAdapter(
     }
 
     case "model.asr": {
-      const input = upstreamAsset(node.id, "audio");
+      const input = readAsset(node.id, "audio");
       if (!input) throw new Error("缺少音频输入");
       if (!model) throw new Error("未选择模型");
       const cues = await asr.generate(
@@ -878,9 +966,9 @@ export async function runAdapter(
     case "model.text": {
       const system = textParam(node, "system").trim();
       // 文本提示词是主输入；图片 / 视频可选（多模态模型直接用 content parts）。
-      const content = (upstreamText(node.id, "text") ?? "").trim();
-      const image = upstreamAsset(node.id, "image");
-      const video = upstreamAsset(node.id, "video");
+      const content = (readText(node.id, "text") ?? "").trim();
+      const image = readAsset(node.id, "image");
+      const video = readAsset(node.id, "video");
       if (!content && !image && !video) {
         throw new Error("缺少输入：把文本、图片或视频接到对应端口再运行");
       }
@@ -942,7 +1030,7 @@ export async function runAdapter(
     }
 
     case "model.enhance": {
-      const input = upstreamAsset(node.id, "video");
+      const input = readAsset(node.id, "video");
       if (!input) throw new Error("缺少视频输入");
       const project = useProjectStore();
       const fps = project.doc.fps || 30;
@@ -979,7 +1067,7 @@ export async function runAdapter(
     }
 
     case "model.separate": {
-      const input = upstreamAsset(node.id, "audio");
+      const input = readAsset(node.id, "audio");
       if (!input) throw new Error("缺少音频输入");
       if (!model) throw new Error("未选择模型");
       const stems = await audioAi.separate(input.path, 0, input.duration, model.id);
@@ -1003,7 +1091,7 @@ export async function runAdapter(
     }
 
     case "model.demux": {
-      const input = upstreamAsset(node.id, "video");
+      const input = readAsset(node.id, "video");
       if (!input) throw new Error("缺少视频输入");
       // 视频去掉音轨（画面直拷，不重新编码），音频抽成独立音轨。
       const video = await extractVideoTrack(input.path, input.assetId);
@@ -1017,6 +1105,194 @@ export async function runAdapter(
     default:
       throw new Error(`节点 ${node.type} 不支持运行`);
   }
+}
+
+/** 嵌套工作流的最大深度（对齐 ai-board 的设计稿；超过直接报错，不靠超时）。 */
+const MAX_WORKFLOW_DEPTH = 8;
+
+/** 值的轻量归一化：按签名声明的类型把上游 / 外部传入的值收口。 */
+function coerceWorkflowValue(type: BoardPortType, raw: unknown): unknown {
+  if (raw === null || raw === undefined) {
+    return defaultValueFor(type, type === "any" ? null : undefined);
+  }
+  if (type === "text") return typeof raw === "string" ? raw : String(raw);
+  if (type === "integer") {
+    const value = Number(raw);
+    return Number.isFinite(value) ? Math.trunc(value) : 0;
+  }
+  if (type === "number") {
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (type === "boolean") return raw === true || raw === "true" || raw === 1 || raw === "1";
+  return raw;
+}
+
+/**
+ * 工作流开始节点：把签名输入发布成有类型的值。
+ *
+ * 值从 `data.values[行 id]` 读——顶层运行是空的（用默认值），父工作流调用 / API
+ * 调用会先把值写进去再跑。
+ */
+function runWorkflowStart(node: BoardNode, scope: RunScope): AdapterResult {
+  const signature = normalizeSignature(node.data.signature) ?? { inputs: [], outputs: [] };
+  const injected = scope.injected?.get(node.id);
+  const values: Record<string, unknown> = {};
+  for (const decl of signature.inputs) {
+    const raw = injected?.[declPortId(decl)] ?? decl.default;
+    values[declPortId(decl)] = coerceWorkflowValue(decl.type, raw);
+  }
+  return { values };
+}
+
+/** 工作流结束节点：收集每一路签名输出（下游也能读 `out-*` 端口）。 */
+function runWorkflowEnd(node: BoardNode, scope: RunScope): AdapterResult {
+  const signature = normalizeSignature(node.data.signature) ?? { inputs: [], outputs: [] };
+  const values: Record<string, unknown> = {};
+  for (const decl of signature.outputs) {
+    const raw = upstreamValueScoped(node.id, declPortId(decl), scope);
+    values[endOutputPortId(decl)] = coerceWorkflowValue(decl.type, raw);
+  }
+  return { values };
+}
+
+/** 运行一次工作流文档（顶层画布 / 嵌入的子工作流 / MCP 调用共用）。 */
+export interface WorkflowDocRunOptions {
+  /** 外部输入：键可以是签名行 id、名字或标签。 */
+  inputs?: Record<string, unknown>;
+  /** 调用栈（工作流 rootId），用于递归检测。 */
+  trail?: string[];
+  keyPrefix?: string;
+  signal?: AbortSignal;
+}
+
+export interface WorkflowDocRunResult {
+  outputs: Record<string, unknown>;
+  /** 节点 id → 该节点本次发布的值 / 文本 / 产物。 */
+  nodes: Record<string, unknown>;
+}
+
+/**
+ * 按依赖顺序跑一份工作流文档，返回结束节点声明的输出。
+ *
+ * 子图在**自己的作用域**里执行：节点来自快照、结果写回快照，不污染当前画布，
+ * 也不写顶层运行状态。素材仍然入当前工程的素材库（生成的东西要能用）。
+ */
+export async function runWorkflowDoc(
+  nodes: BoardNode[],
+  edges: BoardEdge[],
+  options: WorkflowDocRunOptions = {},
+): Promise<WorkflowDocRunResult> {
+  const trail = [...(options.trail ?? [])];
+  const keyPrefix = options.keyPrefix ?? "";
+  const { start, end, signature } = canvasWorkflow(nodes);
+  if (!start || !end) throw new Error(t("board.workflow.notRunnable", { name: "" }));
+  const external = options.inputs;
+  const inputs = external ?? {};
+  const injected: Record<string, unknown> = {};
+  for (const decl of signature.inputs) {
+    const raw =
+      inputs[declPortId(decl)] ??
+      inputs[declKey(decl)] ??
+      inputs[decl.label] ??
+      inputs[decl.name];
+    if (raw === undefined) {
+      // 外部调用（API / 父工作流）必须给必填输入；手点运行画布允许用默认值。
+      if (external && decl.required && decl.default === undefined) {
+        throw new Error(t("board.workflow.missingInput", { name: declKey(decl) }));
+      }
+      continue;
+    }
+    injected[declPortId(decl)] = raw;
+  }
+  const scope: RunScope = {
+    nodes,
+    edges,
+    trail,
+    keyPrefix,
+    injected: new Map([[start.id, injected]]),
+    ...(options.signal ? { signal: options.signal } : {}),
+    setRuntime(nodeId, patch) {
+      const target = nodes.find((item) => item.id === nodeId);
+      if (target) target.data = { ...target.data, ...patch };
+    },
+  };
+  const order = topologicalOrder(nodes, edges);
+  for (const node of order) {
+    if (node.type === "group" || node.type === "loop.end") continue;
+    if (!isRunnableNode(node, scope)) continue;
+    await runOne(node.id, scope);
+  }
+  const outputs: Record<string, unknown> = {};
+  for (const decl of signature.outputs) {
+    const published = end.data.values?.[endOutputPortId(decl)];
+    if (published !== undefined) outputs[declKey(decl)] = published;
+  }
+  const nodeValues: Record<string, unknown> = {};
+  for (const node of nodes) {
+    if (node.data.values) nodeValues[node.id] = node.data.values;
+    else if (node.data.outputAssetId) nodeValues[node.id] = node.data.outputAssetId;
+    else if (node.data.outputText) nodeValues[node.id] = node.data.outputText;
+  }
+  return { outputs, nodes: nodeValues };
+}
+
+/** 当前画布对应的工作流身份（顶层递归检测用）。 */
+function currentWorkflowId(): string {
+  const board = useBoardStore();
+  return board.source?.rootId ?? board.source?.builtinId ?? board.activeCanvasId;
+}
+
+/**
+ * 嵌入工作流节点：读目标子工作流 → 映射输入 → 在自己的作用域里跑 → 发布输出。
+ *
+ * 目标被删除 / 没有成对的开始结束 / 调用成环都给明确报错（不静默返回空）。
+ */
+async function runWorkflowCall(
+  node: BoardNode,
+  signal: AbortSignal,
+  scope: RunScope,
+): Promise<AdapterResult> {
+  const targetId = String(paramsOf(node).workflow ?? "").trim();
+  const name = String(paramsOf(node).workflowName ?? "").trim() || targetId;
+  if (!targetId) throw new Error(t("board.workflow.noTarget"));
+  const own = currentWorkflowId();
+  if (targetId === own || scope.trail.includes(targetId)) {
+    throw new Error(t("board.workflow.cycle", { name }));
+  }
+  if (scope.trail.length >= MAX_WORKFLOW_DEPTH) {
+    throw new Error(t("board.workflow.tooDeep", { name }));
+  }
+  if (signal.aborted) throw new Error(t("board.run.stopped"));
+  // 目标存的是 rootId（一张工作流卡）；解析成最新版本快照再执行。
+  const snapshot = await readWorkflowRoot(targetId);
+  if (!snapshot) throw new Error(t("board.workflow.missing", { name }));
+  const child = canvasWorkflow(snapshot.nodes);
+  if (!child.start || !child.end) throw new Error(t("board.workflow.notRunnable", { name }));
+  // 目标重新发布后签名可能变了：端口快照对不上就别静默跑错（检查器里有刷新按钮）。
+  const snapshotPorts = node.data.ports?.inputs ?? [];
+  if (
+    snapshotPorts.length > 0 &&
+    child.signature.inputs.some((decl) => !snapshotPorts.some((port) => port.id === decl.id))
+  ) {
+    throw new Error(t("board.workflow.signatureChanged", { name }));
+  }
+  const inputs: Record<string, unknown> = {};
+  for (const decl of child.signature.inputs) {
+    const value = upstreamValueScoped(node.id, declPortId(decl), scope);
+    if (value !== null && value !== undefined) inputs[declPortId(decl)] = value;
+  }
+  const result = await runWorkflowDoc(snapshot.nodes, snapshot.edges, {
+    inputs,
+    trail: [...scope.trail, targetId],
+    keyPrefix: `${scope.keyPrefix}${node.id}/`,
+    signal,
+  });
+  const values: Record<string, unknown> = {};
+  for (const decl of child.signature.outputs) {
+    values[endOutputPortId(decl)] = result.outputs[declKey(decl)] ?? null;
+  }
+  return { values };
 }
 
 /** 产物入库：生成文件 → 素材 → 返回全部素材 id（保持产物顺序）。 */
@@ -1066,17 +1342,16 @@ async function registerOutputs(result: AdapterResult): Promise<RegisteredOutputs
 }
 
 /** 禁用的祖先：整条下游这次都不跑（和「旁路」不同，旁路只摘掉自己）。 */
-function blockedByDisabled(nodeId: string): boolean {
-  const board = useBoardStore();
+function blockedByDisabled(nodeId: string, scope: RunScope = globalRunScope()): boolean {
   const seen = new Set<string>();
   let frontier = [nodeId];
   while (frontier.length > 0) {
     const next: string[] = [];
     for (const id of frontier) {
-      for (const edge of board.edges) {
+      for (const edge of scope.edges) {
         if (edge.target !== id || seen.has(edge.source)) continue;
         seen.add(edge.source);
-        const source = board.nodes.find((node) => node.id === edge.source);
+        const source = scope.nodes.find((node) => node.id === edge.source);
         if (source?.data.ignored) return true;
         next.push(edge.source);
       }
@@ -1087,22 +1362,21 @@ function blockedByDisabled(nodeId: string): boolean {
 }
 
 /** 循环体成员（由开始节点在循环里逐个运行，不参与主流程调度）。 */
-function inLoopBody(nodeId: string): boolean {
-  const board = useBoardStore();
-  for (const start of board.nodes) {
+function inLoopBody(nodeId: string, scope: RunScope = globalRunScope()): boolean {
+  for (const start of scope.nodes) {
     if (start.type !== "loop.start") continue;
-    if (loopBodyIds(start.id, board.nodes, board.edges).includes(nodeId)) return true;
+    if (loopBodyIds(start.id, scope.nodes, scope.edges).includes(nodeId)) return true;
   }
   return false;
 }
 
 /** 组节点只是框，不参与运行；循环结束与循环体由开始节点调度。 */
-function isRunnableNode(node: BoardNode): boolean {
+function isRunnableNode(node: BoardNode, scope: RunScope = globalRunScope()): boolean {
   if (node.type === "group") return false;
   if (node.type === "loop.end") return false;
-  if (inLoopBody(node.id)) return false;
+  if (inLoopBody(node.id, scope)) return false;
   if (node.data.ignored || node.data.bypassed) return false;
-  return !blockedByDisabled(node.id);
+  return !blockedByDisabled(node.id, scope);
 }
 
 /**
@@ -1112,15 +1386,18 @@ function isRunnableNode(node: BoardNode): boolean {
  * （复用 `runOne`，所以子节点的状态、取消、素材入库都与普通运行一致）；每轮结束
  * 读一次结束节点的槽位输入，最后把「每个槽位一个数组」写回结束节点。
  */
-async function runLoop(start: BoardNode, signal: AbortSignal): Promise<AdapterResult> {
-  const board = useBoardStore();
+async function runLoop(
+  start: BoardNode,
+  signal: AbortSignal,
+  scope: RunScope = globalRunScope(),
+): Promise<AdapterResult> {
   const definition = nodeDefinition("loop.start");
   const mode = String(paramValue(definition, start.data.params, "mode") ?? "array");
-  const end = loopEndOf(start, board.nodes);
+  const end = loopEndOf(start, scope.nodes);
   if (!end) throw new Error("循环缺少结束节点");
   const rawCount = Number(paramValue(definition, start.data.params, "count") ?? 4);
   const count = Math.max(1, Math.min(999, Number.isFinite(rawCount) ? Math.round(rawCount) : 4));
-  const provided = normalizeItems(upstreamValue(start.id, "items"));
+  const provided = normalizeItems(upstreamValueScoped(start.id, "items", scope));
   const items =
     mode === "array"
       ? provided
@@ -1128,12 +1405,12 @@ async function runLoop(start: BoardNode, signal: AbortSignal): Promise<AdapterRe
         ? provided.slice(0, count)
         : Array.from({ length: count }, () => null);
 
-  const bodyIds = loopBodyIds(start.id, board.nodes, board.edges);
-  const byId = new Map(board.nodes.map((node) => [node.id, node]));
+  const bodyIds = loopBodyIds(start.id, scope.nodes, scope.edges);
+  const byId = new Map(scope.nodes.map((node) => [node.id, node]));
   const body = bodyIds
     .map((id) => byId.get(id))
     .filter((node): node is BoardNode => Boolean(node));
-  const bodyEdges = board.edges.filter(
+  const bodyEdges = scope.edges.filter(
     (edge) =>
       bodyIds.includes(edge.source) && bodyIds.includes(edge.target) && edge.kind !== "pair",
   );
@@ -1141,56 +1418,61 @@ async function runLoop(start: BoardNode, signal: AbortSignal): Promise<AdapterRe
   const slots = slotCount(paramValue(nodeDefinition("loop.end"), end.data.params, "slots") ?? 1);
   const collected: unknown[][] = Array.from({ length: slots }, () => []);
 
-  board.setNodeRuntime(end.id, { status: "running", error: undefined, values: {} });
+  scope.setRuntime(end.id, { status: "running", error: undefined, values: {} });
   for (let index = 0; index < items.length; index += 1) {
     if (signal.aborted) throw new Error("已取消");
-    board.setNodeRuntime(start.id, { values: { item: items[index], index } });
+    scope.setRuntime(start.id, { values: { item: items[index], index } });
     for (const child of order) {
       if (child.id === end.id) continue;
-      await runOne(child.id);
+      await runOne(child.id, scope);
     }
     for (let slot = 1; slot <= slots; slot += 1) {
-      collected[slot - 1]!.push(upstreamValue(end.id, `in${slot}`));
+      collected[slot - 1]!.push(upstreamValueScoped(end.id, `in${slot}`, scope));
     }
   }
   const values: Record<string, unknown> = {};
   for (let slot = 1; slot <= slots; slot += 1) {
     values[`out${slot}`] = collected[slot - 1];
   }
-  board.setNodeRuntime(end.id, { status: "done", error: undefined, values });
+  scope.setRuntime(end.id, { status: "done", error: undefined, values });
   return { values: { item: null, index: items.length } };
 }
 
 /** 输出附件卡最多保留多少个产物（重复运行累积时防止无限膨胀）。 */
 const MAX_OUTPUTS = 12;
 
-async function runOne(nodeId: string): Promise<boolean> {
-  const board = useBoardStore();
-  const node = board.nodes.find((item) => item.id === nodeId);
+async function runOne(nodeId: string, scope: RunScope = globalRunScope()): Promise<boolean> {
+  const node = scope.nodes.find((item) => item.id === nodeId);
   if (!node) return false;
+  // 子工作流的节点不写顶层运行状态 / 不弹进度：它们的结果只属于这次调用。
+  const nested = scope.keyPrefix !== "";
   // 旁路 / 禁用：这次跳过（旁路的下游会绕开它，禁用会连下游一起不跑）。
   if (node.data.bypassed || node.data.ignored) {
-    board.setNodeRuntime(nodeId, { status: "skipped" });
+    scope.setRuntime(nodeId, { status: "skipped" });
     return true;
   }
-  if (blockedByDisabled(nodeId)) {
-    board.setNodeRuntime(nodeId, { status: "skipped" });
+  if (blockedByDisabled(nodeId, scope)) {
+    scope.setRuntime(nodeId, { status: "skipped" });
     return true;
   }
 
   const startedAt = Date.now();
-  const signal = signals.begin(nodeId);
-  beginLiveRun(nodeId);
-  ensureProgressWatches(node);
+  const signal = scope.signal ?? signals.begin(nodeId);
+  if (!nested) {
+    beginLiveRun(nodeId);
+    ensureProgressWatches(node);
+  }
   // 进度事件是异步推送的：轮询 store 里的 progressPct，节流写进内存 live 状态。
-  const progressTimer = setInterval(() => {
-    const live = liveRun(nodeId);
-    if (!live) return;
-    const pct = liveProgressPct(node);
-    if (pct !== null && pct !== undefined) live.progress = Math.min(1, Math.max(0, pct / 100));
-    live.message = liveProgressMessage(node);
-  }, 180);
-  board.setNodeRuntime(nodeId, {
+  const progressTimer = nested
+    ? null
+    : setInterval(() => {
+        const live = liveRun(nodeId);
+        if (!live) return;
+        const pct = liveProgressPct(node);
+        if (pct !== null && pct !== undefined) live.progress = Math.min(1, Math.max(0, pct / 100));
+        live.message = liveProgressMessage(node);
+      }, 180);
+  scope.setRuntime(nodeId, {
     status: "running",
     progress: undefined,
     error: undefined,
@@ -1198,7 +1480,7 @@ async function runOne(nodeId: string): Promise<boolean> {
     durationMs: undefined,
   });
   try {
-    const result = await runAdapter(node, nodeId, signal);
+    const result = await runAdapter(node, nodeId, signal, scope);
     const { byPort, primary, imported } = await registerOutputs(result);
     const outputs = byPort;
     const outputPorts = portsOf(node, portContext()).outputs;
@@ -1211,8 +1493,8 @@ async function runOne(nodeId: string): Promise<boolean> {
     // 重复 N 次是「再抽一次」：把历次结果攒在同一张输出卡里，方便来回切换对比。
     // 普通运行只发布这一次的产物；多端口节点按端口顺序排列。
     const previous =
-      mode.value === "repeat"
-        ? board.nodes.find((item) => item.id === nodeId)?.data.outputAssetIds ?? []
+      !nested && mode.value === "repeat"
+        ? scope.nodes.find((item) => item.id === nodeId)?.data.outputAssetIds ?? []
         : [];
     const current =
       // 透传节点（图片显示）把上游整摞一起发布，卡片才能按牌堆叠放。
@@ -1230,7 +1512,7 @@ async function runOne(nodeId: string): Promise<boolean> {
     const kept = Object.fromEntries(
       Object.entries(outputs).filter(([, id]) => Boolean(id)),
     ) as Record<string, string>;
-    board.setNodeRuntime(nodeId, {
+    scope.setRuntime(nodeId, {
       status: "done",
       progress: undefined,
       error: undefined,
@@ -1249,7 +1531,7 @@ async function runOne(nodeId: string): Promise<boolean> {
     return true;
   } catch (error) {
     const live = liveRun(nodeId);
-    board.setNodeRuntime(nodeId, {
+    scope.setRuntime(nodeId, {
       status: "error",
       progress: undefined,
       error: error instanceof Error ? error.message : String(error),
@@ -1260,9 +1542,9 @@ async function runOne(nodeId: string): Promise<boolean> {
     });
     return false;
   } finally {
-    clearInterval(progressTimer);
-    endLiveRun(nodeId);
-    signals.end(nodeId);
+    if (progressTimer) clearInterval(progressTimer);
+    if (!nested) endLiveRun(nodeId);
+    if (!scope.signal) signals.end(nodeId);
   }
 }
 
@@ -1388,7 +1670,7 @@ function enqueue(nodeId: string): void {
 }
 
 /** 这次能跑的节点（排除组、禁用、旁路、以及被禁用上游挡住的）。 */
-const runnable = computed(() => useBoardStore().nodes.filter(isRunnableNode));
+const runnable = computed(() => useBoardStore().nodes.filter((node) => isRunnableNode(node)));
 
 function enqueueBatch(ids: string[]): void {
   const board = useBoardStore();
@@ -1449,7 +1731,7 @@ export function useBoardRun() {
     queue.value = [];
     for (const id of Object.keys(repeatRuns)) delete repeatRuns[id];
     clearSkipStatuses();
-    enqueueBatch(nodes.filter(isRunnableNode).map((node) => node.id));
+    enqueueBatch(nodes.filter((node) => isRunnableNode(node)).map((node) => node.id));
     for (const node of nodes) {
       if (!isRunnableNode(node)) board.setNodeRuntime(node.id, { status: "skipped" });
     }
@@ -1467,7 +1749,7 @@ export function useBoardRun() {
     queue.value = [];
     for (const id of Object.keys(repeatRuns)) delete repeatRuns[id];
     clearSkipStatuses();
-    enqueueBatch(order.filter(isRunnableNode).map((node) => node.id));
+    enqueueBatch(order.filter((node) => isRunnableNode(node)).map((node) => node.id));
     for (const node of order) {
       if (node.type === "group" || node.type === "loop.end") continue;
       if (inLoopBody(node.id)) continue;

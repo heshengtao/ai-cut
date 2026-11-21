@@ -99,9 +99,18 @@ function vramForLocal(type: string, modelId: string | null): number {
 export function nodeCost(node: BoardNode): NodeCost | null {
   const type = node.type;
   if (type === "group") return null;
-  // 循环开始 / 结束是控制节点：开始节点编排整段循环，本身不占生成资源。
-  if (type === "loop.start" || type === "loop.end") {
+  // 循环 / 工作流开始 / 结束是控制节点：本身不占生成资源。
+  if (
+    type === "loop.start" ||
+    type === "loop.end" ||
+    type === "workflow.start" ||
+    type === "workflow.end"
+  ) {
     return { lane: "instant", vramMb: 0, ramMb: 16 };
+  }
+  // 嵌入子工作流：内部节点各自占资源，外层调度只留一个轻量的入口。
+  if (type === "workflow.call") {
+    return { lane: "instant", vramMb: 0, ramMb: 32 };
   }
   // 插件节点（ext.*）只认自己声明的泳道；没声明就不跑，绝不默认进 gpu 泳道。
   if (type.startsWith("ext.")) {

@@ -33,6 +33,7 @@ license: Apache-2.0
 | 产出 | `export_video`、`render_frame`、`render_storyboard`、`download_model`、`cancel_ai` |
 | 审片/增量渲染 | `import_film_manifest`、`export_film_manifest`、`add_review_note`、`list_review_notes`、`update_review_note`、`remove_review_note`、`render_status`、`render_range`、`render_manifest`、`compare_takes`、`render_contact_sheet` |
 | 异步任务 | `job_start`、`job_status`、`job_cancel` |
+| 画布/工作流 | `board_list_canvases`、`board_get_canvas`、`board_create_canvas`、`board_delete_canvas`、`board_rename_canvas`、`board_open_canvas`、`board_apply_ops`、`workflow_publish`、`workflow_list`、`workflow_run` |
 
 AI 工具默认是同步的：调用后会等到任务结束，期间可以用 `cancel_ai` 或停止按钮中止。模型缺失时先 `list_ai_models` 查 id，再 `download_model`。
 
@@ -66,6 +67,29 @@ AI 工具默认是同步的：调用后会等到任务结束，期间可以用 `
   `filePath` / `dirty` 也在概览里。需要完整结构时用 `save_project({path})` 落盘再读。
 
 智能体永远不需要为了「新建 / 打开 / 保存」去做 UI 自动化；有 `path` 就直接调工具。
+
+## 画布与工作流
+
+一个工程可以有多张画布：`boards` 是真相，`activeBoardId` 指向活动画布，`doc.board` 只是
+活动画布的访问器。画布节点与连线不进时间线命令总线，但同样有撤销。
+
+- **发现**：`board_list_canvases` 给出每张画布的 id、标题、是否活动、节点/连线数、
+  开始节点声明的输入、结束节点声明的输出，以及能不能发布；`board_get_canvas` 读完整节点与连线。
+  桌面版的列表还带 `publishable` / `problems`，无头版只从工程快照汇总。
+- **改图**：`board_apply_ops` 一次收一组原子操作，逐条执行，整个调用进入一个撤销步：
+  `add_node` / `update_node` / `remove_node` / `connect` / `disconnect` / `clear` / `load`。
+  节点形状是 `{ id, type, position:{x,y}, size?, data:{ params, bindings, … } }`，连线是
+  `{ id, source, sourcePort, target, targetPort }`；省略 `canvasId` 时改活动画布。
+  新建/删除/改名/切换画布分别用 `board_create_canvas` / `board_delete_canvas` /
+  `board_rename_canvas` / `board_open_canvas`。
+- **签名**：画布上的 `workflow.start` 与 `workflow.end` 成对出现（共享 `pairId`），
+  开始节点的输入签名行 + 结束节点的输出签名行就是这张画布的对外签名；签名行的 id 是端口 id，
+  改名不会移动连线。
+- **发布**：发布是工作流库的元数据——保存进库时打 `workflow` 基础标签，再按用途加
+  `subworkflow`（可被 `workflow.call` 嵌入）或 `api`（可被外部调用）。发布入口是
+  UI 画布检查器，或 `workflow_publish`（会先校验签名与图）。
+- **运行**：`workflow_list` 只列标签含 `api` / `subworkflow` 的最新版本；`workflow_run`
+  只接受这些条目，返回对象的键是结束节点声明的输出名，不是节点 id。
 
 ## 前提
 
@@ -167,6 +191,16 @@ aicut tools
 | `job_start` | `kind`, `params?` | 异步启动 AI 任务，立即返回 `jobId` |
 | `job_status` | `jobId` | 查询异步任务状态、进度与结果 |
 | `job_cancel` | `jobId?` | 取消异步任务；省略时取消当前任务 |
+| `board_list_canvases` | — | 列出工程里的所有画布：标题、活动标记、节点/连线数、签名、能否发布 |
+| `board_get_canvas` | `canvasId?` | 读一张画布的节点与连线；省略时读活动画布 |
+| `board_create_canvas` | `title?` | 新建空画布并切换过去 |
+| `board_delete_canvas` | `canvasId` | 删除画布（工程至少保留一张） |
+| `board_rename_canvas` | `canvasId`, `title` | 重命名画布 |
+| `board_open_canvas` | `canvasId` | 切换活动画布 |
+| `board_apply_ops` | `canvasId?`, `ops[]` | 原子增删节点/连线，整个调用一个撤销步 |
+| `workflow_publish` | `canvasId?`, `name?`, `tags?` | 校验并发布画布为工作流（subworkflow / api 标签） |
+| `workflow_list` | — | 已发布工作流（标签含 api / subworkflow，取最新版本） |
+| `workflow_run` | `rootId` 或 `workflowId`, `inputs?` | 运行已发布工作流，返回签名输出 |
 | `aicut_help` | `topic?` | 取能力域文档；留空给索引 |
 
 ## 命令

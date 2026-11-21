@@ -7,6 +7,7 @@ import {
   deleteWorkflow,
   listWorkflowGroups,
   readWorkflow,
+  readWorkflowRoot,
   renameWorkflow,
   saveWorkflowToLibrary,
 } from "@/core/board/library";
@@ -90,6 +91,48 @@ describe("工作流库 API", () => {
     const snapshot = await readWorkflow("builtin.text-to-image");
     expect(snapshot?.nodes.length).toBeGreaterThan(0);
     expect(snapshot?.edges.length).toBeGreaterThan(0);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("按 rootId 取最新版本：嵌入节点存的是根 id，不是版本 id", async () => {
+    invoke.mockReset();
+    invoke.mockImplementation(async (command: string, args?: { id?: string }) => {
+      if (command === "workflow_list") {
+        return [
+          { ...version, id: "1710000000000-1-v1", version: 1 },
+          { ...version, id: "1710000000000-1-v2", version: 2 },
+        ];
+      }
+      if (command === "workflow_get") {
+        return {
+          version: { ...version, id: args?.id, version: 2 },
+          nodes: [{ id: "n", type: "input.text", position: { x: 0, y: 0 }, data: { params: {}, bindings: {} } }],
+          edges: [],
+        };
+      }
+      return null;
+    });
+
+    const snapshot = await readWorkflowRoot("1710000000000-1");
+    expect(invoke).toHaveBeenCalledWith("workflow_list");
+    expect(invoke).toHaveBeenCalledWith("workflow_get", { id: "1710000000000-1-v2" });
+    expect(snapshot?.nodes.map((node) => node.id)).toEqual(["n"]);
+
+    // 已经是版本 id 就直接读，不再列一遍。
+    invoke.mockClear();
+    await readWorkflowRoot("1710000000000-1-v1");
+    expect(invoke).toHaveBeenCalledWith("workflow_get", { id: "1710000000000-1-v1" });
+
+    // 找不到根 → null（调用方据此报「找不到工作流」）。
+    invoke.mockReset();
+    invoke.mockResolvedValue([]);
+    expect(await readWorkflowRoot("missing-root")).toBeNull();
+  });
+
+  it("默认工作流按 rootId 解析也不走后端", async () => {
+    invoke.mockClear();
+    const snapshot = await readWorkflowRoot("builtin.text-to-image");
+    expect(snapshot?.nodes.length).toBeGreaterThan(0);
     expect(invoke).not.toHaveBeenCalled();
   });
 

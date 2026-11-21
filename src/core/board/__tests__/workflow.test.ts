@@ -35,6 +35,18 @@ describe("workflow 导入 / 导出", () => {
     expect(parsed?.nodes).toHaveLength(2);
   });
 
+  it("新工程的整份 JSON 取活动画布，而不是第一张", () => {
+    const project = JSON.stringify({
+      boards: [
+        { id: "canvas-a", title: "A", doc: { nodes: [nodes[0]], edges: [] } },
+        { id: "canvas-b", title: "B", doc: { nodes, edges } },
+      ],
+      activeBoardId: "canvas-b",
+    });
+    const parsed = parseWorkflow(project);
+    expect(parsed?.nodes.map((node) => node.id)).toEqual(["n1", "n2"]);
+  });
+
   it("不像工作流的 JSON 返回 null", () => {
     expect(parseWorkflow("not json")).toBeNull();
     expect(parseWorkflow(JSON.stringify({ hello: 1 }))).toBeNull();

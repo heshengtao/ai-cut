@@ -29,6 +29,8 @@ export function serializeProject(project: Project): string {
   const wire: Record<string, unknown> = { ...doc };
   delete wire.tracks;
   delete wire.markers;
+  // 活动画布是 `boards` 的访问器投影：写盘只保留 boards 一份。
+  delete wire.board;
   return JSON.stringify(wire, null, 2);
 }
 
@@ -331,8 +333,20 @@ function normalizeProject(input: Project): Project {
   }));
   const doc = patchProjectMeta(migrated, { episodes });
   const cutScopes = normalizeCutScopes(doc);
+  // 画布：新工程写 `boards`；只有老工程才把单张 `board` 迁移成一张画布
+  // （由 `attachBoardView()` 补 id / 标题）。
+  const boards = Array.isArray(doc.boards)
+    ? doc.boards.map((canvas) => ({
+        ...canvas,
+        doc: normalizeBoard(canvas.doc),
+      }))
+    : undefined;
   const board = doc.board === undefined ? undefined : normalizeBoard(doc.board);
-  return patchProjectMeta(doc, { cutScopes, board });
+  return patchProjectMeta(doc, {
+    cutScopes,
+    ...(boards ? { boards } : {}),
+    ...(board ? { board } : {}),
+  });
 }
 
 export function parseProject(json: string): Project {

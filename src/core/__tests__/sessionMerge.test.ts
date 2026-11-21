@@ -110,7 +110,13 @@ describe("mergeRemoteProject", () => {
   it("full 或没有 affected 时整份替换", () => {
     const local = docWith("local", []);
     const incoming = docWith("remote", []);
-    expect(mergeRemoteProject(local, incoming, null, false)).toBe(incoming);
-    expect(mergeRemoteProject(local, incoming, null, true)).toBe(incoming);
+    for (const full of [false, true]) {
+      const merged = mergeRemoteProject(local, incoming, null, full);
+      expect(merged.name).toBe("remote");
+      expect(merged.episodes).toBe(incoming.episodes);
+      // 已经折返过的文档再次 merge 不做多余拷贝。
+      const again = mergeRemoteProject(merged, merged, null, full);
+      expect(again).toBe(merged);
+    }
   });
 });
