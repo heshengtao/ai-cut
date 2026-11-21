@@ -20,6 +20,7 @@ import { Background } from "@vue-flow/background";
 import { MiniMap } from "@vue-flow/minimap";
 import {
   ConnectionMode,
+  SelectionMode,
   VueFlow,
   useVueFlow,
   type Connection,
@@ -31,12 +32,18 @@ import {
 } from "@vue-flow/core";
 import {
   ArrowsPointingOutIcon,
+  CheckIcon,
+  ClipboardIcon,
   DocumentDuplicateIcon,
+  HandRaisedIcon,
   MagnifyingGlassMinusIcon,
   MagnifyingGlassPlusIcon,
   PencilSquareIcon,
   PlayIcon,
   PlusIcon,
+  ScissorsIcon,
+  Squares2X2Icon,
+  Square2StackIcon,
   TrashIcon,
 } from "@heroicons/vue/24/outline";
 import "@vue-flow/core/dist/style.css";
@@ -47,6 +54,7 @@ import type { BoardMenuItem } from "@/components/board/BoardMenuList.vue";
 import { useI18n } from "@/i18n";
 import { useProjectStore } from "@/stores/project";
 import { useEpisodeOpen } from "@/composables/useEpisodeOpen";
+import { useSeriesClipboard } from "@/composables/useSeriesClipboard";
 import { confirm } from "@/composables/useConfirm";
 import { toast } from "@/composables/useToast";
 import { CARD_HEIGHT, CARD_WIDTH, placements } from "@/core/series/layout";
@@ -59,6 +67,7 @@ import {
   disconnectEpisodeEdge,
   duplicateEpisode,
   moveSeriesCard,
+  pasteSeriesEpisode,
   removeEpisode,
   renameEpisode,
   resetSeriesGraph,
@@ -109,6 +118,9 @@ const edgeInput = ref<HTMLInputElement | null>(null);
 const liveZoom = ref(1);
 const viewport = ref({ x: 0, y: 0, zoom: 1 });
 const menu = ref<MenuState | null>(null);
+/** 画布交互模式：拖动画面 / 框选（对齐 BoardView）。 */
+const interactionMode = ref<"drag" | "marquee">("drag");
+const clipboard = useSeriesClipboard();
 
 const renamingId = ref<string | null>(null);
 const renameDraft = ref("");
@@ -357,7 +369,8 @@ onEdgeContextMenu(({ edge, event }) => {
   const mouse = event as MouseEvent;
   mouse.preventDefault();
   if (typeof mouse.clientX !== "number") return;
-  selectedEdgeId.value = edge.id;
+  // 右键只出菜单：不要顺手把选项命名面板也弹出来。
+  selectedEdgeId.value = null;
   menu.value = { kind: "edge", id: edge.id, ...pointOf(mouse) };
 });
 
@@ -395,6 +408,46 @@ function duplicateById(episodeId: string): void {
     duplicateEpisode(doc, episodeId, i18n.t("series.duplicateSuffix", { name })),
   );
   menu.value = null;
+}
+
+function copyById(episodeId: string): void {
+  const episode = project.doc.episodes.find((item) => item.id === episodeId);
+  if (!episode) return;
+  clipboard.copy(episode);
+  menu.value = null;
+  toast(i18n.t("series.ctx.copied"));
+}
+
+function cutById(episodeId: string): void {
+  if (project.readOnly) return;
+  const episode = project.doc.episodes.find((item) => item.id === episodeId);
+  if (!episode) return;
+  if (project.doc.episodes.length <= 1) {
+    toast(i18n.t("series.keepLast"), "info");
+    return;
+  }
+  clipboard.copy(episode);
+  menu.value = null;
+  project.dispatch((doc) => removeEpisode(doc, episodeId));
+  toast(i18n.t("series.ctx.cutDone"));
+}
+
+/** 粘贴到鼠标位置（右键处）。 */
+function pasteAt(clientX: number, clientY: number): void {
+  const source = clipboard.read();
+  if (!source || project.readOnly) return;
+  menu.value = null;
+  const rect = rootEl.value?.getBoundingClientRect();
+  if (!rect) return;
+  const point = toFlowPoint({ x: clientX - rect.left, y: clientY - rect.top });
+  const name = i18n.t("series.duplicateSuffix", { name: source.name });
+  project.dispatch((doc) =>
+    pasteSeriesEpisode(doc, source, name, {
+      x: point.x - CARD_WIDTH / 2,
+      y: point.y - CARD_HEIGHT / 2,
+    }),
+  );
+  toast(i18n.t("series.ctx.pasted"));
 }
 
 async function removeById(episodeId: string): Promise<void> {
@@ -465,10 +518,33 @@ const menuItems = computed<BoardMenuItem[]>(() => {
       {
         kind: "action",
         id: "node-duplicate",
-        label: i18n.t("series.duplicate"),
+        label: i18n.t("series.ctx.duplicate"),
         icon: DocumentDuplicateIcon,
         disabled: project.readOnly,
         run: () => duplicateById(current.id),
+      },
+      {
+        kind: "action",
+        id: "node-copy",
+        label: i18n.t("series.ctx.copy"),
+        icon: Square2StackIcon,
+        run: () => copyById(current.id),
+      },
+      {
+        kind: "action",
+        id: "node-cut",
+        label: i18n.t("series.ctx.cut"),
+        icon: ScissorsIcon,
+        disabled: project.readOnly,
+        run: () => cutById(current.id),
+      },
+      {
+        kind: "action",
+        id: "node-paste",
+        label: i18n.t("series.ctx.paste"),
+        icon: ClipboardIcon,
+        disabled: project.readOnly || !clipboard.hasContent.value,
+        run: () => pasteAt(current.x, current.y),
       },
       { kind: "separator", id: "node-sep" },
       {
@@ -518,15 +594,19 @@ const menuItems = computed<BoardMenuItem[]>(() => {
     },
     {
       kind: "action",
+      id: "pane-paste",
+      label: i18n.t("series.ctx.paste"),
+      icon: ClipboardIcon,
+      disabled: project.readOnly || !clipboard.hasContent.value,
+      run: () => pasteAt(current.x, current.y),
+    },
+    {
+      kind: "action",
       id: "pane-layout",
       label: i18n.t("series.graph.autoLayout"),
-      icon: ArrowsPointingOutIcon,
+      icon: Squares2X2Icon,
       disabled: project.readOnly,
-      run: () => {
-        menu.value = null;
-        project.dispatch((doc) => autoLayoutSeries(doc));
-        fitAll();
-      },
+      run: () => doAutoLayout(),
     },
     {
       kind: "action",
@@ -559,6 +639,7 @@ function removeEdge(): void {
 }
 
 function doAutoLayout(): void {
+  menu.value = null;
   if (project.readOnly) return;
   project.dispatch((doc) => autoLayoutSeries(doc));
   fitAll();
@@ -620,7 +701,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
       :pan-on-scroll="true"
       :zoom-on-double-click="false"
       :delete-key-code="null"
-      :selection-key-code="null"
+      :pan-on-drag="interactionMode === 'drag'"
+      :selection-key-code="true"
+      :selection-mode="SelectionMode.Partial"
       :nodes-draggable="!project.readOnly"
       :nodes-connectable="!project.readOnly"
       :edges-selectable="!project.readOnly"
@@ -667,9 +750,46 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
       </div>
     </VueFlow>
 
-    <div class="graph-toolbar" role="toolbar" :aria-label="i18n.t('series.graph.fit')">
+    <div class="series-toolbar" role="toolbar" :aria-label="i18n.t('series.graph.toolbar')">
       <button
-        class="graph-tool"
+        class="series-tool"
+        type="button"
+        :class="{ on: interactionMode === 'drag' }"
+        :title="i18n.t('series.mode.drag')"
+        :aria-label="i18n.t('series.mode.drag')"
+        :aria-pressed="interactionMode === 'drag'"
+        @click="interactionMode = 'drag'"
+      >
+        <HandRaisedIcon />
+      </button>
+      <button
+        class="series-tool"
+        type="button"
+        :class="{ on: interactionMode === 'marquee' }"
+        :title="i18n.t('series.mode.marquee')"
+        :aria-label="i18n.t('series.mode.marquee')"
+        :aria-pressed="interactionMode === 'marquee'"
+        @click="interactionMode = 'marquee'"
+      >
+        <svg
+          class="series-marquee-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          aria-hidden="true"
+        >
+          <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" stroke-dasharray="3 2.6" />
+          <path
+            d="M11 9.5 16.5 12 14 13.1l1.7 2.7-1.9 1.1-1.6-2.7-1.7 1.6z"
+            fill="currentColor"
+            stroke="none"
+          />
+        </svg>
+      </button>
+      <span class="series-toolbar-sep" aria-hidden="true" />
+      <button
+        class="series-tool"
         type="button"
         :title="i18n.t('series.graph.fit')"
         :aria-label="i18n.t('series.graph.fit')"
@@ -677,26 +797,15 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
       >
         <ArrowsPointingOutIcon />
       </button>
-      <span class="graph-sep" aria-hidden="true" />
       <button
-        class="graph-tool"
-        type="button"
-        :title="i18n.t('series.graph.autoLayout')"
-        :aria-label="i18n.t('series.graph.autoLayout')"
-        :disabled="project.readOnly"
-        @click="doAutoLayout"
-      >
-        <span class="graph-tool-text">{{ i18n.t("series.graph.autoLayout") }}</span>
-      </button>
-      <button
-        class="graph-tool"
+        class="series-tool"
         type="button"
         :title="i18n.t('series.graph.rebuild')"
         :aria-label="i18n.t('series.graph.rebuild')"
         :disabled="project.readOnly || !project.doc.seriesGraph?.custom"
         @click="rebuild"
       >
-        <span class="graph-tool-text">{{ i18n.t("series.graph.rebuild") }}</span>
+        <span class="series-tool-text">{{ i18n.t("series.graph.rebuild") }}</span>
       </button>
     </div>
 
@@ -719,6 +828,15 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
           @keydown.esc.prevent="selectedEdgeId = null"
           @blur="commitLabel"
         />
+        <button
+          class="edge-confirm"
+          type="submit"
+          :title="i18n.t('common.confirm')"
+          :aria-label="i18n.t('common.confirm')"
+          @mousedown.prevent
+        >
+          <CheckIcon />
+        </button>
         <button
           class="edge-delete"
           type="button"
@@ -788,50 +906,61 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
   stroke-width: 2;
   stroke-dasharray: 5 4;
 }
-.graph-toolbar {
+/* 底部工具栏：和画布工作流同一条胶囊，居中贴在画布底部。 */
+.series-toolbar {
   position: absolute;
-  left: 14px;
-  top: 12px;
-  display: inline-flex;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 3px;
+  gap: 4px;
+  padding: 4px 8px;
   border-radius: 999px;
-  background-color: rgb(var(--md-surface-container-high) / 0.92);
-  box-shadow: var(--md-elevation-1);
-  z-index: 4;
+  background-color: rgb(var(--md-surface-container-high) / 0.94);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
+  z-index: 5;
 }
-.graph-tool {
-  height: 26px;
-  min-width: 26px;
-  padding: 0 7px;
+.series-tool {
+  height: 28px;
+  min-width: 28px;
+  padding: 0 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: rgb(var(--md-on-surface-variant));
   font-size: 11.5px;
   cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
 }
-.graph-tool:hover:not(:disabled) {
-  background-color: rgb(var(--md-on-surface-variant) / 0.12);
+.series-tool:hover:not(:disabled) {
+  background-color: rgb(var(--md-on-surface) / 0.1);
   color: rgb(var(--md-on-surface));
 }
-.graph-tool:disabled {
+.series-tool.on {
+  background-color: rgb(var(--md-secondary-container));
+  color: rgb(var(--md-on-secondary-container));
+}
+.series-tool:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
-.graph-tool :deep(svg) {
+.series-tool :deep(svg) {
   width: 15px;
   height: 15px;
 }
-.graph-tool-text {
+.series-marquee-icon {
+  width: 15px;
+  height: 15px;
+}
+.series-tool-text {
   white-space: nowrap;
 }
-.graph-sep {
+.series-toolbar-sep {
   width: 1px;
   height: 16px;
   margin: 0 3px;
@@ -945,6 +1074,24 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
 }
 .edge-input:focus {
   border-color: rgb(var(--md-primary));
+}
+.edge-confirm {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(var(--md-primary));
+  cursor: pointer;
+}
+.edge-confirm:hover {
+  background-color: rgb(var(--md-primary) / 0.12);
+}
+.edge-confirm :deep(svg) {
+  width: 16px;
+  height: 16px;
 }
 .edge-delete {
   width: 28px;

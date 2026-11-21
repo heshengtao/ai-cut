@@ -6,8 +6,9 @@
  */
 import { newEpisode, patchProjectMeta } from "@/core/episodes";
 import { withTouch } from "@/core/ops/internal";
+import { cloneEpisode } from "./episodeClone";
 import { pruneSeriesEdges } from "./series";
-import type { Clip, Episode, Project, Track } from "@/types/project";
+import type { Episode, Project } from "@/types/project";
 
 /** 分P 时长：所有轨道里最靠后的片段终点。 */
 export function episodeDuration(episode: Episode): number {
@@ -79,28 +80,12 @@ export function moveEpisode(doc: Project, episodeId: string, toIndex: number): P
   return withTouch(doc, { episodes: reindex(episodes) }) as Project;
 }
 
-/** 深拷贝一条轨道，换掉轨道与片段的 id（素材引用保持不变）。 */
-function cloneTrack(track: Track): Track {
-  return {
-    ...track,
-    id: crypto.randomUUID(),
-    clips: track.clips.map((clip) => ({
-      ...(clip as unknown as Record<string, unknown>),
-      id: crypto.randomUUID(),
-    }) as unknown as Clip),
-  };
-}
-
 /** 复制一个分P（插在原分P 后面），轨道 / 片段 / 标记全部换新 id。 */
 export function duplicateEpisode(doc: Project, episodeId: string, name: string): Project {
   const index = doc.episodes.findIndex((episode) => episode.id === episodeId);
   if (index < 0) return doc;
   const source = doc.episodes[index];
-  const copy: Episode = {
-    ...newEpisode(name, index + 1),
-    tracks: source.tracks.map(cloneTrack),
-    markers: source.markers.map((marker) => ({ ...marker, id: crypto.randomUUID() })),
-  };
+  const copy = cloneEpisode(source, name, index + 1);
   const episodes = [...doc.episodes];
   episodes.splice(index + 1, 0, copy);
   return withTouch(doc, { episodes: reindex(episodes) }) as Project;

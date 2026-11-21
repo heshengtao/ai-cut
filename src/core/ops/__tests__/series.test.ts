@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { newProject } from "@/core/factory";
+import { createClip, newProject } from "@/core/factory";
+import { addClip, addTrack } from "@/core/ops";
 import { addEpisode, duplicateEpisode, removeEpisode } from "@/core/ops/episodes";
 import {
   addConnectedEpisode,
@@ -8,6 +9,7 @@ import {
   disconnectEpisodeEdge,
   materializeGraph,
   moveSeriesCard,
+  pasteSeriesEpisode,
   pruneSeriesEdges,
   resetSeriesGraph,
   setEpisodeEdgeLabel,
@@ -251,5 +253,39 @@ describe("addConnectedEpisode（拖线到空白处新建分P）", () => {
   it("锚点分P 不存在时原样返回", () => {
     const doc = threeEpisodes();
     expect(addConnectedEpisode(doc, "gone", "source", "x", { x: 0, y: 0 })).toBe(doc);
+  });
+});
+
+describe("pasteSeriesEpisode（剪贴板粘贴）", () => {
+  function docWithClip(): Project {
+    const base = addTrack(threeEpisodes());
+    const trackId = base.tracks[0].id;
+    const clip = createClip({ assetId: "asset-1", trackId, start: 0, duration: 3 });
+    return addClip(base, trackId, clip);
+  }
+
+  it("追加内容克隆、轨道 / 片段 / 标记换新 id，并写入坐标", () => {
+    const doc = docWithClip();
+    const source = doc.episodes[0];
+    const sourceTrackId = source.tracks[0].id;
+    const sourceClipId = source.tracks[0].clips[0].id;
+    const next = pasteSeriesEpisode(doc, source, "粘贴的分P", { x: 300, y: 400 });
+    expect(next.episodes).toHaveLength(4);
+    const created = next.episodes[3];
+    expect(created.name).toBe("粘贴的分P");
+    expect(created.order).toBe(3);
+    expect(created.tracks).toHaveLength(1);
+    expect(created.tracks[0].id).not.toBe(sourceTrackId);
+    expect(created.tracks[0].clips).toHaveLength(1);
+    expect(created.tracks[0].clips[0].id).not.toBe(sourceClipId);
+    expect(created.tracks[0].clips[0].assetId).toBe("asset-1");
+    expect(next.seriesGraph?.positions[created.id]).toEqual({ x: 300, y: 400 });
+  });
+
+  it("不给坐标时也能粘贴（走自动布局）", () => {
+    const doc = docWithClip();
+    const next = pasteSeriesEpisode(doc, doc.episodes[0], "粘贴");
+    expect(next.episodes).toHaveLength(4);
+    expect(next.seriesGraph).toBeUndefined();
   });
 });

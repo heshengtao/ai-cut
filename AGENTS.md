@@ -127,6 +127,10 @@
 - 拖动卡片只写 `positions`，**不**把图转成自定义；只有增删边 / 改选项名才 `custom: true`。
 - 剧集播放的 `visited` 只在按下播放和切换播放模式时重置：自动连播切集也会 `setPlayhead(0)`，
   按播放头变化重置就永远检测不到无选项的环。
+- 连线画布的底部工具条 = 拖动 / 框选两种鼠标模式 + 适应画布 + 按时间顺序重建；卡片右上角工具条
+  画在卡片内部（放到卡片外会掉 hover、点不到），右键菜单走 `BoardMenu`。分P 复制 / 剪切 / 粘贴
+  用 `useSeriesClipboard` 的会话级快照 + `pasteSeriesEpisode`（克隆逻辑在 `ops/episodeClone.ts`，
+  避免 `episodes.ts` 与 `series.ts` 循环 import）。
 
 ## Canvas node UX (mandatory)
 

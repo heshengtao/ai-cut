@@ -218,8 +218,8 @@ function clock(seconds: number): string {
 /* ============ 交互工具栏（右上角，对齐画布节点） ============ */
 .series-node-tools {
   position: absolute;
-  right: 2px;
-  bottom: calc(100% + 4px);
+  right: 6px;
+  top: 6px;
   z-index: 10;
   display: flex;
   align-items: center;
@@ -230,7 +230,7 @@ function clock(seconds: number): string {
   border: 1px solid rgb(var(--md-outline-variant) / 0.5);
   box-shadow: var(--md-elevation-1);
   opacity: 0;
-  transform: translateY(2px);
+  transform: translateY(-2px);
   pointer-events: none;
   transition: opacity 0.14s ease, transform 0.14s ease;
 }

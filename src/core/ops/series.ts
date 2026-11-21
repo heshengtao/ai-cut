@@ -6,6 +6,7 @@
  * 而拖动卡片只写坐标，不会把普通剧集变成自定义图。
  */
 import { newEpisode } from "@/core/episodes";
+import { cloneEpisode } from "./episodeClone";
 import { derivedChain } from "@/core/series/graph";
 import { withTouch } from "./internal";
 import type { Episode, Project, SeriesEdge, SeriesGraphDoc } from "@/types/project";
@@ -153,4 +154,19 @@ export function addConnectedEpisode(
       ? connectEpisode(withEpisode, anchorId, created.id)
       : connectEpisode(withEpisode, created.id, anchorId);
   return moveSeriesCard(connected, created.id, position.x, position.y);
+}
+
+/** 从剪贴板快照粘回一集：内容克隆、id 全部换新，可选落到画布坐标。 */
+export function pasteSeriesEpisode(
+  doc: Project,
+  source: Episode,
+  name: string,
+  position?: { x: number; y: number },
+): Project {
+  if (!source) return doc;
+  const order = doc.episodes.reduce((max, episode) => Math.max(max, episode.order), -1) + 1;
+  const copy = cloneEpisode(source, name, order);
+  const next = withTouch(doc, { episodes: [...doc.episodes, copy] }) as Project;
+  if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return next;
+  return moveSeriesCard(next, copy.id, position.x, position.y);
 }
