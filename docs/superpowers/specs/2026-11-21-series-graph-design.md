@@ -301,14 +301,16 @@ addConnectedEpisode(doc, anchorId, direction, name, position): Project
 
 ### 7.3 选项浮层
 
-新组件 `src/components/series/SeriesChoices.vue`，挂在 `.stage-viewport` 内（不受画面缩放影响，
-全屏可见），底部居中：
+新组件 `src/components/series/SeriesChoices.vue`，**挂在 `.frame`（视频画面）里面**，所以永远
+和画面同尺寸、跟着预览缩放，全屏也一致：
 
-- 半透明深色胶囊容器，标题「本集结束」+ 选项按钮列（一项一行，最多高度 40vh 滚动）。
-- 未命名选项显示 `选项 1`、`选项 2`……；按钮副标显示目标分P 名。
+- 只有按钮：没有外框、没有「本集结束」标题、没有目标分P 副标题，也没有任何多余文字。
+- 按钮文案 = 选项名；未命名显示 `选项 1`、`选项 2`……。按钮横向排列、放不下自动换行。
+- 尺寸跟着画面走：`choiceScale = 画面宽 / 900`（0.8–1.8 夹取），字号 / 内边距 / 最小宽高都用它缩放。
+- 出现时画面**停在尾帧**：`useSeriesPlayback` 把播放头挪到 `duration - 1/(2·fps)`，并用
+  `programmaticSeek` 标记避免被当成用户拖动而清掉浮层。
 - 点击任一项 = `choose(edgeId)`；不点也能继续拖播放头回看（拖动会清空浮层）。
-- 浮层 `@pointerdown.stop`，避免点按钮时触发舞台的平移 / 选中；全屏与普通模式共用同一节点。
-- 单集模式不渲染此浮层。
+- 浮层 `@pointerdown.stop`，避免点按钮时触发舞台的平移 / 选中；单集模式不渲染此浮层。
 
 ---
 

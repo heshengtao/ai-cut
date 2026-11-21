@@ -2522,7 +2522,6 @@ const zh: Record<string, string> = {
   "series.ctx.pasted": "已粘贴分P",
   "series.ctx.deleteMany": "会删除选中的 {count} 个分P，素材与画布不受影响。",
   "series.choice.unnamed": "选项 {index}",
-  "series.choices.title": "本集结束，选择接下来播放",
   "series.playback.ended": "剧集结束",
   "series.playback.loop": "剧集绕回了「{name}」，自动连播已停止",
   "series.timeline": "时间线",

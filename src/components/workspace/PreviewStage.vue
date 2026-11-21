@@ -432,6 +432,9 @@ const stageSize = computed(() => {
 
 const zoomPercent = computed(() => Math.round(zoom.value * 100));
 
+/** 选项按钮随画面缩放（基准 1100px 宽）。 */
+const choiceScale = computed(() => stageSize.value.width / 900);
+
 const stageStyle = computed(() => ({
   width: `${stageSize.value.width}px`,
   height: `${stageSize.value.height}px`,
@@ -1999,15 +2002,16 @@ watch(
               <p class="coach-note">{{ i18n.t("preview.emptyNote") }}</p>
             </div>
           </div>
+
+          <SeriesChoices
+            v-if="seriesPending"
+            :options="seriesPending.options"
+            :scale="choiceScale"
+            @choose="chooseSeriesOption"
+          />
         </div>
 
       </div>
-
-      <SeriesChoices
-        v-if="seriesPending"
-        :options="seriesPending.options"
-        @choose="chooseSeriesOption"
-      />
     </div>
 
     <!--

@@ -4,7 +4,8 @@
  * `visited` 只在「按下播放」与「切换播放模式」时重置——自动连播切集也会 `setPlayhead(0)`，
  * 若按播放头变化重置，循环判定永远看不到环。
  */
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
+import { episodeDuration } from "@/core/ops/episodes";
 import { stepOf } from "@/core/series/graph";
 import { useI18n } from "@/i18n";
 import { useLayoutStore } from "@/stores/layout";
@@ -22,6 +23,8 @@ interface PendingChoices {
 const pending = ref<PendingChoices | null>(null);
 /** 本轮自动连播已经过的分P（含起点）。 */
 let visited = new Set<string>();
+/** 程序自己把播放头挪到尾帧时，不要被当成「用户拖动」清掉选项浮层。 */
+let programmaticSeek = false;
 
 export function useSeriesPlayback() {
   const project = useProjectStore();
@@ -41,7 +44,21 @@ export function useSeriesPlayback() {
 
   /** 用户拖动播放头：只清掉选项浮层，不动访问记录。 */
   function onUserSeek(): void {
+    if (programmaticSeek) return;
     pending.value = null;
+  }
+
+  /** 停在尾帧：把播放头挪到最后一帧，画面保持住，选项浮层才出现。 */
+  function holdLastFrame(): void {
+    const episode = project.doc.episodes.find((item) => item.id === project.doc.activeEpisodeId);
+    const duration = episode ? episodeDuration(episode) : 0;
+    if (duration <= 0) return;
+    const fps = project.doc.fps || 30;
+    programmaticSeek = true;
+    playback.setPlayhead(Math.max(0, duration - 1 / (fps * 2)));
+    void nextTick(() => {
+      programmaticSeek = false;
+    });
   }
 
   function onEnded(): "stop" | "advance" | "choices" {
@@ -57,6 +74,7 @@ export function useSeriesPlayback() {
     }
     if (step.kind === "choices") {
       pending.value = { episodeId: from, options: step.options };
+      holdLastFrame();
       return "choices";
     }
     if (step.kind === "loop") {

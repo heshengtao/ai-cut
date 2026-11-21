@@ -1,18 +1,25 @@
 <script setup lang="ts">
-/** 剧集播放到分叉结尾时的选项浮层（叠在预览画面底部）。 */
+/** 剧集播放到分叉结尾时的选项浮层：只有按钮，像互动游戏一样盖在画面底部。 */
+import { computed } from "vue";
 import { useI18n } from "@/i18n";
-import { useProjectStore } from "@/stores/project";
 import type { SeriesOption } from "@/types/project";
 
-const props = defineProps<{ options: SeriesOption[] }>();
+const props = withDefaults(
+  defineProps<{
+    options: SeriesOption[];
+    /** 画面宽度 / 基准宽度：按钮随预览画布缩放。 */
+    scale?: number;
+  }>(),
+  { scale: 1 },
+);
+
 const emit = defineEmits<{ (e: "choose", edgeId: string): void }>();
 
 const i18n = useI18n();
-const project = useProjectStore();
 
-function nameOf(id: string): string {
-  return project.doc.episodes.find((episode) => episode.id === id)?.name ?? "";
-}
+const rootStyle = computed(() => ({
+  "--choice-scale": String(Math.max(0.8, Math.min(1.8, props.scale))),
+}));
 
 function labelOf(option: SeriesOption, index: number): string {
   return option.unnamed
@@ -22,87 +29,58 @@ function labelOf(option: SeriesOption, index: number): string {
 </script>
 
 <template>
-  <div
-    class="series-choices"
-    role="group"
-    :aria-label="i18n.t('series.choices.title')"
-    @pointerdown.stop
-    @click.stop
-  >
-    <p class="series-choices-title">{{ i18n.t("series.choices.title") }}</p>
-    <div class="series-choices-list">
-      <button
-        v-for="(option, index) in props.options"
-        :key="option.edgeId"
-        type="button"
-        class="series-choice"
-        @click="emit('choose', option.edgeId)"
-      >
-        <span class="series-choice-label">{{ labelOf(option, index) }}</span>
-        <span class="series-choice-target">{{ nameOf(option.to) }}</span>
-      </button>
-    </div>
+  <div class="series-choices" :style="rootStyle" role="group" @pointerdown.stop @click.stop>
+    <button
+      v-for="(option, index) in props.options"
+      :key="option.edgeId"
+      type="button"
+      class="series-choice"
+      @click="emit('choose', option.edgeId)"
+    >
+      {{ labelOf(option, index) }}
+    </button>
   </div>
 </template>
 
 <style scoped>
+/* 没有外框 / 标题 / 副标题：就是画面底部一排按钮。 */
 .series-choices {
   position: absolute;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  z-index: 6;
-  width: min(420px, calc(100% - 32px));
-  max-height: 46%;
+  left: 0;
+  right: 0;
+  bottom: 9%;
+  z-index: 30;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 16px;
-  background-color: rgb(var(--md-surface-container-high) / 0.96);
-  box-shadow: var(--md-elevation-2);
-  backdrop-filter: blur(10px);
-}
-.series-choices-title {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: rgb(var(--md-on-surface-variant));
-  text-align: center;
-}
-.series-choices-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow-y: auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: calc(12px * var(--choice-scale));
+  padding: 0 8%;
+  pointer-events: none;
 }
 .series-choice {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 38px;
-  padding: 0 12px;
-  border: 1px solid rgb(var(--md-outline) / 0.7);
-  border-radius: 10px;
-  background-color: rgb(var(--md-surface-container-low));
-  color: rgb(var(--md-on-surface));
-  font-size: 13px;
+  pointer-events: auto;
+  min-width: calc(150px * var(--choice-scale));
+  min-height: calc(44px * var(--choice-scale));
+  padding: calc(8px * var(--choice-scale)) calc(24px * var(--choice-scale));
+  border: 1px solid rgb(255 255 255 / 0.38);
+  border-radius: 999px;
+  background-color: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font-size: calc(16px * var(--choice-scale));
+  font-weight: 600;
+  letter-spacing: 0.01em;
   cursor: pointer;
-  text-align: left;
+  backdrop-filter: blur(8px);
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 .series-choice:hover {
-  border-color: rgb(var(--md-primary));
-  background-color: rgb(var(--md-primary) / 0.08);
+  background-color: rgb(var(--md-primary));
+  border-color: transparent;
+  transform: translateY(-1px);
 }
-.series-choice-label {
-  font-weight: 600;
-}
-.series-choice-target {
-  font-size: 11px;
-  color: rgb(var(--md-on-surface-variant));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.series-choice:focus-visible {
+  outline: 2px solid rgb(var(--md-primary));
+  outline-offset: 2px;
 }
 </style>
