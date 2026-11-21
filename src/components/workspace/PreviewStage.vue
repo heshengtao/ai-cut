@@ -82,8 +82,10 @@ import PanelIcon from "@/components/common/PanelIcon.vue";
 import Tooltip from "@/components/common/Tooltip.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
 import ContextMenu from "@/components/common/ContextMenu.vue";
+import SeriesChoices from "@/components/series/SeriesChoices.vue";
 import type { MenuItem } from "@/components/common/contextMenu";
 import { useI18n } from "@/i18n";
+import { useSeriesPlayback } from "@/composables/useSeriesPlayback";
 
 const project = useProjectStore();
 const playback = usePlaybackStore();
@@ -93,6 +95,8 @@ const layout = useLayoutStore();
 const onboarding = useOnboardingStore();
 const { importing, importMedia } = useMediaImport();
 const i18n = useI18n();
+const series = useSeriesPlayback();
+const seriesPending = series.pending;
 const frameBusy = ref(false);
 
 async function exportFrame(): Promise<void> {
@@ -222,6 +226,23 @@ function setQuality(value: string): void {
   layout.previewQuality = value as PreviewQuality;
 }
 
+const PLAY_MODES = computed<SelectOption[]>(() => [
+  {
+    id: "single",
+    label: i18n.t("preview.playMode.single"),
+    hint: i18n.t("preview.playMode.singleHint"),
+  },
+  {
+    id: "series",
+    label: i18n.t("preview.playMode.series"),
+    hint: i18n.t("preview.playMode.seriesHint"),
+  },
+]);
+
+function setPlayMode(value: string): void {
+  layout.setSeriesPlayMode(value === "series" ? "series" : "single");
+}
+
 // ---------------------------------------------------------------------------
 // 播放引擎
 // ---------------------------------------------------------------------------
@@ -255,11 +276,19 @@ onMounted(() => {
         playback.setPlayhead(seconds);
       },
       onEnded: () => {
+        const outcome = series.onEnded();
+        if (outcome === "advance") {
+          engine?.seek(0);
+          engine?.sync();
+          engine?.play();
+          return;
+        }
         playback.playing = false;
       },
     });
     engine.sync();
   }
+  series.resetRun();
 
   window.addEventListener("pointerdown", onGlobalPointerDown, true);
   window.addEventListener("keydown", onGlobalKeyDown, true);
@@ -305,6 +334,8 @@ watch(
 watch(
   () => playback.playing,
   (playing) => {
+    // 重新播放 = 放弃本次选项浮层（全局空格快捷键也会走到这里）。
+    if (playing) series.onUserSeek();
     if (!engine) return;
     if (playing) engine.play();
     else engine.pause();
@@ -316,6 +347,7 @@ watch(
   (seconds) => {
     if (!engine) return;
     if (Math.abs(seconds - engineDrivenTime) < 1e-4) return;
+    series.onUserSeek();
     engine.seek(seconds);
   },
 );
@@ -323,6 +355,11 @@ watch(
 watch(
   () => project.doc,
   () => engine?.sync(),
+);
+
+watch(
+  () => layout.seriesPlayMode,
+  () => series.resetRun(),
 );
 
 // ---------------------------------------------------------------------------
@@ -1783,10 +1820,19 @@ const projectIsEmpty = computed(
 
 function togglePlay(): void {
   const next = !playback.playing;
+  if (next) series.resetRun();
   playback.playing = next;
   // 在用户手势内直接驱动引擎，确保 WebView 的自动播放策略不会拦截音频。
   if (next) engine?.play();
   else engine?.pause();
+}
+
+function chooseSeriesOption(edgeId: string): void {
+  if (!series.choose(edgeId)) return;
+  engine?.seek(0);
+  engine?.sync();
+  engine?.play();
+  playback.playing = true;
 }
 
 watch(
@@ -1956,6 +2002,12 @@ watch(
         </div>
 
       </div>
+
+      <SeriesChoices
+        v-if="seriesPending"
+        :options="seriesPending.options"
+        @choose="chooseSeriesOption"
+      />
     </div>
 
     <!--
@@ -2086,6 +2138,15 @@ watch(
           :options="ASPECTS"
           :label="i18n.t('preview.aspect')"
           @update:model-value="setAspect"
+        />
+
+        <Md3Select
+          class="footer-select play-mode-select"
+          compact
+          :model-value="layout.seriesPlayMode"
+          :options="PLAY_MODES"
+          :label="i18n.t('preview.playMode')"
+          @update:model-value="setPlayMode"
         />
 
         <Tooltip :text="i18n.t('preview.exportFrame')" align="end">

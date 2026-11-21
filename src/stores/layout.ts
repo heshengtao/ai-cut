@@ -51,6 +51,9 @@ export type PreviewAspect =
 /** 预览画质（界面选项；低画质时关闭平滑缩放）。 */
 export type PreviewQuality = "auto" | "high" | "medium" | "low";
 
+/** 预览播放模式：单集播完即停 / 沿剧集连线连播。 */
+export type SeriesPlayMode = "single" | "series";
+
 /** 工作区布局：横屏 = 预览上 / 时间线下；竖屏 = 预览左 / 时间线右。 */
 export type LayoutMode = "landscape" | "portrait";
 
@@ -126,6 +129,7 @@ interface Persisted {
   previewQuality: PreviewQuality;
   layoutMode: LayoutMode;
   previewRatio: number;
+  seriesPlayMode: SeriesPlayMode;
 }
 
 const KEY = "ai-cut-layout";
@@ -181,6 +185,9 @@ export const useLayoutStore = defineStore("layout", () => {
   );
   const layoutMode = ref<LayoutMode>(
     saved.layoutMode === "portrait" ? "portrait" : "landscape",
+  );
+  const seriesPlayMode = ref<SeriesPlayMode>(
+    saved.seriesPlayMode === "series" ? "series" : "single",
   );
   const previewRatio = ref(
     clamp(saved.previewRatio ?? 0.34, MIN_PREVIEW_RATIO, MAX_PREVIEW_RATIO),
@@ -241,6 +248,11 @@ export const useLayoutStore = defineStore("layout", () => {
   /** 切换横屏 / 竖屏布局。 */
   function setLayoutMode(mode: LayoutMode): void {
     layoutMode.value = mode;
+  }
+
+  /** 切换预览播放模式（单集 / 剧集）。 */
+  function setSeriesPlayMode(mode: SeriesPlayMode): void {
+    seriesPlayMode.value = mode === "series" ? "series" : "single";
   }
 
   /** 窗口尺寸变化后重新夹紧（窄窗口下别让面板吃掉整个画面）。 */
@@ -331,6 +343,7 @@ export const useLayoutStore = defineStore("layout", () => {
       previewQuality,
       layoutMode,
       previewRatio,
+      seriesPlayMode,
     ],
     () => {
       try {
@@ -347,6 +360,7 @@ export const useLayoutStore = defineStore("layout", () => {
             previewQuality: previewQuality.value,
             layoutMode: layoutMode.value,
             previewRatio: previewRatio.value,
+            seriesPlayMode: seriesPlayMode.value,
           } satisfies Persisted),
         );
       } catch {
@@ -367,6 +381,7 @@ export const useLayoutStore = defineStore("layout", () => {
     previewQuality,
     layoutMode,
     previewRatio,
+    seriesPlayMode,
     downloadSection,
     settingsOpen,
     settingsSection,
@@ -381,6 +396,7 @@ export const useLayoutStore = defineStore("layout", () => {
     resizeTimeline,
     resizePreview,
     setLayoutMode,
+    setSeriesPlayMode,
     clampPanes,
     openSettings,
     closeSettings,
