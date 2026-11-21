@@ -57,7 +57,7 @@ import { useEpisodeOpen } from "@/composables/useEpisodeOpen";
 import { useSeriesClipboard } from "@/composables/useSeriesClipboard";
 import { confirm } from "@/composables/useConfirm";
 import { toast } from "@/composables/useToast";
-import { CARD_HEIGHT, CARD_WIDTH, placements } from "@/core/series/layout";
+import { CARD_HEIGHT, CARD_WIDTH, ORIGIN, placements } from "@/core/series/layout";
 import { orderedEpisodes, seriesEdges } from "@/core/series/graph";
 import {
   addConnectedEpisode,
@@ -95,7 +95,7 @@ const {
   findEdge,
   zoomIn,
   zoomOut,
-  project: toFlowPoint,
+  screenToFlowCoordinate,
   onViewportChange,
   onNodeDragStop,
   onNodesInitialized,
@@ -108,6 +108,12 @@ const {
   onEdgeContextMenu,
   onPaneContextMenu,
 } = useVueFlow();
+
+/**
+ * 画布位置缓存：结构变化（连线 / 新建 / 删除）只调整新卡片，不要把所有卡片重新分层。
+ * 之前每次 doc 变化都重新跑 autoLayout，连一条线整张图就会跳一下，看起来像卡片消失。
+ */
+const positionCache = new Map<string, { x: number; y: number }>();
 
 const rootEl = ref<HTMLElement | null>(null);
 const flowNodes = shallowRef<Node[]>([]);
@@ -185,18 +191,107 @@ const seriesActions = {
 
 function syncNodes(): void {
   const existing = new Map(flowNodes.value.map((node) => [node.id, node]));
-  const positions = placements(project.doc);
-  flowNodes.value = orderedEpisodes(project.doc).map((episode) => {
+  const auto = placements(project.doc);
+  const manual = project.doc.seriesGraph?.positions ?? {};
+  const episodes = orderedEpisodes(project.doc);
+  const keep = new Set(episodes.map((episode) => episode.id));
+  for (const id of [...positionCache.keys()]) {
+    if (!keep.has(id)) positionCache.delete(id);
+  }
+
+  // 先把「手动坐标 / 上次位置」定下来，新分P 再找一个不重叠的位置。不能在缓存已经
+  // 冻结旧坐标时用 autoLayout 给新节点算坐标——那会正好压在别的卡片上（看起来像消失）。
+  const resolved = new Map<string, { x: number; y: number }>();
+  for (const episode of episodes) {
+    const saved = manual[episode.id];
+    const cached = positionCache.get(episode.id);
+    const position =
+      saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)
+        ? { x: saved.x, y: saved.y }
+        : cached;
+    if (!position) continue;
+    resolved.set(episode.id, position);
+  }
+
+  /**
+   * 新分P 只落在**当前视口内**的空位：从视口中心向外找，避开已有卡片。
+   * 不能放到包围盒右侧——视口没跟着动的话，新卡片就生成在屏幕外，看起来像「节点消失」。
+   */
+  const freeSpot = (): { x: number; y: number } => {
+    const root = rootEl.value;
+    const rect = root?.getBoundingClientRect();
+    const topLeft = screenToFlowCoordinate({
+      x: rect?.left ?? 0,
+      y: rect?.top ?? 0,
+    });
+    const bottomRight = screenToFlowCoordinate({
+      x: (rect?.left ?? 0) + (root?.clientWidth ?? 900),
+      y: (rect?.top ?? 0) + (root?.clientHeight ?? 600),
+    });
+    const stepX = CARD_WIDTH + 32;
+    const stepY = CARD_HEIGHT + 32;
+    const pad = 24;
+    const columns = Math.max(1, Math.floor((bottomRight.x - topLeft.x - pad * 2) / stepX));
+    const rows = Math.max(1, Math.floor((bottomRight.y - topLeft.y - pad * 2) / stepY));
+    const candidates: { x: number; y: number }[] = [];
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
+        candidates.push({
+          x: topLeft.x + pad + column * stepX,
+          y: topLeft.y + pad + row * stepY,
+        });
+      }
+    }
+    const centerX = (topLeft.x + bottomRight.x) / 2;
+    const centerY = (topLeft.y + bottomRight.y) / 2;
+    candidates.sort(
+      (a, b) =>
+        Math.abs(a.x - centerX) + Math.abs(a.y - centerY) -
+        (Math.abs(b.x - centerX) + Math.abs(b.y - centerY)),
+    );
+    const taken = [...resolved.values()];
+    for (const spot of candidates) {
+      const clash = taken.some(
+        (item) =>
+          Math.abs(item.x - spot.x) < CARD_WIDTH * 0.7 &&
+          Math.abs(item.y - spot.y) < CARD_HEIGHT * 0.7,
+      );
+      if (!clash) return spot;
+    }
+    return candidates[0] ?? { x: topLeft.x + pad, y: topLeft.y + pad };
+  };
+
+  const hasLayout = resolved.size > 0;
+  for (const episode of episodes) {
+    if (resolved.has(episode.id)) continue;
+    const fallback = auto.get(episode.id) ?? { x: ORIGIN, y: ORIGIN };
+    const position = hasLayout ? freeSpot() : fallback;
+    resolved.set(episode.id, position);
+  }
+
+  flowNodes.value = episodes.map((episode) => {
+    const position = resolved.get(episode.id) ?? { x: ORIGIN, y: ORIGIN };
+    positionCache.set(episode.id, position);
     const current = existing.get(episode.id);
-    const position = positions.get(episode.id) ?? { x: 0, y: 0 };
-    const data = { episodeId: episode.id, actions: seriesActions };
-    if (current) return { ...current, position, data };
+    if (current) {
+      const samePosition =
+        current.position.x === position.x && current.position.y === position.y;
+      const sameData =
+        current.data?.episodeId === episode.id && current.data?.actions === seriesActions;
+      // 没变化就复用同一个节点对象，减少 Vue Flow 重新解析 / 重挂载。
+      if (samePosition && sameData) return current;
+      return {
+        ...current,
+        position,
+        data: { episodeId: episode.id, actions: seriesActions },
+      };
+    }
     return {
       id: episode.id,
       type: "seriesCard",
       position,
       style: { width: `${CARD_WIDTH}px` },
-      data,
+      data: { episodeId: episode.id, actions: seriesActions },
     } satisfies Node;
   });
 }
@@ -234,8 +329,16 @@ watch(selectedEdgeId, () => {
 // 视图
 // ---------------------------------------------------------------------------
 
-function fitAll(): void {
-  void fitView({ padding: 0.25, maxZoom: 1 });
+/**
+ * 适应视图要等节点量完尺寸：刚挂载 / 刚换节点时 `fitView` 会返回 false。
+ * 之前直接调一次就完事，失败后视口停在默认位置，靠右的卡片看起来就像「消失了」。
+ */
+async function fitAll(): Promise<void> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const ok = await fitView({ padding: 0.2, maxZoom: 1 });
+    if (ok) return;
+    await new Promise((resolve) => window.setTimeout(resolve, 40));
+  }
 }
 
 /** 第一次量完节点尺寸后适应视图；之后加节点不再抢视口。 */
@@ -243,7 +346,7 @@ let fitted = false;
 onNodesInitialized(() => {
   if (fitted) return;
   fitted = true;
-  fitAll();
+  void fitAll();
 });
 
 onViewportChange((transform) => {
@@ -306,12 +409,7 @@ onConnectEnd((event) => {
     );
     return;
   }
-  const rect = rootEl.value?.getBoundingClientRect();
-  if (!rect) return;
-  const point = toFlowPoint({
-    x: event.clientX - rect.left,
-    y: event.clientY - rect.top,
-  });
+  const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY });
   const name = i18n.t("series.newEpisodeName", { index: project.doc.episodes.length + 1 });
   project.dispatch((doc) =>
     addConnectedEpisode(
@@ -437,9 +535,7 @@ function pasteAt(clientX: number, clientY: number): void {
   const source = clipboard.read();
   if (!source || project.readOnly) return;
   menu.value = null;
-  const rect = rootEl.value?.getBoundingClientRect();
-  if (!rect) return;
-  const point = toFlowPoint({ x: clientX - rect.left, y: clientY - rect.top });
+  const point = screenToFlowCoordinate({ x: clientX, y: clientY });
   const name = i18n.t("series.duplicateSuffix", { name: source.name });
   project.dispatch((doc) =>
     pasteSeriesEpisode(doc, source, name, {
@@ -470,9 +566,7 @@ async function removeById(episodeId: string): Promise<void> {
 /** 右键空白处：在点击位置新建一集。 */
 function createEpisodeAt(clientX: number, clientY: number): void {
   menu.value = null;
-  const rect = rootEl.value?.getBoundingClientRect();
-  if (!rect) return;
-  const point = toFlowPoint({ x: clientX - rect.left, y: clientY - rect.top });
+  const point = screenToFlowCoordinate({ x: clientX, y: clientY });
   const name = i18n.t("series.newEpisodeName", { index: project.doc.episodes.length + 1 });
   project.dispatch((doc) => {
     const next = addEpisode(doc, name);
@@ -615,7 +709,7 @@ const menuItems = computed<BoardMenuItem[]>(() => {
       icon: ArrowsPointingOutIcon,
       run: () => {
         menu.value = null;
-        fitAll();
+        void fitAll();
       },
     },
   ];
@@ -641,8 +735,9 @@ function removeEdge(): void {
 function doAutoLayout(): void {
   menu.value = null;
   if (project.readOnly) return;
+  positionCache.clear();
   project.dispatch((doc) => autoLayoutSeries(doc));
-  fitAll();
+  void fitAll();
 }
 
 async function rebuild(): Promise<void> {
@@ -654,9 +749,10 @@ async function rebuild(): Promise<void> {
     destructive: true,
   });
   if (!accepted) return;
+  positionCache.clear();
   project.dispatch((doc) => resetSeriesGraph(doc));
   toast(i18n.t("series.graph.rebuildDone"));
-  fitAll();
+  void fitAll();
 }
 
 function onKeyDown(event: KeyboardEvent): void {
@@ -692,13 +788,13 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
 <template>
   <section ref="rootEl" class="series-graph" data-view="series-graph">
     <VueFlow
-      v-model:nodes="flowNodes"
-      v-model:edges="flowEdges"
+      :nodes="flowNodes"
+      :edges="flowEdges"
       :node-types="nodeTypes"
       :edge-types="edgeTypes"
       :min-zoom="0.25"
       :max-zoom="2"
-      :pan-on-scroll="true"
+      :pan-on-scroll="false"
       :zoom-on-double-click="false"
       :delete-key-code="null"
       :pan-on-drag="interactionMode === 'drag'"
