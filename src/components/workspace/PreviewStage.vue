@@ -2700,12 +2700,7 @@ watch(
 .footer-select {
   flex: 0 0 auto;
 }
-.quality-select {
-  width: 92px;
-}
-.aspect-select {
-  width: 112px;
-}
+/* 三个下拉都按内容宽度收口（不再给画质 / 比例留固定宽度），左右留白一致。 */
 
 @media (prefers-reduced-motion: reduce) {
   .play-btn {
