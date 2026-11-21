@@ -5,10 +5,12 @@
  * 左右各一个 Handle：左边接入、右边拖出下一步。悬停 / 选中时右上角浮出交互工具栏，
  * 双击节点由 SeriesGraph 统一处理；卡片本身只负责展示与调用传进来的动作。
  */
-import { computed } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref } from "vue";
 import { Handle, Position } from "@vue-flow/core";
 import {
   DocumentDuplicateIcon,
+  PauseIcon,
+  PencilIcon,
   PencilSquareIcon,
   PlayIcon,
   QueueListIcon,
@@ -17,10 +19,12 @@ import {
 import { useI18n } from "@/i18n";
 import { useProjectStore } from "@/stores/project";
 import { episodeDuration } from "@/core/ops/episodes";
+import { fileUrl } from "@/core/media";
+import { claimSeriesNodePlayback, releaseSeriesNodePlayback } from "@/composables/useSeriesNodePlayback";
+import { toast } from "@/composables/useToast";
 import { assetThumbnailUrl } from "@/core/thumbnails";
 
 interface SeriesNodeActions {
-  play: (episodeId: string) => void;
   open: (episodeId: string) => void;
   rename: (episodeId: string) => void;
   duplicate: (episodeId: string) => void;
@@ -63,6 +67,85 @@ const clipCount = computed(() =>
 
 const duration = computed(() => (episode.value ? episodeDuration(episode.value) : 0));
 
+/** 节点内联播放：这一集最早出现的那条视频片段。 */
+const primaryClip = computed(() => {
+  const target = episode.value;
+  if (!target) return null;
+  const clips = target.tracks.flatMap((track) => track.clips);
+  const video = clips
+    .map((clip) => ({ clip, asset: project.doc.assets.find((item) => item.id === clip.assetId) }))
+    .filter((item) => item.asset?.kind === "video" && !item.asset.offline)
+    .sort((a, b) => a.clip.start - b.clip.start);
+  const first = video[0];
+  if (!first || !first.asset) return null;
+  return {
+    src: fileUrl(first.asset.src),
+    in: Math.max(0, first.clip.in),
+    /** 源文件上要播多久：时间线时长 × 播放速度。 */
+    length: Math.max(0.05, first.clip.duration * (first.clip.speed ?? 1)),
+    speed: first.clip.speed ?? 1,
+  };
+});
+
+const player = ref<HTMLVideoElement | null>(null);
+const playing = ref(false);
+const progress = ref(0);
+let stopThis: (() => void) | null = null;
+
+function stopPlayback(): void {
+  player.value?.pause();
+  playing.value = false;
+  progress.value = 0;
+  if (stopThis) releaseSeriesNodePlayback(stopThis);
+  stopThis = null;
+}
+
+async function togglePlayback(): Promise<void> {
+  if (playing.value) {
+    stopPlayback();
+    return;
+  }
+  const source = primaryClip.value;
+  if (!source) {
+    toast(i18n.t("series.noVideo"), "info");
+    return;
+  }
+  stopThis = stopPlayback;
+  claimSeriesNodePlayback(stopThis);
+  playing.value = true;
+  progress.value = 0;
+  await nextTick();
+  const element = player.value;
+  if (!element) {
+    stopPlayback();
+    return;
+  }
+  element.playbackRate = source.speed;
+  try {
+    element.currentTime = source.in;
+  } catch {
+    /* 元数据还没到时 currentTime 可能被拒；loadedmetadata 后会落到默认位置 */
+  }
+  void element.play().catch(() => stopPlayback());
+}
+
+function onTimeUpdate(): void {
+  const element = player.value;
+  const source = primaryClip.value;
+  if (!element || !source) return;
+  const offset = Math.max(0, element.currentTime - source.in);
+  progress.value = Math.min(1, offset / source.length);
+  if (offset >= source.length) stopPlayback();
+}
+
+function onEnded(): void {
+  stopPlayback();
+}
+
+onBeforeUnmount(() => {
+  stopPlayback();
+});
+
 function clock(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
   const hours = Math.floor(total / 3600);
@@ -74,7 +157,10 @@ function clock(seconds: number): string {
 </script>
 
 <template>
-  <article class="series-node" :class="{ current: episode?.id === project.doc.activeEpisodeId }">
+  <article
+    class="series-node"
+    :class="{ current: episode?.id === project.doc.activeEpisodeId, playing }"
+  >
     <Handle id="in" type="target" :position="Position.Left" class="series-handle series-handle-in" />
     <Handle id="out" type="source" :position="Position.Right" class="series-handle series-handle-out" />
 
@@ -87,11 +173,12 @@ function clock(seconds: number): string {
       <div class="series-node-tools">
         <button
           type="button"
-          :title="i18n.t('series.play')"
-          :aria-label="i18n.t('series.play')"
-          @click="actions.play(episodeId)"
+          :title="playing ? i18n.t('series.pause') : i18n.t('series.play')"
+          :aria-label="playing ? i18n.t('series.pause') : i18n.t('series.play')"
+          @click="togglePlayback"
         >
-          <PlayIcon />
+          <PauseIcon v-if="playing" />
+          <PlayIcon v-else />
         </button>
         <button
           type="button"
@@ -100,6 +187,14 @@ function clock(seconds: number): string {
           @click="actions.open(episodeId)"
         >
           <PencilSquareIcon />
+        </button>
+        <button
+          type="button"
+          :title="i18n.t('common.rename')"
+          :aria-label="i18n.t('common.rename')"
+          @click="actions.rename(episodeId)"
+        >
+          <PencilIcon />
         </button>
         <button
           type="button"
@@ -123,11 +218,31 @@ function clock(seconds: number): string {
     </div>
 
     <div class="series-node-cover">
-      <img v-if="cover" :src="cover" :alt="episode?.name ?? ''" loading="lazy" draggable="false" />
+      <video
+        v-if="playing && primaryClip"
+        ref="player"
+        class="series-node-video"
+        :src="primaryClip.src"
+        playsinline
+        preload="auto"
+        draggable="false"
+        @timeupdate="onTimeUpdate"
+        @ended="onEnded"
+      />
+      <img
+        v-else-if="cover"
+        :src="cover"
+        :alt="episode?.name ?? ''"
+        loading="lazy"
+        draggable="false"
+      />
       <div v-else class="series-node-cover-empty" aria-hidden="true">
         <QueueListIcon />
       </div>
       <span class="series-node-time">{{ clock(duration) }}</span>
+      <span v-if="playing" class="series-node-progress" aria-hidden="true">
+        <span :style="{ width: `${Math.round(progress * 100)}%` }" />
+      </span>
     </div>
 
     <div class="series-node-meta">
@@ -178,11 +293,29 @@ function clock(seconds: number): string {
   border-radius: 19px 19px 0 0;
   background-color: rgb(var(--md-surface-container-highest));
 }
-.series-node-cover img {
+.series-node-cover img,
+.series-node-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+}
+.series-node-video {
+  background-color: #000;
+}
+.series-node-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background-color: rgb(0 0 0 / 0.35);
+}
+.series-node-progress > span {
+  display: block;
+  height: 100%;
+  background-color: rgb(var(--md-primary));
+  transition: width 0.12s linear;
 }
 .series-node-cover-empty {
   width: 100%;
@@ -237,6 +370,7 @@ function clock(seconds: number): string {
   transition: opacity 0.14s ease, transform 0.14s ease;
 }
 .series-node:hover .series-node-hover,
+.series-node.playing .series-node-hover,
 :global(.vue-flow__node.selected) .series-node-hover,
 .series-node-hover:hover,
 .series-node-hover:focus-within {

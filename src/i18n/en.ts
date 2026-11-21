@@ -2494,6 +2494,8 @@ const en: Record<string, string> = {
   "series.preview": "Preview",
   "series.play": "Play",
   "series.edit": "Edit",
+  "series.pause": "Pause",
+  "series.noVideo": "This part has no video yet",
   "series.branchCount": "{count} choices",
   "series.orphan": "Not linked",
   "series.graph.fit": "Fit view",

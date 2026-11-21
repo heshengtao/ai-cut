@@ -54,7 +54,7 @@ import BoardMenu from "@/components/board/BoardMenu.vue";
 import type { BoardMenuItem } from "@/components/board/BoardMenuList.vue";
 import { useI18n } from "@/i18n";
 import { useProjectStore } from "@/stores/project";
-import { useEpisodeOpen, useEpisodePlay } from "@/composables/useEpisodeOpen";
+import { useEpisodeOpen } from "@/composables/useEpisodeOpen";
 import { useSeriesClipboard } from "@/composables/useSeriesClipboard";
 import { confirm } from "@/composables/useConfirm";
 import { toast } from "@/composables/useToast";
@@ -96,7 +96,6 @@ const edgeTypes = { seriesEdge: SeriesEdge } as unknown as EdgeTypesObject;
 const i18n = useI18n();
 const project = useProjectStore();
 const openEpisode = useEpisodeOpen();
-const playEpisode = useEpisodePlay();
 
 const {
   fitView,
@@ -185,7 +184,6 @@ const renameStyle = computed<CSSProperties>(() => {
 
 /** 交给卡片的动作（卡片是 Vue Flow 内部渲染的，拿不到父组件 emits）。 */
 const seriesActions = {
-  play: (episodeId: string): void => playEpisode(episodeId),
   open: (episodeId: string): void => openEpisode(episodeId),
   rename: (episodeId: string): void => beginRename(episodeId),
   duplicate: (episodeId: string): void => duplicateById(episodeId),
