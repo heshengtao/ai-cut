@@ -56,9 +56,11 @@
 | 前端只有纯逻辑测试（无 @vue/test-utils / jsdom） | `package.json` / `src/core/**/__tests__` | UI 逻辑尽量下沉到 `core/series/*` 纯函数再测 |
 | `crates/daemon/assets/domain.js` 由 `src/core` 打包生成，CI diff | `AGENTS.md` | 动了 `core/ops` 需 `pnpm domain:golden` 并提交 golden |
 
-**取舍**：不复用 `BoardView`。画布节点自带端口签名、运行引擎、插件注册表、工作流库，
-剧集卡的语义（一集 → 多条选项边）与之不匹配，复用会把工作流概念泄漏到剧集里，且任何工作流改动都会
-波及剧集界面。剧集图画布只需要「平移 / 缩放 / 卡片 / 贝塞尔边 + 边标签」，独立实现约 200 行。
+**取舍（实现层修正）**：不复用 `BoardView`，但**复用它的画布库 `@vue-flow/core`**（项目已有依赖）。
+画布节点自带端口签名、运行引擎、插件注册表、工作流库，剧集卡的语义（一集 → 多条选项边）与之不匹配，
+复用 `BoardView` 会把工作流概念泄漏到剧集里，且任何工作流改动都会波及剧集界面。而 Vue Flow 本身只是
+通用图渲染：平移 / 缩放 / `fitView` / Handle 拖线 / 自定义节点与边，剧集图画布直接用它，
+`SeriesGraph.vue` 只负责「分P → nodes、连线 → edges」的映射与图编辑，不引入任何工作流概念。
 
 ---
 
@@ -219,20 +221,23 @@ pruneSeriesEdges(doc): Project                // 过滤悬空边（删除分P �
 
 ### 6.3 连线（自由画布）
 
-新组件 `src/components/series/SeriesGraph.vue`（+ `SeriesGraphCard.vue`）：
+新组件 `src/components/series/SeriesGraph.vue`（+ `SeriesGraphCard.vue`、`SeriesEdge.vue`），
+画布用项目已有的 `@vue-flow/core`（与 `BoardView` 同一套库，但不共享任何工作流节点 / store）：
 
-- 画布：`view = { x, y, zoom }`（0.25–2），内层平面 `translate() scale()`。
-  - 滚轮 = 以光标为锚点缩放；空白拖动 = 平移；空白双击 = 适应视图。
-  - 工具栏：缩小 / 百分比 / 放大、适应视图、自动排列、按时间顺序重建（仅 `custom` 时可用）。
+- 分P → Vue Flow node（`type: "seriesCard"`，坐标来自 `placements(doc)`），连线 → edge
+  （`type: "seriesEdge"`）。平移 / 缩放 / `fitView` 交给库；工具栏：放大 / 缩小 / 百分比 /
+  适应视图 / 自动排列 / 按时间顺序重建（仅 `custom` 时可用）。
 - 卡片（`SeriesGraphCard`）：封面缩略（16:9，高 108）、名字、时长、轨道/片段数、当前分P 高亮、
-  右侧连接点、右下「预览」按钮、双击进预览、单击选中。
-  - 拖动卡片 = 改 `positions`（`pointerup` 时提交一次，一次拖动 = 一个撤销步骤）。
+  右侧 source Handle、左侧 target Handle、右下「预览」按钮、双击进预览、单击选中。
+  - `onNodeDragStop` 把移动后的坐标一次性写回 `positions`（一次拖动 = 一个撤销步骤）。
 - 连线：
-  - 从卡片右侧连接点按下并拖到另一张卡（命中用世界坐标矩形），松手建边；拖拽过程中画虚线预览。
-  - 边用三次贝塞尔（水平控制点），宽 1.5px；带 label 的边在中间画一个胶囊显示文案。
-  - 点击边 = 选中（加粗 + 主色）；浮动面板贴在边的中点（屏幕坐标，夹在视口内）：
-    选项名输入框（回车提交 / 失焦提交，提交才产生一次撤销记录）、删除按钮、`来源 → 目标` 的只读说明。
-  - `Delete` / `Backspace` 删除选中边、`Escape` 取消选中——只在焦点不在输入框 / 不在浮动面板里时响应。
+  - Handle 拖到另一张卡 → `@connect` → `connectEpisode`；建线时先 materialize 当前派生链。
+  - 自定义边画三次贝塞尔；带 label 的边在中间画胶囊（`EdgeLabelRenderer`）。
+  - 点击边 = 选中（加粗 + 主色，选中态由组件自己的 `selectedEdgeId` 驱动，不依赖库的选择态）；
+    选中后在中点附近浮出编辑面板（`findEdge` + `getViewport` 换算屏幕坐标，夹在视口内）：
+    选项名输入框（回车提交 / 失焦提交，提交才产生一次撤销记录）、删除按钮、`来源 → 目标` 说明。
+  - `Delete` / `Backspace` 删除选中边、`Escape` 取消选中——只在焦点不在输入框时响应
+    （Vue Flow 的 `delete-key-code` 设为 `null`，由组件自己处理）。
   - 空图：居中提示「还没有连线」+「按时间顺序重建」。
 - 键盘与无障碍：卡片 / 边都是 `button` 语义或带 `role="button"` + `tabindex`；焦点样式不用颜色单独表达。
 - 只读模式：隐藏新建 / 删除 / 编辑 / 重建，只允许平移缩放和预览。
@@ -266,8 +271,9 @@ pruneSeriesEdges(doc): Project                // 过滤悬空边（删除分P �
   `engine.sync()`（切集的 doc 变更也会触发，但这里显式保证），再 `engine.play()`；不能只依赖 watcher。
 - `choose(edgeId)` → 切到 `to`、播放头归零、继续播、清空 `pending`；`visited` 继续累加（手动选择
   不做 loop 拦截）。同样由 PreviewStage 负责 `engine.sync()` + `engine.play()`。
-- `resetRun()`：用户主动按播放 / 拖动播放头 / 手动切分P / 关闭剧集模式时清空 `pending`，并把
-  `visited` 重置为 `{当前分P}`。进入剧集模式时也重置一次，避免上一次的访问记录误判循环。
+- `resetRun()`：**只在按下播放、切换播放模式时**重置（清空 `pending`，`visited = {当前分P}`）。
+  拖动播放头只清空选项浮层、**不重置 `visited`**——自动连播切集时也会 `setPlayhead(0)`，
+  若按「播放头变化」重置，循环判定会永远看不到环。打开剧集界面别的分P 后按播放即自然重置。
 - 切集复用 `project.switchEpisode`（清撤销栈的既有语义），不引入「临时预览分P」。只读工程下
   `switchEpisode` 返回 `false`，此时停在当前集结束（不弹选项、不给假象）。
 
