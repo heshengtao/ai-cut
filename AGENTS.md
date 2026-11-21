@@ -127,8 +127,10 @@
 - 拖动卡片只写 `positions`，**不**把图转成自定义；只有增删边 / 改选项名才 `custom: true`。
 - 剧集播放的 `visited` 只在按下播放和切换播放模式时重置：自动连播切集也会 `setPlayhead(0)`，
   按播放头变化重置就永远检测不到无选项的环。分叉浮层 `SeriesChoices` 挂在 `.frame` 里面、只渲染
-  选项按钮（没有标题 / 外框 / 目标名），尺寸用 `choiceScale = 画面宽 / 900` 跟着画布缩放；出现时
-  播放头停在 `duration - 1/(2·fps)` 的尾帧，程序性 seek 用 `programmaticSeek` 标记避免清掉浮层。
+  选项按钮（没有标题 / 外框 / 目标名），尺寸用 `choiceScale = 画面宽 / 900` 跟着画布缩放；排布规则：
+  1–3 个先试一排（`min-width: max(150px·scale, min-content)`，装不下整行换行）、4 个 2×2、
+  5 个 3+2、6 个 3×2、更多一行 4 个；出现时播放头停在 `duration - 1/(2·fps)` 的尾帧，
+  程序性 seek 用 `programmaticSeek` 标记避免清掉浮层。
 - 画布位置：`SeriesGraph` 用一份位置缓存固定已有卡片，只给新卡片找空位；新卡片必须落在**当前视口内**，
   否则会生成在屏幕外、看起来像「节点消失」。`fitView` 要重试（节点刚挂载时量不到尺寸会返回 false）。
   节点 / 边用**单向** `:nodes` / `:edges` 绑定（不是 `v-model`），画布只从工程派生，避免 Vue Flow
