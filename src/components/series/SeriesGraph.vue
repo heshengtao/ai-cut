@@ -280,6 +280,20 @@ onConnectEnd((event) => {
   const distance = Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY);
   // 只是点了一下端口、没有真的拖出去：不要莫名其妙多出一集。
   if (distance < 16) return;
+  // 松手落在另一张卡上、但 Vue Flow 没当成有效连接（比如落在卡片空白处 / 自连）：
+  // 补一条边，而不是在卡片底下新建一集。
+  const under = document
+    .elementFromPoint(event.clientX, event.clientY)
+    ?.closest?.(".vue-flow__node") as HTMLElement | null;
+  const targetId = under?.dataset.id;
+  if (targetId) {
+    project.dispatch((doc) =>
+      start.handleType === "source"
+        ? connectEpisode(doc, start.nodeId, targetId)
+        : connectEpisode(doc, targetId, start.nodeId),
+    );
+    return;
+  }
   const rect = rootEl.value?.getBoundingClientRect();
   if (!rect) return;
   const point = toFlowPoint({
