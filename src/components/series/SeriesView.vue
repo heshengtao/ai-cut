@@ -9,6 +9,7 @@ import { computed, ref } from "vue";
 import { MagnifyingGlassIcon, PlusIcon, QueueListIcon } from "@heroicons/vue/24/outline";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import SeriesTile from "./SeriesTile.vue";
+import SeriesGraph from "./SeriesGraph.vue";
 import { useI18n } from "@/i18n";
 import { useProjectStore } from "@/stores/project";
 import { useEpisodeOpen } from "@/composables/useEpisodeOpen";
@@ -222,6 +223,8 @@ const totalDuration = computed(() =>
         @dragend="onDragEnd"
       />
     </div>
+
+    <SeriesGraph v-else @open="openEpisode" />
   </section>
 </template>
 
