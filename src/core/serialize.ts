@@ -11,6 +11,7 @@ import type {
 import { PROJECT_VERSION } from "@/types/project";
 import { attachEpisodeView, migrateToEpisodes, patchProjectMeta } from "@/core/episodes";
 import { normalizeBoard } from "@/core/board/schema";
+import { normalizeSeriesGraph } from "@/core/series/sanitize";
 import { normalizeClipEffects } from "@/core/effects";
 import { normalizeClipTransition } from "@/core/clipTransition";
 import {
@@ -342,7 +343,11 @@ function normalizeProject(input: Project): Project {
       }))
     : undefined;
   const board = doc.board === undefined ? undefined : normalizeBoard(doc.board);
+  const seriesGraph = normalizeSeriesGraph(
+    (doc as unknown as { seriesGraph?: unknown }).seriesGraph,
+  );
   return patchProjectMeta(doc, {
+    ...(seriesGraph ? { seriesGraph } : {}),
     cutScopes,
     ...(boards ? { boards } : {}),
     ...(board ? { board } : {}),

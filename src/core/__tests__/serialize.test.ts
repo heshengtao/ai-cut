@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { newProject, createClip } from "@/core/factory";
 import { addTrack } from "@/core/ops";
+import { addEpisode } from "@/core/ops/episodes";
 import { parseProject, serializeProject } from "@/core/serialize";
+import type { Project } from "@/types/project";
 
 describe("newProject", () => {
   it("creates a versioned project without tracks", () => {
@@ -184,5 +186,44 @@ describe("cut scopes", () => {
     raw.cutScopes = [{ id: "x" }, null, { id: "y", cuts: "nope" }];
     const parsed = parseProject(JSON.stringify(raw));
     expect(parsed.cutScopes).toBeUndefined();
+  });
+});
+
+describe("剧集图往返", () => {
+  it("写盘保留 seriesGraph，读盘归一化后仍是自定义图", () => {
+    const base = newProject("剧集图");
+    const doc = addEpisode(addEpisode(base, "第二集"), "第三集");
+    const [first, second, third] = doc.episodes;
+    const withGraph = {
+      ...doc,
+      seriesGraph: {
+        custom: true,
+        edges: [
+          { id: "a", from: first.id, to: second.id },
+          { id: "b", from: first.id, to: third.id, label: "逃" },
+        ],
+        positions: { [first.id]: { x: 12, y: 34 } },
+      },
+    } as Project;
+
+    const json = serializeProject(withGraph);
+    expect(json).toContain('"seriesGraph"');
+
+    const parsed = parseProject(json);
+    expect(parsed.seriesGraph).toEqual(withGraph.seriesGraph);
+  });
+
+  it("坏数据的剧集图降级，不影响其余字段", () => {
+    const base = newProject("坏图");
+    const raw = JSON.parse(serializeProject(base)) as Record<string, unknown>;
+    raw.seriesGraph = { custom: "yes", edges: [{ id: "x" }], positions: { a: { x: "bad", y: 1 } } };
+    const parsed = parseProject(JSON.stringify(raw));
+    expect(parsed.seriesGraph).toEqual({ custom: false, edges: [], positions: {} });
+    expect(parsed.name).toBe("坏图");
+  });
+
+  it("旧工程没有 seriesGraph 也能读", () => {
+    const parsed = parseProject(serializeProject(newProject("旧工程")));
+    expect(parsed.seriesGraph).toBeUndefined();
   });
 });
