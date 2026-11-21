@@ -911,6 +911,11 @@ var AICUT = (() => {
     "preview.zoomIn": "Zoom in",
     "preview.zoomOut": "Zoom out",
     "preview.zoomReset": "Reset to 100%",
+    "preview.playMode": "Play mode",
+    "preview.playMode.single": "Single part",
+    "preview.playMode.series": "Series",
+    "preview.playMode.singleHint": "Stop at the end of this part",
+    "preview.playMode.seriesHint": "Follow the connections into the next part; branches show choices",
     "preview.quality": "Quality",
     "preview.quality.auto": "Auto",
     "preview.quality.autoHint": "Choose based on playback performance",
@@ -2531,9 +2536,30 @@ var AICUT = (() => {
     "series.title": "Parts",
     "series.total": "{count} parts",
     "series.search": "Search parts",
-    "series.sort": "Sort",
-    "series.sortManual": "Manual",
-    "series.sortDuration": "Duration",
+    "series.viewMode": "View",
+    "series.view.tile": "Tiles",
+    "series.view.graph": "Flow",
+    "series.preview": "Preview",
+    "series.branchCount": "{count} choices",
+    "series.orphan": "Not linked",
+    "series.graph.empty": "No connections yet",
+    "series.graph.emptyHint": "Drag from a card's right handle onto another part to set the play order",
+    "series.graph.fit": "Fit view",
+    "series.graph.autoLayout": "Auto layout",
+    "series.graph.rebuild": "Rebuild in time order",
+    "series.graph.rebuildTitle": "Rebuild episode flow",
+    "series.graph.rebuildMessage": "This removes every manual connection and choice, and generates a single time-ordered chain from the current part order.",
+    "series.graph.rebuildDone": "Rebuilt in time order",
+    "series.graph.zoomIn": "Zoom in",
+    "series.graph.zoomOut": "Zoom out",
+    "series.edge.label": "Choice label",
+    "series.edge.labelPlaceholder": "Choice {index}",
+    "series.edge.delete": "Delete connection",
+    "series.edge.route": "{from} \u2192 {to}",
+    "series.choice.unnamed": "Choice {index}",
+    "series.choices.title": "This part ended \u2014 what plays next?",
+    "series.playback.ended": "The series ended",
+    "series.playback.loop": "The flow looped back to \u201C{name}\u201D; autoplay stopped",
     "series.timeline": "Timeline",
     "series.newEpisode": "New part",
     "series.newEpisodeName": "Part {index}",
@@ -2862,6 +2888,7 @@ var AICUT = (() => {
     "board.ctx.selectAll": "Select all",
     "board.ctx.removeEdge": "Delete connection",
     "board.ctx.clear": "Clear canvas",
+    "board.ctx.canvasList": "Show canvas list",
     "board.clear": "Clear",
     "board.clearTitle": "Clear canvas",
     "board.clearMessage": "Only this canvas is cleared \u2014 no new workflow version is saved. The media library and timeline are untouched.",
@@ -2995,7 +3022,10 @@ var AICUT = (() => {
     "board.canvas.emptyHint": "Click empty canvas space to come back here. This list manages every canvas in the project.",
     "board.canvas.selectHint": "Select a node to edit its parameters; click empty space to return to the canvas list.",
     "board.canvas.nodeCount": "{count} nodes",
-    "board.canvas.publish": "Publish workflow",
+    "board.canvas.publish": "Publish",
+    "board.canvas.publishTitle": "Publish workflow",
+    "board.canvas.publishTarget": "Canvas: {name}",
+    "board.canvas.publishedBadge": "Published",
     "board.canvas.publishHint": "A canvas with a paired workflow start/end and a valid graph can be saved as a callable sub-workflow or API.",
     "board.canvas.publishReady": "Ready to publish",
     "board.canvas.publishBlocked": "Not publishable yet",
@@ -3006,10 +3036,12 @@ var AICUT = (() => {
     "board.canvas.savePublish": "Save & publish",
     "board.canvas.savedPublish": "Published: {name} v{version}",
     "board.canvas.publishName": "Workflow name",
+    "board.canvas.publishNamePlaceholder": "e.g. Product image workflow",
     "board.canvas.signature": "Signature",
     "board.canvas.signatureSummary": "{inputs} inputs \xB7 {outputs} outputs",
     "board.canvas.signatureNone": "No inputs or outputs declared",
     "board.canvas.problemCount": "{count} problems",
+    "board.canvas.problem.missingWorkflowNodes": "Missing sub-workflow nodes",
     "board.canvas.problem.missingStart": "Missing workflow start node",
     "board.canvas.problem.missingEnd": "Missing workflow end node",
     "board.canvas.problem.multipleStart": "Only one workflow start node is allowed",
@@ -3050,10 +3082,13 @@ var AICUT = (() => {
     "board.port.workflowOutput": "Output",
     "board.workflow.defaultInput": "Prompt",
     "board.workflow.defaultOutput": "Result",
+    "board.workflow.inIndex": "IN {n}",
+    "board.workflow.outIndex": "OUT {n}",
     "board.workflow.newInput": "Input {n}",
     "board.workflow.newOutput": "Output {n}",
     "board.workflow.noTarget": "No workflow selected to embed",
     "board.workflow.missingInput": "Missing required input: {name}",
+    "board.workflow.signatureChanged": "\u201C{name}\u201D changed its input signature \u2014 re-select the target workflow in the inspector",
     "board.workflow.notRunnable": "\u201C{name}\u201D is missing a paired workflow start/end",
     "board.workflow.missing": "Workflow \u201C{name}\u201D was not found (it may have been deleted)",
     "board.workflow.cycle": "Nested workflow cycle: {name}",
@@ -3061,6 +3096,8 @@ var AICUT = (() => {
     "board.loop.source": "Source",
     "board.library.filterWorkflow": "Sub-workflows",
     "board.library.filterApi": "API",
+    "board.library.untitledWorkflow": "Untitled workflow",
+    "board.library.badgeBase": "Workflow",
     "board.library.badgeWorkflow": "Sub-workflow",
     "board.library.badgeApi": "API",
     "board.library.publishHint": "Save a signed workflow to the library so it can be embedded or called through the API / AI Harness.",
@@ -3894,6 +3931,11 @@ var AICUT = (() => {
     "preview.zoomIn": "\u653E\u5927\u753B\u5E03",
     "preview.zoomOut": "\u7F29\u5C0F\u753B\u5E03",
     "preview.zoomReset": "\u6062\u590D 100%",
+    "preview.playMode": "\u64AD\u653E\u6A21\u5F0F",
+    "preview.playMode.single": "\u5355\u96C6\u64AD\u653E",
+    "preview.playMode.series": "\u5267\u96C6\u64AD\u653E",
+    "preview.playMode.singleHint": "\u64AD\u5B8C\u505C\u5728\u5F53\u524D\u5206P",
+    "preview.playMode.seriesHint": "\u6CBF\u8FDE\u7EBF\u81EA\u52A8\u8FDB\u5165\u4E0B\u4E00\u96C6\uFF0C\u9047\u5206\u652F\u663E\u793A\u9009\u9879",
     "preview.quality": "\u753B\u8D28",
     "preview.quality.auto": "\u81EA\u52A8",
     "preview.quality.autoHint": "\u6309\u8BBE\u5907\u6027\u80FD\u81EA\u52A8\u9009\u62E9",
@@ -5514,9 +5556,30 @@ var AICUT = (() => {
     "series.title": "\u5206P",
     "series.total": "\u5171 {count} \u4E2A\u5206P",
     "series.search": "\u641C\u7D22\u5206P",
-    "series.sort": "\u6392\u5E8F",
-    "series.sortManual": "\u624B\u52A8",
-    "series.sortDuration": "\u65F6\u957F",
+    "series.viewMode": "\u663E\u793A\u65B9\u5F0F",
+    "series.view.tile": "\u5E73\u94FA",
+    "series.view.graph": "\u8FDE\u7EBF",
+    "series.preview": "\u9884\u89C8",
+    "series.branchCount": "{count} \u4E2A\u9009\u9879",
+    "series.orphan": "\u672A\u63A5\u5165",
+    "series.graph.empty": "\u8FD8\u6CA1\u6709\u8FDE\u7EBF",
+    "series.graph.emptyHint": "\u4ECE\u5361\u7247\u53F3\u4FA7\u7684\u5706\u70B9\u62D6\u5230\u53E6\u4E00\u5F20\u5206P\uFF0C\u5EFA\u7ACB\u64AD\u653E\u987A\u5E8F",
+    "series.graph.fit": "\u9002\u5E94\u89C6\u56FE",
+    "series.graph.autoLayout": "\u81EA\u52A8\u6392\u5217",
+    "series.graph.rebuild": "\u6309\u65F6\u95F4\u987A\u5E8F\u91CD\u5EFA",
+    "series.graph.rebuildTitle": "\u91CD\u5EFA\u5267\u96C6\u8FDE\u7EBF",
+    "series.graph.rebuildMessage": "\u8FD9\u4F1A\u5220\u6389\u6240\u6709\u624B\u52A8\u8FDE\u7EBF\u548C\u9009\u9879\uFF0C\u6309\u5206P \u7684\u5F53\u524D\u987A\u5E8F\u751F\u6210\u4E00\u6761\u65F6\u95F4\u94FE\u3002",
+    "series.graph.rebuildDone": "\u5DF2\u6309\u65F6\u95F4\u987A\u5E8F\u91CD\u5EFA",
+    "series.graph.zoomIn": "\u653E\u5927",
+    "series.graph.zoomOut": "\u7F29\u5C0F",
+    "series.edge.label": "\u9009\u9879\u540D",
+    "series.edge.labelPlaceholder": "\u9009\u9879 {index}",
+    "series.edge.delete": "\u5220\u9664\u8FDE\u7EBF",
+    "series.edge.route": "{from} \u2192 {to}",
+    "series.choice.unnamed": "\u9009\u9879 {index}",
+    "series.choices.title": "\u672C\u96C6\u7ED3\u675F\uFF0C\u9009\u62E9\u63A5\u4E0B\u6765\u64AD\u653E",
+    "series.playback.ended": "\u5267\u96C6\u7ED3\u675F",
+    "series.playback.loop": "\u5267\u96C6\u7ED5\u56DE\u4E86\u300C{name}\u300D\uFF0C\u81EA\u52A8\u8FDE\u64AD\u5DF2\u505C\u6B62",
     "series.timeline": "\u65F6\u95F4\u7EBF",
     "series.newEpisode": "\u65B0\u5EFA\u5206P",
     "series.newEpisodeName": "\u5206P {index}",
@@ -5845,6 +5908,7 @@ var AICUT = (() => {
     "board.ctx.selectAll": "\u5168\u9009",
     "board.ctx.removeEdge": "\u5220\u9664\u8FDE\u7EBF",
     "board.ctx.clear": "\u6E05\u7A7A\u753B\u5E03",
+    "board.ctx.canvasList": "\u67E5\u770B\u753B\u5E03\u5217\u8868",
     "board.clear": "\u6E05\u7A7A",
     "board.clearTitle": "\u6E05\u7A7A\u753B\u5E03",
     "board.clearMessage": "\u53EA\u6E05\u7A7A\u8FD9\u5F20\u753B\u5E03\uFF0C\u4E0D\u4F1A\u81EA\u52A8\u5F80\u5DE5\u4F5C\u6D41\u5E93\u4FDD\u5B58\u65B0\u7248\u672C\uFF1B\u7D20\u6750\u5E93\u4E0E\u65F6\u95F4\u7EBF\u4E0D\u53D7\u5F71\u54CD\u3002",
@@ -5978,7 +6042,10 @@ var AICUT = (() => {
     "board.canvas.emptyHint": "\u70B9\u753B\u5E03\u7A7A\u767D\u5904\u56DE\u5230\u8FD9\u91CC\u3002\u8FD9\u91CC\u7BA1\u7406\u5F53\u524D\u5DE5\u7A0B\u7684\u5168\u90E8\u753B\u5E03\u3002",
     "board.canvas.selectHint": "\u9009\u4E2D\u4E00\u4E2A\u8282\u70B9\u7F16\u8F91\u5B83\u7684\u53C2\u6570\uFF1B\u70B9\u7A7A\u767D\u5904\u56DE\u5230\u753B\u5E03\u5217\u8868\u3002",
     "board.canvas.nodeCount": "{count} \u4E2A\u8282\u70B9",
-    "board.canvas.publish": "\u53D1\u5E03\u5DE5\u4F5C\u6D41",
+    "board.canvas.publish": "\u53D1\u5E03",
+    "board.canvas.publishTitle": "\u53D1\u5E03\u5DE5\u4F5C\u6D41",
+    "board.canvas.publishTarget": "\u753B\u5E03\uFF1A{name}",
+    "board.canvas.publishedBadge": "\u5DF2\u53D1\u5E03",
     "board.canvas.publishHint": "\u753B\u5E03\u6709\u6210\u5BF9\u7684\u5DE5\u4F5C\u6D41\u5F00\u59CB / \u7ED3\u675F\u8282\u70B9\u4E14\u642D\u5EFA\u5B8C\u6574\u65F6\uFF0C\u53EF\u4EE5\u4FDD\u5B58\u6210\u53EF\u8C03\u7528\u7684\u5B50\u5DE5\u4F5C\u6D41\u6216 API\u3002",
     "board.canvas.publishReady": "\u53EF\u4EE5\u53D1\u5E03",
     "board.canvas.publishBlocked": "\u8FD8\u4E0D\u80FD\u53D1\u5E03",
@@ -5989,10 +6056,12 @@ var AICUT = (() => {
     "board.canvas.savePublish": "\u4FDD\u5B58\u5E76\u53D1\u5E03",
     "board.canvas.savedPublish": "\u5DF2\u53D1\u5E03\uFF1A{name} v{version}",
     "board.canvas.publishName": "\u5DE5\u4F5C\u6D41\u540D\u79F0",
+    "board.canvas.publishNamePlaceholder": "\u4F8B\u5982\uFF1A\u4EA7\u54C1\u56FE\u751F\u6210",
     "board.canvas.signature": "\u7B7E\u540D",
     "board.canvas.signatureSummary": "{inputs} \u4E2A\u8F93\u5165 \xB7 {outputs} \u4E2A\u8F93\u51FA",
     "board.canvas.signatureNone": "\u8FD8\u6CA1\u6709\u58F0\u660E\u8F93\u5165\u8F93\u51FA",
     "board.canvas.problemCount": "{count} \u4E2A\u95EE\u9898",
+    "board.canvas.problem.missingWorkflowNodes": "\u7F3A\u5C11\u5B50\u5DE5\u4F5C\u6D41\u8282\u70B9",
     "board.canvas.problem.missingStart": "\u7F3A\u5C11\u5DE5\u4F5C\u6D41\u5F00\u59CB\u8282\u70B9",
     "board.canvas.problem.missingEnd": "\u7F3A\u5C11\u5DE5\u4F5C\u6D41\u7ED3\u675F\u8282\u70B9",
     "board.canvas.problem.multipleStart": "\u5DE5\u4F5C\u6D41\u5F00\u59CB\u8282\u70B9\u53EA\u80FD\u6709\u4E00\u4E2A",
@@ -6033,10 +6102,13 @@ var AICUT = (() => {
     "board.port.workflowOutput": "\u8F93\u51FA",
     "board.workflow.defaultInput": "\u63D0\u793A\u8BCD",
     "board.workflow.defaultOutput": "\u7ED3\u679C",
+    "board.workflow.inIndex": "\u8F93\u5165 {n}",
+    "board.workflow.outIndex": "\u8F93\u51FA {n}",
     "board.workflow.newInput": "\u8F93\u5165 {n}",
     "board.workflow.newOutput": "\u8F93\u51FA {n}",
     "board.workflow.noTarget": "\u8FD8\u6CA1\u6709\u9009\u62E9\u8981\u5D4C\u5165\u7684\u5DE5\u4F5C\u6D41",
     "board.workflow.missingInput": "\u7F3A\u5C11\u5FC5\u586B\u8F93\u5165\uFF1A{name}",
+    "board.workflow.signatureChanged": "\u300C{name}\u300D\u7684\u8F93\u5165\u7B7E\u540D\u53D8\u4E86\uFF0C\u8BF7\u5728\u68C0\u67E5\u5668\u91CC\u91CD\u65B0\u9009\u4E00\u6B21\u76EE\u6807\u5DE5\u4F5C\u6D41",
     "board.workflow.notRunnable": "\u300C{name}\u300D\u7F3A\u5C11\u6210\u5BF9\u7684\u5DE5\u4F5C\u6D41\u5F00\u59CB / \u7ED3\u675F\u8282\u70B9",
     "board.workflow.missing": "\u627E\u4E0D\u5230\u5DE5\u4F5C\u6D41\u300C{name}\u300D\uFF08\u53EF\u80FD\u5DF2\u88AB\u5220\u9664\uFF09",
     "board.workflow.cycle": "\u5DE5\u4F5C\u6D41\u5D4C\u5957\u6210\u73AF\uFF1A{name}",
@@ -6044,6 +6116,8 @@ var AICUT = (() => {
     "board.loop.source": "\u6765\u6E90",
     "board.library.filterWorkflow": "\u5B50\u5DE5\u4F5C\u6D41",
     "board.library.filterApi": "API",
+    "board.library.untitledWorkflow": "\u672A\u547D\u540D\u5DE5\u4F5C\u6D41",
+    "board.library.badgeBase": "\u5DE5\u4F5C\u6D41",
     "board.library.badgeWorkflow": "\u5B50\u5DE5\u4F5C\u6D41",
     "board.library.badgeApi": "API",
     "board.library.publishHint": "\u628A\u5E26\u7B7E\u540D\u7684\u5DE5\u4F5C\u6D41\u4FDD\u5B58\u5230\u5E93\u91CC\uFF0C\u4E4B\u540E\u53EF\u4EE5\u88AB\u5D4C\u5165\u6216\u901A\u8FC7 API / AI Harness \u8C03\u7528\u3002",
@@ -6063,6 +6137,14 @@ var AICUT = (() => {
   ];
   var FALLBACK = LOCALES[0].id;
   var MESSAGES = { zh: zh_default, en: en_default };
+  function isKnownMessageKey(value) {
+    const key = value?.trim();
+    if (!key || key.length > 64) return false;
+    if (!/^[a-z][a-z0-9_-]*(\.[a-z0-9_-]+)+$/i.test(key)) return false;
+    return LOCALES.some(
+      (locale) => Object.prototype.hasOwnProperty.call(MESSAGES[locale.id] ?? {}, key)
+    );
+  }
   var PLUGIN_MESSAGES = /* @__PURE__ */ new Map();
   function pluginMessage(key) {
     if (!key.startsWith("@")) return null;
@@ -6390,9 +6472,6 @@ var AICUT = (() => {
     if (cryptoApi?.randomUUID) return `canvas-${cryptoApi.randomUUID()}`;
     return `canvas-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   }
-  function defaultTitle(index) {
-    return t("board.canvas.defaultTitle", { n: index });
-  }
   function looksLikeBoard(value) {
     if (!value || typeof value !== "object") return false;
     const doc2 = value;
@@ -6407,7 +6486,7 @@ var AICUT = (() => {
     let boards;
     if (list.length === 0) {
       const doc2 = ownBoard ? normalizeBoard(ownBoard) : emptyBoard();
-      boards = [{ id: newCanvasId(), title: defaultTitle(1), doc: doc2 }];
+      boards = [{ id: newCanvasId(), title: "", doc: doc2 }];
     } else {
       const activeIndex = Math.max(
         0,
@@ -6417,7 +6496,8 @@ var AICUT = (() => {
       let changed = patched !== void 0;
       boards = list.map((canvas, index) => {
         const id = typeof canvas?.id === "string" && canvas.id ? canvas.id : newCanvasId();
-        const title = typeof canvas?.title === "string" && canvas.title.trim() ? canvas.title : defaultTitle(index + 1);
+        const rawTitle = typeof canvas?.title === "string" ? canvas.title.trim() : "";
+        const title = isKnownMessageKey(rawTitle) ? "" : rawTitle;
         const doc2 = patched && index === activeIndex ? patched : looksLikeBoard(canvas?.doc) ? canvas.doc : normalizeBoard(canvas?.doc);
         if (id !== canvas?.id || title !== canvas?.title || doc2 !== canvas?.doc) changed = true;
         return { id, title, doc: doc2 };
@@ -7974,6 +8054,39 @@ var AICUT = (() => {
     return { doc: next, affected: diffAffected(doc2, next) };
   }
 
+  // src/core/series/sanitize.ts
+  function isObject2(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+  function finite(value) {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+  function normalizeSeriesGraph(value) {
+    if (!isObject2(value)) return void 0;
+    const edges = [];
+    const seen = /* @__PURE__ */ new Set();
+    if (Array.isArray(value.edges)) {
+      for (const raw of value.edges) {
+        if (!isObject2(raw)) continue;
+        const id = typeof raw.id === "string" ? raw.id : "";
+        const from = typeof raw.from === "string" ? raw.from : "";
+        const to = typeof raw.to === "string" ? raw.to : "";
+        if (!id || !from || !to || seen.has(id)) continue;
+        seen.add(id);
+        const label = typeof raw.label === "string" ? raw.label : "";
+        edges.push(label ? { id, from, to, label } : { id, from, to });
+      }
+    }
+    const positions = {};
+    if (isObject2(value.positions)) {
+      for (const [id, point] of Object.entries(value.positions)) {
+        if (!isObject2(point) || !finite(point.x) || !finite(point.y)) continue;
+        positions[id] = { x: point.x, y: point.y };
+      }
+    }
+    return { custom: value.custom === true, edges, positions };
+  }
+
   // src/core/serialize.ts
   function serializeProject(project) {
     const doc2 = attachEpisodeView(project);
@@ -7983,7 +8096,7 @@ var AICUT = (() => {
     delete wire.board;
     return JSON.stringify(wire, null, 2);
   }
-  function isObject2(v) {
+  function isObject3(v) {
     return typeof v === "object" && v !== null && !Array.isArray(v);
   }
   function isNumber(v) {
@@ -7991,10 +8104,10 @@ var AICUT = (() => {
   }
   function assertTracks(tracks) {
     for (const track of tracks) {
-      if (!isObject2(track)) throw new Error(t("error.serialize.badTrack"));
+      if (!isObject3(track)) throw new Error(t("error.serialize.badTrack"));
       if (!Array.isArray(track.clips)) throw new Error(t("error.serialize.badClips"));
       for (const clip of track.clips) {
-        if (!isObject2(clip)) throw new Error(t("error.serialize.badClip"));
+        if (!isObject3(clip)) throw new Error(t("error.serialize.badClip"));
         if (!isNumber(clip.start) || !isNumber(clip.duration) || !isNumber(clip.in)) {
           throw new Error(t("error.serialize.badClipTime"));
         }
@@ -8002,7 +8115,7 @@ var AICUT = (() => {
     }
   }
   function assertProjectShape(value) {
-    if (!isObject2(value)) throw new Error(t("error.serialize.notObject"));
+    if (!isObject3(value)) throw new Error(t("error.serialize.notObject"));
     if (value.version !== 1 && value.version !== PROJECT_VERSION) {
       throw new Error(
         t("error.serialize.version", {
@@ -8027,7 +8140,7 @@ var AICUT = (() => {
     if (typeof value.activeEpisodeId !== "string" || !value.activeEpisodeId)
       throw new Error(t("error.serialize.badActiveEpisode"));
     for (const episode of value.episodes) {
-      if (!isObject2(episode) || typeof episode.id !== "string" || !episode.id)
+      if (!isObject3(episode) || typeof episode.id !== "string" || !episode.id)
         throw new Error(t("error.serialize.badEpisode"));
       if (!Array.isArray(episode.tracks) || !Array.isArray(episode.markers))
         throw new Error(t("error.serialize.badEpisode"));
@@ -8040,7 +8153,7 @@ var AICUT = (() => {
   function legacyKeyframeValue(frames, time, fallback) {
     if (!Array.isArray(frames)) return fallback;
     const points = frames.filter(
-      (frame) => isObject2(frame) && isNumber(frame.time) && isNumber(frame.value)
+      (frame) => isObject3(frame) && isNumber(frame.time) && isNumber(frame.value)
     ).map((frame) => ({
       time: frame.time,
       value: frame.value
@@ -8066,13 +8179,13 @@ var AICUT = (() => {
       const frames2 = normalizeKeyframes(raw, clip.duration, base);
       return frames2.length > 0 ? frames2 : void 0;
     }
-    if (!isObject2(raw)) return void 0;
+    if (!isObject3(raw)) return void 0;
     const times = /* @__PURE__ */ new Set();
     for (const property of KEYFRAME_PROPERTIES) {
       const frames2 = raw[property];
       if (!Array.isArray(frames2)) continue;
       for (const frame of frames2) {
-        if (isObject2(frame) && isNumber(frame.time)) {
+        if (isObject3(frame) && isNumber(frame.time)) {
           times.add(clampValue(frame.time, 0, Math.max(0, clip.duration)));
         }
       }
@@ -8094,13 +8207,13 @@ var AICUT = (() => {
     if (!Array.isArray(raw)) return void 0;
     const scopes = [];
     for (const item of raw) {
-      if (!isObject2(item)) continue;
-      if (typeof item.id !== "string" || typeof item.assetId !== "string" || typeof item.trackId !== "string" || !isNumber(item.baseIn) || !isNumber(item.baseOut) || !isNumber(item.baseStart) || !isObject2(item.template) || !Array.isArray(item.pieces) || !Array.isArray(item.cuts)) {
+      if (!isObject3(item)) continue;
+      if (typeof item.id !== "string" || typeof item.assetId !== "string" || typeof item.trackId !== "string" || !isNumber(item.baseIn) || !isNumber(item.baseOut) || !isNumber(item.baseStart) || !isObject3(item.template) || !Array.isArray(item.pieces) || !Array.isArray(item.cuts)) {
         continue;
       }
       const cuts = [];
       for (const cut of item.cuts) {
-        if (!isObject2(cut) || !isNumber(cut.srcStart) || !isNumber(cut.srcEnd)) continue;
+        if (!isObject3(cut) || !isNumber(cut.srcStart) || !isNumber(cut.srcEnd)) continue;
         cuts.push({
           id: typeof cut.id === "string" && cut.id ? cut.id : crypto.randomUUID(),
           srcStart: cut.srcStart,
@@ -8111,7 +8224,7 @@ var AICUT = (() => {
         });
       }
       const words = Array.isArray(item.words) ? item.words.filter(
-        (word) => isObject2(word) && typeof word.text === "string" && isNumber(word.start) && isNumber(word.end)
+        (word) => isObject3(word) && typeof word.text === "string" && isNumber(word.start) && isNumber(word.end)
       ).map((word) => ({ text: word.text, start: word.start, end: word.end })) : [];
       scopes.push({
         id: item.id,
@@ -8158,10 +8271,10 @@ var AICUT = (() => {
     });
   }
   function normalizeMarkers(source) {
-    return Array.isArray(source) ? source.filter((marker) => isObject2(marker) && isNumber(marker.time)).map((marker) => {
+    return Array.isArray(source) ? source.filter((marker) => isObject3(marker) && isNumber(marker.time)).map((marker) => {
       const severity = marker.severity === "blocker" || marker.severity === "high" || marker.severity === "medium" || marker.severity === "low" ? marker.severity : void 0;
       const kind = marker.kind === "scene" || marker.kind === "hit" || marker.kind === "review" || marker.kind === "chapter" ? marker.kind : void 0;
-      const bbox = isObject2(marker.bbox) && isNumber(marker.bbox.x) && isNumber(marker.bbox.y) && isNumber(marker.bbox.width) && isNumber(marker.bbox.height) ? {
+      const bbox = isObject3(marker.bbox) && isNumber(marker.bbox.x) && isNumber(marker.bbox.y) && isNumber(marker.bbox.width) && isNumber(marker.bbox.height) ? {
         x: marker.bbox.x,
         y: marker.bbox.y,
         width: marker.bbox.width,
@@ -8200,7 +8313,11 @@ var AICUT = (() => {
       doc: normalizeBoard(canvas.doc)
     })) : void 0;
     const board = doc2.board === void 0 ? void 0 : normalizeBoard(doc2.board);
+    const seriesGraph = normalizeSeriesGraph(
+      doc2.seriesGraph
+    );
     return patchProjectMeta(doc2, {
+      ...seriesGraph ? { seriesGraph } : {},
       cutScopes: cutScopes2,
       ...boards ? { boards } : {},
       ...board ? { board } : {}

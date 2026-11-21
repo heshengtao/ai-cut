@@ -109,6 +109,22 @@
 - Full design note (multi-canvas IR, signatures, publishing, MCP ops):
   [`docs/canvas-workflow.md`](docs/canvas-workflow.md).
 
+## Series graph (剧集图)
+
+- 分P 之间的播放关系是**工程级**的 `doc.seriesGraph`（`edges` + 卡片 `positions`），不是 `Episode` 字段。
+  `custom: false` 表示「按 `Episode.order` 派生一条时间链」，此时不存边；首次连 / 断 / 改选项名时
+  `materializeGraph()` 先把当前派生链落成真实边，再应用本次编辑——所以派生链上的边也能直接删，
+  而「加一条分支」不会让时间链消失。
+- 读取一律走 `core/series/graph.ts` 的 `seriesEdges()` / `outgoing()` / `optionsOf()` / `stepOf()`：
+  悬空边在这里过滤，播放判定（自动 / 选项 / 结束 / 循环）也只有这一处。不要在组件里自己遍历
+  `seriesGraph.edges`。
+- 连线画布用 `@vue-flow/core`（与 `BoardView` 同一个库），但**不共享**任何工作流节点、store 或端口概念；
+  `SeriesGraph.vue` 只做「分P → nodes、边 → edges」的映射。卡片坐标走 `core/series/layout.ts`，
+  手动坐标优先、缺省自动分层布局。
+- 拖动卡片只写 `positions`，**不**把图转成自定义；只有增删边 / 改选项名才 `custom: true`。
+- 剧集播放的 `visited` 只在按下播放和切换播放模式时重置：自动连播切集也会 `setPlayhead(0)`，
+  按播放头变化重置就永远检测不到无选项的环。
+
 ## Canvas node UX (mandatory)
 
 Five rules every canvas node (built-in or plugin) must follow; full note in
