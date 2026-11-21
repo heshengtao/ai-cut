@@ -11,6 +11,7 @@ import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import SeriesTile from "./SeriesTile.vue";
 import SeriesGraph from "./SeriesGraph.vue";
 import { useI18n } from "@/i18n";
+import { useLayoutStore } from "@/stores/layout";
 import { useProjectStore } from "@/stores/project";
 import { useEpisodeOpen } from "@/composables/useEpisodeOpen";
 import { confirm } from "@/composables/useConfirm";
@@ -26,13 +27,13 @@ import {
 import { incoming, isDerived, outgoing } from "@/core/series/graph";
 import type { Episode } from "@/types/project";
 
-type SeriesMode = "tile" | "graph";
-
 const i18n = useI18n();
 const project = useProjectStore();
+const layout = useLayoutStore();
 const openEpisode = useEpisodeOpen();
 
-const mode = ref<SeriesMode>("tile");
+/** 平铺 / 连线：记在 layout store 里，切换视图后回来还是上次那个。 */
+const mode = computed(() => layout.seriesMode);
 const query = ref("");
 const selectedId = ref<string | null>(null);
 const draggingId = ref<string | null>(null);
@@ -68,7 +69,7 @@ function defaultEpisodeName(): string {
 }
 
 function setMode(value: string): void {
-  mode.value = value === "graph" ? "graph" : "tile";
+  layout.setSeriesMode(value === "graph" ? "graph" : "tile");
 }
 
 function open(episode: Episode): void {

@@ -181,6 +181,8 @@ moveSeriesCard(doc, episodeId, x, y): Project // 只写 positions，不改 custo
 autoLayoutSeries(doc): Project                // 清空 positions → 回到自动布局
 resetSeriesGraph(doc): Project                // custom=false、edges=[]（positions 保留）
 pruneSeriesEdges(doc): Project                // 过滤悬空边（删除分P 后调用）
+addConnectedEpisode(doc, anchorId, direction, name, position): Project
+                                              // 拖线到空白：先把派生链落成边，再追加分P 并按方向连好
 ```
 
 **派生 → 自定义的状态转换**（关键行为）：用户第一次做结构性编辑（连、断、改名）时，
@@ -204,8 +206,8 @@ pruneSeriesEdges(doc): Project                // 过滤悬空边（删除分P �
 
 `SeriesView.vue`：
 
-- 原 `series-sort`（手动 / 时长）换成 `SegmentedControl`：`平铺` / `连线`，状态存组件内
-  `ref("tile")`（不持久化；每次进剧集界面默认平铺）。
+- 原 `series-sort`（手动 / 时长）换成 `SegmentedControl`：`平铺` / `连线`，状态存
+  `layout.seriesMode`（持久化）——切到预览 / 画布再回来还是上次那个形态。
 - 搜索框只在平铺模式显示；时长总计、分P 计数保持。
 - 「新建分P」始终显示。
 
@@ -224,21 +226,31 @@ pruneSeriesEdges(doc): Project                // 过滤悬空边（删除分P �
 新组件 `src/components/series/SeriesGraph.vue`（+ `SeriesGraphCard.vue`、`SeriesEdge.vue`），
 画布用项目已有的 `@vue-flow/core`（与 `BoardView` 同一套库，但不共享任何工作流节点 / store）：
 
+**视觉与交互对齐画布工作流**（`BoardView` / `BoardNode` / `BoardEdge` 的同一套观感）：
+
 - 分P → Vue Flow node（`type: "seriesCard"`，坐标来自 `placements(doc)`），连线 → edge
-  （`type: "seriesEdge"`）。平移 / 缩放 / `fitView` 交给库；工具栏：放大 / 缩小 / 百分比 /
-  适应视图 / 自动排列 / 按时间顺序重建（仅 `custom` 时可用）。
-- 卡片（`SeriesGraphCard`）：封面缩略（16:9，高 108）、名字、时长、轨道/片段数、当前分P 高亮、
-  右侧 source Handle、左侧 target Handle、右下「预览」按钮、双击进预览、单击选中。
+  （`type: "seriesEdge"`）。平移 / 缩放 / `fitView` 交给库；**左下角小地图 + 缩放条**（圆点
+  小地图、可拖可缩、百分比步进），**左上角工具条**只放适应视图 / 自动排列 / 按时间顺序重建
+  （仅 `custom` 时可用）。不开框选，避免出现直角选框。
+- 卡片（`SeriesGraphCard`）：封面缩略（16:9，高 108）、名字、时长、当前分P 高亮；圆角 16，
+  **选中框用贴圆角的描边环**（不是直角 outline）；左右 Handle 与画布节点同款：12px 圆点、
+  主色 + 辉光、悬停 / 选中才显现，位置居中贴左右边。
+  - **右上角交互工具栏**（悬停 / 选中出现，画布同款胶囊）：预览 / 改名 / 复制分P / 删除分P。
+  - **右键菜单**复用画布的 `BoardMenu`：节点 = 预览 / 改名 / 复制 / 删除；连线 = 改选项名 /
+    删除连线；空白 = 新建分P / 自动排列 / 适应视图。
   - `onNodeDragStop` 把移动后的坐标一次性写回 `positions`（一次拖动 = 一个撤销步骤）。
 - 连线：
-  - Handle 拖到另一张卡 → `@connect` → `connectEpisode`；建线时先 materialize 当前派生链。
-  - 自定义边画三次贝塞尔；带 label 的边在中间画胶囊（`EdgeLabelRenderer`）。
+  - Handle 拖到另一张卡 → `@connect` → `connectEpisode`；**拖到空白处松手 → 自动新建一集**，
+    从出边拖 = 接在源后面，从入边拖 = 接在目标前面（`addConnectedEpisode`）；轻点一下
+    （位移 < 16px）不触发，避免误建。
+  - 边画成画布同款：渐变主曲线 + 主色辉光 + 流动亮色虚线 + 两端圆点；带 label 的边在中间画胶囊
+    （`EdgeLabelRenderer`）。拖线中的连接线也用主色虚线。
   - 点击边 = 选中（加粗 + 主色，选中态由组件自己的 `selectedEdgeId` 驱动，不依赖库的选择态）；
     选中后在中点附近浮出编辑面板（`findEdge` + `getViewport` 换算屏幕坐标，夹在视口内）：
     选项名输入框（回车提交 / 失焦提交，提交才产生一次撤销记录）、删除按钮、`来源 → 目标` 说明。
   - `Delete` / `Backspace` 删除选中边、`Escape` 取消选中——只在焦点不在输入框时响应
     （Vue Flow 的 `delete-key-code` 设为 `null`，由组件自己处理）。
-  - 空图：居中提示「还没有连线」+「按时间顺序重建」。
+  - 画布中间**不放任何提示文案**；空图就只是一张空白画布，操作入口在工具条与右键菜单里。
 - 键盘与无障碍：卡片 / 边都是 `button` 语义或带 `role="button"` + `tabindex`；焦点样式不用颜色单独表达。
 - 只读模式：隐藏新建 / 删除 / 编辑 / 重建，只允许平移缩放和预览。
 

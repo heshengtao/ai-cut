@@ -2494,8 +2494,6 @@ const en: Record<string, string> = {
   "series.preview": "Preview",
   "series.branchCount": "{count} choices",
   "series.orphan": "Not linked",
-  "series.graph.empty": "No connections yet",
-  "series.graph.emptyHint": "Drag from a card's right handle onto another part to set the play order",
   "series.graph.fit": "Fit view",
   "series.graph.autoLayout": "Auto layout",
   "series.graph.rebuild": "Rebuild in time order",

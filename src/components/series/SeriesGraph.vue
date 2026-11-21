@@ -1,13 +1,23 @@
 <script setup lang="ts">
 /**
- * 剧集连线画布。
+ * 剧集连线画布（视觉与交互对齐画布工作流）。
  *
  * 用 Vue Flow 渲染（与 BoardView 同一个画布库，但不共享节点 / store / 端口概念）：
  * 分P 是节点、播放关系是边，全部由 `project.doc` 派生；用户拖卡片 / 连线 / 改选项名
  * 后写回工程。读取一律走 `core/series/graph`，布局走 `core/series/layout`。
  */
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch, type CSSProperties } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  shallowRef,
+  watch,
+  type CSSProperties,
+} from "vue";
 import { Background } from "@vue-flow/background";
+import { MiniMap } from "@vue-flow/minimap";
 import {
   ConnectionMode,
   VueFlow,
@@ -21,23 +31,36 @@ import {
 } from "@vue-flow/core";
 import {
   ArrowsPointingOutIcon,
+  DocumentDuplicateIcon,
   MagnifyingGlassMinusIcon,
   MagnifyingGlassPlusIcon,
+  PencilSquareIcon,
+  PlayIcon,
+  PlusIcon,
   TrashIcon,
 } from "@heroicons/vue/24/outline";
 import "@vue-flow/core/dist/style.css";
 import "@vue-flow/core/dist/theme-default.css";
+import "@vue-flow/minimap/dist/style.css";
+import BoardMenu from "@/components/board/BoardMenu.vue";
+import type { BoardMenuItem } from "@/components/board/BoardMenuList.vue";
 import { useI18n } from "@/i18n";
 import { useProjectStore } from "@/stores/project";
+import { useEpisodeOpen } from "@/composables/useEpisodeOpen";
 import { confirm } from "@/composables/useConfirm";
 import { toast } from "@/composables/useToast";
-import { CARD_WIDTH, placements } from "@/core/series/layout";
+import { CARD_HEIGHT, CARD_WIDTH, placements } from "@/core/series/layout";
 import { orderedEpisodes, seriesEdges } from "@/core/series/graph";
 import {
+  addConnectedEpisode,
+  addEpisode,
   autoLayoutSeries,
   connectEpisode,
   disconnectEpisodeEdge,
+  duplicateEpisode,
   moveSeriesCard,
+  removeEpisode,
+  renameEpisode,
   resetSeriesGraph,
   setEpisodeEdgeLabel,
 } from "@/core/ops";
@@ -46,22 +69,35 @@ import SeriesEdge from "./SeriesEdge.vue";
 
 const emit = defineEmits<{ (e: "open", episodeId: string): void }>();
 
+type MenuState =
+  | { kind: "node"; id: string; x: number; y: number }
+  | { kind: "edge"; id: string; x: number; y: number }
+  | { kind: "pane"; x: number; y: number };
+
 const nodeTypes = { seriesCard: SeriesGraphCard } as unknown as NodeTypesObject;
 const edgeTypes = { seriesEdge: SeriesEdge } as unknown as EdgeTypesObject;
 
 const i18n = useI18n();
 const project = useProjectStore();
+const openEpisode = useEpisodeOpen();
 
 const {
   fitView,
   findEdge,
   zoomIn,
   zoomOut,
+  project: toFlowPoint,
   onViewportChange,
   onNodeDragStop,
   onNodesInitialized,
   onEdgeClick,
   onPaneClick,
+  onConnect,
+  onConnectStart,
+  onConnectEnd,
+  onNodeContextMenu,
+  onEdgeContextMenu,
+  onPaneContextMenu,
 } = useVueFlow();
 
 const rootEl = ref<HTMLElement | null>(null);
@@ -69,11 +105,16 @@ const flowNodes = shallowRef<Node[]>([]);
 const flowEdges = shallowRef<Edge[]>([]);
 const selectedEdgeId = ref<string | null>(null);
 const labelDraft = ref("");
+const edgeInput = ref<HTMLInputElement | null>(null);
 const liveZoom = ref(1);
 const viewport = ref({ x: 0, y: 0, zoom: 1 });
+const menu = ref<MenuState | null>(null);
+
+const renamingId = ref<string | null>(null);
+const renameDraft = ref("");
+const renameInput = ref<HTMLInputElement | null>(null);
 
 const zoomPercent = computed(() => Math.round(liveZoom.value * 100));
-const hasEdges = computed(() => seriesEdges(project.doc).length > 0);
 
 const selectedEdge = computed(
   () => flowEdges.value.find((edge) => edge.id === selectedEdgeId.value) ?? null,
@@ -103,19 +144,47 @@ const panelStyle = computed<CSSProperties>(() => {
   return { left: `${x}px`, top: `${y}px` };
 });
 
+/** 改名面板定位：卡片上方居中的屏幕坐标。 */
+const renameStyle = computed<CSSProperties>(() => {
+  const id = renamingId.value;
+  const root = rootEl.value;
+  if (!id || !root) return { display: "none" };
+  const placement = placements(project.doc).get(id);
+  if (!placement) return { display: "none" };
+  const zoom = viewport.value.zoom || 1;
+  const x = (placement.x + CARD_WIDTH / 2) * zoom + viewport.value.x;
+  const y = placement.y * zoom + viewport.value.y - 8;
+  const clampedX = Math.min(Math.max(x, 140), Math.max(140, root.clientWidth - 140));
+  const clampedY = Math.min(Math.max(y, 44), Math.max(44, root.clientHeight - 80));
+  return { left: `${clampedX}px`, top: `${clampedY}px` };
+});
+
+// ---------------------------------------------------------------------------
+// 节点 / 边同步
+// ---------------------------------------------------------------------------
+
+/** 交给卡片的动作（卡片是 Vue Flow 内部渲染的，拿不到父组件 emits）。 */
+const seriesActions = {
+  open: (episodeId: string): void => openEpisode(episodeId),
+  rename: (episodeId: string): void => beginRename(episodeId),
+  duplicate: (episodeId: string): void => duplicateById(episodeId),
+  remove: (episodeId: string): void => void removeById(episodeId),
+};
+
 function syncNodes(): void {
   const existing = new Map(flowNodes.value.map((node) => [node.id, node]));
   const positions = placements(project.doc);
   flowNodes.value = orderedEpisodes(project.doc).map((episode) => {
     const current = existing.get(episode.id);
     const position = positions.get(episode.id) ?? { x: 0, y: 0 };
-    if (current) return { ...current, position };
+    const data = { episodeId: episode.id, actions: seriesActions };
+    if (current) return { ...current, position, data };
     return {
       id: episode.id,
       type: "seriesCard",
       position,
       style: { width: `${CARD_WIDTH}px` },
-      data: { episodeId: episode.id },
+      data,
     } satisfies Node;
   });
 }
@@ -149,6 +218,10 @@ watch(selectedEdgeId, () => {
   syncEdges();
 });
 
+// ---------------------------------------------------------------------------
+// 视图
+// ---------------------------------------------------------------------------
+
 function fitAll(): void {
   void fitView({ padding: 0.25, maxZoom: 1 });
 }
@@ -161,14 +234,69 @@ onNodesInitialized(() => {
   fitAll();
 });
 
-function onConnect(connection: Connection): void {
+onViewportChange((transform) => {
+  viewport.value = transform;
+  liveZoom.value = transform.zoom;
+});
+
+// ---------------------------------------------------------------------------
+// 连线 / 拖到空白新建分P
+// ---------------------------------------------------------------------------
+
+/** 本次拖线从哪个端口开始（用于「松手在空白处」时新建分P）。 */
+let connectStart: {
+  nodeId: string;
+  handleType: "source" | "target";
+  clientX: number;
+  clientY: number;
+} | null = null;
+let connectHandled = false;
+
+onConnectStart(({ nodeId, handleType, event }) => {
+  connectHandled = false;
+  if (!nodeId || !handleType || !event || !("clientX" in event)) {
+    connectStart = null;
+    return;
+  }
+  connectStart = {
+    nodeId,
+    handleType,
+    clientX: event.clientX,
+    clientY: event.clientY,
+  };
+});
+
+onConnect((connection: Connection) => {
+  connectHandled = true;
   if (project.readOnly) return;
   project.dispatch((doc) => connectEpisode(doc, connection.source, connection.target));
-}
+});
 
-function onNodeDoubleClick({ node }: NodeMouseEvent): void {
-  emit("open", node.id);
-}
+onConnectEnd((event) => {
+  const start = connectStart;
+  connectStart = null;
+  if (!start || connectHandled || project.readOnly) return;
+  if (!event || !("clientX" in event)) return;
+  const distance = Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY);
+  // 只是点了一下端口、没有真的拖出去：不要莫名其妙多出一集。
+  if (distance < 16) return;
+  const rect = rootEl.value?.getBoundingClientRect();
+  if (!rect) return;
+  const point = toFlowPoint({
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
+  });
+  const name = i18n.t("series.newEpisodeName", { index: project.doc.episodes.length + 1 });
+  project.dispatch((doc) =>
+    addConnectedEpisode(
+      doc,
+      start.nodeId,
+      start.handleType,
+      name,
+      { x: point.x - CARD_WIDTH / 2, y: point.y - CARD_HEIGHT / 2 },
+    ),
+  );
+});
 
 onNodeDragStop((event) => {
   if (project.readOnly) return;
@@ -182,18 +310,226 @@ onNodeDragStop((event) => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// 选择 / 菜单
+// ---------------------------------------------------------------------------
+
 onEdgeClick(({ edge }) => {
+  menu.value = null;
   selectedEdgeId.value = edge.id;
 });
 
 onPaneClick(() => {
   selectedEdgeId.value = null;
+  menu.value = null;
 });
 
-onViewportChange((transform) => {
-  viewport.value = transform;
-  liveZoom.value = transform.zoom;
+function pointOf(event: MouseEvent): { x: number; y: number } {
+  return { x: event.clientX, y: event.clientY };
+}
+
+function onNodeDoubleClick({ node }: NodeMouseEvent): void {
+  emit("open", node.id);
+}
+
+onNodeContextMenu(({ node, event }) => {
+  const mouse = event as MouseEvent;
+  mouse.preventDefault();
+  if (typeof mouse.clientX !== "number") return;
+  menu.value = { kind: "node", id: node.id, ...pointOf(mouse) };
 });
+
+onEdgeContextMenu(({ edge, event }) => {
+  const mouse = event as MouseEvent;
+  mouse.preventDefault();
+  if (typeof mouse.clientX !== "number") return;
+  selectedEdgeId.value = edge.id;
+  menu.value = { kind: "edge", id: edge.id, ...pointOf(mouse) };
+});
+
+onPaneContextMenu((event: MouseEvent) => {
+  event.preventDefault();
+  menu.value = { kind: "pane", ...pointOf(event) };
+});
+
+function episodeName(id: string): string {
+  return project.doc.episodes.find((episode) => episode.id === id)?.name ?? "";
+}
+
+function beginRename(episodeId: string): void {
+  if (project.readOnly) return;
+  renamingId.value = episodeId;
+  renameDraft.value = episodeName(episodeId);
+  menu.value = null;
+  void nextTick(() => {
+    renameInput.value?.focus();
+    renameInput.value?.select();
+  });
+}
+
+function commitRename(): void {
+  const id = renamingId.value;
+  renamingId.value = null;
+  if (!id) return;
+  project.dispatch((doc) => renameEpisode(doc, id, renameDraft.value));
+}
+
+function duplicateById(episodeId: string): void {
+  if (project.readOnly) return;
+  const name = episodeName(episodeId);
+  project.dispatch((doc) =>
+    duplicateEpisode(doc, episodeId, i18n.t("series.duplicateSuffix", { name })),
+  );
+  menu.value = null;
+}
+
+async function removeById(episodeId: string): Promise<void> {
+  if (project.readOnly) return;
+  menu.value = null;
+  if (project.doc.episodes.length <= 1) {
+    toast(i18n.t("series.keepLast"), "info");
+    return;
+  }
+  const accepted = await confirm({
+    title: i18n.t("series.deleteTitle"),
+    message: i18n.t("series.deleteMessage", { name: episodeName(episodeId) }),
+    confirmText: i18n.t("common.delete"),
+    destructive: true,
+  });
+  if (!accepted) return;
+  project.dispatch((doc) => removeEpisode(doc, episodeId));
+}
+
+/** 右键空白处：在点击位置新建一集。 */
+function createEpisodeAt(clientX: number, clientY: number): void {
+  menu.value = null;
+  const rect = rootEl.value?.getBoundingClientRect();
+  if (!rect) return;
+  const point = toFlowPoint({ x: clientX - rect.left, y: clientY - rect.top });
+  const name = i18n.t("series.newEpisodeName", { index: project.doc.episodes.length + 1 });
+  project.dispatch((doc) => {
+    const next = addEpisode(doc, name);
+    const created = next.episodes[next.episodes.length - 1];
+    return moveSeriesCard(
+      next,
+      created.id,
+      point.x - CARD_WIDTH / 2,
+      point.y - CARD_HEIGHT / 2,
+    );
+  });
+}
+
+function openEdgeEditor(edgeId: string): void {
+  selectedEdgeId.value = edgeId;
+  menu.value = null;
+  void nextTick(() => edgeInput.value?.focus());
+}
+
+const menuItems = computed<BoardMenuItem[]>(() => {
+  const current = menu.value;
+  if (!current) return [];
+  if (current.kind === "node") {
+    return [
+      {
+        kind: "action",
+        id: "node-open",
+        label: i18n.t("series.preview"),
+        icon: PlayIcon,
+        run: () => {
+          menu.value = null;
+          openEpisode(current.id);
+        },
+      },
+      {
+        kind: "action",
+        id: "node-rename",
+        label: i18n.t("common.rename"),
+        icon: PencilSquareIcon,
+        disabled: project.readOnly,
+        run: () => beginRename(current.id),
+      },
+      {
+        kind: "action",
+        id: "node-duplicate",
+        label: i18n.t("series.duplicate"),
+        icon: DocumentDuplicateIcon,
+        disabled: project.readOnly,
+        run: () => duplicateById(current.id),
+      },
+      { kind: "separator", id: "node-sep" },
+      {
+        kind: "action",
+        id: "node-delete",
+        label: i18n.t("common.delete"),
+        icon: TrashIcon,
+        danger: true,
+        disabled: project.readOnly || project.doc.episodes.length <= 1,
+        run: () => void removeById(current.id),
+      },
+    ];
+  }
+  if (current.kind === "edge") {
+    return [
+      {
+        kind: "action",
+        id: "edge-label",
+        label: i18n.t("series.edge.label"),
+        icon: PencilSquareIcon,
+        disabled: project.readOnly,
+        run: () => openEdgeEditor(current.id),
+      },
+      {
+        kind: "action",
+        id: "edge-delete",
+        label: i18n.t("series.edge.delete"),
+        icon: TrashIcon,
+        danger: true,
+        disabled: project.readOnly,
+        run: () => {
+          menu.value = null;
+          selectedEdgeId.value = null;
+          project.dispatch((doc) => disconnectEpisodeEdge(doc, current.id));
+        },
+      },
+    ];
+  }
+  return [
+    {
+      kind: "action",
+      id: "pane-new",
+      label: i18n.t("series.newEpisode"),
+      icon: PlusIcon,
+      disabled: project.readOnly,
+      run: () => createEpisodeAt(current.x, current.y),
+    },
+    {
+      kind: "action",
+      id: "pane-layout",
+      label: i18n.t("series.graph.autoLayout"),
+      icon: ArrowsPointingOutIcon,
+      disabled: project.readOnly,
+      run: () => {
+        menu.value = null;
+        project.dispatch((doc) => autoLayoutSeries(doc));
+        fitAll();
+      },
+    },
+    {
+      kind: "action",
+      id: "pane-fit",
+      label: i18n.t("series.graph.fit"),
+      icon: ArrowsPointingOutIcon,
+      run: () => {
+        menu.value = null;
+        fitAll();
+      },
+    },
+  ];
+});
+
+// ---------------------------------------------------------------------------
+// 选项编辑 / 工具栏
+// ---------------------------------------------------------------------------
 
 function commitLabel(): void {
   const id = selectedEdgeId.value;
@@ -238,6 +574,8 @@ function onKeyDown(event: KeyboardEvent): void {
   }
   if (event.key === "Escape") {
     selectedEdgeId.value = null;
+    renamingId.value = null;
+    menu.value = null;
     return;
   }
   if (
@@ -268,12 +606,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
       :pan-on-scroll="true"
       :zoom-on-double-click="false"
       :delete-key-code="null"
+      :selection-key-code="null"
       :nodes-draggable="!project.readOnly"
       :nodes-connectable="!project.readOnly"
       :edges-selectable="!project.readOnly"
       :connection-mode="ConnectionMode.Loose"
       :default-viewport="{ x: 0, y: 0, zoom: 1 }"
-      @connect="onConnect"
       @node-double-click="onNodeDoubleClick"
     >
       <Background
@@ -283,36 +621,39 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
         pattern-color="var(--ab-dot-minor)"
         bg-color="transparent"
       />
+      <div class="series-canvas-dock">
+        <MiniMap
+          pannable
+          zoomable
+          class="series-minimap"
+          node-color="rgb(139 111 232 / 0.7)"
+          mask-color="rgb(28 27 31 / 0.5)"
+        />
+        <div class="series-zoom-bar" role="group" :aria-label="i18n.t('series.graph.fit')">
+          <button
+            class="series-zoom-step"
+            type="button"
+            :title="i18n.t('series.graph.zoomOut')"
+            :aria-label="i18n.t('series.graph.zoomOut')"
+            @click="zoomOut({ duration: 120 })"
+          >
+            <MagnifyingGlassMinusIcon />
+          </button>
+          <span class="series-zoom-label">{{ zoomPercent }}%</span>
+          <button
+            class="series-zoom-step"
+            type="button"
+            :title="i18n.t('series.graph.zoomIn')"
+            :aria-label="i18n.t('series.graph.zoomIn')"
+            @click="zoomIn({ duration: 120 })"
+          >
+            <MagnifyingGlassPlusIcon />
+          </button>
+        </div>
+      </div>
     </VueFlow>
 
     <div class="graph-toolbar" role="toolbar" :aria-label="i18n.t('series.graph.fit')">
-      <button
-        class="graph-tool"
-        type="button"
-        :title="i18n.t('series.graph.zoomOut')"
-        :aria-label="i18n.t('series.graph.zoomOut')"
-        @click="zoomOut({ duration: 120 })"
-      >
-        <MagnifyingGlassMinusIcon />
-      </button>
-      <button
-        class="graph-zoom tabular"
-        type="button"
-        :title="i18n.t('series.graph.fit')"
-        @click="fitAll"
-      >
-        {{ zoomPercent }}%
-      </button>
-      <button
-        class="graph-tool"
-        type="button"
-        :title="i18n.t('series.graph.zoomIn')"
-        :aria-label="i18n.t('series.graph.zoomIn')"
-        @click="zoomIn({ duration: 120 })"
-      >
-        <MagnifyingGlassPlusIcon />
-      </button>
-      <span class="graph-sep" aria-hidden="true" />
       <button
         class="graph-tool"
         type="button"
@@ -322,6 +663,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
       >
         <ArrowsPointingOutIcon />
       </button>
+      <span class="graph-sep" aria-hidden="true" />
       <button
         class="graph-tool"
         type="button"
@@ -344,11 +686,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
       </button>
     </div>
 
-    <div v-if="!hasEdges" class="graph-hint">
-      <p class="graph-hint-title">{{ i18n.t("series.graph.empty") }}</p>
-      <p class="graph-hint-text">{{ i18n.t("series.graph.emptyHint") }}</p>
-    </div>
-
     <form
       v-if="selectedEdge && !project.readOnly"
       class="edge-panel"
@@ -359,6 +696,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
       <p class="edge-route">{{ selectedRoute }}</p>
       <div class="edge-row">
         <input
+          ref="edgeInput"
           v-model="labelDraft"
           class="edge-input"
           type="text"
@@ -379,6 +717,33 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
         </button>
       </div>
     </form>
+
+    <form
+      v-if="renamingId && !project.readOnly"
+      class="rename-panel"
+      :style="renameStyle"
+      @submit.prevent="commitRename"
+      @pointerdown.stop
+    >
+      <input
+        ref="renameInput"
+        v-model="renameDraft"
+        class="rename-input"
+        type="text"
+        :aria-label="i18n.t('common.rename')"
+        @keydown.esc.prevent="renamingId = null"
+        @blur="commitRename"
+      />
+    </form>
+
+    <BoardMenu
+      v-if="menu"
+      :items="menuItems"
+      :x="menu.x"
+      :y="menu.y"
+      :min-width="190"
+      @close="menu = null"
+    />
   </section>
 </template>
 
@@ -400,6 +765,14 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
   border: 0;
   background: transparent;
   padding: 0;
+  border-radius: 16px;
+  outline: none;
+}
+/* 拖线时的那根虚线，跟画布主色一致。 */
+.series-graph :deep(.vue-flow__connection-path) {
+  stroke: rgb(var(--md-primary));
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
 }
 .graph-toolbar {
   position: absolute;
@@ -444,46 +817,83 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
 .graph-tool-text {
   white-space: nowrap;
 }
-.graph-zoom {
-  min-width: 44px;
-  height: 26px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--md-on-surface-variant));
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-.graph-zoom:hover {
-  color: rgb(var(--md-on-surface));
-}
 .graph-sep {
   width: 1px;
   height: 16px;
   margin: 0 3px;
   background-color: rgb(var(--md-outline-variant) / 0.8);
 }
-.graph-hint {
+
+/* ============ 小地图 + 缩放（对齐画布左下角 dock） ============ */
+.series-canvas-dock {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  pointer-events: none;
+  left: 14px;
+  bottom: 78px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 150px;
 }
-.graph-hint-title {
-  margin: 0;
-  font-size: 13.5px;
-  font-weight: 600;
+.series-canvas-dock .series-minimap {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  margin: 0 !important;
+  width: 100%;
+  height: 96px;
+  border-radius: 10px;
+  overflow: hidden;
+  background-color: rgb(var(--md-surface-container-high) / 0.92) !important;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.6);
+}
+.series-minimap :deep(.vue-flow__minimap-mask) {
+  fill: rgb(12 12 14 / 0.55);
+}
+.series-zoom-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background-color: rgb(var(--md-surface-container-high) / 0.94);
+  border: 1px solid rgb(var(--md-outline-variant) / 0.5);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
+}
+.series-zoom-step {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--md-on-surface-variant));
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+.series-zoom-step:hover {
+  background-color: rgb(var(--md-on-surface) / 0.1);
   color: rgb(var(--md-on-surface));
 }
-.graph-hint-text {
-  margin: 4px 0 0;
-  font-size: 12px;
+.series-zoom-step :deep(svg) {
+  width: 13px;
+  height: 13px;
+}
+.series-zoom-label {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
   color: rgb(var(--md-on-surface-variant));
 }
+
+/* ============ 选中边的选项编辑 ============ */
 .edge-panel {
   position: absolute;
   z-index: 5;
@@ -540,5 +950,25 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
 .edge-delete :deep(svg) {
   width: 15px;
   height: 15px;
+}
+
+/* ============ 卡片改名 ============ */
+.rename-panel {
+  position: absolute;
+  z-index: 6;
+  width: 220px;
+  transform: translate(-50%, -100%);
+}
+.rename-input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgb(var(--md-primary));
+  border-radius: 8px;
+  background-color: rgb(var(--md-surface-container-high));
+  box-shadow: var(--md-elevation-2);
+  font-size: 12.5px;
+  color: rgb(var(--md-on-surface));
+  outline: none;
 }
 </style>

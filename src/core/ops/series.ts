@@ -5,9 +5,10 @@
  * 原样落成真实边（`materializeGraph`），所以「加一条分支」不会让时间链消失；
  * 而拖动卡片只写坐标，不会把普通剧集变成自定义图。
  */
+import { newEpisode } from "@/core/episodes";
 import { derivedChain } from "@/core/series/graph";
 import { withTouch } from "./internal";
-import type { Project, SeriesEdge, SeriesGraphDoc } from "@/types/project";
+import type { Episode, Project, SeriesEdge, SeriesGraphDoc } from "@/types/project";
 
 /** 当前图落成可编辑数据。`changed` 表示这次发生了「派生 → 自定义」。 */
 function editable(doc: Project): { graph: SeriesGraphDoc; changed: boolean } {
@@ -119,4 +120,37 @@ export function pruneSeriesEdges(doc: Project): Project {
   }
   if (edges.length === stored.edges.length && !droppedPosition) return doc;
   return withGraph(doc, { ...stored, edges, positions });
+}
+
+/** 追加一个空白分P（不切换当前分P）。 */
+function appendEpisode(doc: Project, name: string): { doc: Project; episode: Episode } {
+  const order = doc.episodes.reduce((max, episode) => Math.max(max, episode.order), -1) + 1;
+  const episode = newEpisode(name, order);
+  return {
+    doc: withTouch(doc, { episodes: [...doc.episodes, episode] }),
+    episode,
+  };
+}
+
+/**
+ * 从一张卡片的连接点拖到空白处松手：新建分P，并按拖出的方向连起来。
+ *
+ * 先 materialize 当前派生链、**再**追加分P——顺序反过来的话，派生链会把新分P
+ * 也算进时间顺序，凭空多出一条「上一集 → 新分P」的边，变成意外分叉。
+ */
+export function addConnectedEpisode(
+  doc: Project,
+  anchorId: string,
+  direction: "source" | "target",
+  name: string,
+  position: { x: number; y: number },
+): Project {
+  if (!doc.episodes.some((episode) => episode.id === anchorId)) return doc;
+  const base = materializeGraph(doc);
+  const { doc: withEpisode, episode: created } = appendEpisode(base, name);
+  const connected =
+    direction === "source"
+      ? connectEpisode(withEpisode, anchorId, created.id)
+      : connectEpisode(withEpisode, created.id, anchorId);
+  return moveSeriesCard(connected, created.id, position.x, position.y);
 }

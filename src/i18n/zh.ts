@@ -2494,8 +2494,6 @@ const zh: Record<string, string> = {
   "series.preview": "预览",
   "series.branchCount": "{count} 个选项",
   "series.orphan": "未接入",
-  "series.graph.empty": "还没有连线",
-  "series.graph.emptyHint": "从卡片右侧的圆点拖到另一张分P，建立播放顺序",
   "series.graph.fit": "适应视图",
   "series.graph.autoLayout": "自动排列",
   "series.graph.rebuild": "按时间顺序重建",

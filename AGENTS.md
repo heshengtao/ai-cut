@@ -120,7 +120,10 @@
   `seriesGraph.edges`。
 - 连线画布用 `@vue-flow/core`（与 `BoardView` 同一个库），但**不共享**任何工作流节点、store 或端口概念；
   `SeriesGraph.vue` 只做「分P → nodes、边 → edges」的映射。卡片坐标走 `core/series/layout.ts`，
-  手动坐标优先、缺省自动分层布局。
+  手动坐标优先、缺省自动分层布局。视觉与交互对齐画布：左下小地图 + 缩放条、卡片右上工具条、
+  `BoardMenu` 右键菜单、渐变辉光连线；显示方式（平铺 / 连线）存 `layout.seriesMode`，切视图不丢。
+- 从连接点拖到空白会新建一集（`addConnectedEpisode`）：出边拖出接在源后面、入边拖出接在目标前面。
+  创建前先把派生链 materialize，再追加分P，否则时间链会把新分P 自动连上，凭空多出一条边。
 - 拖动卡片只写 `positions`，**不**把图转成自定义；只有增删边 / 改选项名才 `custom: true`。
 - 剧集播放的 `visited` 只在按下播放和切换播放模式时重置：自动连播切集也会 `setPlayhead(0)`，
   按播放头变化重置就永远检测不到无选项的环。

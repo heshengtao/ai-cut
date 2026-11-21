@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { newProject } from "@/core/factory";
 import { addEpisode, duplicateEpisode, removeEpisode } from "@/core/ops/episodes";
 import {
+  addConnectedEpisode,
   autoLayoutSeries,
   connectEpisode,
   disconnectEpisodeEdge,
@@ -209,5 +210,46 @@ describe("分P 结构改动与图联动", () => {
     const copy = next.episodes.find((episode) => episode.name === "副本")!;
     expect(seriesEdges(next).some((edge) => edge.from === copy.id)).toBe(false);
     expect(seriesEdges(next).some((edge) => edge.to === copy.id)).toBe(false);
+  });
+});
+
+describe("addConnectedEpisode（拖线到空白处新建分P）", () => {
+  it("从出边拖到空白：新建分P 并接在源后面", () => {
+    const doc = threeEpisodes();
+    const from = doc.episodes[1].id;
+    const next = addConnectedEpisode(doc, from, "source", "新的一集", { x: 700, y: 200 });
+    expect(next.episodes).toHaveLength(4);
+    const created = next.episodes[3];
+    expect(created.name).toBe("新的一集");
+    expect(created.order).toBe(3);
+    expect(
+      seriesEdges(next).some((edge) => edge.from === from && edge.to === created.id),
+    ).toBe(true);
+    expect(next.seriesGraph?.positions[created.id]).toEqual({ x: 700, y: 200 });
+  });
+
+  it("链尾接新分P 时不会多出一条链边", () => {
+    const doc = threeEpisodes();
+    const last = doc.episodes[2].id;
+    const next = addConnectedEpisode(doc, last, "source", "第四集", { x: 10, y: 20 });
+    const created = next.episodes[3];
+    const incoming = seriesEdges(next).filter((edge) => edge.to === created.id);
+    expect(incoming).toHaveLength(1);
+    expect(incoming[0].from).toBe(last);
+  });
+
+  it("从入边拖到空白：新建分P 并接到目标前面", () => {
+    const doc = threeEpisodes();
+    const to = doc.episodes[1].id;
+    const next = addConnectedEpisode(doc, to, "target", "前传", { x: 10, y: 20 });
+    const created = next.episodes[3];
+    expect(
+      seriesEdges(next).some((edge) => edge.from === created.id && edge.to === to),
+    ).toBe(true);
+  });
+
+  it("锚点分P 不存在时原样返回", () => {
+    const doc = threeEpisodes();
+    expect(addConnectedEpisode(doc, "gone", "source", "x", { x: 0, y: 0 })).toBe(doc);
   });
 });

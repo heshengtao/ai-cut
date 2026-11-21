@@ -1,30 +1,44 @@
 <script setup lang="ts">
 /**
- * 连线画布上的一张分P 卡片。
+ * 连线画布上的一张分P 卡片（对齐画布卡片的外观与交互）。
  *
- * 左右各一个 Handle：左边接入、右边拖出下一步。节点拖拽与双击由 SeriesGraph 统一处理，
- * 卡片只负责展示与「预览」按钮。
+ * 左右各一个 Handle：左边接入、右边拖出下一步。悬停 / 选中时右上角浮出交互工具栏，
+ * 双击节点由 SeriesGraph 统一处理；卡片本身只负责展示与调用传进来的动作。
  */
 import { computed } from "vue";
 import { Handle, Position } from "@vue-flow/core";
-import { PlayIcon, QueueListIcon } from "@heroicons/vue/24/outline";
+import {
+  DocumentDuplicateIcon,
+  PencilSquareIcon,
+  PlayIcon,
+  QueueListIcon,
+  TrashIcon,
+} from "@heroicons/vue/24/outline";
 import { useI18n } from "@/i18n";
 import { useProjectStore } from "@/stores/project";
-import { useEpisodeOpen } from "@/composables/useEpisodeOpen";
 import { episodeDuration } from "@/core/ops/episodes";
 import { assetThumbnailUrl } from "@/core/thumbnails";
 
+interface SeriesNodeActions {
+  open: (episodeId: string) => void;
+  rename: (episodeId: string) => void;
+  duplicate: (episodeId: string) => void;
+  remove: (episodeId: string) => void;
+}
+
 const props = defineProps<{
   id?: string;
-  data?: { episodeId?: string };
+  data?: { episodeId?: string; actions?: SeriesNodeActions };
 }>();
 
 const i18n = useI18n();
 const project = useProjectStore();
-const openEpisode = useEpisodeOpen();
+
+const actions = computed(() => props.data?.actions);
+const episodeId = computed(() => props.data?.episodeId ?? props.id ?? "");
 
 const episode = computed(
-  () => project.doc.episodes.find((item) => item.id === props.data?.episodeId) ?? null,
+  () => project.doc.episodes.find((item) => item.id === episodeId.value) ?? null,
 );
 
 const cover = computed<string | null>(() => {
@@ -56,16 +70,50 @@ function clock(seconds: number): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(rest)}` : `${pad(minutes)}:${pad(rest)}`;
 }
-
-function open(): void {
-  if (episode.value) openEpisode(episode.value.id);
-}
 </script>
 
 <template>
   <article class="series-node" :class="{ current: episode?.id === project.doc.activeEpisodeId }">
     <Handle id="in" type="target" :position="Position.Left" class="series-handle series-handle-in" />
     <Handle id="out" type="source" :position="Position.Right" class="series-handle series-handle-out" />
+
+    <!-- 交互工具栏：和画布节点一样贴在卡片右上角，悬停 / 选中时出现。 -->
+    <div v-if="actions" class="series-node-tools nodrag" @pointerdown.stop @click.stop>
+      <button
+        type="button"
+        :title="i18n.t('series.preview')"
+        :aria-label="i18n.t('series.preview')"
+        @click="actions.open(episodeId)"
+      >
+        <PlayIcon />
+      </button>
+      <button
+        type="button"
+        :title="i18n.t('common.rename')"
+        :aria-label="i18n.t('common.rename')"
+        @click="actions.rename(episodeId)"
+      >
+        <PencilSquareIcon />
+      </button>
+      <button
+        type="button"
+        :title="i18n.t('series.duplicate')"
+        :aria-label="i18n.t('series.duplicate')"
+        @click="actions.duplicate(episodeId)"
+      >
+        <DocumentDuplicateIcon />
+      </button>
+      <button
+        type="button"
+        class="danger"
+        :title="i18n.t('common.delete')"
+        :aria-label="i18n.t('common.delete')"
+        :disabled="project.doc.episodes.length <= 1 || project.readOnly"
+        @click="actions.remove(episodeId)"
+      >
+        <TrashIcon />
+      </button>
+    </div>
 
     <div class="series-node-cover">
       <img v-if="cover" :src="cover" :alt="episode?.name ?? ''" loading="lazy" draggable="false" />
@@ -79,16 +127,6 @@ function open(): void {
       <h3 :title="episode?.name">{{ episode?.name }}</h3>
       <p>{{ i18n.t("series.clips", { count: clipCount }) }}</p>
     </div>
-
-    <button
-      type="button"
-      class="series-node-preview nodrag"
-      :title="i18n.t('series.preview')"
-      :aria-label="i18n.t('series.preview')"
-      @click.stop="open"
-    >
-      <PlayIcon />
-    </button>
   </article>
 </template>
 
@@ -97,26 +135,39 @@ function open(): void {
   position: relative;
   width: 100%;
   /* 不要 overflow:hidden：左右 Handle 画在卡片外面，裁掉就抓不到连线。 */
-  border-radius: 12px;
+  border-radius: 16px;
   background-color: rgb(var(--md-surface-container-low));
   border: 1px solid rgb(var(--md-outline-variant) / 0.5);
   color: rgb(var(--md-on-surface));
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease;
 }
 .series-node.current {
-  border-color: rgb(var(--md-primary));
-  box-shadow: 0 0 0 1px rgb(var(--md-primary) / 0.5);
+  border-color: rgb(var(--md-primary) / 0.9);
 }
-/* Vue Flow 给选中节点加的类名（库默认），这里只强调描边。 */
-:global(.vue-flow__node.selected) .series-node {
-  border-color: rgb(var(--md-primary));
-  box-shadow: 0 0 0 2px rgb(var(--md-primary) / 0.45);
+/* 选中框贴着圆角画，不用 Vue Flow 的直角 outline。 */
+.series-node::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  z-index: 8;
+  border: 1.5px solid transparent;
+  border-radius: 19px;
+  pointer-events: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+:global(.vue-flow__node.selected) .series-node::after {
+  border-color: rgb(var(--md-primary) / 0.9);
+  box-shadow: 0 0 0 4px rgb(var(--md-primary) / 0.1);
+}
+:global(.vue-flow__node) {
+  border-radius: 16px;
+  outline: none;
 }
 .series-node-cover {
   position: relative;
   height: 108px;
   overflow: hidden;
-  border-radius: 11px 11px 0 0;
+  border-radius: 15px 15px 0 0;
   background-color: rgb(var(--md-surface-container-highest));
 }
 .series-node-cover img {
@@ -148,7 +199,7 @@ function open(): void {
   background-color: rgb(0 0 0 / 0.55);
 }
 .series-node-meta {
-  padding: 7px 9px 8px;
+  padding: 7px 9px 9px;
 }
 .series-node-meta h3 {
   margin: 0;
@@ -163,39 +214,90 @@ function open(): void {
   font-size: 11px;
   color: rgb(var(--md-on-surface-variant));
 }
-.series-node-preview {
+
+/* ============ 交互工具栏（右上角，对齐画布节点） ============ */
+.series-node-tools {
   position: absolute;
-  right: 6px;
-  bottom: 6px;
-  width: 24px;
-  height: 24px;
+  right: 2px;
+  bottom: calc(100% + 4px);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgb(var(--md-surface-container-high) / 0.96);
+  border: 1px solid rgb(var(--md-outline-variant) / 0.5);
+  box-shadow: var(--md-elevation-1);
+  opacity: 0;
+  transform: translateY(2px);
+  pointer-events: none;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+.series-node:hover .series-node-tools,
+:global(.vue-flow__node.selected) .series-node-tools,
+.series-node-tools:focus-within {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.series-node-tools button {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
   display: grid;
   place-items: center;
+  padding: 0;
   border: 0;
   border-radius: 999px;
-  background-color: rgb(var(--md-surface-container-high) / 0.95);
-  color: rgb(var(--md-primary));
+  background: transparent;
+  color: rgb(var(--md-on-surface-variant));
   cursor: pointer;
-  box-shadow: var(--md-elevation-1);
+  transition: background-color 0.14s ease, color 0.14s ease;
 }
-.series-node-preview:hover {
-  background-color: rgb(var(--md-primary));
-  color: rgb(var(--md-on-primary));
+.series-node-tools button :deep(svg) {
+  width: 13px;
+  height: 13px;
 }
-.series-node-preview :deep(svg) {
-  width: 14px;
-  height: 14px;
+.series-node-tools button:first-child {
+  color: rgb(var(--md-primary));
 }
+.series-node-tools button:hover {
+  background: rgb(var(--md-on-surface) / 0.08);
+  color: rgb(var(--md-on-surface));
+}
+.series-node-tools button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.series-node-tools button.danger:hover {
+  color: rgb(var(--md-error));
+}
+
+/* ============ 端口：和画布一样居中贴在左右边，悬停 / 选中才亮 ============ */
 .series-handle {
-  width: 10px;
-  height: 10px;
-  border: 2px solid rgb(var(--md-surface));
-  background-color: rgb(var(--md-primary));
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgb(var(--md-surface-container-lowest));
+  border-radius: 999px;
+  background: rgb(var(--md-primary));
+  box-shadow:
+    0 0 0 1px rgb(var(--md-primary) / 0.55),
+    0 0 14px rgb(var(--md-primary) / 0.45);
+  opacity: 0;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+  z-index: 9;
 }
-.series-handle-in {
-  left: -6px;
+.series-node:hover .series-handle,
+:global(.vue-flow__node.selected) .series-handle {
+  opacity: 1;
 }
-.series-handle-out {
-  right: -6px;
+/* 悬停放大的 transform 必须**保留** Vue Flow 的左右平移（±50%），否则端口会
+   朝卡片里跳半个宽度，指针随即离开 → 反复进出 → 看起来像抽搐。 */
+.series-node .series-handle-in:hover {
+  transform: translate(-50%, -50%) scale(1.18);
+}
+.series-node .series-handle-out:hover {
+  transform: translate(50%, -50%) scale(1.18);
 }
 </style>
