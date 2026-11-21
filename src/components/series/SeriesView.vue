@@ -2,24 +2,18 @@
 /**
  * 剧集界面：工程内所有分P 的总览。
  *
- * 一个工程 = 一部剧，分P = 工程内的一条独立时间线（素材 / 画布工程级共享）。
- * 点卡片 = 切到该分P 并回到预览界面，播放头归零。
+ * 两种形态：平铺（网格，拖拽换序仍决定默认时间链）与连线（自由画布，见 SeriesGraph）。
+ * 平铺下单击选中、双击 / 右下预览按钮进入预览。
  */
-import { computed, nextTick, ref } from "vue";
-import {
-  CheckIcon,
-  ClockIcon,
-  DocumentDuplicateIcon,
-  MagnifyingGlassIcon,
-  PencilSquareIcon,
-  PlusIcon,
-  QueueListIcon,
-  TrashIcon,
-} from "@heroicons/vue/24/outline";
+import { computed, ref } from "vue";
+import { MagnifyingGlassIcon, PlusIcon, QueueListIcon } from "@heroicons/vue/24/outline";
+import SegmentedControl from "@/components/common/SegmentedControl.vue";
+import SeriesTile from "./SeriesTile.vue";
 import { useI18n } from "@/i18n";
 import { useProjectStore } from "@/stores/project";
-import { usePlaybackStore } from "@/stores/playback";
-import { useViewStore } from "@/stores/view";
+import { useEpisodeOpen } from "@/composables/useEpisodeOpen";
+import { confirm } from "@/composables/useConfirm";
+import { toast } from "@/composables/useToast";
 import {
   addEpisode,
   duplicateEpisode,
@@ -28,55 +22,35 @@ import {
   removeEpisode,
   renameEpisode,
 } from "@/core/ops";
-import { assetThumbnailUrl } from "@/core/thumbnails";
-import { confirm } from "@/composables/useConfirm";
-import { toast } from "@/composables/useToast";
+import { incoming, isDerived, outgoing } from "@/core/series/graph";
 import type { Episode } from "@/types/project";
 
-type SortMode = "manual" | "duration";
+type SeriesMode = "tile" | "graph";
 
 const i18n = useI18n();
 const project = useProjectStore();
-const playback = usePlaybackStore();
-const view = useViewStore();
+const openEpisode = useEpisodeOpen();
 
+const mode = ref<SeriesMode>("tile");
 const query = ref("");
-const sort = ref<SortMode>("manual");
-const renamingId = ref<string | null>(null);
-const renameDraft = ref("");
-const renameInput = ref<HTMLInputElement | null>(null);
+const selectedId = ref<string | null>(null);
 const draggingId = ref<string | null>(null);
 const dropIndex = ref<number | null>(null);
 
 const episodes = computed(() => project.doc.episodes);
 const activeId = computed(() => project.doc.activeEpisodeId);
 
+const modes = computed(() => [
+  { value: "tile", label: i18n.t("series.view.tile") },
+  { value: "graph", label: i18n.t("series.view.graph") },
+]);
+
 const visible = computed(() => {
   const text = query.value.trim().toLowerCase();
-  const list = text
+  return text
     ? episodes.value.filter((episode) => episode.name.toLowerCase().includes(text))
     : [...episodes.value];
-  if (sort.value === "duration") {
-    return [...list].sort((a, b) => episodeDuration(b) - episodeDuration(a));
-  }
-  return list;
 });
-
-/** 分P 封面：第一条有缩略图的片段所属素材。 */
-function cover(episode: Episode): string | null {
-  for (const track of episode.tracks) {
-    for (const clip of track.clips) {
-      const asset = project.doc.assets.find((item) => item.id === clip.assetId);
-      const url = asset ? assetThumbnailUrl(asset) : null;
-      if (url) return url;
-    }
-  }
-  return null;
-}
-
-function clipCount(episode: Episode): number {
-  return episode.tracks.reduce((sum, track) => sum + track.clips.length, 0);
-}
 
 /** 卡片上的时长：mm:ss（超过一小时带小时）。 */
 function clock(seconds: number): string {
@@ -92,12 +66,12 @@ function defaultEpisodeName(): string {
   return i18n.t("series.newEpisodeName", { index: episodes.value.length + 1 });
 }
 
-/** 点击卡片：切分P + 回预览 + 播放头归零（当前分P 只做后两步）。 */
+function setMode(value: string): void {
+  mode.value = value === "graph" ? "graph" : "tile";
+}
+
 function open(episode: Episode): void {
-  if (renamingId.value === episode.id) return;
-  if (episode.id !== activeId.value) project.switchEpisode(episode.id);
-  playback.setPlayhead(0);
-  view.setView("preview");
+  openEpisode(episode.id);
 }
 
 function createEpisode(): void {
@@ -110,20 +84,8 @@ function duplicate(episode: Episode): void {
   );
 }
 
-function startRename(episode: Episode): void {
-  renamingId.value = episode.id;
-  renameDraft.value = episode.name;
-  void nextTick(() => {
-    renameInput.value?.focus();
-    renameInput.value?.select();
-  });
-}
-
-function commitRename(): void {
-  const id = renamingId.value;
-  renamingId.value = null;
-  if (!id) return;
-  project.dispatch((doc) => renameEpisode(doc, id, renameDraft.value));
+function rename(episode: Episode, name: string): void {
+  project.dispatch((doc) => renameEpisode(doc, episode.id, name));
 }
 
 async function remove(episode: Episode): Promise<void> {
@@ -141,15 +103,29 @@ async function remove(episode: Episode): Promise<void> {
   project.dispatch((doc) => removeEpisode(doc, episode.id));
 }
 
+/** 出边数：≥2 说明这一集有分叉。 */
+function branchCount(episode: Episode): number {
+  return outgoing(project.doc, episode.id).length;
+}
+
+/** 自定义图里既没有入边也没有出边的孤立分P。 */
+function orphan(episode: Episode): boolean {
+  if (isDerived(project.doc) || episodes.value.length <= 1) return false;
+  return (
+    incoming(project.doc, episode.id).length === 0 &&
+    outgoing(project.doc, episode.id).length === 0
+  );
+}
+
 function onDragStart(episode: Episode, event: DragEvent): void {
-  if (sort.value !== "manual") return;
+  if (mode.value !== "tile") return;
   draggingId.value = episode.id;
   event.dataTransfer?.setData("text/plain", episode.id);
   if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
 }
 
 function onDragOver(index: number, event: DragEvent): void {
-  if (!draggingId.value || sort.value !== "manual") return;
+  if (!draggingId.value || mode.value !== "tile") return;
   event.preventDefault();
   dropIndex.value = index;
 }
@@ -186,7 +162,7 @@ const totalDuration = computed(() =>
       </div>
 
       <div class="series-actions">
-        <label class="series-search">
+        <label v-if="mode === 'tile'" class="series-search">
           <MagnifyingGlassIcon class="series-search-icon" />
           <input
             v-model="query"
@@ -195,22 +171,13 @@ const totalDuration = computed(() =>
             :aria-label="i18n.t('series.search')"
           />
         </label>
-        <div class="series-sort" role="group" :aria-label="i18n.t('series.sort')">
-          <button
-            type="button"
-            :class="{ on: sort === 'manual' }"
-            @click="sort = 'manual'"
-          >
-            {{ i18n.t("series.sortManual") }}
-          </button>
-          <button
-            type="button"
-            :class="{ on: sort === 'duration' }"
-            @click="sort = 'duration'"
-          >
-            {{ i18n.t("series.sortDuration") }}
-          </button>
-        </div>
+        <SegmentedControl
+          :model-value="mode"
+          :options="modes"
+          :aria-label="i18n.t('series.viewMode')"
+          size="sm"
+          @update:model-value="setMode"
+        />
         <button class="series-new" type="button" @click="createEpisode">
           <PlusIcon class="series-new-icon" />
           <span>{{ i18n.t("series.newEpisode") }}</span>
@@ -227,93 +194,33 @@ const totalDuration = computed(() =>
       </button>
     </div>
 
-    <div v-else-if="visible.length === 0" class="series-empty">
+    <div v-else-if="mode === 'tile' && visible.length === 0" class="series-empty">
       <p class="series-empty-title">{{ i18n.t("series.emptySearch") }}</p>
     </div>
 
-    <div v-else class="series-grid">
-      <article
+    <div v-else-if="mode === 'tile'" class="series-grid">
+      <SeriesTile
         v-for="(episode, index) in visible"
         :key="episode.id"
-        class="series-card"
-        :class="{
-          current: episode.id === activeId,
-          dragging: draggingId === episode.id,
-          'drop-before': dropIndex === index && sort === 'manual',
-        }"
-        :draggable="sort === 'manual'"
-        @click="open(episode)"
+        :episode="episode"
+        :active="episode.id === activeId"
+        :selected="selectedId === episode.id"
+        :dragging="draggingId === episode.id"
+        :drop-before="dropIndex === index"
+        :draggable="true"
+        :branch-count="branchCount(episode)"
+        :orphan="orphan(episode)"
+        :can-remove="episodes.length > 1"
+        @select="selectedId = episode.id"
+        @open="open(episode)"
+        @rename="(name) => rename(episode, name)"
+        @duplicate="duplicate(episode)"
+        @remove="remove(episode)"
         @dragstart="onDragStart(episode, $event)"
         @dragover="onDragOver(index, $event)"
         @drop="onDrop(index, $event)"
         @dragend="onDragEnd"
-      >
-        <div class="series-cover">
-          <img v-if="cover(episode)" :src="cover(episode)!" :alt="episode.name" loading="lazy" />
-          <div v-else class="series-cover-empty" aria-hidden="true">
-            <QueueListIcon />
-          </div>
-          <span v-if="episode.id === activeId" class="series-badge">
-            <CheckIcon />
-            {{ i18n.t("series.current") }}
-          </span>
-          <span class="series-time">{{ clock(episodeDuration(episode)) }}</span>
-        </div>
-
-        <div class="series-meta">
-          <div class="series-name-row">
-            <input
-              v-if="renamingId === episode.id"
-              ref="renameInput"
-              v-model="renameDraft"
-              class="series-rename"
-              type="text"
-              @click.stop
-              @keydown.enter.prevent="commitRename"
-              @keydown.esc.prevent="renamingId = null"
-              @blur="commitRename"
-            />
-            <h3 v-else class="series-name" :title="episode.name">{{ episode.name }}</h3>
-          </div>
-          <p class="series-stats">
-            <span>{{ i18n.t("series.tracks", { count: episode.tracks.length }) }}</span>
-            <span class="series-dot" aria-hidden="true">·</span>
-            <span>{{ i18n.t("series.clips", { count: clipCount(episode) }) }}</span>
-          </p>
-
-          <div class="series-tools">
-            <button
-              type="button"
-              :title="i18n.t('common.rename')"
-              :aria-label="i18n.t('common.rename')"
-              @click.stop="startRename(episode)"
-            >
-              <PencilSquareIcon />
-            </button>
-            <button
-              type="button"
-              :title="i18n.t('series.duplicate')"
-              :aria-label="i18n.t('series.duplicate')"
-              @click.stop="duplicate(episode)"
-            >
-              <DocumentDuplicateIcon />
-            </button>
-            <button
-              type="button"
-              class="danger"
-              :title="i18n.t('common.delete')"
-              :aria-label="i18n.t('common.delete')"
-              :disabled="episodes.length <= 1"
-              @click.stop="remove(episode)"
-            >
-              <TrashIcon />
-            </button>
-            <span class="series-clock">
-              <ClockIcon />
-            </span>
-          </div>
-        </div>
-      </article>
+      />
     </div>
   </section>
 </template>
@@ -391,26 +298,6 @@ const totalDuration = computed(() =>
   font-size: 12.5px;
   color: rgb(var(--md-on-surface));
 }
-.series-sort {
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-on-surface-variant) / 0.08);
-}
-.series-sort button {
-  height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  font-size: 12px;
-  color: rgb(var(--md-on-surface-variant));
-  cursor: pointer;
-}
-.series-sort button.on {
-  background-color: rgb(var(--md-secondary-container));
-  color: rgb(var(--md-on-secondary-container));
-}
 .series-new {
   display: inline-flex;
   align-items: center;
@@ -462,167 +349,5 @@ const totalDuration = computed(() =>
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 14px;
   align-content: start;
-}
-.series-card {
-  position: relative;
-  border-radius: 14px;
-  overflow: hidden;
-  background-color: rgb(var(--md-surface-container-low));
-  border: 1px solid rgb(var(--md-outline-variant) / 0.45);
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-}
-.series-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgb(0 0 0 / 0.12);
-  border-color: rgb(var(--md-primary) / 0.45);
-}
-.series-card.current {
-  border-color: rgb(var(--md-primary));
-}
-.series-card.dragging {
-  opacity: 0.55;
-}
-.series-card.drop-before::before {
-  content: "";
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  top: -7px;
-  height: 3px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-primary));
-}
-.series-cover {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  background-color: rgb(var(--md-surface-container-highest));
-}
-.series-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.series-cover-empty {
-  width: 100%;
-  height: 100%;
-  display: grid;
-  place-items: center;
-  color: rgb(var(--md-on-surface-variant) / 0.5);
-}
-.series-cover-empty :deep(svg) {
-  width: 26px;
-  height: 26px;
-}
-.series-badge {
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 999px;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: rgb(var(--md-on-primary));
-  background-color: rgb(var(--md-primary) / 0.92);
-}
-.series-badge :deep(svg) {
-  width: 12px;
-  height: 12px;
-}
-.series-time {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: 10.5px;
-  font-variant-numeric: tabular-nums;
-  color: #fff;
-  background-color: rgb(0 0 0 / 0.55);
-}
-.series-meta {
-  padding: 9px 10px 8px;
-}
-.series-name-row {
-  min-height: 20px;
-}
-.series-name {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: rgb(var(--md-on-surface));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.series-rename {
-  width: 100%;
-  height: 22px;
-  padding: 0 6px;
-  border: 1px solid rgb(var(--md-primary));
-  border-radius: 6px;
-  background: transparent;
-  font-size: 13px;
-  color: rgb(var(--md-on-surface));
-  outline: none;
-}
-.series-stats {
-  margin: 2px 0 0;
-  font-size: 11.5px;
-  color: rgb(var(--md-on-surface-variant));
-}
-.series-dot {
-  margin: 0 4px;
-}
-.series-tools {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-surface-container-high) / 0.95);
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-.series-card:hover .series-tools,
-.series-card:focus-within .series-tools {
-  opacity: 1;
-}
-.series-tools button {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--md-on-surface-variant));
-  cursor: pointer;
-}
-.series-tools button:hover {
-  background-color: rgb(var(--md-on-surface-variant) / 0.12);
-  color: rgb(var(--md-on-surface));
-}
-.series-tools button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.series-tools button.danger:hover {
-  color: rgb(var(--md-error));
-}
-.series-tools button :deep(svg) {
-  width: 14px;
-  height: 14px;
-}
-.series-clock {
-  display: none;
 }
 </style>
