@@ -39,8 +39,8 @@ import {
   HandRaisedIcon,
   MagnifyingGlassMinusIcon,
   MagnifyingGlassPlusIcon,
+  PencilIcon,
   PencilSquareIcon,
-  PlayIcon,
   PlusIcon,
   ScissorsIcon,
   Squares2X2Icon,
@@ -80,13 +80,15 @@ import {
   resetSeriesGraph,
   setEpisodeEdgeLabel,
 } from "@/core/ops";
+import type { Episode } from "@/types/project";
 import SeriesGraphCard from "./SeriesGraphCard.vue";
 import SeriesEdge from "./SeriesEdge.vue";
 
 const emit = defineEmits<{ (e: "open", episodeId: string): void }>();
 
 type MenuState =
-  | { kind: "node"; id: string; x: number; y: number }
+  /** `ids` 是这次菜单要作用的分P：单选右键就是 1 个，多选右键是整个选择。 */
+  | { kind: "node"; id: string; ids: string[]; x: number; y: number }
   | { kind: "edge"; id: string; x: number; y: number }
   | { kind: "pane"; x: number; y: number };
 
@@ -114,6 +116,10 @@ const {
   onNodeContextMenu,
   onEdgeContextMenu,
   onPaneContextMenu,
+  onSelectionContextMenu,
+  getNodes,
+  getSelectedNodes,
+  updateNode,
 } = useVueFlow();
 
 const rootEl = ref<HTMLElement | null>(null);
@@ -186,8 +192,8 @@ const renameStyle = computed<CSSProperties>(() => {
 const seriesActions = {
   open: (episodeId: string): void => openEpisode(episodeId),
   rename: (episodeId: string): void => beginRename(episodeId),
-  duplicate: (episodeId: string): void => duplicateById(episodeId),
-  remove: (episodeId: string): void => void removeById(episodeId),
+  duplicate: (episodeId: string): void => duplicateByIds([episodeId]),
+  remove: (episodeId: string): void => void removeByIds([episodeId]),
 };
 
 function syncNodes(): void {
@@ -470,7 +476,30 @@ onNodeContextMenu(({ node, event }) => {
   const mouse = event as MouseEvent;
   mouse.preventDefault();
   if (typeof mouse.clientX !== "number") return;
-  menu.value = { kind: "node", id: node.id, ...pointOf(mouse) };
+  const selected = selectedNodeIds();
+  if (!selected.includes(node.id)) selectOnly([node.id]);
+  const ids = selected.includes(node.id) ? selected : [node.id];
+  menu.value = { kind: "node", id: node.id, ids, ...pointOf(mouse) };
+});
+
+/**
+ * 多选后右键：Vue Flow 的 `.vue-flow__nodesselection-rect` 盖在节点之上，事件会走
+ * `selection-context-menu` 而不是节点自己。和画布一样把它接回节点菜单，作用对象是整个选择。
+ */
+onSelectionContextMenu(({ event, nodes }) => {
+  const mouse = event as MouseEvent;
+  mouse.preventDefault();
+  if (typeof mouse.clientX !== "number") return;
+  const ids = nodes.map((node) => node.id);
+  if (ids.length === 0) return;
+  // 选择框盖在卡片上面：找右键落点下面真正的那张卡，让菜单标题 / 单选操作对着它。
+  const under = document
+    .elementsFromPoint(mouse.clientX, mouse.clientY)
+    .map((el) => (el as HTMLElement).closest?.(".vue-flow__node") as HTMLElement | null)
+    .find((el): el is HTMLElement => Boolean(el));
+  const underId = under?.dataset.id;
+  const target = underId && ids.includes(underId) ? underId : ids[0];
+  menu.value = { kind: "node", id: target, ids, ...pointOf(mouse) };
 });
 
 onEdgeContextMenu(({ edge, event }) => {
@@ -509,68 +538,107 @@ function commitRename(): void {
   project.dispatch((doc) => renameEpisode(doc, id, renameDraft.value));
 }
 
-function duplicateById(episodeId: string): void {
-  if (project.readOnly) return;
-  const name = episodeName(episodeId);
-  project.dispatch((doc) =>
-    duplicateEpisode(doc, episodeId, i18n.t("series.duplicateSuffix", { name })),
-  );
-  menu.value = null;
+/** Vue Flow 的 getNodes / getSelectedNodes 在不同版本里可能是数组或 ref。 */
+function flowList<T>(source: unknown): T[] {
+  const raw = source as { value?: T[] } | T[] | undefined;
+  if (Array.isArray(raw)) return raw;
+  return raw?.value ?? [];
 }
 
-function copyById(episodeId: string): void {
-  const episode = project.doc.episodes.find((item) => item.id === episodeId);
-  if (!episode) return;
-  clipboard.copy(episode);
+function selectedNodeIds(): string[] {
+  return flowList<{ id: string }>(getSelectedNodes).map((node) => node.id);
+}
+
+/** 和画布一致：右键未选中的节点时，把它变成当前唯一选择。 */
+function selectOnly(ids: string[]): void {
+  const keep = new Set(ids);
+  for (const node of flowList<Node>(getNodes)) {
+    updateNode(node.id, { selected: keep.has(node.id) } as never);
+  }
+}
+
+function episodesByIds(ids: string[]): Episode[] {
+  const wanted = new Set(ids);
+  return project.doc.episodes.filter((episode) => wanted.has(episode.id));
+}
+
+function duplicateByIds(ids: string[]): void {
+  if (project.readOnly) return;
+  menu.value = null;
+  project.dispatch((doc) =>
+    ids.reduce(
+      (acc, id) =>
+        duplicateEpisode(
+          acc,
+          id,
+          i18n.t("series.duplicateSuffix", { name: episodeName(id) }),
+        ),
+      doc,
+    ),
+  );
+}
+
+function copyByIds(ids: string[]): void {
+  const episodes = episodesByIds(ids);
+  if (episodes.length === 0) return;
+  clipboard.copy(episodes);
   menu.value = null;
   toast(i18n.t("series.ctx.copied"));
 }
 
-function cutById(episodeId: string): void {
+function cutByIds(ids: string[]): void {
   if (project.readOnly) return;
-  const episode = project.doc.episodes.find((item) => item.id === episodeId);
-  if (!episode) return;
-  if (project.doc.episodes.length <= 1) {
+  const episodes = episodesByIds(ids);
+  if (episodes.length === 0) return;
+  if (project.doc.episodes.length - episodes.length < 1) {
     toast(i18n.t("series.keepLast"), "info");
     return;
   }
-  clipboard.copy(episode);
+  clipboard.copy(episodes);
   menu.value = null;
-  project.dispatch((doc) => removeEpisode(doc, episodeId));
+  project.dispatch((doc) => episodes.reduce((acc, episode) => removeEpisode(acc, episode.id), doc));
   toast(i18n.t("series.ctx.cutDone"));
 }
 
-/** 粘贴到鼠标位置（右键处）。 */
+/** 粘贴到鼠标位置（右键处）；多个分P 时依次错开一点。 */
 function pasteAt(clientX: number, clientY: number): void {
-  const source = clipboard.read();
-  if (!source || project.readOnly) return;
+  const sources = clipboard.read();
+  if (sources.length === 0 || project.readOnly) return;
   menu.value = null;
   const point = screenToFlowCoordinate({ x: clientX, y: clientY });
-  const name = i18n.t("series.duplicateSuffix", { name: source.name });
   project.dispatch((doc) =>
-    pasteSeriesEpisode(doc, source, name, {
-      x: point.x - CARD_WIDTH / 2,
-      y: point.y - CARD_HEIGHT / 2,
-    }),
+    sources.reduce(
+      (acc, source, index) =>
+        pasteSeriesEpisode(acc, source, i18n.t("series.duplicateSuffix", { name: source.name }), {
+          x: point.x - CARD_WIDTH / 2 + index * 28,
+          y: point.y - CARD_HEIGHT / 2 + index * 28,
+        }),
+      doc,
+    ),
   );
   toast(i18n.t("series.ctx.pasted"));
 }
 
-async function removeById(episodeId: string): Promise<void> {
+async function removeByIds(ids: string[]): Promise<void> {
   if (project.readOnly) return;
   menu.value = null;
-  if (project.doc.episodes.length <= 1) {
+  const episodes = episodesByIds(ids);
+  if (episodes.length === 0) return;
+  if (project.doc.episodes.length - episodes.length < 1) {
     toast(i18n.t("series.keepLast"), "info");
     return;
   }
   const accepted = await confirm({
     title: i18n.t("series.deleteTitle"),
-    message: i18n.t("series.deleteMessage", { name: episodeName(episodeId) }),
+    message:
+      episodes.length === 1
+        ? i18n.t("series.deleteMessage", { name: episodes[0].name })
+        : i18n.t("series.ctx.deleteMany", { count: episodes.length }),
     confirmText: i18n.t("common.delete"),
     destructive: true,
   });
   if (!accepted) return;
-  project.dispatch((doc) => removeEpisode(doc, episodeId));
+  project.dispatch((doc) => episodes.reduce((acc, episode) => removeEpisode(acc, episode.id), doc));
 }
 
 /** 右键空白处：在点击位置新建一集。 */
@@ -600,39 +668,47 @@ const menuItems = computed<BoardMenuItem[]>(() => {
   const current = menu.value;
   if (!current) return [];
   if (current.kind === "node") {
-    return [
-      {
-        kind: "action",
-        id: "node-open",
-        label: i18n.t("series.preview"),
-        icon: PlayIcon,
-        run: () => {
-          menu.value = null;
-          openEpisode(current.id);
+    const ids = current.ids;
+    const single = ids.length <= 1;
+    const items: BoardMenuItem[] = [];
+    if (single) {
+      items.push(
+        {
+          kind: "action",
+          id: "node-edit",
+          label: i18n.t("series.edit"),
+          icon: PencilSquareIcon,
+          run: () => {
+            menu.value = null;
+            openEpisode(current.id);
+          },
         },
-      },
-      {
-        kind: "action",
-        id: "node-rename",
-        label: i18n.t("common.rename"),
-        icon: PencilSquareIcon,
-        disabled: project.readOnly,
-        run: () => beginRename(current.id),
-      },
+        {
+          kind: "action",
+          id: "node-rename",
+          label: i18n.t("common.rename"),
+          icon: PencilIcon,
+          disabled: project.readOnly,
+          run: () => beginRename(current.id),
+        },
+        { kind: "separator", id: "node-sep-single" },
+      );
+    }
+    items.push(
       {
         kind: "action",
         id: "node-duplicate",
         label: i18n.t("series.ctx.duplicate"),
         icon: DocumentDuplicateIcon,
         disabled: project.readOnly,
-        run: () => duplicateById(current.id),
+        run: () => duplicateByIds(ids),
       },
       {
         kind: "action",
         id: "node-copy",
         label: i18n.t("series.ctx.copy"),
         icon: Square2StackIcon,
-        run: () => copyById(current.id),
+        run: () => copyByIds(ids),
       },
       {
         kind: "action",
@@ -640,7 +716,7 @@ const menuItems = computed<BoardMenuItem[]>(() => {
         label: i18n.t("series.ctx.cut"),
         icon: ScissorsIcon,
         disabled: project.readOnly,
-        run: () => cutById(current.id),
+        run: () => cutByIds(ids),
       },
       {
         kind: "action",
@@ -657,10 +733,11 @@ const menuItems = computed<BoardMenuItem[]>(() => {
         label: i18n.t("common.delete"),
         icon: TrashIcon,
         danger: true,
-        disabled: project.readOnly || project.doc.episodes.length <= 1,
-        run: () => void removeById(current.id),
+        disabled: project.readOnly || project.doc.episodes.length <= ids.length,
+        run: () => void removeByIds(ids),
       },
-    ];
+    );
+    return items;
   }
   if (current.kind === "edge") {
     return [
@@ -1018,6 +1095,28 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
   stroke: rgb(var(--md-primary));
   stroke-width: 2;
   stroke-dasharray: 5 4;
+}
+/* 框选：和画布工作流同一套主题色虚线（默认是 Vue Flow 的蓝色点线）。 */
+.series-graph :deep(.vue-flow__selection) {
+  background: rgb(var(--md-primary) / 0.08);
+  border: 1px dashed rgb(var(--md-primary) / 0.85);
+  border-radius: 6px;
+}
+/* 多选后的包围框也走主题色，别留默认蓝。 */
+.series-graph :deep(.vue-flow__nodesselection-rect) {
+  background: rgb(var(--md-primary) / 0.06);
+  border: 1px dashed rgb(var(--md-primary) / 0.55);
+  border-radius: 8px;
+}
+/* 拖动画面 / 框选时的手势光标，和画布一致。 */
+.series-graph :deep(.vue-flow__pane.draggable) {
+  cursor: grab;
+}
+.series-graph :deep(.vue-flow__pane.draggable.dragging) {
+  cursor: grabbing;
+}
+.series-graph :deep(.vue-flow__pane.selection) {
+  cursor: crosshair;
 }
 /* 底部工具栏：和画布工作流同一条胶囊，居中贴在画布底部。 */
 .series-toolbar {

@@ -2520,6 +2520,7 @@ const en: Record<string, string> = {
   "series.ctx.copied": "Part copied",
   "series.ctx.cutDone": "Part cut",
   "series.ctx.pasted": "Part pasted",
+  "series.ctx.deleteMany": "This deletes the {count} selected parts. Media and the canvas are untouched.",
   "series.choice.unnamed": "Choice {index}",
   "series.choices.title": "This part ended — what plays next?",
   "series.playback.ended": "The series ended",

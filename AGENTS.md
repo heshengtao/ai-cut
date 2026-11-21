@@ -145,6 +145,11 @@
   节点（Vue Flow 重排后可能补发 dragStop，false positive 会把程序坐标写进工程）。
 - 小地图必须显式传 `:width` / `:height`：Vue Flow MiniMap 的 SVG 默认 200×150，只改 CSS 盒子
   会被裁切（节点挤到一角 / 最后一格被切掉）。
+- 框选和多选右键也要对齐工作流画布：`.vue-flow__selection` / `.vue-flow__nodesselection-rect`
+  换成主题色虚线（默认是蓝色点线），pane 的 grab / crosshair 手势同样抄过来。多选后右键走
+  `onSelectionContextMenu`（选择框盖住节点，节点自己的右键事件不会触发）→ 复用节点菜单，
+  `ids` 是整个选择，菜单只保留批量动作（创建副本 / 复制 / 剪切 / 粘贴 / 删除），单选才有
+  编辑 / 重命名；复制 / 剪切 / 粘贴支持多选（`useSeriesClipboard` 存 `Episode[]`）。
 
 ## Canvas node UX (mandatory)
 
