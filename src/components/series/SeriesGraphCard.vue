@@ -96,8 +96,8 @@ function open(): void {
 .series-node {
   position: relative;
   width: 100%;
+  /* 不要 overflow:hidden：左右 Handle 画在卡片外面，裁掉就抓不到连线。 */
   border-radius: 12px;
-  overflow: hidden;
   background-color: rgb(var(--md-surface-container-low));
   border: 1px solid rgb(var(--md-outline-variant) / 0.5);
   color: rgb(var(--md-on-surface));
@@ -115,6 +115,8 @@ function open(): void {
 .series-node-cover {
   position: relative;
   height: 108px;
+  overflow: hidden;
+  border-radius: 11px 11px 0 0;
   background-color: rgb(var(--md-surface-container-highest));
 }
 .series-node-cover img {

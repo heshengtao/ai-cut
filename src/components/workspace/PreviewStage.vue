@@ -334,8 +334,8 @@ watch(
 watch(
   () => playback.playing,
   (playing) => {
-    // 重新播放 = 放弃本次选项浮层（全局空格快捷键也会走到这里）。
-    if (playing) series.onUserSeek();
+    // 开始播放 = 新的一轮：清掉选项浮层与上一轮的访问记录（全局空格快捷键也会走到这里）。
+    if (playing) series.resetRun();
     if (!engine) return;
     if (playing) engine.play();
     else engine.pause();
