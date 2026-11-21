@@ -9,6 +9,7 @@ import {
   removeEpisode,
   renameEpisode,
 } from "@/core/ops/episodes";
+import { connectEpisode } from "@/core/ops/series";
 import { createClip } from "@/core/factory";
 import type { Episode, Project } from "@/types/project";
 
@@ -128,5 +129,18 @@ describe("episodeDuration", () => {
   it("空分P 是 0", () => {
     const doc = base();
     expect(episodeDuration(doc.episodes[0])).toBe(0);
+  });
+});
+
+describe("removeEpisode 与剧集图", () => {
+  it("删分P 同时删掉指向它的连线", () => {
+    const doc = addEpisode(addEpisode(newProject("图"), "第二集"), "第三集");
+    const [first, second, third] = doc.episodes;
+    const withEdge = connectEpisode(doc, first.id, third.id);
+    expect(withEdge.seriesGraph?.edges).toHaveLength(3);
+    const next = removeEpisode(withEdge, second.id);
+    expect(next.seriesGraph?.edges).toHaveLength(1);
+    expect(next.seriesGraph?.edges[0].from).toBe(first.id);
+    expect(next.seriesGraph?.edges[0].to).toBe(third.id);
   });
 });

@@ -6,6 +6,7 @@
  */
 import { newEpisode, patchProjectMeta } from "@/core/episodes";
 import { withTouch } from "@/core/ops/internal";
+import { pruneSeriesEdges } from "./series";
 import type { Clip, Episode, Project, Track } from "@/types/project";
 
 /** 分P 时长：所有轨道里最靠后的片段终点。 */
@@ -56,11 +57,14 @@ export function removeEpisode(doc: Project, episodeId: string): Project {
   const index = doc.episodes.findIndex((episode) => episode.id === episodeId);
   if (index < 0) return doc;
   const episodes = reindex(doc.episodes.filter((episode) => episode.id !== episodeId));
-  if (doc.activeEpisodeId !== episodeId) {
-    return withTouch(doc, { episodes }) as Project;
-  }
-  const fallback = episodes[Math.min(index, episodes.length - 1)];
-  return patchProjectMeta(doc, { episodes, activeEpisodeId: fallback.id });
+  const next =
+    doc.activeEpisodeId !== episodeId
+      ? (withTouch(doc, { episodes }) as Project)
+      : patchProjectMeta(doc, {
+          episodes,
+          activeEpisodeId: episodes[Math.min(index, episodes.length - 1)].id,
+        });
+  return pruneSeriesEdges(next);
 }
 
 /** 把分P 移到 `toIndex`，并重排 order。 */
