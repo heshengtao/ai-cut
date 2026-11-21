@@ -2080,23 +2080,12 @@ watch(
     </div>
 
     <footer class="transport">
-      <div class="tc-block">
-        <span class="tc-now tabular">{{ nowLabel }}</span>
-        <span class="tc-total tabular">/ {{ totalLabel }}</span>
-      </div>
+      <div class="transport-left">
+        <div class="tc-block">
+          <span class="tc-now tabular">{{ nowLabel }}</span>
+          <span class="tc-total tabular">/ {{ totalLabel }}</span>
+        </div>
 
-      <div class="transport-center">
-        <button
-          class="play-btn"
-          :aria-label="playback.playing ? i18n.t('preview.pause') : i18n.t('preview.play')"
-          @click="togglePlay"
-        >
-          <PauseIcon v-if="playback.playing" class="w-[19px] h-[19px]" />
-          <PlayIcon v-else class="w-[19px] h-[19px]" />
-        </button>
-      </div>
-
-      <div class="transport-right">
         <div class="zoom-pill">
           <button
             class="mini-icon"
@@ -2121,7 +2110,20 @@ watch(
             <MagnifyingGlassPlusIcon class="w-[14px] h-[14px]" />
           </button>
         </div>
+      </div>
 
+      <div class="transport-center">
+        <button
+          class="play-btn"
+          :aria-label="playback.playing ? i18n.t('preview.pause') : i18n.t('preview.play')"
+          @click="togglePlay"
+        >
+          <PauseIcon v-if="playback.playing" class="w-[19px] h-[19px]" />
+          <PlayIcon v-else class="w-[19px] h-[19px]" />
+        </button>
+      </div>
+
+      <div class="transport-right">
         <Md3Select
           class="footer-select quality-select"
           compact
@@ -2571,6 +2573,12 @@ watch(
   gap: 10px;
   padding: 0 16px 6px;
 }
+.transport-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
 .tc-block {
   display: flex;
   align-items: baseline;
@@ -2626,14 +2634,15 @@ watch(
 .preview.portrait .transport {
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
-    "time play"
+    "left play"
     "right right";
   height: auto;
   row-gap: 2px;
   padding: 0 12px 8px;
 }
-.preview.portrait .tc-block {
-  grid-area: time;
+.preview.portrait .transport-left {
+  grid-area: left;
+  gap: 6px;
   overflow: hidden;
 }
 .preview.portrait .transport-center {

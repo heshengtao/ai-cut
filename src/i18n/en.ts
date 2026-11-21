@@ -2492,6 +2492,8 @@ const en: Record<string, string> = {
   "series.view.tile": "Tiles",
   "series.view.graph": "Flow",
   "series.preview": "Preview",
+  "series.play": "Play",
+  "series.edit": "Edit",
   "series.branchCount": "{count} choices",
   "series.orphan": "Not linked",
   "series.graph.fit": "Fit view",

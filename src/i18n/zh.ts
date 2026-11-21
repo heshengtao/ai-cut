@@ -2492,6 +2492,8 @@ const zh: Record<string, string> = {
   "series.view.tile": "平铺",
   "series.view.graph": "连线",
   "series.preview": "预览",
+  "series.play": "播放",
+  "series.edit": "修改",
   "series.branchCount": "{count} 个选项",
   "series.orphan": "未接入",
   "series.graph.fit": "适应视图",

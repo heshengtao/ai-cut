@@ -131,10 +131,18 @@
   否则会生成在屏幕外、看起来像「节点消失」。`fitView` 要重试（节点刚挂载时量不到尺寸会返回 false）。
   节点 / 边用**单向** `:nodes` / `:edges` 绑定（不是 `v-model`），画布只从工程派生，避免 Vue Flow
   双向写回把它内部节点对象换回来、引起反复重挂载。
-- 连线画布的底部工具条 = 拖动 / 框选两种鼠标模式 + 适应画布 + 按时间顺序重建；卡片右上角工具条
-  画在卡片内部（放到卡片外会掉 hover、点不到），右键菜单走 `BoardMenu`。分P 复制 / 剪切 / 粘贴
-  用 `useSeriesClipboard` 的会话级快照 + `pasteSeriesEpisode`（克隆逻辑在 `ops/episodeClone.ts`，
-  避免 `episodes.ts` 与 `series.ts` 循环 import）。
+- 连线画布的底部工具条 = 拖动 / 框选两种鼠标模式 + 适应画布 + 按时间顺序重建（纯图标，和画布
+  工作流一致）；卡片工具栏也**浮在卡片右上角外侧**，外层留 10px 内边距并下压 6px 与卡片重叠，
+  鼠标移过去不会掉 hover；不要为了「点得到」把工具栏塞进卡片里。节点工具栏按钮：播放（进预览并
+  直接播）/ 修改（进预览停在原地编辑）/ 复制 / 删除，右键菜单走 `BoardMenu`。分P 复制 / 剪切 /
+  粘贴用 `useSeriesClipboard` 的会话级快照 + `pasteSeriesEpisode`（克隆逻辑在
+  `ops/episodeClone.ts`，避免 `episodes.ts` 与 `series.ts` 循环 import）。
+- 位置缓存放在 `core/series/positionCache.ts`（模块级，跨视图切换保留）：组件内的缓存会在切视图时
+  丢掉，重新自动分层，表现为「切换视图后节点排列乱了」。挂载前 `screenToFlowCoordinate` 拿不到
+  尺寸，所以首屏只用自动分层；挂载后新卡片才在**视口内**找空位。`onNodeDragStop` 只写真的动过的
+  节点（Vue Flow 重排后可能补发 dragStop，false positive 会把程序坐标写进工程）。
+- 小地图必须显式传 `:width` / `:height`：Vue Flow MiniMap 的 SVG 默认 200×150，只改 CSS 盒子
+  会被裁切（节点挤到一角 / 最后一格被切掉）。
 
 ## Canvas node UX (mandatory)
 

@@ -20,6 +20,7 @@ import { episodeDuration } from "@/core/ops/episodes";
 import { assetThumbnailUrl } from "@/core/thumbnails";
 
 interface SeriesNodeActions {
+  play: (episodeId: string) => void;
   open: (episodeId: string) => void;
   rename: (episodeId: string) => void;
   duplicate: (episodeId: string) => void;
@@ -77,42 +78,48 @@ function clock(seconds: number): string {
     <Handle id="in" type="target" :position="Position.Left" class="series-handle series-handle-in" />
     <Handle id="out" type="source" :position="Position.Right" class="series-handle series-handle-out" />
 
-    <!-- 交互工具栏：和画布节点一样贴在卡片右上角，悬停 / 选中时出现。 -->
-    <div v-if="actions" class="series-node-tools nodrag" @pointerdown.stop @click.stop>
-      <button
-        type="button"
-        :title="i18n.t('series.preview')"
-        :aria-label="i18n.t('series.preview')"
-        @click="actions.open(episodeId)"
-      >
-        <PlayIcon />
-      </button>
-      <button
-        type="button"
-        :title="i18n.t('common.rename')"
-        :aria-label="i18n.t('common.rename')"
-        @click="actions.rename(episodeId)"
-      >
-        <PencilSquareIcon />
-      </button>
-      <button
-        type="button"
-        :title="i18n.t('series.duplicate')"
-        :aria-label="i18n.t('series.duplicate')"
-        @click="actions.duplicate(episodeId)"
-      >
-        <DocumentDuplicateIcon />
-      </button>
-      <button
-        type="button"
-        class="danger"
-        :title="i18n.t('common.delete')"
-        :aria-label="i18n.t('common.delete')"
-        :disabled="project.doc.episodes.length <= 1 || project.readOnly"
-        @click="actions.remove(episodeId)"
-      >
-        <TrashIcon />
-      </button>
+    <!--
+      交互工具栏：和画布节点一样浮在卡片右上角外侧。
+      `series-node-hover` 向下多留 10px 并和卡片重叠 6px —— 鼠标从卡片移向工具栏时
+      始终落在同一个 hover 区里，不会掉出去点不到。
+    -->
+    <div v-if="actions" class="series-node-hover nodrag" @pointerdown.stop @click.stop>
+      <div class="series-node-tools">
+        <button
+          type="button"
+          :title="i18n.t('series.play')"
+          :aria-label="i18n.t('series.play')"
+          @click="actions.play(episodeId)"
+        >
+          <PlayIcon />
+        </button>
+        <button
+          type="button"
+          :title="i18n.t('series.edit')"
+          :aria-label="i18n.t('series.edit')"
+          @click="actions.open(episodeId)"
+        >
+          <PencilSquareIcon />
+        </button>
+        <button
+          type="button"
+          :title="i18n.t('series.duplicate')"
+          :aria-label="i18n.t('series.duplicate')"
+          @click="actions.duplicate(episodeId)"
+        >
+          <DocumentDuplicateIcon />
+        </button>
+        <button
+          type="button"
+          class="danger"
+          :title="i18n.t('common.delete')"
+          :aria-label="i18n.t('common.delete')"
+          :disabled="project.doc.episodes.length <= 1 || project.readOnly"
+          @click="actions.remove(episodeId)"
+        >
+          <TrashIcon />
+        </button>
+      </div>
     </div>
 
     <div class="series-node-cover">
@@ -135,9 +142,10 @@ function clock(seconds: number): string {
   position: relative;
   width: 100%;
   /* 不要 overflow:hidden：左右 Handle 画在卡片外面，裁掉就抓不到连线。 */
-  border-radius: 16px;
-  background-color: rgb(var(--md-surface-container-low));
-  border: 1px solid rgb(var(--md-outline-variant) / 0.5);
+  border-radius: 20px;
+  background: var(--node-surface-bg, rgb(var(--md-surface-container-low)));
+  border: 1px solid var(--node-surface-border, rgb(var(--md-outline-variant) / 0.38));
+  box-shadow: var(--node-surface-shadow, none);
   color: rgb(var(--md-on-surface));
   transition: border-color 0.15s ease;
 }
@@ -151,7 +159,7 @@ function clock(seconds: number): string {
   inset: -3px;
   z-index: 8;
   border: 1.5px solid transparent;
-  border-radius: 19px;
+  border-radius: 23px;
   pointer-events: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -160,14 +168,14 @@ function clock(seconds: number): string {
   box-shadow: 0 0 0 4px rgb(var(--md-primary) / 0.1);
 }
 :global(.vue-flow__node) {
-  border-radius: 16px;
+  border-radius: 20px;
   outline: none;
 }
 .series-node-cover {
   position: relative;
   height: 108px;
   overflow: hidden;
-  border-radius: 15px 15px 0 0;
+  border-radius: 19px 19px 0 0;
   background-color: rgb(var(--md-surface-container-highest));
 }
 .series-node-cover img {
@@ -215,12 +223,28 @@ function clock(seconds: number): string {
   color: rgb(var(--md-on-surface-variant));
 }
 
-/* ============ 交互工具栏（右上角，对齐画布节点） ============ */
-.series-node-tools {
+/* ============ 交互工具栏（画布同款：卡片右上角外侧） ============ */
+.series-node-hover {
   position: absolute;
-  right: 6px;
-  top: 6px;
+  right: 2px;
+  /* 底部和卡片重叠 6px，剩下的 10px 内边距就是鼠标过渡区。 */
+  bottom: calc(100% - 6px);
   z-index: 10;
+  padding-bottom: 10px;
+  opacity: 0;
+  transform: translateY(2px);
+  pointer-events: none;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+.series-node:hover .series-node-hover,
+:global(.vue-flow__node.selected) .series-node-hover,
+.series-node-hover:hover,
+.series-node-hover:focus-within {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.series-node-tools {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -229,17 +253,6 @@ function clock(seconds: number): string {
   background: rgb(var(--md-surface-container-high) / 0.96);
   border: 1px solid rgb(var(--md-outline-variant) / 0.5);
   box-shadow: var(--md-elevation-1);
-  opacity: 0;
-  transform: translateY(-2px);
-  pointer-events: none;
-  transition: opacity 0.14s ease, transform 0.14s ease;
-}
-.series-node:hover .series-node-tools,
-:global(.vue-flow__node.selected) .series-node-tools,
-.series-node-tools:focus-within {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
 }
 .series-node-tools button {
   width: 22px;

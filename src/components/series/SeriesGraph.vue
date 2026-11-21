@@ -31,6 +31,7 @@ import {
   type NodeTypesObject,
 } from "@vue-flow/core";
 import {
+  ArrowPathIcon,
   ArrowsPointingOutIcon,
   CheckIcon,
   ClipboardIcon,
@@ -53,12 +54,18 @@ import BoardMenu from "@/components/board/BoardMenu.vue";
 import type { BoardMenuItem } from "@/components/board/BoardMenuList.vue";
 import { useI18n } from "@/i18n";
 import { useProjectStore } from "@/stores/project";
-import { useEpisodeOpen } from "@/composables/useEpisodeOpen";
+import { useEpisodeOpen, useEpisodePlay } from "@/composables/useEpisodeOpen";
 import { useSeriesClipboard } from "@/composables/useSeriesClipboard";
 import { confirm } from "@/composables/useConfirm";
 import { toast } from "@/composables/useToast";
 import { CARD_HEIGHT, CARD_WIDTH, ORIGIN, placements } from "@/core/series/layout";
 import { orderedEpisodes, seriesEdges } from "@/core/series/graph";
+import {
+  cachedSeriesPosition,
+  clearSeriesPositions,
+  pruneSeriesPositions,
+  setSeriesPosition,
+} from "@/core/series/positionCache";
 import {
   addConnectedEpisode,
   addEpisode,
@@ -89,6 +96,7 @@ const edgeTypes = { seriesEdge: SeriesEdge } as unknown as EdgeTypesObject;
 const i18n = useI18n();
 const project = useProjectStore();
 const openEpisode = useEpisodeOpen();
+const playEpisode = useEpisodePlay();
 
 const {
   fitView,
@@ -108,12 +116,6 @@ const {
   onEdgeContextMenu,
   onPaneContextMenu,
 } = useVueFlow();
-
-/**
- * 画布位置缓存：结构变化（连线 / 新建 / 删除）只调整新卡片，不要把所有卡片重新分层。
- * 之前每次 doc 变化都重新跑 autoLayout，连一条线整张图就会跳一下，看起来像卡片消失。
- */
-const positionCache = new Map<string, { x: number; y: number }>();
 
 const rootEl = ref<HTMLElement | null>(null);
 const flowNodes = shallowRef<Node[]>([]);
@@ -183,6 +185,7 @@ const renameStyle = computed<CSSProperties>(() => {
 
 /** 交给卡片的动作（卡片是 Vue Flow 内部渲染的，拿不到父组件 emits）。 */
 const seriesActions = {
+  play: (episodeId: string): void => playEpisode(episodeId),
   open: (episodeId: string): void => openEpisode(episodeId),
   rename: (episodeId: string): void => beginRename(episodeId),
   duplicate: (episodeId: string): void => duplicateById(episodeId),
@@ -194,17 +197,14 @@ function syncNodes(): void {
   const auto = placements(project.doc);
   const manual = project.doc.seriesGraph?.positions ?? {};
   const episodes = orderedEpisodes(project.doc);
-  const keep = new Set(episodes.map((episode) => episode.id));
-  for (const id of [...positionCache.keys()]) {
-    if (!keep.has(id)) positionCache.delete(id);
-  }
+  pruneSeriesPositions(new Set(episodes.map((episode) => episode.id)));
 
   // 先把「手动坐标 / 上次位置」定下来，新分P 再找一个不重叠的位置。不能在缓存已经
   // 冻结旧坐标时用 autoLayout 给新节点算坐标——那会正好压在别的卡片上（看起来像消失）。
   const resolved = new Map<string, { x: number; y: number }>();
   for (const episode of episodes) {
     const saved = manual[episode.id];
-    const cached = positionCache.get(episode.id);
+    const cached = cachedSeriesPosition(episode.id);
     const position =
       saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)
         ? { x: saved.x, y: saved.y }
@@ -265,13 +265,15 @@ function syncNodes(): void {
   for (const episode of episodes) {
     if (resolved.has(episode.id)) continue;
     const fallback = auto.get(episode.id) ?? { x: ORIGIN, y: ORIGIN };
-    const position = hasLayout ? freeSpot() : fallback;
+    // 挂载前还没有画布尺寸：这时算「视口内空位」只能拿到 0,0，会把卡片排到奇怪的地方。
+    // 首屏一律走自动分层，挂载之后再给新卡片找视口内的位置。
+    const position = hasLayout && viewportReady ? freeSpot() : fallback;
     resolved.set(episode.id, position);
   }
 
   flowNodes.value = episodes.map((episode) => {
     const position = resolved.get(episode.id) ?? { x: ORIGIN, y: ORIGIN };
-    positionCache.set(episode.id, position);
+    setSeriesPosition(episode.id, position);
     const current = existing.get(episode.id);
     if (current) {
       const samePosition =
@@ -344,6 +346,7 @@ async function fitAll(): Promise<void> {
 /** 第一次量完节点尺寸后适应视图；之后加节点不再抢视口。 */
 let fitted = false;
 onNodesInitialized(() => {
+  viewportReady = true;
   if (fitted) return;
   fitted = true;
   void fitAll();
@@ -357,6 +360,9 @@ onViewportChange((transform) => {
 // ---------------------------------------------------------------------------
 // 连线 / 拖到空白新建分P
 // ---------------------------------------------------------------------------
+
+/** 画布是否已经量完（挂载前 `screenToFlowCoordinate` 拿不到容器，不能用来算落点）。 */
+let viewportReady = false;
 
 /** 本次拖线从哪个端口开始（用于「松手在空白处」时新建分P）。 */
 let connectStart: {
@@ -424,11 +430,17 @@ onConnectEnd((event) => {
 
 onNodeDragStop((event) => {
   if (project.readOnly) return;
-  const moves = event.nodes.map((node) => ({
-    id: node.id,
-    x: node.position.x,
-    y: node.position.y,
-  }));
+  // 只写「真的动过」的节点：Vue Flow 在布局重排 / 选中后也可能补发 dragStop，
+  // 把程序算出来的坐标当成用户拖动写进工程，切视图后就会看到莫名其妙的排布。
+  const moves = event.nodes
+    .map((node) => ({ id: node.id, x: node.position.x, y: node.position.y }))
+    .filter((move) => {
+      const saved = project.doc.seriesGraph?.positions?.[move.id];
+      const known = saved ?? cachedSeriesPosition(move.id);
+      if (!known) return true;
+      return Math.abs(known.x - move.x) > 0.5 || Math.abs(known.y - move.y) > 0.5;
+    });
+  if (moves.length === 0) return;
   project.dispatch((doc) =>
     moves.reduce((acc, move) => moveSeriesCard(acc, move.id, move.x, move.y), doc),
   );
@@ -735,7 +747,7 @@ function removeEdge(): void {
 function doAutoLayout(): void {
   menu.value = null;
   if (project.readOnly) return;
-  positionCache.clear();
+  clearSeriesPositions();
   project.dispatch((doc) => autoLayoutSeries(doc));
   void fitAll();
 }
@@ -749,7 +761,7 @@ async function rebuild(): Promise<void> {
     destructive: true,
   });
   if (!accepted) return;
-  positionCache.clear();
+  clearSeriesPositions();
   project.dispatch((doc) => resetSeriesGraph(doc));
   toast(i18n.t("series.graph.rebuildDone"));
   void fitAll();
@@ -786,7 +798,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
 </script>
 
 <template>
-  <section ref="rootEl" class="series-graph" data-view="series-graph">
+  <section ref="rootEl" class="series-graph ab-canvas" data-view="series-graph">
     <VueFlow
       :nodes="flowNodes"
       :edges="flowEdges"
@@ -808,10 +820,17 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
       @node-double-click="onNodeDoubleClick"
     >
       <Background
-        id="series-grid"
+        id="series-grid-minor"
         :gap="22"
         :size="1"
         pattern-color="var(--ab-dot-minor)"
+        bg-color="transparent"
+      />
+      <Background
+        id="series-grid-major"
+        :gap="110"
+        :size="1.5"
+        pattern-color="var(--ab-dot-major)"
         bg-color="transparent"
       />
       <div class="series-canvas-dock">
@@ -819,6 +838,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
           pannable
           zoomable
           class="series-minimap"
+          :width="150"
+          :height="96"
           node-color="rgb(139 111 232 / 0.7)"
           mask-color="rgb(28 27 31 / 0.5)"
         />
@@ -901,7 +922,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
         :disabled="project.readOnly || !project.doc.seriesGraph?.custom"
         @click="rebuild"
       >
-        <span class="series-tool-text">{{ i18n.t("series.graph.rebuild") }}</span>
+        <ArrowPathIcon />
       </button>
     </div>
 
@@ -982,9 +1003,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  /* 圆点底色：和画布同一套视觉，但不引入 .ab-canvas 的整套节点配色。 */
-  --ab-dot-minor: rgb(var(--md-outline) / 0.45);
-  background-color: var(--app-bg);
+  background-color: var(--ab-canvas-bg, var(--app-inset));
 }
 .series-graph :deep(.vue-flow) {
   background: transparent;
@@ -993,7 +1012,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
   border: 0;
   background: transparent;
   padding: 0;
-  border-radius: 16px;
+  border-radius: 20px;
   outline: none;
 }
 /* 拖线时的那根虚线，跟画布主色一致。 */
@@ -1018,49 +1037,42 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
   z-index: 5;
 }
 .series-tool {
-  height: 28px;
-  min-width: 28px;
-  padding: 0 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: rgb(var(--md-on-surface-variant));
-  font-size: 11.5px;
   cursor: pointer;
-  transition: background-color 0.14s ease, color 0.14s ease;
-}
-.series-tool:hover:not(:disabled) {
-  background-color: rgb(var(--md-on-surface) / 0.1);
-  color: rgb(var(--md-on-surface));
 }
 .series-tool.on {
   background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
+}
+.series-tool:hover:not(:disabled) {
+  background-color: rgb(var(--md-on-surface-variant) / 0.12);
+  color: rgb(var(--md-on-surface));
 }
 .series-tool:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 .series-tool :deep(svg) {
-  width: 15px;
-  height: 15px;
+  width: 17px;
+  height: 17px;
 }
 .series-marquee-icon {
-  width: 15px;
-  height: 15px;
-}
-.series-tool-text {
-  white-space: nowrap;
+  width: 17px;
+  height: 17px;
 }
 .series-toolbar-sep {
+  flex: 0 0 auto;
   width: 1px;
   height: 16px;
-  margin: 0 3px;
-  background-color: rgb(var(--md-outline-variant) / 0.8);
+  background-color: rgb(var(--md-outline-variant) / 0.6);
 }
 
 /* ============ 小地图 + 缩放（对齐画布左下角 dock） ============ */
