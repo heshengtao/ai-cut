@@ -341,6 +341,37 @@ export interface CutScope {
   timed?: boolean;
 }
 
+/** 剧集图上的一条有向连线：`from` 播完 → 进入 `to`。 */
+export interface SeriesEdge {
+  id: string;
+  /** 源分P id。 */
+  from: string;
+  /** 目标分P id。 */
+  to: string;
+  /** 连线上的选项文案；空 / 缺省 = 无选项（唯一出边自动连播，多条出边时显示「选项N」）。 */
+  label?: string;
+}
+
+/** 工程级剧集图。缺省表示「按分P order 派生一条时间链」。 */
+export interface SeriesGraphDoc {
+  /** 用户编辑过连线后为 true；此后 `edges` 才是真相。 */
+  custom: boolean;
+  /** 只有 custom 时参与渲染；保持追加顺序（= 选项显示顺序）。 */
+  edges: SeriesEdge[];
+  /** 卡片在画布上的世界坐标；缺省的分P 走自动布局。 */
+  positions: Record<string, { x: number; y: number }>;
+}
+
+/** 播放时一个可点的选项（由出边投影出来，不落库）。 */
+export interface SeriesOption {
+  edgeId: string;
+  to: string;
+  /** 已 trim 的文案；未命名时为空串。 */
+  label: string;
+  /** 没有文案：界面显示「选项 {index}」。 */
+  unnamed: boolean;
+}
+
 /** 一个分P：工程内的一条独立时间线。 */
 export interface Episode {
   id: string;
@@ -351,8 +382,6 @@ export interface Episode {
   markers: Marker[];
   createdAt: number;
   updatedAt: number;
-  /** 互动分支预留：本阶段只保留字段，不实现。 */
-  transitions?: { choice: string; toEpisodeId: string }[];
 }
 
 /** 工程文档，可直接序列化为 .json。 */
@@ -388,6 +417,8 @@ export interface Project {
    */
   boards?: BoardCanvas[];
   activeBoardId?: string;
+  /** 剧集图：分P 之间的播放关系。缺省 = 按 order 派生时间链。 */
+  seriesGraph?: SeriesGraphDoc;
 }
 
 /** 当前工程文档版本。 */
