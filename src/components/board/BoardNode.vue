@@ -554,6 +554,12 @@ function fitMedia(naturalWidth: number, naturalHeight: number, key: string): voi
   fittedKey.value = stamp;
   if (sameMediaSize(current.size, next)) return;
   board.resizeNode(current.id, next, { record: false });
+  // 同一拍里连续两次改节点尺寸时，Vue Flow 的 `v-model:nodes` 回写会被它的
+  // pauseModel 丢掉（画布 store 已经是新尺寸、卡片却还是旧尺寸）。这里像手动
+  // 缩放一样直接改 flow node，卡片当场跟上素材比例。
+  updateNode(current.id, {
+    style: { width: `${next.width}px`, height: `${next.height}px` },
+  } as never);
 }
 
 function onImageLoad(event: Event): void {
