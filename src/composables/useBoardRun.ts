@@ -462,49 +462,115 @@ function upstreamAssetScoped(
   return { path: asset.src, duration: asset.duration, assetId };
 }
 
+/** 显示节点读取的类型：媒体 / 文本 / 值。 */
+type StackKind = "media" | "text" | "value";
+
 /**
- * 上游已经**发布**的整摞素材（按端口取；`primary` 是上游当前对外发布的那张）。
- *
- * 图片显示节点用整摞做多图牌堆，单张节点只用 `primary`——两者语义都从
- * `publishedAssetIds` 来，不会出现「显示节点只拿到第一张」的割裂。
+ * 显示节点当前项：优先保持上次发布的那一项，其次跟随上游当前选择，
+ * 最后才按 `stackIndex` 夹取。
  */
-function upstreamAssetsScoped(
+function displayIndex(node: BoardNode, items: unknown[], preferred?: string | null): number {
+  const previous = node.data.outputAssetId ?? preferred ?? undefined;
+  const at = previous ? items.indexOf(previous) : -1;
+  if (at >= 0) return at;
+  return Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
+}
+
+/** 第一条输入上游当前发布的那一项（显示节点第一次运行用它对齐上游选择）。 */
+function upstreamPrimaryScoped(
   nodeId: string,
   portId: string,
   scope: RunScope = globalRunScope(),
-): { ids: string[]; primary?: string } {
-  const project = useProjectStore();
+): string | null {
+  const edge = scope.edges.find((item) => item.target === nodeId && item.targetPort === portId);
+  if (!edge) return null;
+  const ref = resolveFromEdge(edge, "any", new Set(), scope);
+  if (!ref) return null;
+  return publishedAssetId(ref.node, ref.portId, portContext()) ?? null;
+}
+
+/**
+ * 显示节点的输入 = 上游发布的**整摞**（单值也算 1 项）。
+ *
+ * 同一端口可以接多个上游（`max > 1`）：按连线顺序拼接、去重。
+ * 显示节点是透传的：自己没跑过就继续往上读它的输入（入口也可以有多个）。
+ */
+function upstreamStackScoped(
+  nodeId: string,
+  portId: string,
+  kind: StackKind,
+  scope: RunScope = globalRunScope(),
+): unknown[] {
   const context = portContext();
-  const target = scope.nodes.find((item) => item.id === nodeId);
-  const targetPort = target
-    ? portsOf(target, context).inputs.find((port) => port.id === portId)
-    : null;
-  const source = resolveUpstream(
-    nodeId,
-    portId,
-    targetPort?.type ?? "any",
-    new Set(),
-    scope,
-  );
-  if (!source) return { ids: [] };
-  if (isBundleNode(source.node)) {
-    const value = bundleValueScoped(source.node, targetPort?.type ?? "any", source.edgeId, scope);
-    const list = Array.isArray(value)
-      ? value
-      : typeof value === "string"
-        ? [value]
-        : [];
-    const ids = list.filter(
-      (id): id is string =>
-        typeof id === "string" && project.doc.assets.some((asset) => asset.id === id),
-    );
-    return { ids, primary: ids[0] };
+  const project = useProjectStore();
+  const items: unknown[] = [];
+  const seen = new Set<string>();
+  const emit = (value: unknown): void => {
+    if (kind === "value") {
+      items.push(value);
+      return;
+    }
+    if (Array.isArray(value)) items.push(...value.flat(1));
+    else if (value !== null && value !== undefined) items.push(value);
+  };
+  const emitList = (list: unknown[]): void => {
+    if (kind === "value") items.push(...list);
+    else items.push(...list.flat(1));
+  };
+  const fromEdge = (edge: BoardEdge): void => {
+    if (seen.has(edge.id)) return;
+    seen.add(edge.id);
+    const source = scope.nodes.find((node) => node.id === edge.source);
+    if (!source) return;
+    if (source.type.startsWith("display.")) {
+      const own = source.data.values?.list;
+      if (Array.isArray(own) && own.length > 0) {
+        emitList(own);
+        return;
+      }
+      for (const inner of scope.edges) {
+        if (inner.target === source.id) fromEdge(inner);
+      }
+      return;
+    }
+    const ref = resolveFromEdge(edge, "any", new Set(), scope);
+    if (!ref) return;
+    // 输入 / 显示 / 值节点的整组输出：一摞值就是它，优先于单路端口。
+    const list = ref.node.data.values?.list;
+    if (Array.isArray(list) && list.length > 0) {
+      emitList(list);
+      return;
+    }
+    if (kind === "media") {
+      const ids = publishedAssetIds(ref.node, ref.portId, context);
+      if (ids.length > 0) {
+        emit(ids);
+        return;
+      }
+      const single = publishedAssetId(ref.node, ref.portId, context);
+      if (single) emit(single);
+      return;
+    }
+    const value = publishedValue(ref.node, ref.portId);
+    if (value !== null && value !== undefined) {
+      emit(value);
+      return;
+    }
+    const text = ref.node.data.outputText;
+    if (typeof text === "string" && text) emit(text);
+  };
+  for (const edge of scope.edges) {
+    if (edge.target === nodeId && edge.targetPort === portId) fromEdge(edge);
   }
-  const primary = publishedAssetId(source.node, source.portId, context);
-  const ids = publishedAssetIds(source.node, source.portId, context).filter((id) =>
-    project.doc.assets.some((asset) => asset.id === id),
-  );
-  return { ids, primary: primary && ids.includes(primary) ? primary : ids[0] };
+  const kept =
+    kind === "media"
+      ? items.filter(
+          (id): id is string =>
+            typeof id === "string" &&
+            project.doc.assets.some((asset) => asset.id === id),
+        )
+      : items;
+  return [...new Set(kept)].slice(0, MAX_OUTPUTS);
 }
 
 /**
@@ -650,7 +716,6 @@ export async function runAdapter(
   const readText = (id: string, portId: string) => upstreamTextScoped(id, portId, scope);
   const readValue = (id: string, portId: string) => upstreamValueScoped(id, portId, scope);
   const readAsset = (id: string, portId: string) => upstreamAssetScoped(id, portId, scope);
-  const readAssets = (id: string, portId: string) => upstreamAssetsScoped(id, portId, scope);
   const readRefs = (id: string, kind: "image" | "audio" | "video") =>
     collectRefsScoped(id, kind, scope);
   const readImageRefs = (id: string) => collectRefsScoped(id, "image", scope);
@@ -725,10 +790,9 @@ export async function runAdapter(
     }
 
     case "display.value": {
-      const list = readValue(nodeId, "list");
-      const source = list === null || list === undefined ? readValue(nodeId, "value") : null;
-      const items = list === null || list === undefined ? normalizeItems(source) : normalizeItems(list);
-      const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
+      // 值显示也走复合输入：单值 / 数组 / 多上游都收成一摞，`stackIndex` 选当前项。
+      const items = upstreamStackScoped(nodeId, "in", "value", scope);
+      const index = displayIndex(node, items);
       const value = items[index] ?? null;
       return typeof value === "string"
         ? { values: { value, list: items }, text: value }
@@ -764,53 +828,35 @@ export async function runAdapter(
     }
 
     case "display.image": {
-      // 上游一次出多张时整摞都接过来：卡片按「牌堆」叠放，`assetId` 是当前发布那张。
-      const listValue = readValue(node.id, "list");
-      if (listValue !== null && listValue !== undefined) {
-        const items = normalizeItems(listValue).filter(
-          (item): item is string => typeof item === "string",
-        );
-        const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
-        return { assets: items, assetId: items[index], kind: "image", values: { list: items } };
-      }
-      const upstream = readAssets(node.id, "image");
-      if (upstream.ids.length === 0) throw new Error("缺少上游素材：先连接并运行上游节点");
-      return {
-        assets: upstream.ids,
-        assetId: upstream.primary,
-        kind: "image",
-        values: { list: upstream.ids },
-      };
+      // 一个输入接住上游整摞（单张 / 数组 / 多上游都算）：卡片按牌堆叠放。
+      const ids = upstreamStackScoped(node.id, "in", "media", scope).filter(
+        (item): item is string => typeof item === "string",
+      );
+      if (ids.length === 0) throw new Error("缺少上游素材：先连接并运行上游节点");
+      const preferred = node.data.outputAssetId ?? upstreamPrimaryScoped(node.id, "in", scope);
+      const index = displayIndex(node, ids, preferred);
+      return { assets: ids, assetId: ids[index], kind: "image", values: { list: ids } };
     }
 
     case "display.video":
     case "display.audio": {
-      const port = node.type.slice("display.".length);
-      const listValue = readValue(node.id, "list");
-      if (listValue !== null && listValue !== undefined) {
-        const items = normalizeItems(listValue).filter(
-          (item): item is string => typeof item === "string",
-        );
-        const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
-        return { assetId: items[index], kind: port as AssetKind, values: { list: items } };
-      }
-      const input = readAsset(node.id, port);
-      if (!input) throw new Error("缺少上游素材：先连接并运行上游节点");
-      return { assetId: input.assetId, kind: port as AssetKind, values: { list: [input.assetId] } };
+      const port = node.type.slice("display.".length) as AssetKind;
+      const ids = upstreamStackScoped(node.id, "in", "media", scope).filter(
+        (item): item is string => typeof item === "string",
+      );
+      if (ids.length === 0) throw new Error("缺少上游素材：先连接并运行上游节点");
+      const preferred = node.data.outputAssetId ?? upstreamPrimaryScoped(node.id, "in", scope);
+      const index = displayIndex(node, ids, preferred);
+      // 发布整摞（`assets`），卡片才能像图片一样翻牌。
+      return { assets: ids, assetId: ids[index], kind: port, values: { list: ids } };
     }
 
     case "display.text": {
-      const listValue = readValue(node.id, "list");
-      if (listValue !== null && listValue !== undefined) {
-        const items = normalizeItems(listValue).filter(
-          (item): item is string => typeof item === "string",
-        );
-        const index = Math.min(Math.max(0, node.data.stackIndex ?? 0), Math.max(0, items.length - 1));
-        return { text: items[index] ?? "", values: { list: items } };
-      }
-      const text = readText(node.id, "text");
-      if (text === null) throw new Error("缺少上游文本：先连接并运行上游节点");
-      return { text, values: { list: [text] } };
+      const items = upstreamStackScoped(node.id, "in", "text", scope);
+      const texts = items.filter((item): item is string => typeof item === "string");
+      if (texts.length === 0) throw new Error("缺少上游文本：先连接并运行上游节点");
+      const index = displayIndex(node, texts);
+      return { text: texts[index] ?? "", values: { list: texts } };
     }
 
     case "model.image": {
@@ -1439,7 +1485,7 @@ async function runLoop(
 }
 
 /** 输出附件卡最多保留多少个产物（重复运行累积时防止无限膨胀）。 */
-const MAX_OUTPUTS = 12;
+const MAX_OUTPUTS = 24;
 
 async function runOne(nodeId: string, scope: RunScope = globalRunScope()): Promise<boolean> {
   const node = scope.nodes.find((item) => item.id === nodeId);

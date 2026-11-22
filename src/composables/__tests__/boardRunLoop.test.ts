@@ -76,7 +76,7 @@ describe("循环节点", () => {
     board.addNode(node("body", "display.value", {}, 900));
     connect(board, [
       { id: "e1", source: "items", sourcePort: "value", target: "s", targetPort: "items" },
-      { id: "e2", source: "s", sourcePort: "item", target: "body", targetPort: "value" },
+      { id: "e2", source: "s", sourcePort: "item", target: "body", targetPort: "in" },
       { id: "e3", source: "body", sourcePort: "value", target: end.id, targetPort: "in1" },
     ]);
 
@@ -97,7 +97,7 @@ describe("循环节点", () => {
     board.addNode(node("byItem", "display.value", {}, 900));
     connect(board, [
       { id: "e0", source: "items", sourcePort: "value", target: "s", targetPort: "items" },
-      { id: "e1", source: "s", sourcePort: "item", target: "byItem", targetPort: "value" },
+      { id: "e1", source: "s", sourcePort: "item", target: "byItem", targetPort: "in" },
       { id: "e2", source: "byItem", sourcePort: "value", target: end.id, targetPort: "in1" },
       // 槽位 2 直接收输入节点的整组数组（每个循环行都收一次）。
       { id: "e3", source: "items", sourcePort: "list", target: end.id, targetPort: "in2" },

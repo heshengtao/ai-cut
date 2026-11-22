@@ -73,7 +73,7 @@ describe("多值输入 / 显示", () => {
       source: "src",
       sourcePort: "value",
       target: "d",
-      targetPort: "list",
+      targetPort: "in",
     });
     await expect(runAdapter(display, "d")).resolves.toEqual({
       text: "乙",
