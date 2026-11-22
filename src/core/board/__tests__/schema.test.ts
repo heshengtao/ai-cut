@@ -177,3 +177,49 @@ describe("portsCompatible", () => {
     expect(portsCompatible("text", "video")).toBe(false);
   });
 });
+
+describe("normalizeBoard: 显示节点输入端口迁移", () => {
+  const nodes = [
+    { id: "src", type: "input.image", position: { x: 0, y: 0 }, data: { params: {}, bindings: {} } },
+    { id: "d", type: "display.image", position: { x: 300, y: 0 }, data: { params: {}, bindings: {} } },
+  ];
+
+  it("image / list 两条旧边都改写为 in，且都保留", () => {
+    const board = normalizeBoard({
+      nodes,
+      edges: [
+        { id: "e1", source: "src", sourcePort: "image", target: "d", targetPort: "image" },
+        { id: "e2", source: "src", sourcePort: "list", target: "d", targetPort: "list" },
+      ],
+    });
+    expect(board.edges.map((edge) => edge.targetPort)).toEqual(["in", "in"]);
+    expect(board.edges).toHaveLength(2);
+  });
+
+  it("迁移幂等，且不碰插件自定义的 display.* 节点", () => {
+    const raw = {
+      nodes: [
+        ...nodes,
+        { id: "p", type: "display.custom", position: { x: 0, y: 300 }, data: { params: {}, bindings: {} } },
+      ],
+      edges: [
+        { id: "e1", source: "src", sourcePort: "image", target: "d", targetPort: "image" },
+        { id: "e2", source: "src", sourcePort: "image", target: "p", targetPort: "list" },
+      ],
+    };
+    const once = normalizeBoard(raw);
+    expect(once.edges.find((edge) => edge.target === "p")?.targetPort).toBe("list");
+    expect(normalizeBoard(once).edges).toEqual(once.edges);
+  });
+
+  it("同一 (source, sourcePort) 重复的旧边只留一条", () => {
+    const board = normalizeBoard({
+      nodes,
+      edges: [
+        { id: "e1", source: "src", sourcePort: "image", target: "d", targetPort: "image" },
+        { id: "e2", source: "src", sourcePort: "image", target: "d", targetPort: "list" },
+      ],
+    });
+    expect(board.edges).toHaveLength(1);
+  });
+});

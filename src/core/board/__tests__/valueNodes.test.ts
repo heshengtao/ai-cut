@@ -30,8 +30,7 @@ describe("value nodes", () => {
 
     const display = portsOf(valueNode("b", "display.value"));
     expect(display.inputs).toEqual([
-      { id: "value", type: "any", labelKey: "board.port.value" },
-      { id: "list", type: "json", labelKey: "board.port.list" },
+      { id: "in", type: "any", labelKey: "board.port.value", max: 8 },
     ]);
     expect(display.outputs).toEqual([
       { id: "value", type: "any", labelKey: "board.port.value" },

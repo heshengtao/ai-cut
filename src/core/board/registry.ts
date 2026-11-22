@@ -49,16 +49,21 @@ export const MODEL_WIDTH = 400;
  * 「输出连线」里选。数组里装的是素材 id / 文本段 / JSON 值，循环节点可以直接吃。
  */
 const LIST_OUT = { id: "list", type: "json", labelKey: "board.port.list" } as const;
-const LIST_IN = { id: "list", type: "json", labelKey: "board.port.list" } as const;
 
 const IMAGE_OUT = [
   { id: "image", type: "image", labelKey: "board.port.image" },
   LIST_OUT,
 ] as const;
-const IMAGE_IN = [
-  { id: "image", type: "image", labelKey: "board.port.image" },
-  LIST_IN,
-] as const;
+/**
+ * 显示节点的唯一输入口。
+ *
+ * 类型必须是 `any`：只有它能同时接受单张素材（`image`）和数组（`json`）——
+ * `json → image` 按类型判定不可连。`max` 让检查器里可以多选多个上游，
+ * 运行时按连线顺序拼成一个牌堆。
+ */
+function displayInput(labelKey: string): BoardPortSpec {
+  return { id: "in", type: "any", labelKey, max: 8 };
+}
 
 /** 输入节点：把素材 / 文本送进画布。 */
 const INPUT_IMAGE: BoardNodeDefinition = {
@@ -125,7 +130,8 @@ const DISPLAY_IMAGE: BoardNodeDefinition = {
   titleKey: "board.node.displayImage",
   category: "display",
   order: 30,
-  inputs: [...IMAGE_IN],
+  inputs: [displayInput("board.port.image")],
+  acceptTypes: ["image", "json"],
   // 显示节点也把输入原样发布到输出（和 ai-board 的 display 节点一致），
   // 下游可以继续接模型 / 显示，不需要再单独复制一个输入节点。
   outputs: [...IMAGE_OUT],
@@ -140,10 +146,8 @@ const DISPLAY_VIDEO: BoardNodeDefinition = {
   titleKey: "board.node.displayVideo",
   category: "display",
   order: 31,
-  inputs: [
-    { id: "video", type: "video", labelKey: "board.port.video" },
-    LIST_IN,
-  ],
+  inputs: [displayInput("board.port.video")],
+  acceptTypes: ["video", "json"],
   outputs: [
     { id: "video", type: "video", labelKey: "board.port.video" },
     LIST_OUT,
@@ -159,10 +163,8 @@ const DISPLAY_AUDIO: BoardNodeDefinition = {
   titleKey: "board.node.displayAudio",
   category: "display",
   order: 32,
-  inputs: [
-    { id: "audio", type: "audio", labelKey: "board.port.audio" },
-    LIST_IN,
-  ],
+  inputs: [displayInput("board.port.audio")],
+  acceptTypes: ["audio", "json"],
   outputs: [
     { id: "audio", type: "audio", labelKey: "board.port.audio" },
     LIST_OUT,
@@ -177,10 +179,8 @@ const DISPLAY_TEXT: BoardNodeDefinition = {
   titleKey: "board.node.displayText",
   category: "display",
   order: 33,
-  inputs: [
-    { id: "text", type: "text", labelKey: "board.port.text" },
-    LIST_IN,
-  ],
+  inputs: [displayInput("board.port.text")],
+  acceptTypes: ["text", "json"],
   outputs: [
     { id: "text", type: "text", labelKey: "board.port.text" },
     LIST_OUT,
@@ -245,7 +245,7 @@ const DISPLAY_VALUE: BoardNodeDefinition = {
   titleKey: "board.node.displayValue",
   category: "display",
   order: 34,
-  inputs: [{ id: "value", type: "any", labelKey: "board.port.value" }],
+  inputs: [displayInput("board.port.value")],
   outputs: [{ id: "value", type: "any", labelKey: "board.port.value" }],
   params: [],
   defaultSize: { width: MEDIA_WIDTH, height: 180 },
@@ -773,9 +773,9 @@ export function portsOf(
     return { inputs: [], outputs: [port, LIST_OUT] };
   }
   if (definition.type === "display.value") {
-    // 显示节点不锁类型：任何值都能接进来，按实际值渲染。
-    const port: BoardPortSpec = { id: "value", type: "any", labelKey: "board.port.value" };
-    return { inputs: [port, LIST_IN], outputs: [port, LIST_OUT] };
+    // 显示节点不锁类型：一个 `in` 吃单值或整组，输出仍是当前值 + 整组。
+    const out: BoardPortSpec = { id: "value", type: "any", labelKey: "board.port.value" };
+    return { inputs: [displayInput("board.port.value")], outputs: [out, LIST_OUT] };
   }
   if (definition.type === "model.video") {
     const dynamic = videoInputsFor(node, context) ?? [FRAME_INIT, FRAME_END];
@@ -1143,10 +1143,8 @@ const MODEL_ENHANCE: BoardNodeDefinition = {
   titleKey: "board.node.modelEnhance",
   category: "model",
   order: 55,
-  inputs: [
-    { id: "video", type: "video", labelKey: "board.port.video" },
-    LIST_IN,
-  ],
+  inputs: [displayInput("board.port.video")],
+  acceptTypes: ["video", "json"],
   outputs: [
     { id: "video", type: "video", labelKey: "board.port.video" },
     LIST_OUT,

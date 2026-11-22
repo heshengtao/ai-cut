@@ -217,6 +217,13 @@ export interface BoardNodeDefinition {
   outputs: BoardPortSpec[];
   params: BoardParamSpec[];
   defaultSize: { width: number; height: number };
+  /**
+   * UI 层允许接进来的类型（端口本身仍是 `any`）。
+   *
+   * 显示节点的输入要同时吃单值和数组，所以端口类型只能是 `any`；但拖线菜单
+   * 和检查器下拉仍应只列语义匹配的上游。留空 = 不筛（值显示节点）。
+   */
+  acceptTypes?: BoardPortType[];
   /** 图片 / 视频节点锁定素材比例（对齐 ai-board 的 `lockAspectRatio`）。 */
   lockAspectRatio?: boolean;
   /** 输入 / 显示节点的素材类型；模型节点为空。 */

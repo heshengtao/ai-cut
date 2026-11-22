@@ -69,7 +69,7 @@ import {
   useWorkflowLibrary,
 } from "@/composables/useWorkflowLibrary";
 import { useAssetDownload } from "@/composables/useAssetDownload";
-import { portsCompatible } from "@/core/board/schema";
+import { acceptsInputType, portsCompatible } from "@/core/board/schema";
 import { wouldCreateCycle } from "@/core/board/graph";
 import {
   BOARD_NODES,
@@ -405,8 +405,11 @@ function boundCount(nodeId: string, portId: string): number {
  * 这里按 max 判断是否还能再接；max = 1 的端口保持旧行为（再连就替换）。
  */
 function targetPortOf(node: BoardNode, sourceType: BoardPortType): BoardPortSpec | null {
+  const definition = nodeDefinition(node.type);
   const candidates = portsOf(node, portContext.value).inputs.filter((port) =>
-    portsCompatible(sourceType, port.type),
+    definition
+      ? acceptsInputType(definition, port, sourceType)
+      : portsCompatible(sourceType, port.type),
   );
   if (candidates.length === 0) return null;
   const open = candidates.find(

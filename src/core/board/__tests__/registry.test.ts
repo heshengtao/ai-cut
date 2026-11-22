@@ -265,14 +265,12 @@ describe("registry", () => {
     }
   });
 
-  it("显示节点把输入原样透传到输出", () => {
+  it("显示节点只有一个输入，输出仍是当前项 + 整组", () => {
     for (const type of ["display.image", "display.video", "display.audio", "display.text"]) {
       const definition = nodeDefinition(type);
       expect(definition).not.toBeNull();
-      // 除了原始的透传端口，还多一个「整组数组」端口（`list`）。
-      expect(definition!.inputs.map((port) => port.id)).toEqual([
-        type.split(".")[1],
-        "list",
+      expect(definition!.inputs).toEqual([
+        { id: "in", type: "any", labelKey: `board.port.${type.split(".")[1]}`, max: 8 },
       ]);
       expect(definition!.outputs.map((port) => port.id)).toEqual([
         type.split(".")[1],

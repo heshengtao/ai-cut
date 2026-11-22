@@ -11,6 +11,7 @@ import {
   type BoardEdge,
   type BoardNode,
   type BoardNodeData,
+  type BoardNodeDefinition,
   type BoardPortSpec,
   type BoardPortType,
   type BoardViewport,
@@ -265,6 +266,16 @@ export function normalizeBoardSource(raw: unknown): BoardWorkflowSource | undefi
   return Object.keys(source).length > 0 ? source : undefined;
 }
 
+/** 旧版显示节点的输入端口：全部并进 `in`。 */
+const LEGACY_DISPLAY_PORTS = new Set(["image", "video", "audio", "text", "value", "list"]);
+const BUILTIN_DISPLAY_TYPES = new Set([
+  "display.image",
+  "display.video",
+  "display.audio",
+  "display.text",
+  "display.value",
+]);
+
 /**
  * 归一化画布文档。
  *
@@ -277,16 +288,28 @@ export function normalizeBoard(raw: unknown, portTypeOf?: (nodeType: string, por
     ? raw.nodes.map(normalizeNode).filter((node): node is BoardNode => node !== null)
     : [];
   const nodeIds = new Set(nodes.map((node) => node.id));
+  const typeById = new Map(nodes.map((node) => [node.id, node.type]));
   const edges: BoardEdge[] = [];
   const seen = new Set<string>();
+  const wired = new Set<string>();
   if (Array.isArray(raw.edges)) {
     for (const item of raw.edges) {
       if (!isObject(item)) continue;
-      const { id, source, sourcePort, target, targetPort } = item;
+      const { id, source, sourcePort, target } = item;
       if (typeof id !== "string" || !id || seen.has(id)) continue;
       if (typeof source !== "string" || typeof target !== "string") continue;
-      if (typeof sourcePort !== "string" || typeof targetPort !== "string") continue;
+      if (typeof sourcePort !== "string") continue;
       if (!nodeIds.has(source) || !nodeIds.has(target)) continue;
+      if (typeof item.targetPort !== "string") continue;
+      // 旧版显示节点有 `image` / `list` 等多个输入：统一并进 `in`
+      // （max 8，两条旧线都保留，运行时合并）。
+      const targetType = typeById.get(target);
+      const targetPort =
+        targetType &&
+        BUILTIN_DISPLAY_TYPES.has(targetType) &&
+        LEGACY_DISPLAY_PORTS.has(item.targetPort)
+          ? "in"
+          : item.targetPort;
       const kind = item.kind === "pair" ? ("pair" as const) : undefined;
       if (source === target) continue;
       if (portTypeOf) {
@@ -294,6 +317,11 @@ export function normalizeBoard(raw: unknown, portTypeOf?: (nodeType: string, por
         const to = portTypeOf(target, targetPort, "in");
         if (!from || !to || !isPortType(from) || !isPortType(to)) continue;
       }
+      // 同一 (来源, 输出端口, 目标, 输入端口) 只留一条：迁移把两条旧线并到
+      // 同一个 `in` 之后，重复来源不应该被读两遍。
+      const wire = `${source}:${sourcePort}->${target}:${targetPort}`;
+      if (wired.has(wire)) continue;
+      wired.add(wire);
       seen.add(id);
       edges.push({ id, source, sourcePort, target, targetPort, ...(kind ? { kind } : {}) });
     }
@@ -321,4 +349,15 @@ export function normalizeBoard(raw: unknown, portTypeOf?: (nodeType: string, por
 /** 端口兼容：语义类型 + 传输通道都由注册表判定（`any` 通配）。 */
 export function portsCompatible(from: BoardPortType, to: BoardPortType): boolean {
   return portsConnectable(from, to);
+}
+
+/** 某个定义的这个输入端口能否接 `from`（端口类型 + 定义上的语义白名单）。 */
+export function acceptsInputType(
+  definition: BoardNodeDefinition | null | undefined,
+  port: BoardPortSpec,
+  from: BoardPortType,
+): boolean {
+  if (!portsConnectable(from, port.type)) return false;
+  if (!definition?.acceptTypes || from === "any") return true;
+  return definition.acceptTypes.includes(from);
 }

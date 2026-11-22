@@ -10,7 +10,7 @@
  * 锚点的输入端口可能不止一个（视频首尾帧、H3 的 9 图 / 3 音频 / 3 视频），
  * 调用方把「还没被占用的端口」排在前面即可按顺序占用。
  */
-import { portsCompatible } from "./schema";
+import { acceptsInputType, portsCompatible } from "./schema";
 import type { BoardNodeDefinition, BoardPortSpec } from "@/types/board";
 
 export type ConnectDirection = "forward" | "backward";
@@ -39,7 +39,7 @@ export function connectCandidates(args: {
     if (!anchorPort) return result;
     for (const definition of definitions) {
       const port = definition.inputs.find((input) =>
-        portsCompatible(anchorPort.type, input.type),
+        acceptsInputType(definition, input, anchorPort.type),
       );
       if (port) result.push({ definition, anchorPort, port });
     }

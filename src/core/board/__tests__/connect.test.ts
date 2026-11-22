@@ -30,7 +30,7 @@ describe("connectCandidates", () => {
       "model.text",
     ]);
     expect(candidates[0].anchorPort.id).toBe("image");
-    expect(candidates[0].port.id).toBe("image");
+    expect(candidates[0].port.id).toBe("in");
     expect(candidates[1].port.id).toBe("image");
   });
 
