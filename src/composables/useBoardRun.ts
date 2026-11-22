@@ -505,6 +505,7 @@ function upstreamStackScoped(
   const project = useProjectStore();
   const items: unknown[] = [];
   const seen = new Set<string>();
+  const sources = new Set<string>();
   const emit = (value: unknown): void => {
     if (kind === "value") {
       items.push(value);
@@ -522,6 +523,11 @@ function upstreamStackScoped(
     seen.add(edge.id);
     const source = scope.nodes.find((node) => node.id === edge.source);
     if (!source) return;
+    // 同一个上游接了两路（例如输入节点的「图片」+「整组」）只算一次：
+    // 两路发布的是同一摞，重复读会把每张牌都翻倍。不同上游之间的同 id
+    // 素材保留（用户在牌堆里本来就放了两份同名素材）。
+    if (sources.has(source.id)) return;
+    sources.add(source.id);
     if (source.type.startsWith("display.")) {
       const own = source.data.values?.list;
       if (Array.isArray(own) && own.length > 0) {
@@ -570,7 +576,7 @@ function upstreamStackScoped(
             project.doc.assets.some((asset) => asset.id === id),
         )
       : items;
-  return [...new Set(kept)].slice(0, MAX_OUTPUTS);
+  return kept.slice(0, MAX_OUTPUTS);
 }
 
 /**

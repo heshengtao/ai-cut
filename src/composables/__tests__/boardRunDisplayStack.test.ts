@@ -1,5 +1,5 @@
 /**
- * 回归：图片显示节点要接住上游**整摞**产物（多图牌堆），而不只是第一张。
+ * 回归：显示节点要接住上游**整摞**产物（多图 / 多视频牌堆），而不只是第一张。
  *
  * 真实事故：模型节点一次出 4 张，显示节点只发布 `outputAssetId` 那一张，
  * 卡片永远只有一张图，牌堆 / `1 / 4` 胶囊无从谈起。
@@ -76,7 +76,7 @@ beforeEach(() => {
   vi.useRealTimers();
 });
 
-describe("图片显示节点的多图牌堆", () => {
+describe("显示节点的整摞读取", () => {
   it("发布上游整摞产物，并把当前发布那张带上", async () => {
     const { board } = setup();
     const upstream: BoardNode = {
@@ -118,74 +118,121 @@ describe("图片显示节点的多图牌堆", () => {
     });
   });
 
-it("多个上游合并成一个牌堆：按检查器顺序拼接并去重", async () => {
-  const { board } = setup();
-  const model: BoardNode = {
-    id: "model",
-    type: "model.image",
-    position: { x: 0, y: 0 },
-    data: { params: {}, bindings: {}, outputAssetIds: ["a1", "a2"], outputAssetId: "a1" },
-  };
-  const input: BoardNode = {
-    id: "input",
-    type: "input.image",
-    position: { x: 0, y: 200 },
-    data: {
-      params: {},
-      bindings: {},
-      assetIds: ["a2", "a3"],
-      stackIndex: 0,
-      assetId: "a2",
-      values: { list: ["a2", "a3"] },
-    },
-  };
-  const display: BoardNode = {
-    id: "display",
-    type: "display.image",
-    position: { x: 400, y: 0 },
-    data: { params: {}, bindings: {} },
-  };
-  board.addNode(model);
-  board.addNode(input);
-  board.addNode(display);
-  board.connect({ id: "e1", source: "model", sourcePort: "image", target: "display", targetPort: "in" });
-  board.connect({ id: "e2", source: "input", sourcePort: "list", target: "display", targetPort: "in" });
+  it("多个上游合并成一个牌堆：按检查器顺序拼接", async () => {
+    const { board } = setup();
+    const model: BoardNode = {
+      id: "model",
+      type: "model.image",
+      position: { x: 0, y: 0 },
+      data: { params: {}, bindings: {}, outputAssetIds: ["a1", "a2"], outputAssetId: "a1" },
+    };
+    const input: BoardNode = {
+      id: "input",
+      type: "input.image",
+      position: { x: 0, y: 200 },
+      data: {
+        params: {},
+        bindings: {},
+        assetIds: ["a3"],
+        stackIndex: 0,
+        assetId: "a3",
+        values: { list: ["a3"] },
+      },
+    };
+    const display: BoardNode = {
+      id: "display",
+      type: "display.image",
+      position: { x: 400, y: 0 },
+      data: { params: {}, bindings: {} },
+    };
+    board.addNode(model);
+    board.addNode(input);
+    board.addNode(display);
+    board.connect({ id: "e1", source: "model", sourcePort: "image", target: "display", targetPort: "in" });
+    board.connect({ id: "e2", source: "input", sourcePort: "list", target: "display", targetPort: "in" });
 
-  await expect(runAdapter(display, "display")).resolves.toEqual({
-    assets: ["a1", "a2", "a3"],
-    assetId: "a1",
-    kind: "image",
-    values: { list: ["a1", "a2", "a3"] },
+    await expect(runAdapter(display, "display")).resolves.toEqual({
+      assets: ["a1", "a2", "a3"],
+      assetId: "a1",
+      kind: "image",
+      values: { list: ["a1", "a2", "a3"] },
+    });
   });
-});
 
-it("视频显示节点也发布整摞，并保持上次发布那张", async () => {
-  const { board, project } = setup();
-  for (const id of ["v1", "v2"]) {
-    project.dispatch((doc) => addAsset(doc, image(id, "video")));
-  }
-  const model: BoardNode = {
-    id: "model",
-    type: "model.video",
-    position: { x: 0, y: 0 },
-    data: { params: {}, bindings: {}, outputAssetIds: ["v1", "v2"], outputAssetId: "v2" },
-  };
-  const display: BoardNode = {
-    id: "display",
-    type: "display.video",
-    position: { x: 400, y: 0 },
-    data: { params: {}, bindings: {}, outputAssetId: "v2" },
-  };
-  board.addNode(model);
-  board.addNode(display);
-  board.connect({ id: "e1", source: "model", sourcePort: "video", target: "display", targetPort: "in" });
+  it("同一个上游接了两路只算一次，不把整摞翻倍", async () => {
+    const { board } = setup();
+    const model: BoardNode = {
+      id: "model",
+      type: "model.image",
+      position: { x: 0, y: 0 },
+      data: { params: {}, bindings: {}, outputAssetIds: ["a1", "a2"], outputAssetId: "a1" },
+    };
+    const display: BoardNode = {
+      id: "display",
+      type: "display.image",
+      position: { x: 400, y: 0 },
+      data: { params: {}, bindings: {} },
+    };
+    board.addNode(model);
+    board.addNode(display);
+    board.connect({ id: "e1", source: "model", sourcePort: "image", target: "display", targetPort: "in" });
+    board.connect({ id: "e2", source: "model", sourcePort: "list", target: "display", targetPort: "in" });
 
-  await expect(runAdapter(display, "display")).resolves.toMatchObject({
-    assets: ["v1", "v2"],
-    assetId: "v2",
-    kind: "video",
+    await expect(runAdapter(display, "display")).resolves.toMatchObject({
+      assets: ["a1", "a2"],
+    });
   });
-});
+
+  it("牌堆里的重复素材保留：同一张选了两次就是两张", async () => {
+    const { board } = setup();
+    const input: BoardNode = {
+      id: "input",
+      type: "input.image",
+      position: { x: 0, y: 0 },
+      data: {
+        params: {},
+        bindings: {},
+        assetIds: ["a1", "a1"],
+        stackIndex: 0,
+        assetId: "a1",
+        values: { list: ["a1", "a1"] },
+      },
+    };
+    const display = wire(board, input);
+
+    await expect(runAdapter(display, "display")).resolves.toMatchObject({
+      assets: ["a1", "a1"],
+      assetId: "a1",
+    });
+  });
+
+  it("视频显示节点也发布整摞，并保持上次发布那张", async () => {
+    const { board, project } = setup();
+    for (const id of ["v1", "v2"]) {
+      project.dispatch((doc) => addAsset(doc, image(id, "video")));
+    }
+    const model: BoardNode = {
+      id: "model",
+      type: "model.video",
+      position: { x: 0, y: 0 },
+      data: { params: {}, bindings: {}, outputAssetIds: ["v1", "v2"], outputAssetId: "v2" },
+    };
+    const display: BoardNode = {
+      id: "display",
+      type: "display.video",
+      position: { x: 400, y: 0 },
+      data: { params: {}, bindings: {}, outputAssetId: "v2" },
+    };
+    board.addNode(model);
+    board.addNode(display);
+    board.connect({ id: "e1", source: "model", sourcePort: "video", target: "display", targetPort: "in" });
+
+    await expect(runAdapter(display, "display")).resolves.toMatchObject({
+      assets: ["v1", "v2"],
+      assetId: "v2",
+      kind: "video",
+    });
+  });
 
   it("上游没发布任何图时报错，而不是发一张空图", async () => {
     const { board } = setup();

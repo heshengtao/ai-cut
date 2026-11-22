@@ -63,6 +63,9 @@ watch(
     if (!open) return;
     query.value = "";
     selected.value = [];
+    // 视频缩略图是按需生成的（导入 / agent 写入的素材不一定带 `thumb`）；
+    // 对话框打开时补一次，否则视频格子里永远只有类型图标。
+    project.backfillThumbnails();
   },
 );
 
