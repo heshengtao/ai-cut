@@ -27,13 +27,14 @@ import {
 import { useBoardStore } from "@/stores/board";
 import { useProjectStore } from "@/stores/project";
 import { useBoardRun } from "@/composables/useBoardRun";
-import { assetThumbnailUrl } from "@/core/thumbnails";
+import { assetThumbnailUrl, ensureThumbnail } from "@/core/thumbnails";
 import { fileUrl, importAssetAt, kindFromPath, pickMediaFiles } from "@/core/media";
 import { uploadLocalFile } from "@/platform/files";
 import { addAsset } from "@/core/ops";
 import { toast } from "@/composables/useToast";
 import StackBar from "./StackBar.vue";
 import {
+  appendStackPatch,
   replaceCurrent,
   stackKindOf,
   stackOf,
@@ -168,33 +169,24 @@ const mediaKind = computed<AssetKind | null>(() =>
 
 const isDisplay = computed(() => definition.value?.category === "display");
 
-/** 图片输入自己选的牌堆（追加 / 切换只对输入节点有效）。 */
-const inputStack = computed<MediaAsset[]>(() => {
-  const current = node.value;
-  if (!current) return [];
-  const ids = current.data.assetIds ?? (current.data.assetId ? [current.data.assetId] : []);
-  return ids.map((id) => assetById(id)).filter((asset): asset is MediaAsset => asset !== null);
-});
-
 /**
- * 图片卡上叠着的那一摞。
+ * 卡片上叠着的那一摞。
  *
- * - 输入节点：用户自己选的多张（`assetIds`）；
- * - 显示节点：上游一次出的多张（运行发布的 `outputAssetIds`，当前发布那张是
+ * - 输入节点：用户自己选的多份（`assetIds`，图片 / 视频 / 音频都支持）；
+ * - 显示节点：上游发布的整摞（`outputAssetIds`，当前发布那张是
  *   `outputAssetId`，不一定排第一）。
  *
  * 两边的纸叠 / 胶囊是同一套视觉，所以这里合成一个列表，只在取「当前张」时分开。
  */
 const stack = computed<MediaAsset[]>(() => {
-  if (isDisplay.value) {
-    const current = node.value;
-    if (!current) return [];
-    const ids =
-      current.data.outputAssetIds ??
-      (current.data.outputAssetId ? [current.data.outputAssetId] : []);
-    return ids.map((id) => assetById(id)).filter((asset): asset is MediaAsset => asset !== null);
-  }
-  return inputStack.value;
+  const current = node.value;
+  if (!current) return [];
+  const ids = isDisplay.value
+    ? current.data.outputAssetIds ??
+      (current.data.outputAssetId ? [current.data.outputAssetId] : [])
+    : current.data.assetIds ??
+      (current.data.assetId ? [current.data.assetId] : []);
+  return ids.map((id) => assetById(id)).filter((asset): asset is MediaAsset => asset !== null);
 });
 
 const nodeWidth = computed(
@@ -230,8 +222,9 @@ const upstreamConnected = computed(() => {
 const primary = computed<MediaAsset | null>(() => {
   const current = node.value;
   if (!current) return null;
-  if (isDisplay.value) return assetById(current.data.outputAssetId);
-  if (kind.value === "image" && stack.value.length > 0) return stack.value[stackIndex.value];
+  if (isDisplay.value) return assetById(current.data.outputAssetId) ?? stack.value[0] ?? null;
+  // 输入媒体一律取牌堆当前项：图片 / 视频 / 音频共用一套翻页。
+  if (mediaKind.value) return stack.value[stackIndex.value] ?? null;
   return assetById(current.data.outputAssetId ?? current.data.assetId);
 });
 
@@ -241,6 +234,18 @@ const empty = computed(() => primary.value === null);
 /** 牌堆里除当前张以外的图（最多 3 张）作为背后的"纸叠"。 */
 const deck = computed(() =>
   stack.value.filter((_, index) => index !== stackIndex.value).slice(0, 3),
+);
+
+/** 视频纸叠要封面：缺 `thumb` 的视频懒补一张（派生数据，不进撤销栈）。 */
+watch(
+  () => stack.value.map((asset) => `${asset.id}:${asset.thumb ?? ""}`).join(","),
+  () => {
+    for (const asset of stack.value.slice(0, 4)) {
+      if (asset.kind !== "video" || asset.thumb) continue;
+      void ensureThumbnail(asset, (thumb) => project.setAssetThumbnail(asset.id, thumb));
+    }
+  },
+  { immediate: true },
 );
 
 
@@ -330,7 +335,8 @@ const showStackBar = computed(() => {
   const current = node.value;
   if (!current) return false;
   if (!current.type.startsWith("input.") && !current.type.startsWith("display.")) return false;
-  if (stackKind.value === "image") return false;
+  // 图片 / 视频 / 音频有自己的牌堆胶囊，不再挂第二个翻页器。
+  if (mediaKind.value) return false;
   return stackCount.value > 0 || current.type.startsWith("input.");
 });
 const stackEditable = computed(() => node.value?.type.startsWith("input.") ?? false);
@@ -594,14 +600,8 @@ async function pickFiles(): Promise<void> {
     }
   }
   if (imported.length === 0) return;
-  const ids = [...inputStack.value.map((asset) => asset.id), ...imported.map((asset) => asset.id)];
   for (const asset of imported) project.dispatch((doc) => addAsset(doc, asset));
-  const index = inputStack.value.length;
-  board.updateNodeData(current.id, {
-    assetIds: ids,
-    stackIndex: index,
-    assetId: ids[index],
-  });
+  board.updateNodeData(current.id, appendStackPatch(current, imported.map((asset) => asset.id)));
   fitAsset(imported[0]);
 }
 
@@ -650,16 +650,7 @@ async function onNodeDrop(event: DragEvent): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
     dropActive.value = false;
-    if (expected === "image") {
-      const ids = [...inputStack.value.map((item) => item.id), dragged.id];
-      board.updateNodeData(current.id, {
-        assetIds: ids,
-        stackIndex: ids.length - 1,
-        assetId: dragged.id,
-      });
-    } else {
-      board.updateNodeData(current.id, { assetId: dragged.id, assetIds: undefined });
-    }
+    board.updateNodeData(current.id, appendStackPatch(current, [dragged.id]));
     fitAsset(dragged);
     return;
   }
@@ -684,16 +675,7 @@ async function onNodeDrop(event: DragEvent): Promise<void> {
     }
   }
   if (imported.length === 0) return;
-  if (expected === "image") {
-    const ids = [...inputStack.value.map((item) => item.id), ...imported.map((item) => item.id)];
-    board.updateNodeData(current.id, {
-      assetIds: ids,
-      stackIndex: inputStack.value.length,
-      assetId: imported[0].id,
-    });
-  } else {
-    board.updateNodeData(current.id, { assetId: imported[0].id, assetIds: undefined });
-  }
+  board.updateNodeData(current.id, appendStackPatch(current, imported.map((item) => item.id)));
   fitAsset(imported[0]);
 }
 
@@ -711,17 +693,7 @@ function onLibraryPick(ids: string[]): void {
     .map((id) => assetById(id))
     .filter((item): item is MediaAsset => item !== null && item.kind === kind.value);
   if (picked.length === 0) return;
-  if (kind.value === "image") {
-    const next = [...inputStack.value.map((item) => item.id), ...picked.map((item) => item.id)];
-    const index = inputStack.value.length;
-    board.updateNodeData(current.id, {
-      assetIds: next,
-      stackIndex: index,
-      assetId: next[index],
-    });
-  } else {
-    board.updateNodeData(current.id, { assetId: picked[0].id, assetIds: undefined });
-  }
+  board.updateNodeData(current.id, appendStackPatch(current, picked.map((item) => item.id)));
   fitAsset(picked[0]);
 }
 
@@ -1636,6 +1608,14 @@ function cycleOutput(): void {
 
       <!-- ============ 视频 ============ -->
       <div v-else-if="kind === 'video'" class="art-card" data-kind="video" :data-drop="dropActive ? 'true' : 'false'">
+        <div v-if="deck.length > 0" class="art-deck" aria-hidden="true">
+          <div
+            v-for="(sheet, index) in deck"
+            :key="sheet.id"
+            class="art-deck-sheet"
+            :style="deckStyle(sheet, index)"
+          />
+        </div>
         <div v-if="primary && mediaSrc" class="media-video">
           <!-- 与模型节点输出附件共用同一个播放器：自绘播放条 + 首帧。 -->
           <BoardVideoPlayer
@@ -1668,6 +1648,20 @@ function cycleOutput(): void {
             </button>
           </div>
         </div>
+
+        <button
+          v-if="stack.length > 1 && primary"
+          class="art-stack-pill art-stack-pill-top nodrag"
+          type="button"
+          :title="i18n.t('board.node.nextMedia')"
+          :aria-label="i18n.t('board.node.nextMedia')"
+          @pointerdown.stop
+          @click.stop="stepStack(1)"
+        >
+          <span>{{ stackIndex + 1 }}</span>
+          <span class="art-stack-sep">/</span>
+          <span>{{ stack.length }}</span>
+        </button>
       </div>
 
       <!-- ============ 音频 ============ -->
@@ -1729,6 +1723,20 @@ function cycleOutput(): void {
             </button>
           </div>
         </div>
+
+        <button
+          v-if="stack.length > 1 && primary"
+          class="art-stack-pill art-stack-pill-top nodrag"
+          type="button"
+          :title="i18n.t('board.node.nextMedia')"
+          :aria-label="i18n.t('board.node.nextMedia')"
+          @pointerdown.stop
+          @click.stop="stepStack(1)"
+        >
+          <span>{{ stackIndex + 1 }}</span>
+          <span class="art-stack-sep">/</span>
+          <span>{{ stack.length }}</span>
+        </button>
       </div>
 
       <!-- ============ 文本输入：一个 MD3 filled 复写框 + 字符数页脚 ============ -->
@@ -2160,7 +2168,7 @@ function cycleOutput(): void {
       v-if="mediaKind"
       v-model:open="libraryOpen"
       :kind="mediaKind"
-      :multiple="kind === 'image'"
+      :multiple="mediaKind !== null"
       @pick="onLibraryPick"
     />
   </div>
@@ -2597,6 +2605,11 @@ function cycleOutput(): void {
 .art-stack-pill:hover {
   background: rgb(12 9 16 / 0.8);
   border-color: rgb(255 255 255 / 0.35);
+}
+/* 视频 / 音频的翻页胶囊放右上，避开底部播放条与波形。 */
+.art-stack-pill-top {
+  top: 11px;
+  bottom: auto;
 }
 .art-stack-sep {
   opacity: 0.5;

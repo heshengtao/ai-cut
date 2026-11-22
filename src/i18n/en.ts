@@ -2887,10 +2887,12 @@ const en: Record<string, string> = {
   "board.node.prevImage": "Previous image",
   "board.node.removeImage": "Remove this image",
   "board.node.nextImage": "Next image",
-  "board.inspect.addImages": "Add images",
+  "board.node.nextMedia": "Next",
+  "board.inspect.currentAsset": "Current",
+  "board.inspect.displayStackHint": "Showing {count} assets published upstream",
 
   "board.inspect.runSection": "Run",
-  "board.inspect.stackCount": "{count} images",
+  "board.inspect.stackCount": "{count} assets",
 
   "board.node.waitingRun": "Waiting for a run",
   "board.node.waitingRunHint": "Run the upstream node and its output shows up here.",
@@ -2969,7 +2971,7 @@ const en: Record<string, string> = {
   "board.inspect.title": "Title",
   "board.inspect.titlePlaceholder": "Node title",
   "board.inspect.mediaSection": "Media",
-  "board.inspect.mediaHint": "Pick a local file or add straight from the library; images can stack.",
+  "board.inspect.mediaHint": "Pick a local file or add straight from the library; assets can stack and the library supports multi-select.",
   "board.inspect.aspectHint": "Image nodes resize their height to the asset ratio.",
   "board.inspect.aspectHintVideo": "Video nodes resize their height to the asset ratio.",
   "board.inspect.connectedHint": "Connect an upstream node to this port on the canvas.",

@@ -2888,10 +2888,12 @@ const zh: Record<string, string> = {
   "board.node.prevImage": "上一张",
   "board.node.removeImage": "删除这张图片",
   "board.node.nextImage": "下一张",
-  "board.inspect.addImages": "添加图片",
+  "board.node.nextMedia": "下一个",
+  "board.inspect.currentAsset": "当前",
+  "board.inspect.displayStackHint": "展示上游发布的 {count} 个素材",
 
   "board.inspect.runSection": "运行",
-  "board.inspect.stackCount": "{count} 张",
+  "board.inspect.stackCount": "{count} 个素材",
 
   "board.node.waitingRun": "等待运行",
   "board.node.waitingRunHint": "运行上游节点后，产物会显示在这里。",
@@ -2970,7 +2972,7 @@ const zh: Record<string, string> = {
   "board.inspect.title": "标题",
   "board.inspect.titlePlaceholder": "节点标题",
   "board.inspect.mediaSection": "素材",
-  "board.inspect.mediaHint": "从本地选择，或直接从素材库添加；图片可以堆多张。",
+  "board.inspect.mediaHint": "从本地选择，或直接从素材库添加；素材可以堆多份、素材库可多选。",
   "board.inspect.aspectHint": "图片节点会按素材比例自动调整高度。",
   "board.inspect.aspectHintVideo": "视频节点会按素材比例自动调整高度。",
   "board.inspect.connectedHint": "在画布上把上游节点连到这个端口。",

@@ -86,3 +86,28 @@ export function replaceCurrent(
   else items[stack.index] = value;
   return { items, index: stack.index };
 }
+
+/**
+ * 追加若干素材到牌堆末尾，并把当前项切到第一张新素材。
+ *
+ * 图片 / 视频 / 音频输入共用：导入、拖放、素材库都走这里，不再「图片追加、
+ * 其它替换」。
+ */
+export function appendStackPatch(
+  node: BoardNode,
+  added: string[],
+  current?: string,
+): Partial<BoardNodeData> {
+  if (added.length === 0) return {};
+  const stack = stackOf(node);
+  const existing = stack.items.filter(
+    (item): item is string => typeof item === "string" && Boolean(item),
+  );
+  const ids = [...existing, ...added];
+  const index = existing.length;
+  return {
+    assetIds: ids,
+    stackIndex: index,
+    assetId: current && ids.includes(current) ? current : ids[index],
+  };
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { replaceCurrent, stackOf, stackPatch } from "@/core/board/stacks";
+import { appendStackPatch, replaceCurrent, stackOf, stackPatch } from "@/core/board/stacks";
 import type { BoardNode } from "@/types/board";
 
 function node(type: string, data: Partial<BoardNode["data"]> = {}): BoardNode {
@@ -50,5 +50,18 @@ describe("input / display stacks", () => {
     expect(replaceCurrent(current, "B")).toEqual({ items: ["a", "B"], index: 1 });
     const empty = node("input.text", {});
     expect(replaceCurrent(empty, "x")).toEqual({ items: ["x"], index: 0 });
+  });
+
+  it("appendStackPatch：追加素材并把当前项切到第一张新素材", () => {
+    const stack = node("input.video", { assetIds: ["a"], stackIndex: 0, assetId: "a" });
+    expect(appendStackPatch(stack, ["b", "c"])).toEqual({
+      assetIds: ["a", "b", "c"],
+      stackIndex: 1,
+      assetId: "b",
+    });
+  });
+
+  it("appendStackPatch：没有新素材时不动数据", () => {
+    expect(appendStackPatch(node("input.audio", { assetId: "x" }), [])).toEqual({});
   });
 });
