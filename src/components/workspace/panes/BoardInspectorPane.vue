@@ -52,8 +52,9 @@ import {
   visibleParams,
 } from "@/core/board/registry";
 import { BOARD_GROUP_TONES } from "@/types/board";
-import { portsCompatible } from "@/core/board/schema";
+import { acceptsInputType, portsCompatible } from "@/core/board/schema";
 import { ancestorIds } from "@/core/board/graph";
+import { appendStackPatch } from "@/core/board/stacks";
 import {
   WORKFLOW_CALL_TYPE,
   WORKFLOW_END_TYPE,
@@ -75,7 +76,7 @@ import {
 } from "@/composables/useBoardCloudOptions";
 import { useBoardPortContext } from "@/composables/useBoardPortContext";
 import { providersForNodeCapability } from "@/utils/cloudGen";
-import { fileUrl, importAssetAt, pickMediaFiles } from "@/core/media";
+import { importAssetAt, pickMediaFiles } from "@/core/media";
 import { addAsset } from "@/core/ops";
 import { insertImportedAssets } from "@/core/importInsert";
 import { assetThumbnailUrl } from "@/core/thumbnails";
@@ -125,15 +126,18 @@ function displayTitleOf(item: BoardNode): string {
 const title = computed(() => (node.value ? displayTitleOf(node.value) : ""));
 /** 动态端口上下文（多图参考 / H3 / 分轨）。 */
 const portContext = useBoardPortContext();
-const isImageNode = computed(() => definition.value?.assetKind === "image");
 const isDisplayNode = computed(() => definition.value?.category === "display");
 const mediaKind = computed(() => definition.value?.assetKind ?? null);
 
-/** 图片牌堆（图片输入可放多张）。 */
+/** 媒体牌堆：输入节点读自己选的，显示节点读上游发布的整摞。 */
 const stack = computed<MediaAsset[]>(() => {
   const current = node.value;
   if (!current) return [];
-  const ids = current.data.assetIds ?? (current.data.assetId ? [current.data.assetId] : []);
+  const ids = isDisplayNode.value
+    ? current.data.outputAssetIds ??
+      (current.data.outputAssetId ? [current.data.outputAssetId] : [])
+    : current.data.assetIds ??
+      (current.data.assetId ? [current.data.assetId] : []);
   return ids
     .map((id) => project.doc.assets.find((asset) => asset.id === id))
     .filter((asset): asset is MediaAsset => Boolean(asset));
@@ -153,7 +157,7 @@ const asset = computed(() => {
   const current = node.value;
   if (!current) return null;
   if (isDisplayNode.value) return displayAsset.value;
-  if (isImageNode.value) return stack.value[stackIndex.value] ?? null;
+  if (mediaKind.value) return stack.value[stackIndex.value] ?? null;
   const id = current.data.assetId ?? current.data.outputAssetId;
   return id ? project.doc.assets.find((item) => item.id === id) ?? null : null;
 });
@@ -458,11 +462,6 @@ const boundCount = computed(() =>
 const inputCapacity = computed(() =>
   inputRows.value.reduce((sum, row) => sum + Math.max(1, row.port.max ?? 1), 0),
 );
-/** 第一个已连接上游的名字（显示节点用它说明"输入已连接"）。 */
-const inputSourceName = computed(
-  () => inputRows.value.find((row) => row.entries.length > 0)?.entries[0]?.source ?? "",
-);
-
 /** 输入端口最多接几个上游。 */
 function portMax(port: BoardPortSpec): number {
   return Math.max(1, port.max ?? 1);
@@ -534,7 +533,7 @@ const hasOutput = computed(() => outputPorts.value.length > 0);
 interface UpstreamOutput {
   nodeId: string;
   portId: string;
-  type: string;
+  type: BoardPortType;
   label: string;
 }
 
@@ -573,8 +572,9 @@ const upstreamOutputs = computed<UpstreamOutput[]>(() => {
 
 /** 参数下拉的候选：类型为 any 或与端口一致。 */
 function bindingOptions(port: BoardPortSpec): SelectOption[] {
-  const compatible = upstreamOutputs.value.filter(
-    (item) => port.type === "any" || item.type === "any" || item.type === port.type,
+  const definition = node.value ? nodeDefinition(node.value.type) : null;
+  const compatible = upstreamOutputs.value.filter((item) =>
+    acceptsInputType(definition, port, item.type),
   );
   return [
     { id: "", label: i18n.t("board.inspect.unconnected") },
@@ -772,23 +772,13 @@ async function pickFiles(): Promise<void> {
     try {
       const imported = await importAssetAt(path);
       project.dispatch((doc) => addAsset(doc, imported));
-      if (isImageNode.value) appendToStack(imported.id);
-      else board.updateNodeData(current.id, { assetId: imported.id, assetIds: undefined });
+      const latest = node.value;
+      if (!latest) return;
+      board.updateNodeData(latest.id, appendStackPatch(latest, [imported.id]));
     } catch (error) {
       toast(String(error), "error");
     }
   }
-}
-
-function appendToStack(assetId: string): void {
-  const current = node.value;
-  if (!current) return;
-  const ids = [...stack.value.map((item) => item.id), assetId];
-  board.updateNodeData(current.id, {
-    assetIds: ids,
-    stackIndex: ids.length - 1,
-    assetId,
-  });
 }
 
 /** 素材库对话框选中后：图片追加到牌堆，视频 / 音频替换。 */
@@ -800,23 +790,18 @@ function onPickerPick(ids: string[]): void {
     return item !== undefined && item.kind === mediaKind.value;
   });
   if (picked.length === 0) return;
-  if (isImageNode.value) {
-    const next = [...stack.value.map((item) => item.id), ...picked];
-    const index = stack.value.length;
-    board.updateNodeData(current.id, {
-      assetIds: next,
-      stackIndex: index,
-      assetId: next[index],
-    });
-    return;
-  }
-  board.updateNodeData(current.id, { assetId: picked[0], assetIds: undefined });
+  board.updateNodeData(current.id, appendStackPatch(current, picked));
 }
 
 function showInStack(index: number): void {
   const current = node.value;
-  if (!current) return;
-  board.updateNodeData(current.id, { stackIndex: index, assetId: stack.value[index]?.id });
+  const item = stack.value[index];
+  if (!current || !item) return;
+  if (isDisplayNode.value) {
+    board.updateNodeData(current.id, { stackIndex: index, outputAssetId: item.id });
+    return;
+  }
+  board.updateNodeData(current.id, { stackIndex: index, assetId: item.id });
 }
 
 function removeFromStack(assetId: string): void {
@@ -830,10 +815,6 @@ function removeFromStack(assetId: string): void {
   });
 }
 
-function clearAsset(): void {
-  if (!node.value) return;
-  board.updateNodeData(node.value.id, { assetId: undefined, assetIds: undefined, stackIndex: 0 });
-}
 
 /** 素材尺寸 / 类型的单行描述（mono 小字）。 */
 function mediaMeta(item: MediaAsset): string {
@@ -1014,7 +995,6 @@ function outputCountLabel(port: BoardPortSpec): string {
   }
   return i18n.t("board.inspect.outputEmpty");
 }
-const thumbOf = computed(() => (asset.value ? assetThumbnailUrl(asset.value) : null));
 
 /** 输出端口是否已经有内容（文本端口看文本，媒体端口按端口取发布产物）。 */
 function portReady(port: BoardPortSpec): boolean {
@@ -1528,23 +1508,36 @@ function portReady(port: BoardPortSpec): boolean {
           <span v-if="spec.hintKey" class="inspector-hint">{{ i18n.t(spec.hintKey) }}</span>
         </div>
 
-        <!-- 素材 -->
+        <!-- 素材：输入 / 显示节点共用「一行一个」 -->
         <template v-if="mediaKind">
-          <!-- 输入节点：可上传 / 可换素材 -->
-          <div v-if="!isDisplayNode" class="inspector-media-block">
-            <div v-if="isImageNode" class="asset-strip">
+          <div class="inspector-media-block">
+            <div v-if="stack.length > 0" class="asset-rows">
               <div
                 v-for="(item, index) in stack"
                 :key="item.id"
-                class="asset-thumb"
+                class="asset-row"
                 :data-active="index === stackIndex ? 'true' : 'false'"
               >
-                <button class="asset-thumb-main" type="button" :title="item.name" @click="showInStack(index)">
-                  <img v-if="assetThumbnailUrl(item)" :src="assetThumbnailUrl(item)!" :alt="item.name" />
-                  <span v-else class="asset-thumb-mark"><PhotoIcon /></span>
+                <button class="asset-row-main" type="button" :title="item.name" @click="showInStack(index)">
+                  <span class="asset-row-thumb">
+                    <img
+                      v-if="item.kind !== 'audio' && assetThumbnailUrl(item)"
+                      :src="assetThumbnailUrl(item)!"
+                      :alt="item.name"
+                    />
+                    <component :is="item.kind === 'audio' ? MusicalNoteIcon : PhotoIcon" v-else />
+                  </span>
+                  <span class="asset-row-copy">
+                    <strong>{{ item.name }}</strong>
+                    <span>{{ mediaMeta(item) }}</span>
+                  </span>
+                  <span v-if="stack.length > 1 && index === stackIndex" class="asset-row-current">
+                    {{ i18n.t("board.inspect.currentAsset") }}
+                  </span>
                 </button>
                 <button
-                  class="asset-thumb-remove"
+                  v-if="!isDisplayNode"
+                  class="asset-row-remove"
                   type="button"
                   :aria-label="i18n.t('common.remove')"
                   @click.stop="removeFromStack(item.id)"
@@ -1552,54 +1545,16 @@ function portReady(port: BoardPortSpec): boolean {
                   <XMarkIcon />
                 </button>
               </div>
-              <button
-                class="asset-thumb asset-thumb-add"
-                type="button"
-                :title="i18n.t('board.inspect.addImages')"
-                @click="pickerOpen = true"
-              >
-                <PlusIcon />
-              </button>
             </div>
 
-            <div v-if="isImageNode" class="inspector-media-meta">
-              <span>{{ asset ? asset.name : i18n.t("board.inspect.noMedia") }}</span>
-              <span v-if="asset">{{ mediaMeta(asset) }} · {{ i18n.t("board.inspect.stackCount", { count: stack.length }) }}</span>
-            </div>
+            <p v-if="stack.length === 0" class="inspector-hint">
+              {{ i18n.t("board.inspect.noMedia") }}
+            </p>
+            <p v-else-if="isDisplayNode" class="inspector-hint">
+              {{ i18n.t("board.inspect.displayStackHint", { count: stack.length }) }}
+            </p>
 
-            <div v-else class="inspector-media">
-              <img v-if="thumbOf" :src="thumbOf" :alt="asset?.name ?? ''" />
-              <video
-                v-else-if="asset && mediaKind === 'video'"
-                :src="fileUrl(asset.src)"
-                muted
-                playsinline
-                preload="metadata"
-              />
-              <span v-else class="media-mark">
-                <component :is="mediaKind === 'audio' ? MusicalNoteIcon : PhotoIcon" />
-              </span>
-              <div class="media-copy">
-                <strong>{{ asset ? asset.name : i18n.t("board.inspect.noMedia") }}</strong>
-                <span>{{ asset ? mediaMeta(asset) : mediaKind }}</span>
-              </div>
-              <button
-                v-if="asset"
-                class="media-clear"
-                type="button"
-                :title="i18n.t('board.inspect.clearMedia')"
-                @click="clearAsset"
-              >
-                <XMarkIcon />
-              </button>
-            </div>
-
-            <div class="inspector-media-state">
-              <LinkIcon />
-              <span>{{ i18n.t("board.inspect.mediaHint") }}</span>
-            </div>
-
-            <div class="inspector-inline-actions">
+            <div v-if="!isDisplayNode" class="inspector-inline-actions">
               <button class="md-button" data-variant="outlined" type="button" @click="pickFiles">
                 <FolderOpenIcon />
                 {{ i18n.t("board.inspect.pickFile") }}
@@ -1610,44 +1565,11 @@ function portReady(port: BoardPortSpec): boolean {
               </button>
             </div>
 
-            <p v-if="isImageNode || mediaKind === 'video'" class="inspector-hint">
-              {{ i18n.t(isImageNode ? "board.inspect.aspectHint" : "board.inspect.aspectHintVideo") }}
+            <p v-if="!isDisplayNode" class="inspector-hint">
+              {{ i18n.t("board.inspect.mediaHint") }}
             </p>
-          </div>
-
-          <!-- 显示节点：只读上游发布的素材 -->
-          <div v-else class="inspector-media-block">
-            <div v-if="asset" class="inspector-media">
-              <img v-if="thumbOf" :src="thumbOf" :alt="asset.name" />
-              <video
-                v-else-if="mediaKind === 'video'"
-                :src="fileUrl(asset.src)"
-                muted
-                playsinline
-                preload="metadata"
-              />
-              <span v-else class="media-mark">
-                <component :is="mediaKind === 'audio' ? MusicalNoteIcon : PhotoIcon" />
-              </span>
-              <div class="media-copy">
-                <strong>{{ asset.name }}</strong>
-                <span>{{ mediaMeta(asset) }}</span>
-              </div>
-            </div>
-            <div class="inspector-media-state">
-              <LinkIcon />
-              <span v-if="asset">
-                {{ inputSourceName ? i18n.t("board.inspect.connected", { name: inputSourceName }) : i18n.t("board.inspect.mediaHint") }}
-              </span>
-              <!-- 已经连上上游就不要再让人"去连一个"：改成等待运行，和节点卡片一致。 -->
-              <span v-else>
-                {{ inputSourceName
-                  ? i18n.t("board.inspect.connected", { name: inputSourceName })
-                  : i18n.t("board.node.waitingMedia") }}
-              </span>
-            </div>
-            <p v-if="!asset" class="inspector-hint">
-              {{ i18n.t(inputSourceName ? "board.node.waitingRunHint" : "board.node.waitingHint") }}
+            <p v-if="mediaKind === 'image' || mediaKind === 'video'" class="inspector-hint">
+              {{ i18n.t(mediaKind === "image" ? "board.inspect.aspectHint" : "board.inspect.aspectHintVideo") }}
             </p>
           </div>
         </template>
@@ -1726,7 +1648,7 @@ function portReady(port: BoardPortSpec): boolean {
         v-if="mediaKind"
         v-model:open="pickerOpen"
         :kind="mediaKind"
-        :multiple="isImageNode"
+        :multiple="mediaKind !== null"
         @pick="onPickerPick"
       />
     </template>
@@ -2195,170 +2117,90 @@ button.binding-note:hover {
   gap: 10px;
   min-width: 0;
 }
-.asset-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+.asset-rows {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   min-width: 0;
 }
-.asset-thumb {
-  position: relative;
-  aspect-ratio: 1;
-  border-radius: 9px;
-  overflow: hidden;
-  border: 1px solid rgb(var(--md-outline-variant) / 0.4);
-  background: rgb(var(--md-surface-container-low) / 0.5);
-}
-.asset-thumb[data-active="true"] {
-  border-color: rgb(var(--md-primary) / 0.9);
-  box-shadow: 0 0 0 2px rgb(var(--md-primary) / 0.18);
-}
-.asset-thumb-main {
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  display: block;
-  cursor: pointer;
-}
-.asset-thumb-main img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.asset-thumb-mark {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  color: rgb(var(--md-on-surface-variant));
-}
-.asset-thumb-mark :deep(svg) {
-  width: 16px;
-  height: 16px;
-}
-.asset-thumb-remove {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 18px;
-  height: 18px;
-  border: 0;
-  border-radius: 999px;
-  background: rgb(8 6 12 / 0.68);
-  color: #fff;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  opacity: 0;
-  cursor: pointer;
-  transition: opacity 0.14s ease;
-}
-.asset-thumb:hover .asset-thumb-remove {
-  opacity: 1;
-}
-.asset-thumb-remove :deep(svg) {
-  width: 10px;
-  height: 10px;
-}
-.asset-thumb-add {
-  display: grid;
-  place-items: center;
-  border-style: dashed;
-  border-color: rgb(var(--md-outline-variant) / 0.6);
-  background: rgb(var(--md-surface-container-lowest) / 0.4);
-  color: rgb(var(--md-on-surface-variant));
-  cursor: pointer;
-  transition:
-    color 0.15s ease,
-    border-color 0.15s ease;
-}
-.asset-thumb-add:hover {
-  color: rgb(var(--md-primary));
-  border-color: rgb(var(--md-primary) / 0.6);
-}
-.asset-thumb-add :deep(svg) {
-  width: 17px;
-  height: 17px;
-}
-.inspector-media-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 9px 10px;
-  border-radius: 9px;
-  background: rgb(var(--md-surface-container-low) / 0.55);
-  border: 1px solid rgb(var(--md-outline-variant) / 0.3);
-  font-size: 10px;
-  min-width: 0;
-}
-.inspector-media-meta span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-}
-.inspector-media-meta span:last-child {
-  color: rgb(var(--md-on-surface-muted));
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 8.5px;
-}
-.inspector-media {
+.asset-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px;
-  border-radius: 11px;
-  background: rgb(var(--md-surface-container-low) / 0.65);
-  border: 1px solid rgb(var(--md-outline-variant) / 0.35);
+  gap: 8px;
+  border-radius: 12px;
+  border: 1px solid rgb(var(--md-outline-variant) / 0.5);
+  background: rgb(var(--md-surface-container-low) / 0.6);
+  padding: 4px 6px 4px 4px;
   min-width: 0;
 }
-.inspector-media img,
-.inspector-media video,
-.inspector-media .media-mark {
-  width: 64px;
-  height: 52px;
-  flex: 0 0 auto;
-  object-fit: cover;
-  border-radius: 8px;
-  background: #000;
+.asset-row[data-active="true"] {
+  border-color: rgb(var(--md-primary) / 0.7);
+  background: rgb(var(--md-primary-container) / 0.28);
 }
-.inspector-media .media-mark {
-  display: grid;
-  place-items: center;
-  color: rgb(var(--md-on-surface-variant));
-}
-.inspector-media .media-mark :deep(svg) {
-  width: 18px;
-  height: 18px;
-}
-.media-copy {
+.asset-row-main {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+.asset-row-thumb {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 8px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: rgb(var(--md-surface-container) / 0.9);
+  color: rgb(var(--md-on-surface-variant));
+}
+.asset-row-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.asset-row-thumb :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
+.asset-row-copy {
+  display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+  min-width: 0;
 }
-.inspector-media strong {
+.asset-row-copy strong {
+  font-size: 11px;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10.5px;
 }
-.inspector-media .media-copy span {
-  color: rgb(var(--md-on-surface-muted));
+.asset-row-copy span {
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 8.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 9px;
+  color: rgb(var(--md-on-surface-variant));
 }
-.media-clear {
-  width: 26px;
-  height: 26px;
-  flex: 0 0 auto;
+.asset-row-current {
+  flex: none;
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgb(var(--md-primary) / 0.18);
+  color: rgb(var(--md-primary));
+}
+.asset-row-remove {
+  flex: none;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   border: 0;
@@ -2367,33 +2209,13 @@ button.binding-note:hover {
   color: rgb(var(--md-on-surface-variant));
   cursor: pointer;
 }
-.media-clear:hover {
-  background: rgb(var(--md-on-surface-variant) / 0.12);
+.asset-row-remove:hover {
+  background: rgb(var(--md-error) / 0.16);
+  color: rgb(var(--md-error));
 }
-.media-clear :deep(svg) {
+.asset-row-remove :deep(svg) {
   width: 13px;
   height: 13px;
-}
-.inspector-media-state {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 10px;
-  border-radius: 9px;
-  background: rgb(var(--md-surface-container-low) / 0.55);
-  color: rgb(var(--md-on-surface-muted));
-  font-size: 9.5px;
-  line-height: 1.45;
-  min-width: 0;
-}
-.inspector-media-state :deep(svg) {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-}
-.inspector-media-state span {
-  min-width: 0;
-  overflow-wrap: break-word;
 }
 
 /* ---------------- 提示 / 错误 ---------------- */
@@ -2581,8 +2403,7 @@ button.binding-note:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .md-button,
-  .asset-thumb-remove {
+  .md-button {
     transition: none;
   }
 }
