@@ -37,7 +37,7 @@
 - Produces: `acceptsInputType(definition, port, from): boolean`（`@/core/board/schema`）
 - Produces: 旧边 `targetPort ∈ {image,video,audio,text,value,list}` → `"in"`，`normalizeBoard` 幂等
 
-- [ ] **Step 1: 改测试（先红）**
+- [x] **Step 1: 改测试（先红）**
 
 `src/core/board/__tests__/registry.test.ts` 里把「显示节点把输入原样透传到输出」整体替换为：
 
@@ -119,7 +119,7 @@ describe("normalizeBoard: 显示节点输入端口迁移", () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 pnpm exec vitest run src/core/board/__tests__/registry.test.ts src/core/board/__tests__/valueNodes.test.ts src/core/board/__tests__/connect.test.ts src/core/board/__tests__/schema.test.ts
@@ -127,7 +127,7 @@ pnpm exec vitest run src/core/board/__tests__/registry.test.ts src/core/board/__
 
 Expected: FAIL（显示节点仍是 `image + list`、边没有迁移）。
 
-- [ ] **Step 3: 改 registry：一个输入口**
+- [x] **Step 3: 改 registry：一个输入口**
 
 `src/core/board/registry.ts`：
 
@@ -181,7 +181,7 @@ acceptTypes: ["text", "json"],
 // DISPLAY_VALUE 不填 = 全部
 ```
 
-- [ ] **Step 4: 改类型 + 兼容判定**
+- [x] **Step 4: 改类型 + 兼容判定**
 
 `src/types/board.ts` 的 `BoardNodeDefinition` 里加：
 
@@ -238,7 +238,7 @@ function targetPortOf(node: BoardNode, sourceType: BoardPortType): BoardPortSpec
 
 `BoardView.vue` 顶部 import 补 `acceptsInputType`（从 `@/core/board/schema`）。
 
-- [ ] **Step 5: 迁移旧边**
+- [x] **Step 5: 迁移旧边**
 
 `src/core/board/schema.ts` 在 `normalizeBoard` 里、构建 `edges` 之前加：
 
@@ -276,7 +276,7 @@ for (const item of raw.edges) {
 
 注意：`portTypeOf` 那一段必须用**迁移后的** `targetPort`，否则旧端口会被当成悬空边丢掉。
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 ```bash
 pnpm exec vitest run src/core/board/__tests__/registry.test.ts src/core/board/__tests__/valueNodes.test.ts src/core/board/__tests__/connect.test.ts src/core/board/__tests__/schema.test.ts
@@ -284,7 +284,7 @@ pnpm exec vitest run src/core/board/__tests__/registry.test.ts src/core/board/__
 
 Expected: PASS。
 
-- [ ] **Step 7: 全量测试，找出被端口改名波及的用例**
+- [x] **Step 7: 全量测试，找出被端口改名波及的用例**
 
 ```bash
 pnpm test
@@ -292,7 +292,7 @@ pnpm test
 
 Expected: 可能还有 `nodeRegistry.test.ts` / `portSnapshot.test.ts` 之类断言旧端口；逐个改成 `in` 或加迁移说明后重跑，直到全绿。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add -A src/core/board src/types/board.ts src/components/board/BoardView.vue
@@ -312,7 +312,7 @@ git commit -m "feat(canvas): 显示节点合并为单个输入端口并迁移旧
 - Consumes: `publishedAssetIds` / `publishedAssetId` / `publishedValue` / `resolveFromEdge`（现有）
 - Produces: `display.*` 适配器发布 `assets`（媒体）/ `values.list`（全部）
 
-- [ ] **Step 1: 改测试（先红）**
+- [x] **Step 1: 改测试（先红）**
 
 `src/composables/__tests__/boardRunDisplayStack.test.ts`：
 
@@ -406,7 +406,7 @@ board.connect({
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 pnpm exec vitest run src/composables/__tests__/boardRunDisplayStack.test.ts src/composables/__tests__/boardRunStacks.test.ts
@@ -414,7 +414,7 @@ pnpm exec vitest run src/composables/__tests__/boardRunDisplayStack.test.ts src/
 
 Expected: FAIL（显示节点读的是硬编码 `list` / `image` 端口，多上游拿不到）。
 
-- [ ] **Step 3: 写 `upstreamStackScoped`**
+- [x] **Step 3: 写 `upstreamStackScoped`**
 
 `src/composables/useBoardRun.ts` 在 `upstreamAssetsScoped` 的位置（约 471 行）整体替换为：
 
@@ -515,7 +515,7 @@ function upstreamStackScoped(
 }
 ```
 
-- [ ] **Step 4: 改四个显示分支**
+- [x] **Step 4: 改四个显示分支**
 
 `runAdapter` 里把 `case "display.image"` / `display.video|audio` / `display.text` / `display.value` 换成：
 
@@ -563,7 +563,7 @@ case "display.value": {
 - 删除只有显示节点在用的 `upstreamAssetsScoped` 与 `readAssets` 包装（`const readAssets = …` 那一行）。
 - `const MAX_OUTPUTS = 12;` 改成 `const MAX_OUTPUTS = 24;`，注释补一句「显示节点会把多个上游合成一摞」。
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 pnpm exec vitest run src/composables/__tests__/boardRunDisplayStack.test.ts src/composables/__tests__/boardRunStacks.test.ts
@@ -571,7 +571,7 @@ pnpm exec vitest run src/composables/__tests__/boardRunDisplayStack.test.ts src/
 
 Expected: PASS。
 
-- [ ] **Step 6: 全量测试**
+- [x] **Step 6: 全量测试**
 
 ```bash
 pnpm test
@@ -579,7 +579,7 @@ pnpm test
 
 Expected: PASS（若 `boardRunLoop` / `boardRunWorkflow` 里有显示节点用例，按新端口改）。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add src/composables/useBoardRun.ts src/composables/__tests__
@@ -599,7 +599,7 @@ git commit -m "feat(canvas): 显示节点按上游整摞读取，单输入支持
 - Produces: `appendStackPatch(node: BoardNode, added: string[], current?: string): Partial<BoardNodeData>`
 - Consumes: 现有 `stackOf` / `stackPatch`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `src/core/board/__tests__/stacks.test.ts` 追加：
 
@@ -620,7 +620,7 @@ it("appendStackPatch：没有新素材时不动数据", () => {
 
 顶部 import 补 `appendStackPatch`。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 pnpm exec vitest run src/core/board/__tests__/stacks.test.ts
@@ -628,7 +628,7 @@ pnpm exec vitest run src/core/board/__tests__/stacks.test.ts
 
 Expected: FAIL（`appendStackPatch` 未导出）。
 
-- [ ] **Step 3: 实现 helper**
+- [x] **Step 3: 实现 helper**
 
 `src/core/board/stacks.ts` 追加：
 
@@ -659,7 +659,7 @@ export function appendStackPatch(
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 pnpm exec vitest run src/core/board/__tests__/stacks.test.ts
@@ -667,7 +667,7 @@ pnpm exec vitest run src/core/board/__tests__/stacks.test.ts
 
 Expected: PASS。
 
-- [ ] **Step 5: `BoardNode.vue`：媒体栈覆盖三种类型**
+- [x] **Step 5: `BoardNode.vue`：媒体栈覆盖三种类型**
 
 1. `inputStack` 改名为 `mediaStack` 并同时服务显示节点（替换现有 `stack` 计算）：
 
@@ -787,7 +787,7 @@ watch(
 );
 ```
 
-- [ ] **Step 6: 类型检查 + CSS token 守卫**
+- [x] **Step 6: 类型检查 + CSS token 守卫**
 
 ```bash
 pnpm exec vue-tsc --noEmit -p tsconfig.json
@@ -796,7 +796,7 @@ pnpm exec vitest run src/components/board/__tests__/cssTokens.test.ts
 
 Expected: 都通过。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add src/core/board/stacks.ts src/core/board/__tests__/stacks.test.ts src/components/board/BoardNode.vue
@@ -815,7 +815,7 @@ git commit -m "feat(canvas): 图片/视频/音频输入都支持多素材牌堆�
 - Consumes: `appendStackPatch`（Task 3）、`acceptsInputType`（Task 1）
 - Produces: 媒体输入 / 显示节点共用「一行一个素材」的只读 / 可删列表
 
-- [ ] **Step 1: i18n（先加 key，模板随后引用）**
+- [x] **Step 1: i18n（先加 key，模板随后引用）**
 
 `src/i18n/zh.ts`：
 
@@ -839,7 +839,7 @@ git commit -m "feat(canvas): 图片/视频/音频输入都支持多素材牌堆�
 
 删除两处 `board.inspect.addImages`（zh / en），不再引用。
 
-- [ ] **Step 2: 检查器计算属性**
+- [x] **Step 2: 检查器计算属性**
 
 `BoardInspectorPane.vue`：
 
@@ -919,7 +919,7 @@ function bindingOptions(port: BoardPortSpec): SelectOption[] {
 
 顶部 import 补 `acceptsInputType`（`@/core/board/schema`）与 `appendStackPatch`（`@/core/board/stacks`）。
 
-- [ ] **Step 3: 模板：素材区改成行列表**
+- [x] **Step 3: 模板：素材区改成行列表**
 
 把 `<!-- 素材 -->` 里「图片 `asset-strip` / 非图片单行 / 显示节点只读」三段整体替换为：
 
@@ -986,7 +986,7 @@ function bindingOptions(port: BoardPortSpec): SelectOption[] {
 
 `BoardMediaPicker` 的 `:multiple` 改成 `"mediaKind !== null"`。
 
-- [ ] **Step 4: 样式替换**
+- [x] **Step 4: 样式替换**
 
 删掉 `.asset-strip` / `.asset-thumb*` 相关规则，换成：
 
@@ -1088,11 +1088,11 @@ function bindingOptions(port: BoardPortSpec): SelectOption[] {
 }
 ```
 
-- [ ] **Step 5: 检查器里的显示节点输入行**
+- [x] **Step 5: 检查器里的显示节点输入行**
 
 显示节点只有一个输入，走现成的多选分支即可；确认 `inputCapacity` / `bindings` 文案正确、`bindingOptions` 过滤后不再出现第二个「整组」行。删除模板里 `isImageNode` 专用的素材提示（`aspectHint` 那段可保留给输入节点）。
 
-- [ ] **Step 6: 类型检查 + 全量构建**
+- [x] **Step 6: 类型检查 + 全量构建**
 
 ```bash
 pnpm exec vue-tsc --noEmit -p tsconfig.json
@@ -1101,7 +1101,7 @@ pnpm exec vitest run src/components/board/__tests__/cssTokens.test.ts
 
 Expected: 通过。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add src/components/workspace/panes/BoardInspectorPane.vue src/i18n/zh.ts src/i18n/en.ts
@@ -1117,7 +1117,7 @@ git commit -m "feat(canvas): 检查器素材统一成行列表，显示节点单
 - Regenerate: `crates/daemon/assets/domain.js` 与 golden 产物（`pnpm domain:golden`）
 - Verify: `pnpm test`、`pnpm build`
 
-- [ ] **Step 1: 记录例外**
+- [x] **Step 1: 记录例外**
 
 `docs/canvas-node-design.md` 第 3 条末尾追加：
 
@@ -1127,7 +1127,7 @@ git commit -m "feat(canvas): 检查器素材统一成行列表，显示节点单
 `edge.sourcePort` 单路取；要挑单张还是整组，改在显示节点的**输出**连线里选。
 ```
 
-- [ ] **Step 2: 重建 domain golden**
+- [x] **Step 2: 重建 domain golden**
 
 ```bash
 pnpm domain:golden
@@ -1136,7 +1136,7 @@ git status --short crates/daemon/assets/domain.js crates/daemon/tests/fixtures/e
 
 Expected: `domain.js` 与 golden 产物有变更（`normalizeBoard` 的迁移逻辑进了引擎），一并提交。
 
-- [ ] **Step 3: 全量测试与构建**
+- [x] **Step 3: 全量测试与构建**
 
 ```bash
 pnpm test
@@ -1154,7 +1154,7 @@ Expected: 全绿；`vue-tsc` 无错误。
 - 显示节点接多个上游时按检查器顺序合成牌堆；
 - 旧工程打开后两条旧连线都在。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add docs/canvas-node-design.md crates/daemon/assets/domain.js crates/daemon/tests/fixtures/expected.json

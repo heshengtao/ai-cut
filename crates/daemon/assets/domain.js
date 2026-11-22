@@ -2540,6 +2540,10 @@ var AICUT = (() => {
     "series.view.tile": "Tiles",
     "series.view.graph": "Flow",
     "series.preview": "Preview",
+    "series.play": "Play",
+    "series.edit": "Edit",
+    "series.pause": "Pause",
+    "series.noVideo": "This part has no video yet",
     "series.branchCount": "{count} choices",
     "series.orphan": "Not linked",
     "series.graph.fit": "Fit view",
@@ -2564,8 +2568,8 @@ var AICUT = (() => {
     "series.ctx.copied": "Part copied",
     "series.ctx.cutDone": "Part cut",
     "series.ctx.pasted": "Part pasted",
+    "series.ctx.deleteMany": "This deletes the {count} selected parts. Media and the canvas are untouched.",
     "series.choice.unnamed": "Choice {index}",
-    "series.choices.title": "This part ended \u2014 what plays next?",
     "series.playback.ended": "The series ended",
     "series.playback.loop": "The flow looped back to \u201C{name}\u201D; autoplay stopped",
     "series.timeline": "Timeline",
@@ -2916,9 +2920,11 @@ var AICUT = (() => {
     "board.node.prevImage": "Previous image",
     "board.node.removeImage": "Remove this image",
     "board.node.nextImage": "Next image",
-    "board.inspect.addImages": "Add images",
+    "board.node.nextMedia": "Next",
+    "board.inspect.currentAsset": "Current",
+    "board.inspect.displayStackHint": "Showing {count} assets published upstream",
     "board.inspect.runSection": "Run",
-    "board.inspect.stackCount": "{count} images",
+    "board.inspect.stackCount": "{count} assets",
     "board.node.waitingRun": "Waiting for a run",
     "board.node.waitingRunHint": "Run the upstream node and its output shows up here.",
     "board.node.waitingMedia": "Waiting for upstream",
@@ -2993,7 +2999,7 @@ var AICUT = (() => {
     "board.inspect.title": "Title",
     "board.inspect.titlePlaceholder": "Node title",
     "board.inspect.mediaSection": "Media",
-    "board.inspect.mediaHint": "Pick a local file or add straight from the library; images can stack.",
+    "board.inspect.mediaHint": "Pick a local file or add straight from the library; assets can stack and the library supports multi-select.",
     "board.inspect.aspectHint": "Image nodes resize their height to the asset ratio.",
     "board.inspect.aspectHintVideo": "Video nodes resize their height to the asset ratio.",
     "board.inspect.connectedHint": "Connect an upstream node to this port on the canvas.",
@@ -5568,6 +5574,10 @@ var AICUT = (() => {
     "series.view.tile": "\u5E73\u94FA",
     "series.view.graph": "\u8FDE\u7EBF",
     "series.preview": "\u9884\u89C8",
+    "series.play": "\u64AD\u653E",
+    "series.edit": "\u7F16\u8F91",
+    "series.pause": "\u6682\u505C",
+    "series.noVideo": "\u8FD9\u4E00\u96C6\u8FD8\u6CA1\u6709\u89C6\u9891\u7D20\u6750",
     "series.branchCount": "{count} \u4E2A\u9009\u9879",
     "series.orphan": "\u672A\u63A5\u5165",
     "series.graph.fit": "\u9002\u5E94\u89C6\u56FE",
@@ -5592,8 +5602,8 @@ var AICUT = (() => {
     "series.ctx.copied": "\u5DF2\u590D\u5236\u5206P",
     "series.ctx.cutDone": "\u5DF2\u526A\u5207\u5206P",
     "series.ctx.pasted": "\u5DF2\u7C98\u8D34\u5206P",
+    "series.ctx.deleteMany": "\u4F1A\u5220\u9664\u9009\u4E2D\u7684 {count} \u4E2A\u5206P\uFF0C\u7D20\u6750\u4E0E\u753B\u5E03\u4E0D\u53D7\u5F71\u54CD\u3002",
     "series.choice.unnamed": "\u9009\u9879 {index}",
-    "series.choices.title": "\u672C\u96C6\u7ED3\u675F\uFF0C\u9009\u62E9\u63A5\u4E0B\u6765\u64AD\u653E",
     "series.playback.ended": "\u5267\u96C6\u7ED3\u675F",
     "series.playback.loop": "\u5267\u96C6\u7ED5\u56DE\u4E86\u300C{name}\u300D\uFF0C\u81EA\u52A8\u8FDE\u64AD\u5DF2\u505C\u6B62",
     "series.timeline": "\u65F6\u95F4\u7EBF",
@@ -5944,9 +5954,11 @@ var AICUT = (() => {
     "board.node.prevImage": "\u4E0A\u4E00\u5F20",
     "board.node.removeImage": "\u5220\u9664\u8FD9\u5F20\u56FE\u7247",
     "board.node.nextImage": "\u4E0B\u4E00\u5F20",
-    "board.inspect.addImages": "\u6DFB\u52A0\u56FE\u7247",
+    "board.node.nextMedia": "\u4E0B\u4E00\u4E2A",
+    "board.inspect.currentAsset": "\u5F53\u524D",
+    "board.inspect.displayStackHint": "\u5C55\u793A\u4E0A\u6E38\u53D1\u5E03\u7684 {count} \u4E2A\u7D20\u6750",
     "board.inspect.runSection": "\u8FD0\u884C",
-    "board.inspect.stackCount": "{count} \u5F20",
+    "board.inspect.stackCount": "{count} \u4E2A\u7D20\u6750",
     "board.node.waitingRun": "\u7B49\u5F85\u8FD0\u884C",
     "board.node.waitingRunHint": "\u8FD0\u884C\u4E0A\u6E38\u8282\u70B9\u540E\uFF0C\u4EA7\u7269\u4F1A\u663E\u793A\u5728\u8FD9\u91CC\u3002",
     "board.node.waitingMedia": "\u7B49\u5F85\u4E0A\u6E38\u7D20\u6750",
@@ -6021,7 +6033,7 @@ var AICUT = (() => {
     "board.inspect.title": "\u6807\u9898",
     "board.inspect.titlePlaceholder": "\u8282\u70B9\u6807\u9898",
     "board.inspect.mediaSection": "\u7D20\u6750",
-    "board.inspect.mediaHint": "\u4ECE\u672C\u5730\u9009\u62E9\uFF0C\u6216\u76F4\u63A5\u4ECE\u7D20\u6750\u5E93\u6DFB\u52A0\uFF1B\u56FE\u7247\u53EF\u4EE5\u5806\u591A\u5F20\u3002",
+    "board.inspect.mediaHint": "\u4ECE\u672C\u5730\u9009\u62E9\uFF0C\u6216\u76F4\u63A5\u4ECE\u7D20\u6750\u5E93\u6DFB\u52A0\uFF1B\u7D20\u6750\u53EF\u4EE5\u5806\u591A\u4EFD\u3001\u7D20\u6750\u5E93\u53EF\u591A\u9009\u3002",
     "board.inspect.aspectHint": "\u56FE\u7247\u8282\u70B9\u4F1A\u6309\u7D20\u6750\u6BD4\u4F8B\u81EA\u52A8\u8C03\u6574\u9AD8\u5EA6\u3002",
     "board.inspect.aspectHintVideo": "\u89C6\u9891\u8282\u70B9\u4F1A\u6309\u7D20\u6750\u6BD4\u4F8B\u81EA\u52A8\u8C03\u6574\u9AD8\u5EA6\u3002",
     "board.inspect.connectedHint": "\u5728\u753B\u5E03\u4E0A\u628A\u4E0A\u6E38\u8282\u70B9\u8FDE\u5230\u8FD9\u4E2A\u7AEF\u53E3\u3002",
@@ -6435,20 +6447,33 @@ var AICUT = (() => {
     }
     return Object.keys(source).length > 0 ? source : void 0;
   }
+  var LEGACY_DISPLAY_PORTS = /* @__PURE__ */ new Set(["image", "video", "audio", "text", "value", "list"]);
+  var BUILTIN_DISPLAY_TYPES = /* @__PURE__ */ new Set([
+    "display.image",
+    "display.video",
+    "display.audio",
+    "display.text",
+    "display.value"
+  ]);
   function normalizeBoard(raw, portTypeOf) {
     if (!isObject(raw)) return emptyBoard();
     const nodes = Array.isArray(raw.nodes) ? raw.nodes.map(normalizeNode).filter((node) => node !== null) : [];
     const nodeIds = new Set(nodes.map((node) => node.id));
+    const typeById = new Map(nodes.map((node) => [node.id, node.type]));
     const edges = [];
     const seen = /* @__PURE__ */ new Set();
+    const wired = /* @__PURE__ */ new Set();
     if (Array.isArray(raw.edges)) {
       for (const item of raw.edges) {
         if (!isObject(item)) continue;
-        const { id, source: source2, sourcePort, target, targetPort } = item;
+        const { id, source: source2, sourcePort, target } = item;
         if (typeof id !== "string" || !id || seen.has(id)) continue;
         if (typeof source2 !== "string" || typeof target !== "string") continue;
-        if (typeof sourcePort !== "string" || typeof targetPort !== "string") continue;
+        if (typeof sourcePort !== "string") continue;
         if (!nodeIds.has(source2) || !nodeIds.has(target)) continue;
+        if (typeof item.targetPort !== "string") continue;
+        const targetType = typeById.get(target);
+        const targetPort = targetType && BUILTIN_DISPLAY_TYPES.has(targetType) && LEGACY_DISPLAY_PORTS.has(item.targetPort) ? "in" : item.targetPort;
         const kind = item.kind === "pair" ? "pair" : void 0;
         if (source2 === target) continue;
         if (portTypeOf) {
@@ -6456,6 +6481,9 @@ var AICUT = (() => {
           const to = portTypeOf(target, targetPort, "in");
           if (!from || !to || !isPortType(from) || !isPortType(to)) continue;
         }
+        const wire = `${source2}:${sourcePort}->${target}:${targetPort}`;
+        if (wired.has(wire)) continue;
+        wired.add(wire);
         seen.add(id);
         edges.push({ id, source: source2, sourcePort, target, targetPort, ...kind ? { kind } : {} });
       }
