@@ -34,6 +34,7 @@ license: Apache-2.0
 | 审片/增量渲染 | `import_film_manifest`、`export_film_manifest`、`add_review_note`、`list_review_notes`、`update_review_note`、`remove_review_note`、`render_status`、`render_range`、`render_manifest`、`compare_takes`、`render_contact_sheet` |
 | 异步任务 | `job_start`、`job_status`、`job_cancel` |
 | 画布/工作流 | `board_list_canvases`、`board_get_canvas`、`board_create_canvas`、`board_delete_canvas`、`board_rename_canvas`、`board_open_canvas`、`board_apply_ops`、`workflow_publish`、`workflow_list`、`workflow_run` |
+| 代码出片 | `render_code`（跑外部渲染命令 → 入库 → 回填节点） |
 
 AI 工具默认是同步的：调用后会等到任务结束，期间可以用 `cancel_ai` 或停止按钮中止。模型缺失时先 `list_ai_models` 查 id，再 `download_model`。
 
@@ -82,6 +83,17 @@ AI 工具默认是同步的：调用后会等到任务结束，期间可以用 `
   `{ id, source, sourcePort, target, targetPort }`；省略 `canvasId` 时改活动画布。
   新建/删除/改名/切换画布分别用 `board_create_canvas` / `board_delete_canvas` /
   `board_rename_canvas` / `board_open_canvas`。
+  **这五个写工具在无头（容器 / 浏览器）形态同样可用**：它们直接改工程文档（语义与桌面
+  前端同一份，任一条操作失败整组不落地，整个调用进一个撤销步）。只有 `workflow_publish`
+  与 `workflow_run` 需要桌面的渲染进程。
+- **代码出片**：先用 `board_apply_ops` 放好节点（例如 `display.video`），再用
+  `render_code` 跑你的渲染命令并把产物回填进去：
+  `{ command: "npx remotion render src/index.ts Hero out/hero.mp4", cwd: "<工程目录>",
+  outputPath: "out/hero.mp4", nodeId: "d1", params: { entry, fps, width, height } }`。
+  约定：`outputPath` 的目录必须已存在；命令成功但没产物会报错；失败 / 超时 / 取消会删掉
+  本次**新建**的半成品（跑之前就存在的文件不动）。`params` 只收标量，逐键并进节点已有的
+  `params`，是「这句 mp4 是怎么来的」的唯一溯源。应用不替你打包 three.js / Remotion 工程——
+  依赖和构建发生在 `cwd` 里。
 - **签名**：画布上的 `workflow.start` 与 `workflow.end` 成对出现（共享 `pairId`），
   开始节点的输入签名行 + 结束节点的输出签名行就是这张画布的对外签名；签名行的 id 是端口 id，
   改名不会移动连线。
@@ -162,6 +174,7 @@ aicut tools
 | `save_project` | `path?` | 直接写盘；省略路径时存回原路径 |
 | `extract_audio` | `clipId`, `trackName?` | 把视频音轨拆到新轨道并静音原片段 |
 | `import_asset` | `path`, `name?` | 探测媒体并加入素材库 |
+| `render_code` | `command`, `cwd`, `outputPath`, `name?`, `timeoutSec?`, `nodeId?`, `canvasId?`, `params?` | 在 `cwd` 里跑渲染命令（`sh -c` / `cmd /C`），成功才入库；超时/取消杀进程并删掉本次新建的半成品；给 `nodeId` 时回填节点 |
 | `undo` / `redo` | — | 撤销 / 重做 |
 | `transcribe` | `clipId`/`assetId`, `modelId?`, `language?` | 转写并写入字幕轨 |
 | `translate_audio` | `clipId`, `target`, `dub?` | 译文字幕，可选译制配音 |

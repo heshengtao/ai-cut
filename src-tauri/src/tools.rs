@@ -945,6 +945,28 @@ pub fn definitions() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
+            name: "render_code",
+            description: "代码出片：在 cwd 里跑一条渲染命令（sh -c / cmd /C，例如 `npx remotion render src/index.ts Hero out/hero.mp4`），把 outputPath 指向的产物收进素材库。成功才入库；超时 / 取消会杀进程并删掉本次新建的半成品（跑之前就存在的文件不动）。给了 nodeId 时顺手把结果回填到画布节点（assetId + 溯源参数）。这是 code2video 的收尾契约：命令、产物路径、节点三者要一致；应用不替你打包 three.js / Remotion 工程。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "完整命令行，交给 shell 执行（等同在终端里跑）" },
+                    "cwd": { "type": "string", "description": "工作目录（用户工程目录的绝对路径），命令在里面跑" },
+                    "outputPath": { "type": "string", "description": "命令产出的文件；相对路径相对 cwd。目录必须已存在" },
+                    "timeoutSec": { "type": "integer", "minimum": 5, "maximum": 3600, "description": "超时秒数，默认 900" },
+                    "name": { "type": "string", "description": "素材库里的显示名，默认用文件名" },
+                    "nodeId": { "type": "string", "description": "画布节点 id：给了就把素材回填成该节点的内容" },
+                    "canvasId": { "type": "string", "description": "节点所在画布 id；省略时按节点 id 自动定位" },
+                    "params": {
+                        "type": "object",
+                        "description": "写进节点 params 的溯源标量（entry / command / fps / width / height …），已有的键逐键保留",
+                        "additionalProperties": { "type": ["string", "number", "boolean"] }
+                    }
+                },
+                "required": ["command", "cwd", "outputPath"]
+            }),
+        },
+        ToolDef {
             name: "probe_media",
             description: "一次调用了解素材内容：ffprobe 元数据 + 按时间的运动采样与候选切点 + 可选目标框 + 可选语音转写。优先用它代替逐帧 render_frame 看图。objects 需要已安装 YuNet（face）或 YOLOX（person）模型；transcript 需要已安装 ASR + silero-vad。",
             parameters: json!({
@@ -1733,6 +1755,7 @@ pub async fn dispatch_with_cancel(
         "workflow_publish" => bridge.request("workflow.publish", args).await,
         "workflow_list" => bridge.request("workflow.list", json!({})).await,
         "workflow_run" => bridge.request("workflow.run", args).await,
+        "render_code" => render_code_tool(app, bridge, actor, &args, cancel).await,
 
         "aicut_help" => {
             let topic = args
@@ -2145,6 +2168,139 @@ async fn import_asset(
             .await?,
     )?;
     Ok(json!({ "asset": asset, "result": result }))
+}
+
+/// 代码出片的收尾：跑命令 → 入库 → 可选回填画布节点。
+///
+/// 校验 / 执行 / 失败清理与无头版共用 `aicut_daemon::render_code`；
+/// 收尾走桥接（`import_asset` + `board.apply`），因为桌面文档在渲染进程里。
+async fn render_code_tool(
+    app: &AppHandle,
+    bridge: &ProjectBridge,
+    actor: &str,
+    args: &Value,
+    cancel: Option<&CancellationToken>,
+) -> Result<Value, String> {
+    let spec = aicut_daemon::render_code::parse(args)?;
+    let existed = spec.output_abs().is_file();
+    let node_id = args
+        .get("nodeId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    // 先确认节点存在再跑：跑完才发现 nodeId 写错，会留下一条没人用的素材。
+    let target = match node_id {
+        Some(id) => Some(
+            locate_node(
+                bridge,
+                id,
+                args.get("canvasId").and_then(Value::as_str),
+            )
+            .await?,
+        ),
+        None => None,
+    };
+
+    let emitting = app.clone();
+    let result = aicut_daemon::render_code::execute(
+        &spec,
+        cancel,
+        std::sync::Arc::new(move |tail: &str| {
+            use tauri::Emitter;
+            let payload = json!({ "tail": tail });
+            aicut_daemon::events::publish(aicut_daemon::render_code::EVENT_RENDER_CODE, &payload);
+            let _ = emitting.emit(aicut_daemon::render_code::EVENT_RENDER_CODE, payload);
+        }),
+    )
+    .await?;
+
+    if !result.ok() {
+        aicut_daemon::render_code::cleanup(&spec, existed);
+        return Err(aicut_daemon::render_code::failure_message(&result, &spec));
+    }
+    let size = match aicut_daemon::render_code::verify_output(&spec) {
+        Ok(size) => size,
+        Err(error) => {
+            aicut_daemon::render_code::cleanup(&spec, existed);
+            return Err(error);
+        }
+    };
+
+    let path = spec.output_abs().to_string_lossy().into_owned();
+    let mut import_args = json!({ "path": path });
+    if let Some(name) = args
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        import_args["name"] = json!(name);
+    }
+    let imported = import_asset(app, bridge, actor, &import_args).await?;
+    let asset_id = imported["asset"]["id"].clone();
+    let mut summary = json!({
+        "assetId": asset_id,
+        "path": path,
+        "sizeBytes": size,
+        "duration": imported["asset"]["duration"].clone(),
+    });
+
+    if let Some((canvas_id, node_type, existing_params)) = target {
+        let params =
+            aicut_daemon::render_code::merge_params(existing_params, args.get("params"));
+        let patch = aicut_daemon::render_code::node_patch(&node_type, &asset_id, params);
+        bridge
+            .request(
+                "board.apply",
+                json!({
+                    "canvasId": canvas_id,
+                    "ops": [{ "kind": "update_node", "nodeId": node_id, "patch": patch }],
+                }),
+            )
+            .await?;
+        summary["nodeId"] = json!(node_id);
+        summary["canvasId"] = json!(canvas_id);
+    }
+
+    Ok(summary)
+}
+
+/// 在前端画布上按 id 找节点，返回 `(canvasId, nodeType, 已有 params)`。
+async fn locate_node(
+    bridge: &ProjectBridge,
+    node_id: &str,
+    canvas_id: Option<&str>,
+) -> Result<(String, String, Value), String> {
+    let candidates: Vec<String> = match canvas_id.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(id) => vec![id.to_string()],
+        None => {
+            let list = bridge.request("board.list", json!({})).await?;
+            list["canvases"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|canvas| canvas["id"].as_str().map(str::to_string))
+                .collect()
+        }
+    };
+    for id in candidates {
+        let canvas = bridge
+            .request("board.get", json!({ "canvasId": id }))
+            .await?;
+        let found = canvas["nodes"]
+            .as_array()
+            .and_then(|nodes| nodes.iter().find(|node| node["id"] == node_id));
+        if let Some(node) = found {
+            let node_type = node["type"].as_str().unwrap_or_default().to_string();
+            let params = node["data"]["params"].clone();
+            return Ok((id, node_type, params));
+        }
+    }
+    Err(format!(
+        "节点不存在：{node_id}（先用 board_apply_ops add_node，再让 render_code 回填）"
+    ))
 }
 
 fn truncate_text(text: &str, max: usize) -> String {

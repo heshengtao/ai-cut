@@ -12,6 +12,7 @@ vi.mock("@/core/media", () => ({
 import { useBoardStore } from "@/stores/board";
 import { useProjectStore } from "@/stores/project";
 import { newProject } from "@/core/factory";
+import { canvasApply } from "@/core/board/canvasApi";
 import type { BoardNode } from "@/types/board";
 
 function node(id: string): BoardNode {
@@ -454,5 +455,58 @@ describe("board store · 组节点与剪贴板", () => {
     });
     board.clear();
     expect(board.source).toBeUndefined();
+  });
+
+  it("canvasApply 任一条不合法时一条都不落地（整组校验通过才动文档）", () => {
+    const { board } = setup();
+    board.addNode(node("a"));
+    const before = board.nodes.length;
+    expect(() =>
+      canvasApply([
+        {
+          kind: "add_node",
+          node: {
+            id: "b",
+            type: "input.text",
+            position: { x: 0, y: 0 },
+            data: { params: {}, bindings: {} },
+          } as BoardNode,
+        },
+        {
+          kind: "connect",
+          edge: { id: "e1", source: "a", sourcePort: "image", target: "ghost", targetPort: "in" },
+        },
+      ]),
+    ).toThrow(/连线接不上/);
+    // 第一条合法操作也不能留下
+    expect(board.nodes.map((item) => item.id)).toEqual(["a"]);
+    expect(board.nodes.length).toBe(before);
+  });
+
+  it("canvasApply 一次调用只留一步撤销，且整组都落地", () => {
+    const { board } = setup();
+    const depth = board.undoStack.length;
+    const applied = canvasApply([
+      {
+        kind: "add_node",
+        node: {
+          id: "v1",
+          type: "display.video",
+          position: { x: 0, y: 0 },
+          data: { params: {}, bindings: {} },
+        } as BoardNode,
+      },
+      {
+        kind: "update_node",
+        nodeId: "v1",
+        patch: { data: { params: { command: "npx remotion render" } } },
+      },
+    ]);
+    expect(applied.applied).toBe(2);
+    expect(board.nodes).toHaveLength(1);
+    expect(board.nodes[0]!.data.params.command).toBe("npx remotion render");
+    expect(board.undoStack.length).toBe(depth + 1);
+    board.undo();
+    expect(board.nodes).toHaveLength(0);
   });
 });

@@ -22,6 +22,14 @@ import {
 } from "@/core/board/registry";
 import { boardPortContext } from "@/composables/useBoardPortContext";
 import {
+  type CanvasOp,
+  PAIR_ENDS,
+  applyOpsToBoard,
+  expandRemoval,
+  pairNodesFor,
+  withoutNodes,
+} from "@/core/board/ops";
+import {
   WORKFLOW_END_TYPE,
   WORKFLOW_START_TYPE,
   callPorts,
@@ -240,104 +248,26 @@ export const useBoardStore = defineStore("board", () => {
     schedule();
   }
 
-  /**
-   * 成对节点：添加时两个一起出现、用配对线相连、删除时一起消失。
-   *
-   * 循环（循环开始 → 循环结束）和工作流（工作流开始 → 工作流结束）共用这条
-   * 规则：`pairId` 是真相，配对线只表达结构。
-   */
-  const PAIR_ENDS: Record<
-    string,
-    { endType: string; data: () => BoardNodeData }
-  > = {
-    "loop.start": {
-      endType: "loop.end",
-      data: () => ({ params: { slots: 1 }, bindings: {} }),
-    },
-    [WORKFLOW_START_TYPE]: {
-      endType: WORKFLOW_END_TYPE,
-      data: () => ({
-        params: {},
-        bindings: {},
-        signature: { inputs: [], outputs: [] },
-      }),
-    },
-  };
-
-  /** 新建工作流开始节点时的默认签名（一个 text 输入，可改名 / 删掉）。 */
-  function defaultWorkflowInputs(): WorkflowSignature["inputs"] {
-    return [
-      {
-        id: newDeclId("in"),
-        name: "prompt",
-        label: t("board.workflow.defaultInput"),
-        type: "text",
-        required: true,
-        default: "",
-      },
-    ];
-  }
-
-  function defaultWorkflowOutputs(): WorkflowSignature["outputs"] {
-    return [
-      {
-        id: newDeclId("out"),
-        name: "result",
-        label: t("board.workflow.defaultOutput"),
-        type: "text",
-        required: true,
-      },
-    ];
-  }
-
   function addNode(node: BoardNode): void {
     // 成对节点：连体创建结束节点 + 配对线，三者一起存在、一起消失。
-    const pair = PAIR_ENDS[node.type];
-    if (pair) {
-      const size = node.size ?? nodeDefinition(node.type)?.defaultSize ?? { width: 360, height: 150 };
-      const endSize = nodeDefinition(pair.endType)?.defaultSize ?? { width: 360, height: 150 };
-      const pairId = crypto.randomUUID();
-      const endId = crypto.randomUUID();
-      const signature =
-        node.type === WORKFLOW_START_TYPE
-          ? { inputs: defaultWorkflowInputs(), outputs: defaultWorkflowOutputs() }
-          : node.data.signature;
-      const start: BoardNode = {
-        ...node,
-        size,
-        data: {
-          ...node.data,
-          pairId,
-          ...(signature ? { signature } : {}),
-        },
-      };
-      const end: BoardNode = {
-        id: endId,
-        type: pair.endType,
-        position: { x: node.position.x + size.width + 96, y: node.position.y },
-        size: endSize,
-        data: {
-          ...pair.data(),
-          pairId,
-          ...(node.type === WORKFLOW_START_TYPE
-            ? { signature: { inputs: [], outputs: defaultWorkflowOutputs() } }
-            : {}),
-        },
-      };
-      const pairEdge: BoardEdge = {
-        id: crypto.randomUUID(),
-        source: start.id,
-        sourcePort: "pair",
-        target: endId,
-        targetPort: "pair",
-        kind: "pair",
-      };
+    // 语义在 `core/board/ops.ts`：无头引擎用的是同一份实现。
+    const endType = PAIR_ENDS[node.type]?.endType;
+    const paired = endType
+      ? pairNodesFor(
+          {
+            ...node,
+            size: node.size ?? nodeDefinition(node.type)?.defaultSize ?? { width: 360, height: 150 },
+          },
+          nodeDefinition(endType)?.defaultSize ?? { width: 360, height: 150 },
+        )
+      : null;
+    if (paired) {
       commit(() => {
-        nodes.value = [...nodes.value, start, end];
-        edges.value = [...edges.value, pairEdge];
+        nodes.value = [...nodes.value, ...paired.nodes];
+        edges.value = [...edges.value, paired.edge];
       });
-      selection.value = [start.id];
-      refreshGroupMembership([start.id]);
+      selection.value = [paired.nodes[0]!.id];
+      refreshGroupMembership([paired.nodes[0]!.id]);
       return;
     }
     commit(() => {
@@ -671,33 +601,13 @@ export const useBoardStore = defineStore("board", () => {
 
   function removeNodes(ids: string[]): void {
     if (ids.length === 0) return;
-    // 删组 = 连组员一起删（否则组名没了、节点还在）。
-    const expanded = new Set([...ids, ...expandGroups(ids)]);
-    const wanted = new Set<string>();
-    for (const id of expanded) {
-      wanted.add(id);
-      const node = nodes.value.find((item) => item.id === id);
-      if (node?.type === "group") for (const child of node.data.children ?? []) wanted.add(child);
-      // 成对节点（循环 / 工作流开始结束）：删一个就连同另一个（配对线随端点一起被过滤掉）。
-      if (node?.data.pairId) {
-        for (const other of nodes.value) {
-          if (other.id !== node.id && other.data.pairId === node.data.pairId) {
-            wanted.add(other.id);
-          }
-        }
-      }
-    }
+    // 删组 = 连组员一起删；删成对节点的一端 = 另一端一起删。
+    // 集合语义在 `core/board/ops.ts`：无头引擎用的是同一份实现。
+    const wanted = expandRemoval(nodes.value, ids);
+    const next = withoutNodes({ nodes: nodes.value, edges: edges.value }, wanted);
     commit(() => {
-      nodes.value = nodes.value
-        .filter((node) => !wanted.has(node.id))
-        .map((node) =>
-          node.data.children
-            ? { ...node, data: { ...node.data, children: node.data.children.filter((id) => !wanted.has(id)) } }
-            : node,
-        );
-      edges.value = edges.value.filter(
-        (edge) => !wanted.has(edge.source) && !wanted.has(edge.target),
-      );
+      nodes.value = next.nodes;
+      edges.value = next.edges;
       selection.value = selection.value.filter((id) => !wanted.has(id));
     });
   }
@@ -1358,6 +1268,42 @@ export const useBoardStore = defineStore("board", () => {
   }
 
   /** 清空画布（保留工程 / 素材）。来源也一起清掉：清空后是新的一张画布。 */
+  /**
+   * 一组原子操作：整组先校验，全部合法才落地，撤销栈里只留一步。
+   *
+   * 语义在 `core/board/ops.ts`（无头引擎用同一份）——这里只负责 commit / 选中 /
+   * 过期标记这些 UI 副作用。任一条不合法直接抛错，画布一条都不动。
+   */
+  function applyOps(ops: CanvasOp[]): number {
+    const board: BoardDoc = {
+      version: BOARD_VERSION,
+      nodes: nodes.value,
+      edges: edges.value,
+      viewport: viewport.value,
+      updatedAt: Date.now(),
+      ...(source.value ? { source: source.value } : {}),
+    };
+    const before = new Set(nodes.value.map((node) => node.id));
+    const next = applyOpsToBoard(board, ops);
+    if (next === board) return 0;
+    commit(() => {
+      nodes.value = next.nodes;
+      edges.value = next.edges;
+      source.value = next.source;
+      selection.value = selection.value.filter((id) =>
+        next.nodes.some((node) => node.id === id),
+      );
+    });
+    const added = next.nodes
+      .filter((node) => !before.has(node.id))
+      .map((node) => node.id);
+    if (added.length > 0) refreshGroupMembership(added);
+    for (const op of ops) {
+      if (op.kind === "connect") markDownstreamStale(op.edge.source);
+    }
+    return ops.length;
+  }
+
   function clear(): void {
     commit(() => {
       nodes.value = [];
@@ -1412,6 +1358,7 @@ export const useBoardStore = defineStore("board", () => {
     syncPositions,
     applyPositions,
     removeNodes,
+    applyOps,
     expandGroups,
     createGroup,
     ungroup,

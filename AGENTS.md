@@ -32,6 +32,17 @@
   `video_gen`) also live in `crates/daemon`; the desktop commands are thin wrappers. Their
   capabilities are `ok` in the headless table — do not mark them desktop-only, and keep
   download / install / generation logic in the daemon.
+- Canvas **writes** are headless too: `board_create_canvas` / `board_delete_canvas` /
+  `board_rename_canvas` / `board_open_canvas` / `board_apply_ops` go
+  `agent_tools.rs` → `doc_ops("board_*")` → `src/domain/host.ts` → `src/core/board/ops.ts`.
+  That module is the single definition of pair nodes, group removal and stack-input caps; the
+  desktop store only adds commit / selection / debounce on top. Only `workflow_publish` and
+  `workflow_run` stay desktop-only. Do not reintroduce a store-only canvas write path.
+- Code2video is an external command, not an engine: `crates/daemon/src/render_code.rs` runs the
+  user's render command in `cwd`, imports on success, backfills `nodeId` with `assetId` + scalar
+  provenance `params`, and deletes only the output it created when the run fails or is cancelled.
+  three.js / Remotion bundling stays in the user's project — never bundle a browser or a Node
+  toolchain into the app.
 - Cloud TTS / cloud ASR live in `crates/daemon` too (`cloud_tts.rs`, `cloud_asr/`), with config in
   `<config dir>/tts.json` and `asr.json`. Their capabilities are `cloud_tts` / `cloud_asr` in the
   headless table. `asr_transcribe` routes any `cloud:<provider_id>` model id to

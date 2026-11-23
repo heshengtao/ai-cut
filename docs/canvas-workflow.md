@@ -124,9 +124,34 @@ interface WorkflowSignature { inputs: WorkflowPortDecl[]; outputs: WorkflowPortD
 | `workflow_list` | `workflow.list` | 已发布条目（标签过滤，带签名） |
 | `workflow_run` | `workflow.run` | 运行已发布工作流，返回签名输出 |
 
-无头 daemon（`aicutd`）没有渲染进程：`board_list_canvases` / `board_get_canvas` 从工程
-快照读（`boards` 是真相），`workflow_list` 直接读本机工作流库；画布写入、发布与运行
-返回明确的「需要桌面版渲染进程」错误，不伪造成功。
+无头 daemon（`aicutd`）没有渲染进程，但画布**写入**已经下沉到领域层：
+
+- 读：`board_list_canvases` / `board_get_canvas` 从工程快照读（`boards` 是真相），
+  `workflow_list` 直接读本机工作流库；
+- 写：`board_create_canvas` / `board_delete_canvas` / `board_rename_canvas` /
+  `board_open_canvas` / `board_apply_ops` 走 `crates/daemon/src/agent_tools.rs` →
+  `doc_ops("board_*")` → `src/domain/host.ts` → `src/core/board/ops.ts`。语义只有一份：
+  成对节点（开始 + 结束 + 配对线）、组员连带删除、显示节点牌堆口的上限、任一条失败整组
+  不落地。撤销 / revision 用引擎侧快照栈（`undo` 能撤回整次调用）。
+- 仍然桌面专属：`workflow_publish`（要工作流库校验）与 `workflow_run`（要前端运行器），
+  返回值里明确说明原因，不伪造成功。
+
+桌面端之所以还保留一条 store 通道：画布编辑要即时反映在 UI 上，还要维护选中态与防抖落盘。
+两边共用 `core/board/ops.ts` 的语义，store 只负责 commit / selection。
+
+### 代码出片（`render_code`）
+
+three.js / Remotion 这类「代码 → 视频」不在应用里渲染：它们的依赖与构建都发生在用户的
+工程目录里，应用替不了。工具只负责契约的另一半（`crates/daemon/src/render_code.rs`）：
+
+1. 在 `cwd` 里跑一条命令（`sh -c` / `cmd /C`，stderr 合并进 stdout）；
+2. 进度按 400ms 节流推到 `render-code-progress`；超时（默认 900s）或 `job_cancel` 都会杀进程；
+3. 失败 / 超时 / 取消：删掉**本次新建**的产物（跑之前就存在的文件不动），报错带输出尾部；
+4. 成功：`ffprobe` 探测 → `import_asset` → 给了 `nodeId` 时把素材回填到该节点
+   （输入 / 显示节点连牌堆一起换成这一个），`params` 里的溯源标量逐键并进节点已有参数。
+
+节点上只存素材 id 与溯源参数，源码和渲染命令留在工程目录里——这是「可重放」的最低要求：
+改完代码重新调一次 `render_code`，同一个节点、同一个 `outputPath` 就是新版本。
 
 ## 6. 已落地的边界
 

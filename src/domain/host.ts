@@ -23,7 +23,15 @@ import {
   resolveTrack,
   trackPage,
 } from "@/core/projectView";
-import { setTranslateLocale, t } from "@/i18n/translate";
+import { isKnownMessageKey, setTranslateLocale, t } from "@/i18n/translate";
+import { applyCanvasOps, canvasTitle, type CanvasOp } from "@/core/board/ops";
+import {
+  activateCanvas,
+  canvasesOf,
+  createCanvas,
+  deleteCanvas,
+  renameCanvas,
+} from "@/core/board/projectBoards";
 // AI 产出物落位的纯函数：与桌面 `core/aiActions` 调的是同一份实现，
 // 模型推理在 Rust 侧跑完，这里只负责"把结果接回文档"。
 import { addAsset } from "@/core/ops/assets";
@@ -821,6 +829,68 @@ export function op(kind: string, argsJson: string): string {
       // 只登记素材（导入素材 / 模型输出的通用路径）。
       case "add_assets": {
         result = { assets: next.assets.length - before.assets.length };
+        break;
+      }
+      // ---- 画布写入：与桌面 `board.*` 桥接同一份语义（`core/board/ops.ts`）。
+      // 无头版没有渲染进程，画布编辑直接改工程文档；撤销 / revision 走引擎侧快照栈。
+      case "board_apply": {
+        const ops = Array.isArray(args.ops) ? (args.ops as CanvasOp[]) : [];
+        if (ops.length === 0) throw new Error("board_apply 需要 ops（至少一条）");
+        const applied = applyCanvasOps(
+          next,
+          ops,
+          typeof args.canvasId === "string" ? args.canvasId : undefined,
+        );
+        next = applied.project;
+        result = { activeId: applied.canvasId, applied: applied.applied };
+        break;
+      }
+      case "board_create": {
+        const requested = typeof args.title === "string" ? args.title : "";
+        next = createCanvas(next, requested);
+        const list = canvasesOf(next);
+        const index = Math.max(
+          0,
+          list.findIndex((canvas) => canvas.id === next.activeBoardId),
+        );
+        const canvas = list[index];
+        result = {
+          id: canvas?.id ?? "",
+          title: canvas ? canvasTitle(canvas, index, isKnownMessageKey) : "",
+        };
+        break;
+      }
+      case "board_delete": {
+        const canvasId = typeof args.canvasId === "string" ? args.canvasId.trim() : "";
+        if (!canvasId) throw new Error("board_delete 需要 canvasId");
+        const list = canvasesOf(next);
+        if (!list.some((canvas) => canvas.id === canvasId)) {
+          throw new Error(`画布不存在：${canvasId}`);
+        }
+        if (list.length <= 1) throw new Error("至少要保留一张画布");
+        next = deleteCanvas(next, canvasId);
+        result = { ok: true, activeId: next.activeBoardId ?? "" };
+        break;
+      }
+      case "board_rename": {
+        const canvasId = typeof args.canvasId === "string" ? args.canvasId.trim() : "";
+        if (!canvasId) throw new Error("board_rename 需要 canvasId");
+        const title = typeof args.title === "string" ? args.title : "";
+        if (!canvasesOf(next).some((canvas) => canvas.id === canvasId)) {
+          throw new Error(`画布不存在：${canvasId}`);
+        }
+        next = renameCanvas(next, canvasId, title);
+        result = { ok: true, title: title.trim() };
+        break;
+      }
+      case "board_open": {
+        const canvasId = typeof args.canvasId === "string" ? args.canvasId.trim() : "";
+        if (!canvasId) throw new Error("board_open 需要 canvasId");
+        if (!canvasesOf(next).some((canvas) => canvas.id === canvasId)) {
+          throw new Error(`画布不存在：${canvasId}`);
+        }
+        next = activateCanvas(next, canvasId);
+        result = { activeId: next.activeBoardId ?? canvasId };
         break;
       }
       default:

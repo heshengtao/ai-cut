@@ -8,13 +8,12 @@
  * 的编辑和手点出来的编辑没有区别。
  */
 import { useBoardStore } from "@/stores/board";
-import { t } from "@/i18n";
 import { isKnownMessageKey } from "@/i18n/translate";
 import { useProjectStore } from "@/stores/project";
 import { useWorkflowLibrary } from "@/composables/useWorkflowLibrary";
 import { runWorkflowDoc } from "@/composables/useBoardRun";
 import { readWorkflow } from "@/core/board/library";
-import { normalizeBoard } from "@/core/board/schema";
+import { type CanvasOp, canvasTitle } from "@/core/board/ops";
 import { canvasWorkflow, declKey, problemTexts, workflowProblems } from "@/core/board/workflowNodes";
 import type { BoardCanvas, BoardEdge, BoardNode } from "@/types/board";
 
@@ -33,11 +32,9 @@ export interface CanvasSummary {
   problems: string[];
 }
 
-/** 画布标题：空标题 = 自动名（按当前语言渲染）。 */
+/** 画布标题：空标题 = 自动名（按当前语言渲染）。语义在 `core/board/ops.ts`。 */
 function titleOf(canvas: BoardCanvas, index: number): string {
-  const explicit = canvas.title?.trim();
-  if (explicit && !isKnownMessageKey(explicit)) return explicit;
-  return t("board.canvas.defaultTitle", { n: index + 1 });
+  return canvasTitle(canvas, index, isKnownMessageKey);
 }
 
 function summarize(canvas: BoardCanvas, activeId: string, index = 0): CanvasSummary {
@@ -141,44 +138,7 @@ export function canvasOpen(canvasId: string): { activeId: string } {
 }
 
 /** 画布原子操作的种类（MCP 一个工具收 `ops` 数组，逐条执行）。 */
-export type CanvasOp =
-  | { kind: "add_node"; node: BoardNode }
-  | { kind: "update_node"; nodeId: string; patch: Partial<BoardNode> & { data?: Partial<BoardNode["data"]> } }
-  | { kind: "remove_node"; nodeIds: string[] }
-  | { kind: "connect"; edge: BoardEdge }
-  | { kind: "disconnect"; edgeIds: string[] }
-  | { kind: "clear" }
-  | { kind: "load"; nodes: BoardNode[]; edges: BoardEdge[] };
-
-function sanitizeNode(raw: unknown): BoardNode {
-  const normalized = normalizeBoard({
-    nodes: [raw],
-    edges: [],
-    viewport: { x: 0, y: 0, zoom: 1 },
-    updatedAt: Date.now(),
-  });
-  const node = normalized.nodes[0];
-  if (!node) throw new Error("节点数据无效：需要 id / type / position");
-  return node;
-}
-
-function sanitizeEdge(raw: unknown): BoardEdge {
-  if (!raw || typeof raw !== "object") throw new Error("连线数据无效");
-  const edge = raw as Record<string, unknown>;
-  for (const key of ["id", "source", "sourcePort", "target", "targetPort"]) {
-    if (typeof edge[key] !== "string" || !(edge[key] as string)) {
-      throw new Error(`连线缺少 ${key}`);
-    }
-  }
-  return {
-    id: edge.id as string,
-    source: edge.source as string,
-    sourcePort: edge.sourcePort as string,
-    target: edge.target as string,
-    targetPort: edge.targetPort as string,
-    ...(edge.kind === "pair" ? { kind: "pair" as const } : {}),
-  };
-}
+export type { CanvasOp };
 
 /**
  * 在活动画布上执行一组原子操作。
@@ -191,49 +151,8 @@ export function canvasApply(ops: CanvasOp[], canvasId?: string): { activeId: str
   const project = useProjectStore();
   if (project.readOnly) throw new Error("工程只读");
   if (canvasId && canvasId !== board.activeCanvasId) canvasOpen(canvasId);
-  let applied = 0;
-  for (const op of ops ?? []) {
-    switch (op?.kind) {
-      case "add_node":
-        board.addNode(sanitizeNode(op.node));
-        break;
-      case "update_node": {
-        const nodeId = op.nodeId;
-        if (!nodeId) throw new Error("update_node 需要 nodeId");
-        const { data, ...rest } = op.patch ?? {};
-        if (data && Object.keys(data).length > 0) {
-          board.updateNodeData(nodeId, data);
-        }
-        if (Object.keys(rest).length > 0) board.updateNode(nodeId, rest);
-        break;
-      }
-      case "remove_node":
-        board.removeNodes(op.nodeIds ?? []);
-        break;
-      case "connect":
-        board.connect(sanitizeEdge(op.edge));
-        break;
-      case "disconnect":
-        board.removeEdges(op.edgeIds ?? []);
-        break;
-      case "clear":
-        board.clear();
-        break;
-      case "load": {
-        const normalized = normalizeBoard({
-          nodes: op.nodes ?? [],
-          edges: op.edges ?? [],
-          viewport: { x: 0, y: 0, zoom: 1 },
-          updatedAt: Date.now(),
-        });
-        board.load(normalized);
-        break;
-      }
-      default:
-        throw new Error(`未知的画布操作：${String((op as { kind?: string })?.kind ?? "")}`);
-    }
-    applied += 1;
-  }
+  // 整组先校验再落地（语义与无头引擎同一份，见 `core/board/ops.ts`）。
+  const applied = board.applyOps(ops ?? []);
   return { activeId: board.activeCanvasId, applied };
 }
 

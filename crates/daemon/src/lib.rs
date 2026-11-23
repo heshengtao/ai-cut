@@ -49,6 +49,7 @@ pub mod tts_core;
 pub mod zipvoice;
 pub mod video_ai;
 pub mod video_dsp;
+pub mod render_code;
 pub mod video_gen;
 pub mod voice_change;
 pub mod workflow;

@@ -34,14 +34,30 @@ pub async fn dispatch(
         "board_list_canvases" => return board_list_canvases(doc).await,
         "board_get_canvas" => return board_get_canvas(doc, &args).await,
         "workflow_list" => return Ok(workflow_list(host.as_ref())),
-        // 画布写入与工作流运行需要渲染进程的节点定义 / 运行器：明确报错，不伪造成功。
+        // 画布写入：领域层的 `board_*` op（`core/board/ops.ts`）。无头版没有渲染进程，
+        // 但画布编辑本身只是文档变更——原子性、成对节点、撤销栈都在领域层，
+        // 与桌面的 `board.apply` 是同一份语义。只有工作流的发布 / 调用要前端。
         "board_create_canvas"
         | "board_delete_canvas"
         | "board_rename_canvas"
         | "board_open_canvas"
-        | "board_apply_ops"
-        | "workflow_publish"
-        | "workflow_run" => return Err(desktop_only(name)),
+        | "board_apply_ops" => {
+            let kind = match name {
+                "board_create_canvas" => "board_create",
+                "board_delete_canvas" => "board_delete",
+                "board_rename_canvas" => "board_rename",
+                "board_open_canvas" => "board_open",
+                _ => "board_apply",
+            };
+            let outcome = crate::doc_ops::call(doc, kind, args).await?;
+            let mut result = outcome["result"].clone();
+            if let Some(map) = result.as_object_mut() {
+                map.insert("revision".into(), outcome["revision"].clone());
+            }
+            return Ok(result);
+        }
+        // 工作流发布要工作流库 + 校验，运行要前端运行器：这两个仍然是桌面专属。
+        "workflow_publish" | "workflow_run" => return Err(desktop_only(name)),
         // 概览：桌面把 `get_project` 走 `project.overview`；这里统一用概览视图。
         "get_project" | "get_context" => ("project.context", json!({})),
         "get_clip" => ("project.clip", args),
@@ -728,6 +744,11 @@ pub async fn dispatch(
             let asset_id = asset["id"].clone();
             crate::doc_ops::call(doc, "add_assets", json!({ "assets": [asset] })).await?;
             return Ok(json!({ "assetId": asset_id, "path": path }));
+        }
+        // 代码出片：跑一条外部渲染命令（Remotion / three.js / 任意 CLI），
+        // 成功才入库；失败 / 超时 / 取消会删掉本次新建的半成品。
+        "render_code" => {
+            return crate::render_code::run(host.as_ref(), doc, &args, cancel).await;
         }
 
         // ---- 撤销 / 重做：引擎侧快照栈（`AICUT.undo/redo`）----
@@ -1424,10 +1445,13 @@ pub async fn dispatch(
 // 画布 / 工作流（读工程快照 + 工作流库）
 // ---------------------------------------------------------------------------
 
-/// 无头版没有渲染进程：画布写入与工作流运行明确报错，并指出去哪执行。
+/// 无头版没有渲染进程：工作流的发布与运行明确报错，并指出去哪执行。
+///
+/// 画布写入（增删节点 / 连线 / 画布）**不**在这里——它已经下沉到领域层，
+/// 见 `board_headless` 测试与 `docs/canvas-workflow.md` §5。
 fn desktop_only(tool: &str) -> String {
     format!(
-        "工具 {tool} 还没有在浏览器/容器版本实现：画布写入与工作流运行需要桌面版的渲染进程（Tauri 窗口里的画布 store 与运行器，见 docs/docker-desktop-parity.md §12）"
+        "工具 {tool} 需要桌面版的渲染进程：工作流发布要工作流库校验、运行要画布运行器（Tauri 窗口里的前端，见 docs/canvas-workflow.md §5）"
     )
 }
 
@@ -3352,6 +3376,28 @@ pub fn definitions() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
+            name: "render_code",
+            description: "代码出片：在 cwd 里跑一条渲染命令（sh -c / cmd /C，例如 `npx remotion render src/index.ts Hero out/hero.mp4` 或 `node render.mjs`），把 outputPath 指向的产物收进素材库。成功才入库；超时 / 取消会杀进程并删掉本次新建的半成品（跑之前就存在的文件不动）。给了 nodeId 时顺手把结果回填到画布节点（assetId + 溯源参数）。这是 code2video 的收尾契约：命令、产物路径、节点三者要一致；应用不替你打包 three.js / Remotion 工程。",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "完整命令行，交给 shell 执行（等同在终端里跑）" },
+                    "cwd": { "type": "string", "description": "工作目录（用户工程目录的绝对路径），命令在里面跑" },
+                    "outputPath": { "type": "string", "description": "命令产出的文件；相对路径相对 cwd。目录必须已存在" },
+                    "timeoutSec": { "type": "integer", "minimum": 5, "maximum": 3600, "description": "超时秒数，默认 900" },
+                    "name": { "type": "string", "description": "素材库里的显示名，默认用文件名" },
+                    "nodeId": { "type": "string", "description": "画布节点 id：给了就把素材回填成该节点的内容" },
+                    "canvasId": { "type": "string", "description": "节点所在画布 id；省略时用活动画布" },
+                    "params": {
+                        "type": "object",
+                        "description": "写进节点 params 的溯源标量（entry / command / fps / width / height …），已有的键逐键保留",
+                        "additionalProperties": { "type": ["string", "number", "boolean"] }
+                    }
+                },
+                "required": ["command", "cwd", "outputPath"]
+            }),
+        },
+        ToolDef {
             name: "undo",
             description: "撤销上一条命令。",
             parameters: json!({ "type": "object", "properties": {} }),
@@ -3409,7 +3455,7 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "board_create_canvas",
-            description: "新建一张空画布并切换过去，返回新画布的 id 与标题（仅桌面版；无头/容器版会明确报错）。",
+            description: "新建一张空画布并切换过去，返回新画布的 id 与标题。",
             parameters: json!({
                 "type": "object",
                 "properties": { "title": { "type": "string", "description": "画布标题，省略时自动命名" } }
@@ -3417,7 +3463,7 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "board_delete_canvas",
-            description: "删除一张画布；工程至少保留一张画布，删最后一张会被拒绝（仅桌面版；无头/容器版会明确报错）。",
+            description: "删除一张画布；工程至少保留一张画布，删最后一张会被拒绝。",
             parameters: json!({
                 "type": "object",
                 "properties": { "canvasId": { "type": "string" } },
@@ -3426,7 +3472,7 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "board_rename_canvas",
-            description: "重命名一张画布（仅桌面版；无头/容器版会明确报错）。",
+            description: "重命名一张画布。",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -3438,7 +3484,7 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "board_open_canvas",
-            description: "切换活动画布（会先把当前画布的编辑落盘），返回新的 activeId（仅桌面版；无头/容器版会明确报错）。",
+            description: "切换活动画布，返回新的 activeId。",
             parameters: json!({
                 "type": "object",
                 "properties": { "canvasId": { "type": "string" } },
@@ -3447,7 +3493,7 @@ pub fn definitions() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "board_apply_ops",
-            description: "在画布上原子地改节点与连线：按顺序执行 ops（add_node / update_node / remove_node / connect / disconnect / clear / load），整个调用进入一个撤销步（仅桌面版；无头/容器版会明确报错）。",
+            description: "在画布上原子地改节点与连线：按顺序执行 ops（add_node / update_node / remove_node / connect / disconnect / clear / load），整个调用进入一个撤销步；任一条失败整组不落地。",
             parameters: json!({
                 "type": "object",
                 "$defs": {
@@ -4107,6 +4153,7 @@ pub const TOOLS: &[&str] = &[
     "update_marker",
     "remove_marker",
     "import_asset",
+    "render_code",
     "undo",
     "redo",
     "new_project",
@@ -4170,23 +4217,21 @@ mod tests {
     fn document_tools_are_listed() {
         assert!(TOOLS.contains(&"apply_command"));
         assert!(TOOLS.contains(&"get_clip"));
-        // 画布 / 工作流工具与桌面版同名：读工具可无头执行，写工具明确报错。
+        // 画布 / 工作流工具与桌面版同名：读工具与画布写入都可无头执行，
+        // 只有工作流发布 / 运行需要渲染进程。
         assert!(TOOLS.contains(&"board_list_canvases"));
+        assert!(TOOLS.contains(&"board_apply_ops"));
         assert!(TOOLS.contains(&"workflow_publish"));
     }
 
     #[test]
     fn desktop_only_tools_explain_the_limit() {
-        for tool in [
-            "board_create_canvas",
-            "board_apply_ops",
-            "workflow_publish",
-            "workflow_run",
-        ] {
+        // 画布写入已经下沉到领域层，这里只剩工作流的发布 / 运行。
+        for tool in ["workflow_publish", "workflow_run"] {
             let message = desktop_only(tool);
             assert!(message.contains(tool), "{message}");
             assert!(message.contains("渲染进程"), "{message}");
-            assert!(message.contains("§12"), "{message}");
+            assert!(message.contains("§5"), "{message}");
         }
     }
 

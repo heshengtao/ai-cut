@@ -6200,6 +6200,8 @@ var AICUT = (() => {
   }
 
   // src/core/board/workflowNodes.ts
+  var WORKFLOW_START_TYPE = "workflow.start";
+  var WORKFLOW_END_TYPE = "workflow.end";
   function newDeclId(prefix) {
     const cryptoApi = globalThis.crypto;
     if (cryptoApi?.randomUUID) return `${prefix}-${cryptoApi.randomUUID()}`;
@@ -6521,6 +6523,11 @@ var AICUT = (() => {
     const doc2 = value;
     return Array.isArray(doc2.nodes) && Array.isArray(doc2.edges);
   }
+  function canvasesOf(doc2) {
+    const list = doc2.boards;
+    if (Array.isArray(list) && list.length > 0) return list;
+    return [];
+  }
   function attachBoardView(input) {
     const descriptor = Object.getOwnPropertyDescriptor(input, "board");
     const hasAccessor = Boolean(descriptor?.get);
@@ -6577,6 +6584,61 @@ var AICUT = (() => {
     });
     attached.add(next);
     return next;
+  }
+  function withoutBoardProjection(doc2) {
+    const next = { ...doc2 };
+    delete next.board;
+    return next;
+  }
+  function replaceCanvasDoc(doc2, canvasId, board) {
+    const list = canvasesOf(doc2);
+    if (list.length === 0) return attachBoardView({ ...doc2, boards: [], board });
+    const index = list.findIndex((canvas) => canvas.id === canvasId);
+    if (index < 0) return doc2;
+    return attachBoardView({
+      ...withoutBoardProjection(doc2),
+      boards: list.map((canvas, item) => item === index ? { ...canvas, doc: board } : canvas)
+    });
+  }
+  function createCanvas(doc2, title) {
+    const list = canvasesOf(doc2);
+    const canvas = {
+      id: newCanvasId(),
+      title: title?.trim() || "",
+      doc: emptyBoard()
+    };
+    return attachBoardView({
+      ...withoutBoardProjection(doc2),
+      boards: [...list, canvas],
+      activeBoardId: canvas.id
+    });
+  }
+  function deleteCanvas(doc2, canvasId) {
+    const list = canvasesOf(doc2);
+    if (list.length <= 1) return doc2;
+    const index = list.findIndex((canvas) => canvas.id === canvasId);
+    if (index < 0) return doc2;
+    const boards = list.filter((canvas) => canvas.id !== canvasId);
+    const activeBoardId = doc2.activeBoardId === canvasId ? boards[Math.min(index, boards.length - 1)]?.id ?? boards[0].id : doc2.activeBoardId;
+    return attachBoardView({ ...withoutBoardProjection(doc2), boards, activeBoardId });
+  }
+  function renameCanvas(doc2, canvasId, title) {
+    const list = canvasesOf(doc2);
+    const nextTitle = title.trim();
+    const index = list.findIndex((canvas) => canvas.id === canvasId);
+    if (index < 0 || (list[index].title ?? "") === nextTitle) return doc2;
+    return attachBoardView({
+      ...withoutBoardProjection(doc2),
+      boards: list.map(
+        (canvas, item) => item === index ? { ...canvas, title: nextTitle } : canvas
+      )
+    });
+  }
+  function activateCanvas(doc2, canvasId) {
+    const list = canvasesOf(doc2);
+    if (!list.some((canvas) => canvas.id === canvasId)) return doc2;
+    if (doc2.activeBoardId === canvasId) return doc2;
+    return attachBoardView({ ...withoutBoardProjection(doc2), activeBoardId: canvasId });
   }
 
   // src/core/episodes.ts
@@ -8621,6 +8683,303 @@ var AICUT = (() => {
       nextOffset: offset + page.length,
       markers: page
     };
+  }
+
+  // src/core/board/ops.ts
+  var STACK_INPUT_MAX = 8;
+  var STACK_INPUT_TYPES = [
+    "display.image",
+    "display.video",
+    "display.audio",
+    "display.text",
+    "display.value",
+    "model.enhance"
+  ];
+  function newId2() {
+    const cryptoApi = globalThis.crypto;
+    if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
+    return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  function sanitizeNode(raw) {
+    const normalized = normalizeBoard({
+      nodes: [raw],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      updatedAt: Date.now()
+    });
+    const node = normalized.nodes[0];
+    if (!node) throw new Error("\u8282\u70B9\u6570\u636E\u65E0\u6548\uFF1A\u9700\u8981 id / type / position");
+    return node;
+  }
+  function sanitizeEdge(raw) {
+    if (!raw || typeof raw !== "object") throw new Error("\u8FDE\u7EBF\u6570\u636E\u65E0\u6548");
+    const edge = raw;
+    for (const key of ["id", "source", "sourcePort", "target", "targetPort"]) {
+      if (typeof edge[key] !== "string" || !edge[key]) {
+        throw new Error(`\u8FDE\u7EBF\u7F3A\u5C11 ${key}`);
+      }
+    }
+    return {
+      id: edge.id,
+      source: edge.source,
+      sourcePort: edge.sourcePort,
+      target: edge.target,
+      targetPort: edge.targetPort,
+      ...edge.kind === "pair" ? { kind: "pair" } : {}
+    };
+  }
+  var PAIR_ENDS = {
+    "loop.start": {
+      endType: "loop.end",
+      data: () => ({ params: { slots: 1 }, bindings: {} })
+    },
+    [WORKFLOW_START_TYPE]: {
+      endType: WORKFLOW_END_TYPE,
+      data: () => ({
+        params: {},
+        bindings: {},
+        signature: { inputs: [], outputs: [] }
+      })
+    }
+  };
+  function defaultWorkflowInputs() {
+    return [
+      {
+        id: newDeclId("in"),
+        name: "prompt",
+        label: t("board.workflow.defaultInput"),
+        type: "text",
+        required: true,
+        default: ""
+      }
+    ];
+  }
+  function defaultWorkflowOutputs() {
+    return [
+      {
+        id: newDeclId("out"),
+        name: "result",
+        label: t("board.workflow.defaultOutput"),
+        type: "text",
+        required: true
+      }
+    ];
+  }
+  function pairNodesFor(node, endSize = { width: 360, height: 150 }) {
+    const pair = PAIR_ENDS[node.type];
+    if (!pair) return null;
+    const size = node.size ?? { width: 360, height: 150 };
+    const pairId = newId2();
+    const endId = newId2();
+    const isWorkflowStart = node.type === WORKFLOW_START_TYPE;
+    const signature = isWorkflowStart ? { inputs: defaultWorkflowInputs(), outputs: defaultWorkflowOutputs() } : node.data.signature;
+    const start = {
+      ...node,
+      size,
+      data: {
+        ...node.data,
+        pairId,
+        ...signature ? { signature } : {}
+      }
+    };
+    const end = {
+      id: endId,
+      type: pair.endType,
+      position: { x: node.position.x + size.width + 96, y: node.position.y },
+      size: { ...endSize },
+      data: {
+        ...pair.data(),
+        pairId,
+        ...isWorkflowStart ? { signature: { inputs: [], outputs: defaultWorkflowOutputs() } } : {}
+      }
+    };
+    const edge = {
+      id: newId2(),
+      source: start.id,
+      sourcePort: "pair",
+      target: endId,
+      targetPort: "pair",
+      kind: "pair"
+    };
+    return { nodes: [start, end], edge };
+  }
+  function expandRemoval(nodes, ids) {
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const wanted = new Set(ids);
+    for (const id of ids) {
+      const node = byId.get(id);
+      if (node?.type === "group") {
+        for (const child of node.data.children ?? []) wanted.add(child);
+      }
+    }
+    for (const id of wanted) {
+      const node = byId.get(id);
+      if (!node?.data.pairId) continue;
+      for (const other of nodes) {
+        if (other.id !== node.id && other.data.pairId === node.data.pairId) {
+          wanted.add(other.id);
+        }
+      }
+    }
+    return wanted;
+  }
+  function withoutNodes(board, wanted) {
+    return {
+      nodes: board.nodes.filter((node) => !wanted.has(node.id)).map(
+        (node) => node.data.children ? {
+          ...node,
+          data: {
+            ...node.data,
+            children: node.data.children.filter((id) => !wanted.has(id))
+          }
+        } : node
+      ),
+      edges: board.edges.filter(
+        (edge) => !wanted.has(edge.source) && !wanted.has(edge.target)
+      )
+    };
+  }
+  function inputCap(node, portId) {
+    const declared = node.data.ports?.inputs.find((port) => port.id === portId);
+    if (declared) return declared.max ?? 1;
+    if (portId === "in" && STACK_INPUT_TYPES.includes(node.type)) return STACK_INPUT_MAX;
+    return 1;
+  }
+  function connectEdges(nodes, edges, edge) {
+    const source = nodes.find((node) => node.id === edge.source);
+    const target = nodes.find((node) => node.id === edge.target);
+    if (!source || !target || source.id === target.id) return null;
+    const max = inputCap(target, edge.targetPort);
+    const existing = edges.filter(
+      (item) => item.target === edge.target && item.targetPort === edge.targetPort
+    );
+    if (max > 1) {
+      if (existing.length >= max) return null;
+      if (existing.some(
+        (item) => item.source === edge.source && item.sourcePort === edge.sourcePort
+      )) {
+        return null;
+      }
+      return [...edges, edge];
+    }
+    return [
+      ...edges.filter(
+        (item) => !(item.target === edge.target && item.targetPort === edge.targetPort)
+      ),
+      edge
+    ];
+  }
+  function applyOpsToBoard(board, ops) {
+    let nodes = board.nodes ?? [];
+    let edges = board.edges ?? [];
+    let source = board.source;
+    let changed = false;
+    for (const op2 of ops ?? []) {
+      switch (op2?.kind) {
+        case "add_node": {
+          const node = sanitizeNode(op2.node);
+          const paired = pairNodesFor(node);
+          if (paired) {
+            nodes = [...nodes, ...paired.nodes];
+            edges = [...edges, paired.edge];
+          } else {
+            nodes = [...nodes, node];
+          }
+          changed = true;
+          break;
+        }
+        case "update_node": {
+          const nodeId = op2.nodeId;
+          if (!nodeId) throw new Error("update_node \u9700\u8981 nodeId");
+          const current2 = nodes.find((node) => node.id === nodeId);
+          if (!current2) throw new Error(`\u8282\u70B9\u4E0D\u5B58\u5728\uFF1A${nodeId}`);
+          const { data, ...rest } = op2.patch ?? {};
+          const merged = {
+            ...current2,
+            ...rest,
+            data: { ...current2.data, ...data ?? {} }
+          };
+          nodes = nodes.map((node) => node.id === nodeId ? sanitizeNode(merged) : node);
+          changed = true;
+          break;
+        }
+        case "remove_node": {
+          const wanted = expandRemoval(nodes, op2.nodeIds ?? []);
+          const next2 = withoutNodes({ nodes, edges }, wanted);
+          nodes = next2.nodes;
+          edges = next2.edges;
+          changed = changed || wanted.size > 0;
+          break;
+        }
+        case "connect": {
+          const edge = sanitizeEdge(op2.edge);
+          const next2 = connectEdges(nodes, edges, edge);
+          if (!next2) throw new Error(`\u8FDE\u7EBF\u63A5\u4E0D\u4E0A\uFF1A${edge.source}:${edge.sourcePort} \u2192 ${edge.target}:${edge.targetPort}`);
+          edges = next2;
+          changed = true;
+          break;
+        }
+        case "disconnect": {
+          const ids = new Set(op2.edgeIds ?? []);
+          if (ids.size === 0) break;
+          const next2 = edges.filter((edge) => !ids.has(edge.id));
+          changed = changed || next2.length !== edges.length;
+          edges = next2;
+          break;
+        }
+        case "clear": {
+          nodes = [];
+          edges = [];
+          source = void 0;
+          changed = true;
+          break;
+        }
+        case "load": {
+          const normalized = normalizeBoard({
+            nodes: op2.nodes ?? [],
+            edges: op2.edges ?? [],
+            viewport: board.viewport ?? { x: 0, y: 0, zoom: 1 },
+            updatedAt: Date.now()
+          });
+          nodes = normalized.nodes;
+          edges = normalized.edges;
+          source = normalized.source;
+          changed = true;
+          break;
+        }
+        default:
+          throw new Error(
+            `\u672A\u77E5\u7684\u753B\u5E03\u64CD\u4F5C\uFF1A${String(op2?.kind ?? "")}`
+          );
+      }
+    }
+    if (!changed) return board;
+    const next = normalizeBoard({
+      ...board,
+      nodes,
+      edges,
+      source,
+      updatedAt: Date.now()
+    });
+    if (!source) delete next.source;
+    return next;
+  }
+  function applyCanvasOps(project, ops, canvasId) {
+    const list = canvasesOf(project);
+    if (list.length === 0) throw new Error("\u5DE5\u7A0B\u91CC\u6CA1\u6709\u753B\u5E03");
+    const id = canvasId?.trim() || project.activeBoardId || list[0].id;
+    if (!list.some((canvas2) => canvas2.id === id)) throw new Error(`\u753B\u5E03\u4E0D\u5B58\u5728\uFF1A${id}`);
+    let next = id === project.activeBoardId ? project : activateCanvas(project, id);
+    const canvas = canvasesOf(next).find((item) => item.id === id);
+    if (!canvas) throw new Error(`\u753B\u5E03\u4E0D\u5B58\u5728\uFF1A${id}`);
+    const doc2 = applyOpsToBoard(canvas.doc, ops);
+    if (doc2 !== canvas.doc) next = replaceCanvasDoc(next, id, doc2);
+    return { project: next, canvasId: id, applied: ops.length };
+  }
+  function canvasTitle(canvas, index, isKnownMessageKey2) {
+    const explicit = canvas.title?.trim();
+    if (explicit && !isKnownMessageKey2(explicit)) return explicit;
+    return t("board.canvas.defaultTitle", { n: index + 1 });
   }
 
   // src/core/audioEdit.ts
@@ -11417,6 +11776,68 @@ ${entry.text}
         // 只登记素材（导入素材 / 模型输出的通用路径）。
         case "add_assets": {
           result = { assets: next.assets.length - before.assets.length };
+          break;
+        }
+        // ---- 画布写入：与桌面 `board.*` 桥接同一份语义（`core/board/ops.ts`）。
+        // 无头版没有渲染进程，画布编辑直接改工程文档；撤销 / revision 走引擎侧快照栈。
+        case "board_apply": {
+          const ops = Array.isArray(args.ops) ? args.ops : [];
+          if (ops.length === 0) throw new Error("board_apply \u9700\u8981 ops\uFF08\u81F3\u5C11\u4E00\u6761\uFF09");
+          const applied = applyCanvasOps(
+            next,
+            ops,
+            typeof args.canvasId === "string" ? args.canvasId : void 0
+          );
+          next = applied.project;
+          result = { activeId: applied.canvasId, applied: applied.applied };
+          break;
+        }
+        case "board_create": {
+          const requested = typeof args.title === "string" ? args.title : "";
+          next = createCanvas(next, requested);
+          const list = canvasesOf(next);
+          const index = Math.max(
+            0,
+            list.findIndex((canvas2) => canvas2.id === next.activeBoardId)
+          );
+          const canvas = list[index];
+          result = {
+            id: canvas?.id ?? "",
+            title: canvas ? canvasTitle(canvas, index, isKnownMessageKey) : ""
+          };
+          break;
+        }
+        case "board_delete": {
+          const canvasId = typeof args.canvasId === "string" ? args.canvasId.trim() : "";
+          if (!canvasId) throw new Error("board_delete \u9700\u8981 canvasId");
+          const list = canvasesOf(next);
+          if (!list.some((canvas) => canvas.id === canvasId)) {
+            throw new Error(`\u753B\u5E03\u4E0D\u5B58\u5728\uFF1A${canvasId}`);
+          }
+          if (list.length <= 1) throw new Error("\u81F3\u5C11\u8981\u4FDD\u7559\u4E00\u5F20\u753B\u5E03");
+          next = deleteCanvas(next, canvasId);
+          result = { ok: true, activeId: next.activeBoardId ?? "" };
+          break;
+        }
+        case "board_rename": {
+          const canvasId = typeof args.canvasId === "string" ? args.canvasId.trim() : "";
+          if (!canvasId) throw new Error("board_rename \u9700\u8981 canvasId");
+          const title = typeof args.title === "string" ? args.title : "";
+          if (!canvasesOf(next).some((canvas) => canvas.id === canvasId)) {
+            throw new Error(`\u753B\u5E03\u4E0D\u5B58\u5728\uFF1A${canvasId}`);
+          }
+          next = renameCanvas(next, canvasId, title);
+          result = { ok: true, title: title.trim() };
+          break;
+        }
+        case "board_open": {
+          const canvasId = typeof args.canvasId === "string" ? args.canvasId.trim() : "";
+          if (!canvasId) throw new Error("board_open \u9700\u8981 canvasId");
+          if (!canvasesOf(next).some((canvas) => canvas.id === canvasId)) {
+            throw new Error(`\u753B\u5E03\u4E0D\u5B58\u5728\uFF1A${canvasId}`);
+          }
+          next = activateCanvas(next, canvasId);
+          result = { activeId: next.activeBoardId ?? canvasId };
           break;
         }
         default:

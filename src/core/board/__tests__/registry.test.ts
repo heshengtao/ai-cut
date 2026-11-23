@@ -9,6 +9,7 @@ import {
   publishedAssetIds,
   visibleParams,
 } from "@/core/board/registry";
+import { STACK_INPUT_TYPES } from "@/core/board/ops";
 import type { BoardNode } from "@/types/board";
 
 function node(type: string, model?: string): BoardNode {
@@ -352,5 +353,30 @@ describe("registry", () => {
     expect(paramValue(definition, undefined, "mode")).toBe("markdown");
     expect(paramValue(definition, {}, "nope")).toBeUndefined();
     expect(paramValue(null, {}, "mode")).toBeUndefined();
+  });
+});
+
+describe("端口上限只有牌堆口是开放的", () => {
+  /**
+   * 无头引擎（`core/board/ops.ts`）拿不到 registry（它 import 了 Vue），
+   * 只能硬编码「display.* 的唯一输入 `in`，max 8」这一条规则。
+   * 这个测试守住它：新增别的多输入内置节点时，这里必须先红。
+   */
+  it("除 display.* 外，所有内置节点的输入端口上限都是 1", () => {
+    const open = BOARD_NODES.filter((definition) =>
+      definition.inputs.some((port) => (port.max ?? 1) > 1),
+    )
+      .map((definition) => definition.type)
+      .sort();
+    expect(open).toEqual([...STACK_INPUT_TYPES].sort());
+  });
+
+  it("display.* 只有一个输入口 in，上限 8", () => {
+    for (const definition of BOARD_NODES.filter((item) =>
+      STACK_INPUT_TYPES.includes(item.type),
+    )) {
+      expect(definition.inputs).toHaveLength(1);
+      expect(definition.inputs[0]).toMatchObject({ id: "in", max: 8 });
+    }
   });
 });
