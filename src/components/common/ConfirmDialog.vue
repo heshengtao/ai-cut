@@ -77,7 +77,8 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown, true));
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background-color: rgb(0 0 0 / 0.32);
+  background-color: rgb(0 0 0 / 0.38);
+  backdrop-filter: blur(5px);
 }
 .dialog {
   position: relative;
@@ -155,20 +156,34 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown, true));
   background-color: rgb(var(--md-error));
   color: rgb(var(--md-on-error));
 }
-.dialog-enter-active,
-.dialog-leave-active {
-  transition: opacity 0.16s ease;
+.dialog-enter-active {
+  transition: opacity var(--md-dur-effects-default) var(--md-spring-effects-default);
 }
-.dialog-enter-active .dialog,
+.dialog-leave-active {
+  transition: opacity var(--md-dur-effects-fast) var(--md-spring-effects-fast);
+}
+.dialog-enter-active .dialog {
+  transition: transform var(--md-dur-spatial-default) var(--md-spring-spatial-fast);
+}
 .dialog-leave-active .dialog {
-  transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1);
+  transition: transform var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .dialog-enter-from,
 .dialog-leave-to {
   opacity: 0;
 }
-.dialog-enter-from .dialog,
+.dialog-enter-from .dialog {
+  transform: scale(0.88) translateY(14px);
+}
 .dialog-leave-to .dialog {
-  transform: scale(0.92);
+  transform: scale(0.95) translateY(6px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dialog-enter-active,
+  .dialog-leave-active,
+  .dialog-enter-active .dialog,
+  .dialog-leave-active .dialog {
+    transition: none;
+  }
 }
 </style>

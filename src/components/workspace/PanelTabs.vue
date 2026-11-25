@@ -28,22 +28,43 @@ const pickerPanes = computed(() => PANES.filter((pane) => !pane.hidden));
 const pickerOpen = ref(false);
 const pickerRoot = ref<HTMLElement | null>(null);
 const tabsEl = ref<HTMLElement | null>(null);
+const tabPill = ref({ left: "0px", width: "0px", visible: false });
+
+let tabsResizeObserver: ResizeObserver | null = null;
+
+function syncTabPill(): void {
+  void nextTick(() => {
+    const box = tabsEl.value;
+    const el = box?.querySelector<HTMLElement>(".tab.on");
+    if (!box || !el) {
+      tabPill.value = { left: "0px", width: "0px", visible: false };
+      return;
+    }
+    tabPill.value = {
+      left: `${el.offsetLeft}px`,
+      width: `${el.offsetWidth}px`,
+      visible: true,
+    };
+  });
+}
 
 /**
- * 标签超出宽度时，把当前标签滚进可视区。
+ * 标签超出宽度时，把当前标签滚进可视区，并同步弹簧胶囊位置。
  * 用 scrollLeft 而不是 `scrollIntoView`：后者会连带滚动页面（在弹层/嵌套滚动里很难控）。
  */
 watch(
-  () => [layout.activeTab, layout.tabs.length],
+  () => [layout.activeTab, layout.tabs.join("|")],
   async () => {
     await nextTick();
     const box = tabsEl.value;
     const el = box?.querySelector<HTMLElement>(".tab.on");
-    if (!box || !el) return;
-    const left = el.offsetLeft;
-    const right = left + el.offsetWidth;
-    if (left < box.scrollLeft) box.scrollLeft = left;
-    else if (right > box.scrollLeft + box.clientWidth) box.scrollLeft = right - box.clientWidth;
+    if (box && el) {
+      const left = el.offsetLeft;
+      const right = left + el.offsetWidth;
+      if (left < box.scrollLeft) box.scrollLeft = left;
+      else if (right > box.scrollLeft + box.clientWidth) box.scrollLeft = right - box.clientWidth;
+    }
+    syncTabPill();
   },
   { immediate: true },
 );
@@ -89,18 +110,35 @@ function onKey(e: KeyboardEvent): void {
 onMounted(() => {
   document.addEventListener("pointerdown", onDocPointer);
   window.addEventListener("keydown", onKey);
+  window.addEventListener("resize", syncTabPill);
+  if (tabsEl.value && typeof ResizeObserver !== "undefined") {
+    tabsResizeObserver = new ResizeObserver(syncTabPill);
+    tabsResizeObserver.observe(tabsEl.value);
+  }
+  void document.fonts?.ready.then(syncTabPill);
+  syncTabPill();
 });
 onUnmounted(() => {
   document.removeEventListener("pointerdown", onDocPointer);
   window.removeEventListener("keydown", onKey);
+  window.removeEventListener("resize", syncTabPill);
+  tabsResizeObserver?.disconnect();
+  tabsResizeObserver = null;
 });
 </script>
 
 <template>
   <div ref="tabsEl" class="tabs" role="tablist">
     <div
+      v-if="tabPill.visible"
+      class="tab-pill"
+      :style="{ left: tabPill.left, width: tabPill.width }"
+      aria-hidden="true"
+    />
+    <div
       v-for="id in layout.tabs"
       :key="id"
+      v-ripple
       class="tab"
       :class="{ on: id === layout.activeTab }"
       role="tab"
@@ -154,6 +192,7 @@ onUnmounted(() => {
 
 <style scoped>
 .tabs {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -165,7 +204,20 @@ onUnmounted(() => {
 .tabs::-webkit-scrollbar {
   display: none;
 }
+.tab-pill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 10px;
+  background-color: rgb(var(--md-secondary-container));
+  pointer-events: none;
+  transition:
+    left var(--md-dur-spatial-default) var(--md-spring-spatial-fast),
+    width var(--md-dur-spatial-default) var(--md-spring-spatial-fast);
+}
 .tab {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -176,14 +228,15 @@ onUnmounted(() => {
   cursor: pointer;
   white-space: nowrap;
   flex: 0 0 auto;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    color var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
-.tab:hover {
+.tab:hover:not(.on) {
   background-color: rgb(var(--md-on-surface-variant) / var(--md-state-hover-alpha));
   color: rgb(var(--md-on-surface));
 }
 .tab.on {
-  background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
 }
 .tab-icon {

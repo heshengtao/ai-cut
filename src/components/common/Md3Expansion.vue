@@ -47,6 +47,7 @@ function toggle(): void {
   <section class="md3-expansion" :class="[variant, { expanded, disabled }]">
     <button
       :id="`${panelId}-header`"
+      v-ripple
       class="expansion-header"
       type="button"
       :aria-expanded="expanded"
@@ -151,7 +152,7 @@ function toggle(): void {
   flex: 0 0 auto;
   margin-left: auto;
   color: rgb(var(--md-on-surface-variant));
-  transition: transform 0.28s var(--md-ease-emphasized);
+  transition: transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy);
 }
 .expansion-summary + .expansion-caret {
   margin-left: 2px;
@@ -164,10 +165,14 @@ function toggle(): void {
 .expansion-grid {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.3s var(--md-ease-emphasized);
+  opacity: 0;
+  transition:
+    grid-template-rows var(--md-dur-spatial-default) var(--md-spring-spatial-default),
+    opacity var(--md-dur-effects-default) var(--md-spring-effects-default);
 }
 .expansion-grid.open {
   grid-template-rows: 1fr;
+  opacity: 1;
 }
 .expansion-inner {
   min-height: 0;

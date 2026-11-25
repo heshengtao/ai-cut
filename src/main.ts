@@ -4,6 +4,7 @@ import { invoke } from "@/platform/tauri";
 import App from "./App.vue";
 import { initTheme } from "./composables/useTheme";
 import { registerValueControls } from "./core/board/valueControls";
+import { installGlobalRipple, vRipple } from "./directives/ripple";
 import { isTauri } from "./utils/platform";
 import { ensureCapabilities } from "./platform/capabilities";
 import "./i18n";
@@ -16,7 +17,10 @@ initTheme();
 // 值节点的内置控件：和插件控件同一张注册表，必须在画布渲染前就位。
 registerValueControls();
 
-createApp(App).use(createPinia()).mount("#app");
+// 全局 Material Ripple 状态层：自动覆盖全站 M3 按钮并注册 v-ripple 指令。
+installGlobalRipple();
+
+createApp(App).use(createPinia()).directive("ripple", vRipple).mount("#app");
 
 // 浏览器 / 容器形态：进入就拉一次能力表。之后所有门控都读它，
 // 不再各自用 `isTauri()` 猜"这个功能到底能不能用"。

@@ -72,6 +72,7 @@ onUnmounted(() => {
       v-for="(option, index) in options"
       :key="option.value"
       :ref="(el) => { if (el) buttons[index] = el as HTMLElement }"
+      v-ripple
       type="button"
       class="m3-seg-btn"
       :class="{ on: activeIndex === index }"
@@ -116,8 +117,8 @@ onUnmounted(() => {
   box-shadow: var(--md-elevation-1);
   pointer-events: none;
   transition:
-    left 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
-    width 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+    left var(--md-dur-spatial-default) var(--md-spring-spatial-fast),
+    width var(--md-dur-spatial-default) var(--md-spring-spatial-fast);
 }
 .m3-seg.sm .m3-seg-pill {
   top: 2px;

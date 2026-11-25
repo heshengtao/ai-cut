@@ -49,14 +49,14 @@ function runAction(item: ToastItem): void {
   align-items: center;
   gap: 12px;
   max-width: 380px;
-  padding: 11px 15px;
-  border-radius: 14px;
+  padding: 11px 16px;
+  border-radius: 16px;
   text-align: left;
   font-size: 12.5px;
   line-height: 1.45;
   cursor: pointer;
-  background-color: rgb(var(--md-surface-container-highest));
-  color: rgb(var(--md-on-surface));
+  background-color: rgb(var(--md-inverse-surface));
+  color: rgb(var(--md-inverse-on-surface));
   box-shadow: var(--md-elevation-3);
 }
 .toast.error {
@@ -69,26 +69,52 @@ function runAction(item: ToastItem): void {
 }
 .toast-action {
   flex: 0 0 auto;
-  padding: 6px 12px;
+  padding: 5px 11px;
   border: 0;
   border-radius: 999px;
-  background-color: rgb(var(--md-primary));
-  color: rgb(var(--md-on-primary));
+  background: transparent;
+  color: rgb(var(--md-inverse-primary));
   font: inherit;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy);
 }
 .toast-action:hover {
-  box-shadow: var(--md-elevation-1);
+  background-color: rgb(var(--md-inverse-primary) / 0.14);
 }
-.toast-enter-active,
+.toast-action:active {
+  transform: scale(0.95);
+}
+.toast.error .toast-action {
+  background-color: rgb(var(--md-error));
+  color: rgb(var(--md-on-error));
+}
+.toast-enter-active {
+  transition:
+    opacity var(--md-dur-effects-default) var(--md-spring-effects-default),
+    transform var(--md-dur-spatial-default) var(--md-spring-spatial-fast);
+}
 .toast-leave-active {
-  transition: opacity 0.18s ease, transform 0.24s cubic-bezier(0.34, 1.42, 0.5, 1);
+  transition:
+    opacity var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    transform var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
-.toast-enter-from,
+.toast-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.92);
+}
 .toast-leave-to {
   opacity: 0;
-  transform: translateY(10px) scale(0.96);
+  transform: translateY(8px) scale(0.96);
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-enter-active,
+  .toast-leave-active,
+  .toast-action {
+    transition: none;
+  }
 }
 </style>

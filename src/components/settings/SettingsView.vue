@@ -7,6 +7,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ArrowLeftIcon } from "@heroicons/vue/24/outline";
 import NumberField from "@/components/common/NumberField.vue";
 import Md3Slider from "@/components/common/Md3Slider.vue";
+import Md3WavyProgress from "@/components/common/Md3WavyProgress.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
 import ComboField from "@/components/common/ComboField.vue";
@@ -4646,18 +4647,10 @@ onUnmounted(() => {
                 </div>
               </div>
               <div v-if="updater.phase === 'downloading'" class="row">
-                <div
-                  class="update-progress"
-                  role="progressbar"
-                  :aria-valuenow="Math.round(updater.progress * 100)"
-                  aria-valuemin="0"
-                  aria-valuemax="100"
-                >
-                  <div
-                    class="update-progress-fill"
-                    :style="{ width: `${Math.round(updater.progress * 100)}%` }"
-                  />
-                </div>
+                <Md3WavyProgress
+                  :value="updater.progress"
+                  :label="i18n.t('settings.update.download')"
+                />
               </div>
               <div v-if="updater.info?.notes && updater.phase !== 'idle'" class="row">
                 <div class="row-text">
@@ -4772,16 +4765,18 @@ onUnmounted(() => {
   position: absolute;
   left: 4px;
   top: 50%;
-  width: 3px;
+  width: 3.5px;
   height: 0;
   border-radius: 999px;
   background-color: rgb(var(--md-primary));
   transform: translateY(-50%);
   opacity: 0;
-  transition: height 0.16s ease, opacity 0.16s ease;
+  transition:
+    height var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    opacity var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .nav-item.on .nav-ind {
-  height: 20px;
+  height: 22px;
   opacity: 1;
 }
 .nav-text {
@@ -4836,10 +4831,34 @@ onUnmounted(() => {
   padding: 0 4px 8px;
 }
 .card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+.card > .row,
+.card > .col-row,
+.card > .runtime-row,
+.card > .probe {
   background-color: var(--app-inset);
   border: 1px solid rgb(var(--md-outline-variant) / 0.22);
-  border-radius: 20px;
-  padding: 4px 16px;
+  border-radius: 6px;
+  padding-left: 18px;
+  padding-right: 18px;
+  transition:
+    background-color var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-fast);
+}
+.card > :first-child {
+  border-top-left-radius: 22px;
+  border-top-right-radius: 22px;
+}
+.card > :last-child {
+  border-bottom-left-radius: 22px;
+  border-bottom-right-radius: 22px;
 }
 .row {
   display: flex;
@@ -4847,10 +4866,7 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 20px;
   min-height: 62px;
-  padding: 10px 0;
-}
-.row + .row {
-  border-top: 1px solid rgb(var(--md-outline-variant) / 0.3);
+  padding: 12px 18px;
 }
 .row-text {
   display: flex;
@@ -4877,12 +4893,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 12px 0;
-}
-.col-row + .col-row,
-.col-row + .row,
-.row + .col-row {
-  border-top: 1px solid rgb(var(--md-outline-variant) / 0.3);
+  padding: 14px 18px;
 }
 .row-title {
   font-size: 14px;
@@ -4912,8 +4923,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 0;
-  border-top: 1px solid rgb(var(--md-outline-variant) / 0.3);
+  padding: 12px 18px;
 }
 .row-pill {
   display: inline-flex;
@@ -5132,14 +5142,22 @@ textarea.mirror-field {
   align-items: center;
   gap: 5px;
   border: 1px solid rgb(var(--md-outline-variant) / 0.8);
-  border-radius: 999px;
+  border-radius: 16px;
   background: transparent;
   color: rgb(var(--md-primary));
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.14s ease, opacity 0.14s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-fast),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    opacity var(--md-dur-effects-fast) var(--md-spring-effects-fast);
+}
+.scan-btn:active:not(:disabled) {
+  border-radius: 8px;
+  transform: scale(0.95);
 }
 .scan-btn:hover:not(:disabled) {
   background-color: rgb(var(--md-primary) / 0.08);
@@ -5195,28 +5213,35 @@ textarea.mirror-field {
   height: 36px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: 18px;
   cursor: pointer;
   box-shadow: var(--md-elevation-1);
-  transition: transform 0.16s ease;
+  transition:
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy);
 }
 .swatch:hover {
-  transform: scale(1.08);
+  transform: scale(1.1);
+}
+.swatch:active {
+  transform: scale(0.92);
 }
 .swatch:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 2px;
 }
+.swatch.on {
+  border-radius: 11px;
+}
 .swatch.on::after {
   content: "";
   position: absolute;
   inset: -4px;
-  border-radius: 999px;
+  border-radius: 14px;
   border: 2px solid rgb(var(--md-primary));
 }
 
-/* ---- 开关 ---- */
-/* 与 ai-daw 的 .m3-switch 保持一致：关闭态是带底色的轨道 + 左对齐小把手。 */
+/* ---- 开关（M3 Expressive 弹性挤压 + Spatial Bouncy 弹簧） ---- */
 .m3-switch {
   width: 52px;
   height: 32px;
@@ -5228,8 +5253,8 @@ textarea.mirror-field {
   background-color: rgb(var(--md-surface-container-highest));
   cursor: pointer;
   transition:
-    background-color var(--md-ease-emphasized),
-    border-color var(--md-ease-emphasized);
+    background-color var(--md-dur-effects-default) var(--md-spring-effects-default),
+    border-color var(--md-dur-effects-default) var(--md-spring-effects-default);
 }
 .m3-switch::after {
   content: "";
@@ -5238,27 +5263,34 @@ textarea.mirror-field {
   left: 6px;
   width: 16px;
   height: 16px;
-  margin-top: -8px;
+  transform: translateY(-50%);
   border-radius: 999px;
   background-color: rgb(var(--md-outline));
   transition:
-    left var(--md-ease-emphasized-decel),
-    width var(--md-ease-emphasized-decel),
-    height var(--md-ease-emphasized-decel),
-    margin-top var(--md-ease-emphasized-decel),
-    background-color var(--md-ease-emphasized-decel);
+    left var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    width var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    height var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-default) var(--md-spring-effects-default);
+}
+.m3-switch:active:not(:disabled)::after {
+  left: 0;
+  width: 27px;
+  height: 27px;
 }
 .m3-switch.on {
   background-color: rgb(var(--md-primary));
   border-color: rgb(var(--md-primary));
 }
 .m3-switch.on::after {
-  /* 轨道内宽 = 52 − 2×2(border) = 48；把手 24，右侧留 2 → left = 22。 */
   left: 22px;
   width: 24px;
   height: 24px;
-  margin-top: -12px;
   background-color: rgb(var(--md-on-primary));
+}
+.m3-switch.on:active:not(:disabled)::after {
+  left: 19px;
+  width: 27px;
+  height: 27px;
 }
 .m3-switch:focus-visible {
   outline: 2px solid rgb(var(--md-primary));

@@ -13,8 +13,12 @@ const props = withDefaults(
     step?: number;
     label?: string;
     disabled?: boolean;
+    /** 浮起数值气泡的格式化函数；缺省直接展示数字。 */
+    formatValue?: (value: number) => string;
+    /** 是否在悬停/拖拽时显示 M3 浮起数值气泡。 */
+    showBubble?: boolean;
   }>(),
-  { min: 0, max: 100, step: 1, disabled: false },
+  { min: 0, max: 100, step: 1, disabled: false, formatValue: undefined, showBubble: true },
 );
 const emit = defineEmits<{ (e: "update:modelValue", v: number): void }>();
 
@@ -26,6 +30,10 @@ const ratio = computed(() => {
   if (span <= 0) return 0;
   return Math.min(1, Math.max(0, (props.modelValue - props.min) / span));
 });
+
+const bubbleText = computed(() =>
+  props.formatValue ? props.formatValue(props.modelValue) : String(props.modelValue),
+);
 
 function quantize(value: number): number {
   const stepped = Math.round((value - props.min) / props.step) * props.step + props.min;
@@ -115,16 +123,33 @@ function onKey(event: KeyboardEvent): void {
     @pointercancel="onPointerUp"
     @keydown="onKey"
   >
-    <span class="track" aria-hidden="true" />
-    <span class="fill" :style="{ width: `${ratio * 100}%` }" aria-hidden="true" />
-    <span class="thumb" :style="{ left: `${ratio * 100}%` }" aria-hidden="true" />
+    <span
+      class="track-active"
+      :style="{ width: `max(0px, calc(${ratio * 100}% - 6px))` }"
+      aria-hidden="true"
+    />
+    <span
+      class="track-inactive"
+      :style="{ width: `max(0px, calc(${(1 - ratio) * 100}% - 6px))` }"
+      aria-hidden="true"
+    />
+    <span v-if="ratio < 0.96" class="stop-dot" aria-hidden="true" />
+    <span class="handle" :style="{ left: `${ratio * 100}%` }" aria-hidden="true" />
+    <span
+      v-if="showBubble"
+      class="value-bubble tabular"
+      :style="{ left: `${ratio * 100}%` }"
+      aria-hidden="true"
+    >
+      {{ bubbleText }}
+    </span>
   </div>
 </template>
 
 <style scoped>
 .slider {
   position: relative;
-  height: 32px;
+  height: 36px;
   width: 200px;
   flex: 0 0 auto;
   display: flex;
@@ -137,41 +162,83 @@ function onKey(event: KeyboardEvent): void {
   opacity: 0.45;
   cursor: default;
 }
-.track {
+.track-active {
   position: absolute;
   left: 0;
+  height: 12px;
+  border-radius: 6px 2.5px 2.5px 6px;
+  background-color: rgb(var(--md-primary));
+  pointer-events: none;
+}
+.track-inactive {
+  position: absolute;
   right: 0;
+  height: 12px;
+  border-radius: 2.5px 6px 6px 2.5px;
+  background-color: rgb(var(--md-secondary-container));
+  pointer-events: none;
+}
+.stop-dot {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  width: 4px;
   height: 4px;
   border-radius: 999px;
-  background-color: rgb(var(--md-surface-container-highest));
+  transform: translateY(-50%);
+  background-color: rgb(var(--md-primary));
+  pointer-events: none;
 }
-.fill {
+.handle {
   position: absolute;
-  left: 0;
-  height: 4px;
+  top: 50%;
+  width: 4px;
+  height: 28px;
   border-radius: 999px;
   background-color: rgb(var(--md-primary));
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition:
+    width var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    height var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy);
 }
-.thumb {
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  margin-left: -9px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-primary));
-  box-shadow: var(--md-elevation-1);
-  transition: transform 0.14s ease;
+.slider:hover .handle {
+  height: 31px;
 }
-.slider:hover .thumb,
-.slider.dragging .thumb {
-  transform: scale(1.12);
+.slider.dragging .handle {
+  width: 2.5px;
+  height: 34px;
 }
-.slider:focus-visible .thumb {
+.slider:focus-visible .handle {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 3px;
 }
+.value-bubble {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  padding: 4px 9px;
+  border-radius: 999px;
+  background-color: rgb(var(--md-inverse-surface));
+  color: rgb(var(--md-inverse-on-surface));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 6px) scale(0.6);
+  transition:
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    opacity var(--md-dur-effects-fast) var(--md-spring-effects-fast);
+}
+.slider:hover:not(.disabled) .value-bubble,
+.slider.dragging .value-bubble {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
 @media (prefers-reduced-motion: reduce) {
-  .thumb {
+  .handle,
+  .value-bubble {
     transition: none;
   }
 }

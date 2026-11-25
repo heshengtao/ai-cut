@@ -2,6 +2,7 @@
 /** 全局 AI 任务浮层：从右键菜单直接触发的长任务在这里显示进度与取消。 */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { XMarkIcon } from "@heroicons/vue/24/outline";
+import Md3LoadingIndicator from "@/components/common/Md3LoadingIndicator.vue";
 import { useAiTasksStore, type AiTaskEntry } from "@/stores/aiTasks";
 import { useI18n } from "@/i18n";
 
@@ -45,22 +46,25 @@ function cancel(task: AiTaskEntry): void {
 
 <template>
   <div v-if="visible.length > 0" class="ai-task-hud" aria-live="polite">
-    <div v-for="task in visible" :key="task.id" class="ai-task">
-      <span class="spinner" aria-hidden="true" />
-      <span class="task-label">{{ task.label }}</span>
-      <span class="task-time tabular">{{ elapsed(task.startedAt) }}</span>
-      <button
-        v-if="task.cancel"
-        class="task-cancel"
-        type="button"
-        :aria-label="i18n.t('common.cancel')"
-        :title="i18n.t('common.cancel')"
-        :disabled="cancelling.includes(task.id)"
-        @click="cancel(task)"
-      >
-        <XMarkIcon class="cancel-icon" />
-      </button>
-    </div>
+    <transition-group name="hud-item">
+      <div v-for="task in visible" :key="task.id" class="ai-task">
+        <Md3LoadingIndicator size="sm" :label="task.label" />
+        <span class="task-label">{{ task.label }}</span>
+        <span class="task-time tabular">{{ elapsed(task.startedAt) }}</span>
+        <button
+          v-if="task.cancel"
+          v-ripple="{ centered: true }"
+          class="task-cancel"
+          type="button"
+          :aria-label="i18n.t('common.cancel')"
+          :title="i18n.t('common.cancel')"
+          :disabled="cancelling.includes(task.id)"
+          @click="cancel(task)"
+        >
+          <XMarkIcon class="cancel-icon" />
+        </button>
+      </div>
+    </transition-group>
   </div>
 </template>
 
@@ -80,28 +84,32 @@ function cancel(task: AiTaskEntry): void {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 200px;
-  max-width: 340px;
-  padding: 9px 10px 9px 13px;
-  border-radius: 13px;
+  min-width: 210px;
+  max-width: 350px;
+  padding: 8px 10px 8px 10px;
+  border-radius: 18px;
   background-color: rgb(var(--md-surface-container-highest));
   color: rgb(var(--md-on-surface));
   box-shadow: var(--md-elevation-3), 0 0 0 1px rgb(var(--md-outline-variant) / 0.25);
   font-size: 12px;
 }
-.spinner {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  border: 2px solid rgb(var(--md-primary) / 0.25);
-  border-top-color: rgb(var(--md-primary));
-  animation: spin 0.8s linear infinite;
+.hud-item-enter-active {
+  transition:
+    opacity var(--md-dur-effects-default) var(--md-spring-effects-default),
+    transform var(--md-dur-spatial-default) var(--md-spring-spatial-fast);
 }
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+.hud-item-leave-active {
+  transition:
+    opacity var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    transform var(--md-dur-effects-fast) var(--md-spring-effects-fast);
+}
+.hud-item-enter-from {
+  opacity: 0;
+  transform: translateY(14px) scale(0.92);
+}
+.hud-item-leave-to {
+  opacity: 0;
+  transform: translateY(6px) scale(0.96);
 }
 .task-label {
   flex: 1 1 auto;
