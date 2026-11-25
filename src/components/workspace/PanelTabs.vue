@@ -138,7 +138,6 @@ onUnmounted(() => {
     <div
       v-for="id in layout.tabs"
       :key="id"
-      v-ripple
       class="tab"
       :class="{ on: id === layout.activeTab }"
       role="tab"

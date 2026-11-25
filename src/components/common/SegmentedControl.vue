@@ -72,7 +72,6 @@ onUnmounted(() => {
       v-for="(option, index) in options"
       :key="option.value"
       :ref="(el) => { if (el) buttons[index] = el as HTMLElement }"
-      v-ripple
       type="button"
       class="m3-seg-btn"
       :class="{ on: activeIndex === index }"

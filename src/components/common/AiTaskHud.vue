@@ -53,7 +53,6 @@ function cancel(task: AiTaskEntry): void {
         <span class="task-time tabular">{{ elapsed(task.startedAt) }}</span>
         <button
           v-if="task.cancel"
-          v-ripple="{ centered: true }"
           class="task-cancel"
           type="button"
           :aria-label="i18n.t('common.cancel')"

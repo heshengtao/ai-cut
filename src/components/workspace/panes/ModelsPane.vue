@@ -22,6 +22,7 @@ import { usePluginsStore } from "@/stores/plugins";
 import { useLayoutStore } from "@/stores/layout";
 import PluginList from "./PluginList.vue";
 import PluginImportButton from "./PluginImportButton.vue";
+import Md3Chip from "@/components/common/Md3Chip.vue";
 import { useI18n } from "@/i18n";
 import { humanSize, missingBytes } from "@/utils/size";
 import { appRestart } from "@/core/runtimeApi";
@@ -379,16 +380,15 @@ onUnmounted(() => {
     />
 
     <div class="chips" role="group" :aria-label="i18n.t('models.kindFilter')">
-      <button
+      <Md3Chip
         v-for="item in (['all', 'plugin', 'model', 'runtime'] as const)"
         :key="item"
-        class="chip"
-        :class="{ on: kind === item }"
-        :aria-pressed="kind === item"
+        size="sm"
+        :selected="kind === item"
         @click="kind = item"
       >
         {{ i18n.t(`models.kind.${item}`) }}
-      </button>
+      </Md3Chip>
       <button
         class="chip source-chip"
         :title="i18n.t('models.sourceSettingsHint')"

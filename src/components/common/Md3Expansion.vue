@@ -47,7 +47,6 @@ function toggle(): void {
   <section class="md3-expansion" :class="[variant, { expanded, disabled }]">
     <button
       :id="`${panelId}-header`"
-      v-ripple
       class="expansion-header"
       type="button"
       :aria-expanded="expanded"

@@ -377,11 +377,15 @@ function onMouseDown(e: MouseEvent): void {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: 17px;
   background: transparent;
   color: rgb(var(--md-on-surface-variant));
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    color var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .bar-icon {
   width: 18px;
@@ -401,13 +405,15 @@ function onMouseDown(e: MouseEvent): void {
   color: rgb(var(--md-on-surface));
 }
 .bar-btn:active {
-  transform: scale(0.94);
+  border-radius: 10px;
+  transform: scale(0.91);
 }
 .bar-btn:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 1px;
 }
 .bar-btn.on {
+  border-radius: 11px;
   background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
 }

@@ -8,6 +8,7 @@ import {
   XMarkIcon,
 } from "@heroicons/vue/24/outline";
 import { useExportStore } from "@/stores/export";
+import Md3WavyProgress from "@/components/common/Md3WavyProgress.vue";
 import { useProjectStore } from "@/stores/project";
 import { projectDuration } from "@/core/playback/activeClips";
 import { formatTimecode } from "@/core/time";
@@ -395,15 +396,11 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
 
           <footer class="foot">
             <template v-if="exporting">
-              <div
-                class="progress"
-                role="progressbar"
-                :aria-valuenow="percent"
-                aria-valuemin="0"
-                aria-valuemax="100"
-              >
-                <span class="progress-bar" :style="{ width: `${percent}%` }" />
-              </div>
+              <Md3WavyProgress
+                :value="percent / 100"
+                :label="i18n.t('export.title')"
+                :height="14"
+              />
               <div class="progress-meta">
                 <span class="tabular">{{ percent }}%</span>
                 <span class="tabular">
@@ -443,6 +440,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
   justify-content: center;
   padding: 24px;
   background-color: rgb(var(--md-scrim) / 0.42);
+  backdrop-filter: blur(5px);
 }
 .dialog {
   width: 480px;
@@ -450,7 +448,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
   max-height: min(680px, 88vh);
   display: flex;
   flex-direction: column;
-  border-radius: 24px;
+  border-radius: 28px;
   background-color: rgb(var(--md-surface-container-high));
   box-shadow: var(--md-elevation-3);
   overflow: hidden;
@@ -824,13 +822,27 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 1px;
 }
-.fade-enter-active,
+.fade-enter-active {
+  transition: opacity var(--md-dur-effects-default) var(--md-spring-effects-default);
+}
 .fade-leave-active {
-  transition: opacity 0.16s ease;
+  transition: opacity var(--md-dur-effects-fast) var(--md-spring-effects-fast);
+}
+.fade-enter-active .dialog {
+  transition: transform var(--md-dur-spatial-default) var(--md-spring-spatial-fast);
+}
+.fade-leave-active .dialog {
+  transition: transform var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+.fade-enter-from .dialog {
+  transform: scale(0.88) translateY(14px);
+}
+.fade-leave-to .dialog {
+  transform: scale(0.95) translateY(6px);
 }
 @media (prefers-reduced-motion: reduce) {
   .icon-btn,

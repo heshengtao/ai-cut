@@ -6,9 +6,10 @@ withDefaults(
   defineProps<{
     selected?: boolean;
     variant?: "filter" | "assist";
+    size?: "sm" | "md";
     disabled?: boolean;
   }>(),
-  { selected: false, variant: "filter", disabled: false },
+  { selected: false, variant: "filter", size: "md", disabled: false },
 );
 
 const emit = defineEmits<{ (e: "click", event: MouseEvent): void }>();
@@ -16,10 +17,9 @@ const emit = defineEmits<{ (e: "click", event: MouseEvent): void }>();
 
 <template>
   <button
-    v-ripple
     type="button"
     class="m3-chip"
-    :class="[variant, { selected }]"
+    :class="[variant, size, { selected }]"
     :aria-pressed="variant === 'filter' ? selected : undefined"
     :disabled="disabled"
     @click="emit('click', $event)"
@@ -58,6 +58,26 @@ const emit = defineEmits<{ (e: "click", event: MouseEvent): void }>();
     background-color var(--md-dur-effects-default) var(--md-spring-effects-default),
     border-color var(--md-dur-effects-default) var(--md-spring-effects-default),
     color var(--md-dur-effects-default) var(--md-spring-effects-default);
+}
+.m3-chip.sm {
+  height: 27px;
+  padding: 0 11px;
+  border-radius: 9px;
+  font-size: 11.5px;
+}
+.m3-chip.sm.selected {
+  padding: 0 11px 0 8px;
+  gap: 4px;
+}
+.m3-chip.sm .m3-chip-check {
+  height: 13px;
+}
+.m3-chip.sm .m3-chip-check svg {
+  width: 13px;
+  height: 13px;
+}
+.m3-chip.sm.selected .m3-chip-check {
+  width: 13px;
 }
 .m3-chip:hover:not(:disabled) {
   background-color: rgb(var(--md-on-surface) / var(--md-state-hover-alpha));

@@ -297,7 +297,7 @@ function openAgent(): void {
   flex: 0 0 auto;
   margin-left: auto;
 }
-/* AI 剪辑：顶栏唯一的实心按钮——它是这个应用的主张，值得占位置。 */
+/* AI 剪辑：顶栏唯一的实心按钮——M3 Expressive 按压形变 + 弹簧触感。 */
 .ai-cta {
   display: inline-flex;
   align-items: center;
@@ -306,7 +306,7 @@ function openAgent(): void {
   padding: 0 15px 0 12px;
   margin-right: 4px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 17px;
   background-color: rgb(var(--md-primary));
   color: rgb(var(--md-on-primary));
   font-family: inherit;
@@ -316,9 +316,10 @@ function openAgent(): void {
   cursor: pointer;
   box-shadow: 0 2px 10px -2px rgb(var(--md-primary) / 0.55);
   transition:
-    transform var(--md-duration-short-2) var(--md-ease-standard),
-    box-shadow var(--md-duration-medium-1) var(--md-ease-standard),
-    filter var(--md-duration-short-2) var(--md-ease-standard);
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    box-shadow var(--md-dur-effects-default) var(--md-spring-effects-default),
+    filter var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .ai-cta:hover {
   filter: brightness(1.06);
@@ -326,7 +327,8 @@ function openAgent(): void {
   transform: translateY(-1px);
 }
 .ai-cta:active {
-  transform: scale(0.97);
+  border-radius: 9px;
+  transform: scale(0.95);
 }
 .ai-cta:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
@@ -338,7 +340,7 @@ function openAgent(): void {
   flex: 0 0 auto;
 }
 
-/* MD3 图标按钮：圆形，无原生外观 */
+/* MD3 Expressive 图标按钮：圆形 ↔ 方圆形变 */
 .bar-btn {
   width: 34px;
   height: 34px;
@@ -347,14 +349,15 @@ function openAgent(): void {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: 17px;
   background: transparent;
   color: rgb(var(--md-on-surface-variant));
   cursor: pointer;
   transition:
-    background-color var(--md-duration-short-2) var(--md-ease-standard),
-    color var(--md-duration-short-2) var(--md-ease-standard),
-    transform var(--md-duration-short-2) var(--md-ease-standard);
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    color var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .bar-icon {
   width: 18px;
@@ -366,13 +369,15 @@ function openAgent(): void {
   color: rgb(var(--md-on-surface));
 }
 .bar-btn:active {
-  transform: scale(0.94);
+  border-radius: 10px;
+  transform: scale(0.91);
 }
 .bar-btn:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 1px;
 }
 .bar-btn.on {
+  border-radius: 11px;
   background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
 }

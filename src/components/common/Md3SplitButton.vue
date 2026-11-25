@@ -22,7 +22,6 @@ const emit = defineEmits<{
 <template>
   <div class="m3-split" :class="variant">
     <button
-      v-ripple
       type="button"
       class="m3-split-lead"
       :disabled="disabled"
@@ -32,7 +31,6 @@ const emit = defineEmits<{
       <span>{{ label }}</span>
     </button>
     <button
-      v-ripple="{ centered: true }"
       type="button"
       class="m3-split-trail"
       :class="{ open }"

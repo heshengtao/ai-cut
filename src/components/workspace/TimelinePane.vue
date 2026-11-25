@@ -17,6 +17,7 @@ import TimelineClip from "./TimelineClip.vue";
 import ContextMenu from "@/components/common/ContextMenu.vue";
 import type { MenuItem } from "@/components/common/contextMenu";
 import Tooltip from "@/components/common/Tooltip.vue";
+import Md3Slider from "@/components/common/Md3Slider.vue";
 import ReviewNoteDialog from "@/components/common/ReviewNoteDialog.vue";
 import type { MarkerPatch } from "@/core/ops";
 import CutIcon from "@/components/common/CutIcon.vue";
@@ -160,8 +161,7 @@ function zoomBy(factor: number): void {
   playback.setZoom(playback.zoom * factor);
 }
 
-function onZoomInput(event: Event): void {
-  const value = Number((event.target as HTMLInputElement).value);
+function onZoomSliderChange(value: number): void {
   // 滑杆 0..100 映射到对数刻度，低倍率也有足够行程。
   playback.setZoom(MIN_ZOOM * (MAX_ZOOM / MIN_ZOOM) ** (value / 100));
 }
@@ -890,14 +890,15 @@ function onLaneDrop(event: DragEvent): void {
         <button class="icon-btn" :aria-label="i18n.t('timeline.zoomOut')" @click="zoomBy(1 / 1.4)">
           <MagnifyingGlassMinusIcon class="w-[16px] h-[16px]" />
         </button>
-        <input
-          class="md3-range zoom-range"
-          type="range"
-          min="0"
-          max="100"
-          :value="zoomSlider"
-          :aria-label="i18n.t('timeline.zoom')"
-          @input="onZoomInput"
+        <Md3Slider
+          class="zoom-range"
+          :model-value="zoomSlider"
+          :min="0"
+          :max="100"
+          :step="1"
+          :label="i18n.t('timeline.zoom')"
+          :show-bubble="false"
+          @update:model-value="onZoomSliderChange"
         />
         <button class="icon-btn" :aria-label="i18n.t('timeline.zoomIn')" @click="zoomBy(1.4)">
           <MagnifyingGlassPlusIcon class="w-[16px] h-[16px]" />
@@ -1109,7 +1110,8 @@ function onLaneDrop(event: DragEvent): void {
   flex: 0 0 auto;
 }
 .zoom-range {
-  width: 76px;
+  width: 96px;
+  height: 28px;
 }
 
 /* ---- 主体 ---- */

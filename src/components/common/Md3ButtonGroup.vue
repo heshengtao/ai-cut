@@ -24,7 +24,6 @@ const emit = defineEmits<{ (e: "update:modelValue", value: string): void }>();
     <button
       v-for="opt in options"
       :key="opt.value"
-      v-ripple
       type="button"
       class="m3-grp-btn"
       :class="{ selected: modelValue === opt.value }"

@@ -2988,15 +2988,10 @@ onUnmounted(() => {
                 <span class="row-sub warn">{{ i18n.t("settings.storage.portable") }}</span>
               </div>
               <div v-if="dataDirBusy" class="col-row">
-                <div
-                  class="update-progress"
-                  role="progressbar"
-                  :aria-valuenow="dataDirPercent"
-                  aria-valuemin="0"
-                  aria-valuemax="100"
-                >
-                  <div class="update-progress-fill" :style="{ width: `${dataDirPercent}%` }" />
-                </div>
+                <Md3WavyProgress
+                  :value="dataDirPercent / 100"
+                  :label="dataDirProgressText"
+                />
                 <span class="row-sub">{{ dataDirProgressText }}</span>
               </div>
               <div v-if="dataDirError" class="col-row">
@@ -3435,17 +3430,13 @@ onUnmounted(() => {
                         : i18n.t("runtime.notInstalled")
                     }}
                   </span>
-                  <div v-if="runtimeInstallId === runtime.id" class="runtime-progress">
-                    <div
-                      class="runtime-progress-fill"
-                      :class="{ indeterminate: runtimes.progressPct === null }"
-                      :style="
-                        runtimes.progressPct === null
-                          ? undefined
-                          : { width: `${runtimes.progressPct}%` }
-                      "
-                    />
-                  </div>
+                  <Md3WavyProgress
+                    v-if="runtimeInstallId === runtime.id"
+                    style="margin-top: 6px"
+                    :value="runtimes.progressPct === null ? null : runtimes.progressPct / 100"
+                    :label="runtime.id"
+                    :height="10"
+                  />
                 </div>
                 <div class="row-actions">
                   <button

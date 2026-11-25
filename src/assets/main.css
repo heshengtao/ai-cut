@@ -758,33 +758,39 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* MD3 风格滑杆：细轨 + 圆形手柄 */
+  /* MD3 Expressive 风格原生滑杆：加厚轨道 + 竖条药丸手柄 */
   .md3-range {
     -webkit-appearance: none;
     appearance: none;
     width: 100%;
-    height: 18px;
+    height: 24px;
     background: transparent;
     cursor: pointer;
   }
   .md3-range::-webkit-slider-runnable-track {
-    height: 4px;
+    height: 10px;
     border-radius: 999px;
-    background: rgb(var(--md-primary) / 0.22);
+    background: rgb(var(--md-secondary-container));
   }
   .md3-range::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 14px;
-    height: 14px;
-    margin-top: -5px;
+    width: 4px;
+    height: 22px;
+    margin-top: -6px;
     border-radius: 999px;
     background: rgb(var(--md-primary));
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-    transition: transform 0.15s ease;
+    box-shadow: 0 0 0 3px rgb(var(--md-surface));
+    transition:
+      transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+      width var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy);
   }
   .md3-range:hover::-webkit-slider-thumb {
-    transform: scale(1.12);
+    transform: scaleY(1.12);
+  }
+  .md3-range:active::-webkit-slider-thumb {
+    width: 3px;
+    transform: scaleY(1.2);
   }
 
   /* ---- Tooltip ---- */
@@ -990,36 +996,6 @@
   transform: translateY(0) scale(0.99);
 }
 
-/* ---- Material Ripple（必须留在 @layer 外面，防止被 Tailwind JIT 裁掉） ---- */
-.md-ripple-host {
-  position: relative;
-  overflow: hidden;
-  -webkit-tap-highlight-color: transparent;
-}
-.md-ripple-wave {
-  position: absolute;
-  border-radius: 50%;
-  pointer-events: none;
-  background-color: currentColor;
-  opacity: 0.22;
-  transform: scale(0);
-  will-change: transform, opacity;
-  animation: md-ripple-expand 520ms cubic-bezier(0.2, 0, 0, 1) forwards;
-}
-@keyframes md-ripple-expand {
-  0% {
-    transform: scale(0);
-    opacity: 0.24;
-  }
-  70% {
-    opacity: 0.12;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 0;
-  }
-}
-
 /* ---- 右侧面板换标签：Effects 淡入 + Spatial 轻微上浮 ----
    退场不做过渡：`mode="out-in"` 是串行的，淡出只会让用户多等一段。 */
 .pane-enter-active {
@@ -1052,10 +1028,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .md-ripple-wave {
-    display: none !important;
-    animation: none !important;
-  }
   .btn-filled,
   .btn-tonal,
   .btn-outlined,

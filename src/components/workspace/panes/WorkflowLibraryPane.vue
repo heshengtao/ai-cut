@@ -17,6 +17,7 @@ import {
   TrashIcon,
 } from "@heroicons/vue/24/outline";
 import ProjectDialog from "@/components/common/ProjectDialog.vue";
+import Md3Chip from "@/components/common/Md3Chip.vue";
 import { clearDragPayload, setDragPayload } from "@/core/dragPayload";
 import { useWorkflowLibrary, type WorkflowFilter } from "@/composables/useWorkflowLibrary";
 import { useBoardStore } from "@/stores/board";
@@ -145,19 +146,16 @@ function metaOf(group: WorkflowGroup): string {
       />
     </div>
 
-    <div class="filter-row" role="tablist">
-      <button
+    <div class="filter-row" role="group">
+      <Md3Chip
         v-for="item in FILTERS"
         :key="item.id"
-        class="filter-chip"
-        type="button"
-        role="tab"
-        :aria-selected="library.filter.value === item.id"
-        :class="{ on: library.filter.value === item.id }"
+        size="sm"
+        :selected="library.filter.value === item.id"
         @click="library.filter.value = item.id"
       >
         {{ i18n.t(item.labelKey) }}
-      </button>
+      </Md3Chip>
     </div>
 
     <div class="workflow-list">

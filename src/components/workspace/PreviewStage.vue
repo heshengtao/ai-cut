@@ -2119,6 +2119,7 @@ watch(
       <div class="transport-center">
         <button
           class="play-btn"
+          :class="{ playing: playback.playing }"
           :aria-label="playback.playing ? i18n.t('preview.pause') : i18n.t('preview.play')"
           @click="togglePlay"
         >
@@ -2606,25 +2607,34 @@ watch(
   gap: 6px;
 }
 .play-btn {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding-left: 2px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 20px;
   background-color: rgb(var(--md-primary));
   color: rgb(var(--md-on-primary));
   cursor: pointer;
   box-shadow: var(--md-elevation-1);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    box-shadow var(--md-dur-effects-default) var(--md-spring-effects-default);
+}
+.play-btn.playing {
+  padding-left: 0;
+  border-radius: 12px;
 }
 .play-btn:hover {
   box-shadow: 0 4px 14px rgb(var(--md-primary) / 0.35);
+  transform: scale(1.04);
 }
 .play-btn:active {
-  transform: scale(0.95);
+  border-radius: 10px;
+  transform: scale(0.92);
 }
 .transport-right {
   display: flex;

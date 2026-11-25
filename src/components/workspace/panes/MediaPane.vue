@@ -16,6 +16,7 @@ import {
   ArchiveBoxIcon,
 } from "@heroicons/vue/24/outline";
 import { invoke } from "@/platform/tauri";
+import Md3Chip from "@/components/common/Md3Chip.vue";
 import type { AssetKind, Clip, ClipTextStyle, MediaAsset } from "@/types/project";
 import { pickSubtitleFile, pickSubtitleSavePath } from "@/core/media";
 import {
@@ -478,16 +479,15 @@ async function collectMedia(): Promise<void> {
     </div>
 
     <div class="chips" role="group" :aria-label="i18n.t('media.filterGroup')">
-      <button
+      <Md3Chip
         v-for="f in filters"
         :key="f.id"
-        class="chip"
-        :class="{ on: activeFilter === f.id }"
-        :aria-pressed="activeFilter === f.id"
+        size="sm"
+        :selected="activeFilter === f.id"
         @click="activeFilter = f.id"
       >
         {{ i18n.t(f.labelKey) }}
-      </button>
+      </Md3Chip>
     </div>
 
     <div class="pane-scroll">

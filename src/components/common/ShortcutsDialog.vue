@@ -127,6 +127,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey, true));
   justify-content: center;
   padding: 24px;
   background-color: rgb(var(--md-scrim) / 0.42);
+  backdrop-filter: blur(5px);
 }
 .dialog {
   width: 480px;
@@ -134,7 +135,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey, true));
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  border-radius: 24px;
+  border-radius: 28px;
   background-color: rgb(var(--md-surface-container-high));
   box-shadow: var(--md-elevation-3);
   overflow: hidden;
@@ -231,13 +232,27 @@ onUnmounted(() => window.removeEventListener("keydown", onKey, true));
   color: rgb(var(--md-on-surface-muted));
   font-size: 10px;
 }
-.fade-enter-active,
+.fade-enter-active {
+  transition: opacity var(--md-dur-effects-default) var(--md-spring-effects-default);
+}
 .fade-leave-active {
-  transition: opacity 0.16s ease;
+  transition: opacity var(--md-dur-effects-fast) var(--md-spring-effects-fast);
+}
+.fade-enter-active .dialog {
+  transition: transform var(--md-dur-spatial-default) var(--md-spring-spatial-fast);
+}
+.fade-leave-active .dialog {
+  transition: transform var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+.fade-enter-from .dialog {
+  transform: scale(0.88) translateY(14px);
+}
+.fade-leave-to .dialog {
+  transform: scale(0.95) translateY(6px);
 }
 @media (prefers-reduced-motion: reduce) {
   .icon-btn,
