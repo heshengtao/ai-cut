@@ -2445,30 +2445,44 @@ async function relink(): Promise<void> {
 }
 .align-group {
   display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-surface-container-highest));
+  gap: 3px;
 }
 .align-btn {
-  width: 30px;
-  height: 28px;
+  width: 32px;
+  height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 999px;
-  background: transparent;
+  border-radius: 7px;
+  background-color: rgb(var(--md-surface-container-highest));
   color: rgb(var(--md-on-surface-variant));
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    width var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-default) var(--md-spring-effects-default),
+    color var(--md-dur-effects-default) var(--md-spring-effects-default);
 }
-.align-btn:hover {
+.align-btn:first-child {
+  border-radius: 15px 7px 7px 15px;
+}
+.align-btn:last-child {
+  border-radius: 7px 15px 15px 7px;
+}
+.align-btn:hover:not(.on) {
   color: rgb(var(--md-on-surface));
-  background-color: rgb(var(--md-on-surface) / var(--md-state-hover-alpha));
+  filter: brightness(1.06);
+}
+.align-btn:active {
+  width: 36px;
+  border-radius: 11px;
 }
 .align-btn.on {
+  width: 36px;
+  border-radius: 15px;
   background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
 }
@@ -2481,23 +2495,27 @@ async function relink(): Promise<void> {
   height: 16px;
 }
 .preset-btn {
-  height: 30px;
-  padding: 0 13px;
+  height: 32px;
+  padding: 0 14px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 16px;
   background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
   font-size: 11.5px;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
-  transition: filter 0.14s ease, transform 0.14s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    filter var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .preset-btn:hover {
   filter: brightness(1.06);
 }
 .preset-btn:active {
-  transform: scale(0.96);
+  border-radius: 8px;
+  transform: scale(0.95);
 }
 .preset-btn:focus-visible {
   outline: 2px solid rgb(var(--md-primary));

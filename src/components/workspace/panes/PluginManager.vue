@@ -444,29 +444,49 @@ onUnmounted(() => {
 .tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
+  gap: 3px;
+  flex-wrap: nowrap;
   min-width: 0;
 }
 .tab {
-  height: 28px;
-  padding: 0 11px;
+  height: 30px;
+  padding: 0 12px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   border: 0;
-  border-radius: 999px;
-  background: transparent;
+  border-radius: 7px;
+  background-color: rgb(var(--md-surface-container-highest));
   color: rgb(var(--md-on-surface-variant));
   font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    padding var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-default) var(--md-spring-effects-default),
+    color var(--md-dur-effects-default) var(--md-spring-effects-default);
 }
-.tab:hover {
-  background-color: rgb(var(--md-on-surface) / var(--md-state-hover-alpha));
+.tab:first-child {
+  border-radius: 15px 7px 7px 15px;
+}
+.tab:last-child {
+  border-radius: 7px 15px 15px 7px;
+}
+.tab:hover:not(.on) {
+  color: rgb(var(--md-on-surface));
+  filter: brightness(1.06);
+}
+.tab:active {
+  padding: 0 15px;
+  border-radius: 11px;
 }
 .tab.on {
+  border-radius: 15px;
+  padding: 0 14px;
   background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
+  font-weight: 600;
 }
 .count {
   padding: 0 5px;

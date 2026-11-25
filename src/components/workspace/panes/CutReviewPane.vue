@@ -654,17 +654,29 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 }
 
 .text-btn {
+  height: 30px;
   border: 0;
+  border-radius: 15px;
   background: transparent;
-  padding: 0 4px;
+  padding: 0 11px;
   color: rgb(var(--md-primary));
   font-size: 12.5px;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 
 .text-btn:hover {
-  text-decoration: underline;
+  background-color: rgb(var(--md-primary) / 0.08);
+}
+
+.text-btn:active {
+  border-radius: 8px;
+  transform: scale(0.95);
 }
 
 .run-btn {
@@ -674,17 +686,27 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
   display: inline-flex;
   align-items: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: 16px;
   background-color: rgb(var(--md-primary));
   color: rgb(var(--md-on-primary));
   font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: filter 0.14s ease;
+  box-shadow: var(--md-elevation-1);
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    filter var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 
 .run-btn:hover:not(:disabled) {
   filter: brightness(1.08);
+}
+
+.run-btn:active:not(:disabled) {
+  border-radius: 8px;
+  transform: scale(0.95);
 }
 
 .run-btn:disabled {

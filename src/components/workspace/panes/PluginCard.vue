@@ -286,35 +286,42 @@ function openInterface(): void {
   height: 13px;
 }
 .mini-btn {
-  height: 27px;
-  padding: 0 12px;
+  height: 29px;
+  padding: 0 13px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  border: 1px solid rgb(var(--md-outline-variant) / 0.7);
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--md-on-surface-variant));
-  font-size: 11px;
+  border: 0;
+  border-radius: 15px;
+  background-color: rgb(var(--md-surface-container-highest));
+  color: rgb(var(--md-on-surface));
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.14s ease, color 0.14s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    filter var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .mini-btn:hover:not(:disabled) {
-  background-color: rgb(var(--md-on-surface) / var(--md-state-hover-alpha));
+  filter: brightness(1.06);
+}
+.mini-btn:active:not(:disabled) {
+  border-radius: 8px;
+  transform: scale(0.95);
 }
 .mini-btn.primary {
-  border-color: transparent;
   background-color: rgb(var(--md-primary));
   color: rgb(var(--md-on-primary));
+  font-weight: 600;
 }
 .mini-btn.primary:hover:not(:disabled) {
   filter: brightness(1.08);
 }
 .mini-btn.danger {
-  border-color: transparent;
-  background-color: rgb(var(--md-error) / 0.14);
-  color: rgb(var(--md-error));
+  background-color: rgb(var(--md-error-container));
+  color: rgb(var(--md-on-error-container));
 }
 .mini-btn:disabled {
   opacity: 0.45;

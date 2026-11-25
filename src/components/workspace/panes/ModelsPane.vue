@@ -918,27 +918,45 @@ onUnmounted(() => {
 .tabs {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-wrap: nowrap;
+  gap: 3px;
   min-width: 0;
 }
 .tab {
-  height: 28px;
-  padding: 0 12px;
+  height: 30px;
+  padding: 0 13px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   border: 0;
-  border-radius: 999px;
-  background: transparent;
+  border-radius: 7px;
+  background-color: rgb(var(--md-surface-container-highest));
   color: rgb(var(--md-on-surface-variant));
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    padding var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-default) var(--md-spring-effects-default),
+    color var(--md-dur-effects-default) var(--md-spring-effects-default);
+}
+.tab:first-child {
+  border-radius: 15px 7px 7px 15px;
+}
+.tab:last-child {
+  border-radius: 7px 15px 15px 7px;
+}
+.tab:active {
+  padding: 0 16px;
+  border-radius: 11px;
 }
 .tab.on {
+  border-radius: 15px;
+  padding: 0 15px;
   background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
+  font-weight: 600;
 }
 .tab-count {
   padding: 1px 6px;
@@ -1252,35 +1270,43 @@ onUnmounted(() => {
   margin-top: 4px;
 }
 .mini-btn {
-  height: 27px;
-  padding: 0 12px;
+  height: 29px;
+  padding: 0 13px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  border: 1px solid rgb(var(--md-outline-variant) / 0.7);
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--md-on-surface-variant));
-  font-size: 11px;
+  border: 0;
+  border-radius: 15px;
+  background-color: rgb(var(--md-surface-container-highest));
+  color: rgb(var(--md-on-surface));
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.14s ease, color 0.14s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    filter var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .mini-btn:hover:not(:disabled) {
-  background-color: rgb(var(--md-on-surface) / var(--md-state-hover-alpha));
+  filter: brightness(1.06);
+}
+.mini-btn:active:not(:disabled) {
+  border-radius: 8px;
+  transform: scale(0.95);
 }
 .mini-btn.primary {
-  border-color: transparent;
   background-color: rgb(var(--md-primary));
   color: rgb(var(--md-on-primary));
+  font-weight: 600;
 }
 .mini-btn.primary:hover:not(:disabled) {
   filter: brightness(1.08);
 }
 .mini-btn.danger {
-  border-color: transparent;
-  background-color: rgb(var(--md-error) / 0.14);
-  color: rgb(var(--md-error));
+  background-color: rgb(var(--md-error-container));
+  color: rgb(var(--md-on-error-container));
 }
 .mini-btn:disabled {
   opacity: 0.45;

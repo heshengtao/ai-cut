@@ -3121,24 +3121,34 @@ onMounted(() => {
   padding: 0 12px 10px;
 }
 .chip {
-  height: 26px;
+  height: 27px;
   padding: 0 11px;
   border: 1px solid rgb(var(--md-outline-variant) / 0.8);
-  border-radius: 999px;
+  border-radius: 9px;
   background: transparent;
   color: rgb(var(--md-on-surface-variant));
   font-size: 11.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-default) var(--md-spring-effects-default),
+    color var(--md-dur-effects-default) var(--md-spring-effects-default),
+    border-color var(--md-dur-effects-default) var(--md-spring-effects-default);
 }
-.chip:hover {
+.chip:hover:not(:disabled) {
   background-color: rgb(var(--md-on-surface-variant) / var(--md-state-hover-alpha));
 }
+.chip:active:not(:disabled) {
+  transform: scale(0.95);
+}
 .chip.on {
+  border-radius: 999px;
   border-color: transparent;
   background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
+  font-weight: 600;
 }
 .chip:disabled {
   opacity: 0.45;
@@ -3288,45 +3298,65 @@ onMounted(() => {
 }
 .run-btn {
   flex: 0 0 auto;
-  height: 30px;
-  padding: 0 14px;
+  height: 32px;
+  padding: 0 15px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 16px;
   background-color: rgb(var(--md-primary));
   color: rgb(var(--md-on-primary));
-  font-size: 11.5px;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: filter 0.14s ease;
+  box-shadow: var(--md-elevation-1);
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    box-shadow var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    filter var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .run-btn:hover:not(:disabled) {
   filter: brightness(1.08);
+  box-shadow: var(--md-elevation-2);
+}
+.run-btn:active:not(:disabled) {
+  border-radius: 8px;
+  transform: scale(0.95);
 }
 .run-btn:disabled {
   opacity: 0.45;
   cursor: default;
+  box-shadow: none;
 }
 .iface-btn {
   flex: 0 0 auto;
-  height: 26px;
-  padding: 0 10px;
+  height: 28px;
+  padding: 0 12px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  border: 1px solid rgb(var(--md-outline-variant) / 0.7);
-  border-radius: 999px;
-  background: transparent;
-  color: rgb(var(--md-primary));
-  font-size: 11px;
+  border: 0;
+  border-radius: 14px;
+  background-color: rgb(var(--md-secondary-container));
+  color: rgb(var(--md-on-secondary-container));
+  font-size: 11.5px;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 0.14s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    filter var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .iface-btn:hover {
-  background-color: rgb(var(--md-primary) / 0.08);
+  filter: brightness(1.06);
+}
+.iface-btn:active {
+  border-radius: 7px;
+  transform: scale(0.95);
 }
 .progress {
   position: absolute;

@@ -4697,19 +4697,27 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   height: 40px;
-  padding: 0 8px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 20px;
   background: transparent;
   color: rgb(var(--md-on-surface-variant));
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.16s ease, color 0.16s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    color var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .back:hover {
   background-color: rgb(var(--md-on-surface-variant) / var(--md-state-hover-alpha));
   color: rgb(var(--md-on-surface));
+}
+.back:active {
+  border-radius: 12px;
+  transform: scale(0.97);
 }
 .back:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
@@ -4723,7 +4731,7 @@ onUnmounted(() => {
 .nav-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   margin-top: 4px;
 }
 .nav-item {
@@ -4733,22 +4741,31 @@ onUnmounted(() => {
   min-height: 52px;
   padding: 6px 14px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 16px;
   background: transparent;
   color: rgb(var(--md-on-surface-variant));
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.16s ease, color 0.16s ease;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    color var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
 .nav-item:hover {
   background-color: rgb(var(--md-on-surface-variant) / var(--md-state-hover-alpha));
   color: rgb(var(--md-on-surface));
+}
+.nav-item:active {
+  border-radius: 12px;
+  transform: scale(0.98);
 }
 .nav-item:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 1px;
 }
 .nav-item.on {
+  border-radius: 26px;
   background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
 }
@@ -5127,50 +5144,53 @@ textarea.mirror-field {
   white-space: pre-wrap;
 }
 .scan-btn {
-  height: 32px;
-  padding: 0 14px;
+  height: 36px;
+  padding: 0 16px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  border: 1px solid rgb(var(--md-outline-variant) / 0.8);
-  border-radius: 16px;
-  background: transparent;
-  color: rgb(var(--md-primary));
-  font-size: 12px;
-  font-weight: 500;
+  gap: 6px;
+  border: 0;
+  border-radius: 18px;
+  background-color: rgb(var(--md-secondary-container));
+  color: rgb(var(--md-on-secondary-container));
+  font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
   transition:
-    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-fast),
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
     transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
     background-color var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    box-shadow var(--md-dur-effects-fast) var(--md-spring-effects-fast),
+    filter var(--md-dur-effects-fast) var(--md-spring-effects-fast),
     opacity var(--md-dur-effects-fast) var(--md-spring-effects-fast);
 }
-.scan-btn:active:not(:disabled) {
-  border-radius: 8px;
-  transform: scale(0.95);
-}
 .scan-btn:hover:not(:disabled) {
-  background-color: rgb(var(--md-primary) / 0.08);
+  filter: brightness(1.06);
+}
+.scan-btn:active:not(:disabled) {
+  border-radius: 10px;
+  transform: scale(0.95);
 }
 .scan-btn:disabled {
   opacity: 0.45;
   cursor: default;
 }
 .scan-btn.primary {
-  border-color: transparent;
   background-color: rgb(var(--md-primary));
   color: rgb(var(--md-on-primary));
+  box-shadow: var(--md-elevation-1);
 }
 .scan-btn.primary:hover:not(:disabled) {
   filter: brightness(1.08);
+  box-shadow: var(--md-elevation-2);
 }
 .scan-btn.danger {
-  border-color: rgb(var(--md-error) / 0.45);
-  color: rgb(var(--md-error));
+  background-color: rgb(var(--md-error-container));
+  color: rgb(var(--md-on-error-container));
 }
 .scan-btn.danger:hover:not(:disabled) {
-  background-color: rgb(var(--md-error) / 0.08);
+  filter: brightness(1.06);
 }
 /* 「删除 / 取消」放最左边，和右边的测试 / 保拉开距离，避免误点。 */
 .actions-row .scan-btn.danger {

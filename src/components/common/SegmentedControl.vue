@@ -1,81 +1,32 @@
 <script setup lang="ts">
 /**
- * MD3 分段按钮（滑块风格）：活动胶囊由 DOM 量出来，带弹簧动画。
- *
- * 与 ai-daw 的 `Md3Segmented` 同一套交互：设置页「ONNX Runtime 后端」、视频后端
- * （CPU / Vulkan / CUDA 12）都用它——选中项是那颗会滑过去的「手柄」，不是下拉框。
+ * MD3 Expressive Connected Button Group（连接按钮组）：
+ * 首尾外侧大圆角、内部 8px 圆角 + 3px 缝隙；按压时横向弹簧扩张，选中项变形为完整胶囊。
+ * 保持与既有 `SegmentedControl` 完全一致的 Props（modelValue / options / ariaLabel / size）。
  */
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-
-const props = withDefaults(
+withDefaults(
   defineProps<{
     modelValue: string | null;
     options: { value: string; label: string; title?: string; disabled?: boolean }[];
     ariaLabel?: string;
-    /** `md`（30px，设置页） / `sm`（24px，右侧 AI 面板）。 */
+    /** `md`（36px，设置页） / `sm`（28px，右侧 AI 面板）。 */
     size?: "md" | "sm";
   }>(),
   { size: "md" },
 );
 
 const emit = defineEmits<{ (e: "update:modelValue", value: string): void }>();
-
-const root = ref<HTMLElement | null>(null);
-const buttons = ref<(HTMLElement | null)[]>([]);
-const pill = ref({ left: "0px", width: "0px" });
-
-const activeIndex = computed(() =>
-  props.options.findIndex((option) => option.value === props.modelValue),
-);
-
-let resizeObserver: ResizeObserver | null = null;
-
-function updatePill(): void {
-  void nextTick(() => {
-    const el = activeIndex.value >= 0 ? buttons.value[activeIndex.value] : null;
-    if (el) pill.value = { left: `${el.offsetLeft}px`, width: `${el.offsetWidth}px` };
-  });
-}
-
-watch(
-  [activeIndex, () => props.options.map((option) => `${option.value}:${option.label}`).join("|")],
-  updatePill,
-);
-
-onMounted(() => {
-  updatePill();
-  window.addEventListener("resize", updatePill);
-  // 容器自身变宽 / 变窄（侧栏、窗口、字体回退）时按钮宽度都会变，只监听 window 不够。
-  if (root.value && typeof ResizeObserver !== "undefined") {
-    resizeObserver = new ResizeObserver(updatePill);
-    resizeObserver.observe(root.value);
-  }
-  // Web 字体换上之后按钮会重新排版，此时量出来的胶囊位置 / 宽度已经过期。
-  void document.fonts?.ready.then(updatePill);
-});
-
-onUnmounted(() => {
-  window.removeEventListener("resize", updatePill);
-  resizeObserver?.disconnect();
-  resizeObserver = null;
-});
 </script>
 
 <template>
-  <div ref="root" class="m3-seg" :class="size" role="group" :aria-label="ariaLabel || undefined">
-    <div
-      v-if="activeIndex >= 0"
-      class="m3-seg-pill"
-      :style="{ left: pill.left, width: pill.width }"
-    />
+  <div class="m3-seg" :class="size" role="group" :aria-label="ariaLabel || undefined">
     <button
-      v-for="(option, index) in options"
+      v-for="option in options"
       :key="option.value"
-      :ref="(el) => { if (el) buttons[index] = el as HTMLElement }"
       type="button"
       class="m3-seg-btn"
-      :class="{ on: activeIndex === index }"
-      :aria-pressed="activeIndex === index"
+      :class="{ on: modelValue === option.value }"
+      :aria-pressed="modelValue === option.value"
       :disabled="option.disabled"
       :title="option.title"
       @click="emit('update:modelValue', option.value)"
@@ -87,14 +38,9 @@ onUnmounted(() => {
 
 <style scoped>
 .m3-seg {
-  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 4px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-surface-container-high));
-  /* 窄容器里不换行、也不裁掉最后一项：保持一条，必要时横向滚动。 */
+  gap: 3px;
   max-width: 100%;
   min-width: 0;
   flex-wrap: nowrap;
@@ -104,63 +50,89 @@ onUnmounted(() => {
 .m3-seg::-webkit-scrollbar {
   display: none;
 }
-.m3-seg.sm {
-  padding: 2px;
-}
-.m3-seg-pill {
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-secondary-container));
-  box-shadow: var(--md-elevation-1);
-  pointer-events: none;
-  transition:
-    left var(--md-dur-spatial-default) var(--md-spring-spatial-fast),
-    width var(--md-dur-spatial-default) var(--md-spring-spatial-fast);
-}
-.m3-seg.sm .m3-seg-pill {
-  top: 2px;
-  bottom: 2px;
-  box-shadow: none;
-}
-.m3-seg.sm .m3-seg-btn {
-  height: 24px;
-  padding: 0 9px;
-  font-size: 11px;
-}
 .m3-seg-btn {
-  position: relative;
-  z-index: 1;
   flex: 0 0 auto;
   height: 36px;
-  padding: 0 16px;
+  padding: 0 15px;
   border: 0;
-  border-radius: 999px;
-  background: transparent;
+  border-radius: 8px;
+  background-color: rgb(var(--md-surface-container-highest));
   color: rgb(var(--md-on-surface-variant));
-  font-size: 14px;
+  font: inherit;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
-  transition: color 0.2s ease;
+  user-select: none;
+  transition:
+    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    padding var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    background-color var(--md-dur-effects-default) var(--md-spring-effects-default),
+    color var(--md-dur-effects-default) var(--md-spring-effects-default);
 }
-.m3-seg-btn:hover:not(:disabled) {
+.m3-seg-btn:first-child {
+  border-radius: 18px 8px 8px 18px;
+}
+.m3-seg-btn:last-child {
+  border-radius: 8px 18px 18px 8px;
+}
+.m3-seg-btn:only-child {
+  border-radius: 18px;
+}
+.m3-seg-btn:hover:not(:disabled):not(.on) {
   color: rgb(var(--md-on-surface));
+  filter: brightness(1.06);
+}
+.m3-seg-btn:active:not(:disabled) {
+  padding: 0 19px;
+  border-radius: 13px;
 }
 .m3-seg-btn.on {
+  border-radius: 18px;
+  padding: 0 18px;
+  background-color: rgb(var(--md-secondary-container));
   color: rgb(var(--md-on-secondary-container));
+  font-weight: 600;
 }
 .m3-seg-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
 }
 .m3-seg-btn:focus-visible {
   outline: 2px solid rgb(var(--md-primary));
   outline-offset: 1px;
 }
+
+/* 紧凑尺寸（右侧 AI 面板等高密度区） */
+.m3-seg.sm {
+  gap: 2px;
+}
+.m3-seg.sm .m3-seg-btn {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 7px;
+  font-size: 11.5px;
+}
+.m3-seg.sm .m3-seg-btn:first-child {
+  border-radius: 14px 7px 7px 14px;
+}
+.m3-seg.sm .m3-seg-btn:last-child {
+  border-radius: 7px 14px 14px 7px;
+}
+.m3-seg.sm .m3-seg-btn:only-child {
+  border-radius: 14px;
+}
+.m3-seg.sm .m3-seg-btn:active:not(:disabled) {
+  padding: 0 14px;
+  border-radius: 10px;
+}
+.m3-seg.sm .m3-seg-btn.on {
+  border-radius: 14px;
+  padding: 0 13px;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .m3-seg-pill,
   .m3-seg-btn {
     transition: none;
   }
