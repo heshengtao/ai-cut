@@ -51,10 +51,10 @@ const emit = defineEmits<{ (e: "click", event: MouseEvent): void }>();
   user-select: none;
   white-space: nowrap;
   transition:
-    border-radius var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
-    padding var(--md-dur-spatial-fast) var(--md-spring-spatial-fast),
-    gap var(--md-dur-spatial-fast) var(--md-spring-spatial-fast),
-    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    border-radius var(--md-dur-effects-default) var(--md-spring-effects-default),
+    padding var(--md-dur-effects-default) var(--md-spring-effects-default),
+    gap var(--md-dur-effects-default) var(--md-spring-effects-default),
+    transform var(--md-dur-effects-fast) var(--md-spring-effects-fast),
     background-color var(--md-dur-effects-default) var(--md-spring-effects-default),
     border-color var(--md-dur-effects-default) var(--md-spring-effects-default),
     color var(--md-dur-effects-default) var(--md-spring-effects-default);
@@ -84,7 +84,7 @@ const emit = defineEmits<{ (e: "click", event: MouseEvent): void }>();
   color: rgb(var(--md-on-surface));
 }
 .m3-chip:active:not(:disabled) {
-  transform: scale(0.96);
+  transform: scale(0.97);
 }
 .m3-chip:disabled {
   opacity: 0.45;
@@ -101,11 +101,11 @@ const emit = defineEmits<{ (e: "click", event: MouseEvent): void }>();
   align-items: center;
   overflow: hidden;
   opacity: 0;
-  transform: scale(0.35);
+  transform: scale(0.6);
   transition:
-    width var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy),
+    width var(--md-dur-effects-default) var(--md-spring-effects-default),
     opacity var(--md-dur-effects-fast) var(--md-spring-effects-fast),
-    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-bouncy);
+    transform var(--md-dur-effects-default) var(--md-spring-effects-default);
 }
 .m3-chip-check svg {
   width: 15px;
