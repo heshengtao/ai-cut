@@ -8,6 +8,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { ArrowPathIcon, FolderOpenIcon, PlusIcon, TrashIcon } from "@heroicons/vue/24/outline";
 import ModalShell from "./ModalShell.vue";
+import Md3Chip from "./Md3Chip.vue";
 import { useI18n } from "@/i18n";
 import { toast } from "@/composables/useToast";
 import { confirm } from "@/composables/useConfirm";
@@ -585,16 +586,15 @@ onUnmounted(() => {
             @update:model-value="languageId = $event"
           />
           <div class="chips">
-            <button
+            <Md3Chip
               v-for="item in FILTERS"
               :key="item"
-              class="chip"
-              :class="{ active: filter === item }"
-              type="button"
+              size="sm"
+              :selected="filter === item"
               @click="filter = item"
             >
               {{ item === "all" ? t("font.filterAll") : t(`font.category.${item}`) }}
-            </button>
+            </Md3Chip>
           </div>
           <p class="count">{{ t("font.count", { n: filtered.length }) }}</p>
           <div class="font-list">
@@ -853,31 +853,50 @@ onUnmounted(() => {
 }
 .tabs {
   display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 999px;
-  background-color: rgb(var(--md-surface-container-highest) / 0.7);
+  align-items: center;
+  gap: 3px;
 }
 .tab {
+  height: 30px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  padding: 0 13px;
   border: 0;
-  border-radius: 999px;
-  background: transparent;
+  border-radius: 7px;
+  background-color: rgb(var(--md-surface-container-highest));
   color: rgb(var(--md-on-surface-variant));
-  font-size: 12.5px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
+  transition:
+    border-radius var(--md-dur-effects-default) var(--md-spring-effects-default),
+    background-color var(--md-dur-effects-default) var(--md-spring-effects-default),
+    color var(--md-dur-effects-default) var(--md-spring-effects-default);
+}
+.tab:first-child {
+  border-radius: 15px 7px 7px 15px;
+}
+.tab:last-child {
+  border-radius: 7px 15px 15px 7px;
+}
+.tab:hover:not(.active) {
+  color: rgb(var(--md-on-surface));
+  filter: brightness(1.06);
 }
 .tab.active {
-  background-color: rgb(var(--md-primary) / 0.16);
-  color: rgb(var(--md-primary));
+  border-radius: 15px;
+  background-color: rgb(var(--md-secondary-container));
+  color: rgb(var(--md-on-secondary-container));
   font-weight: 600;
 }
 .tab-count {
-  font-size: 10.5px;
-  opacity: 0.75;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background-color: rgb(var(--md-primary) / 0.16);
+  color: rgb(var(--md-primary));
+  font-size: 10px;
 }
 .toolbar-actions {
   display: flex;
