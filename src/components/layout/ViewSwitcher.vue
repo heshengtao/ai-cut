@@ -25,7 +25,7 @@ const emit = defineEmits<{ (e: "update:modelValue", value: string): void }>();
 
 const root = ref<HTMLElement | null>(null);
 const buttons = ref<(HTMLElement | null)[]>([]);
-const pill = ref({ left: "0px", width: "0px" });
+const pill = ref({ left: 0, width: 0, ready: false });
 const activeIndex = computed(() => props.options.findIndex((option) => option.value === props.modelValue));
 
 let resizeObserver: ResizeObserver | null = null;
@@ -33,7 +33,7 @@ let resizeObserver: ResizeObserver | null = null;
 function updatePill(): void {
   void nextTick(() => {
     const el = activeIndex.value >= 0 ? buttons.value[activeIndex.value] : null;
-    if (el) pill.value = { left: `${el.offsetLeft}px`, width: `${el.offsetWidth}px` };
+    if (el) pill.value = { left: el.offsetLeft, width: el.offsetWidth, ready: true };
   });
 }
 
@@ -61,7 +61,11 @@ onUnmounted(() => {
 
 <template>
   <div ref="root" class="view-switcher" role="group" :aria-label="ariaLabel">
-    <div v-if="activeIndex >= 0" class="vs-pill" :style="{ left: pill.left, width: pill.width }" />
+    <div
+      v-if="activeIndex >= 0 && pill.ready"
+      class="vs-pill"
+      :style="{ transform: `translate3d(${pill.left}px, 0, 0)`, width: `${pill.width}px` }"
+    />
     <button
       v-for="(option, index) in options"
       :key="option.value"
@@ -95,15 +99,17 @@ onUnmounted(() => {
 }
 .vs-pill {
   position: absolute;
+  left: 0;
   top: 4px;
   bottom: 4px;
   border-radius: 999px;
   background-color: rgb(var(--md-secondary-container));
   box-shadow: var(--md-elevation-1);
   pointer-events: none;
+  will-change: transform, width;
   transition:
-    left var(--md-dur-spatial-default) var(--md-spring-spatial-fast),
-    width var(--md-dur-spatial-default) var(--md-spring-spatial-fast);
+    transform 300ms cubic-bezier(0.05, 0.7, 0.1, 1),
+    width 300ms cubic-bezier(0.05, 0.7, 0.1, 1);
 }
 .vs-btn {
   position: relative;

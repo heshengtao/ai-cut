@@ -78,10 +78,16 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
         <!-- 中：预览（上）+ 时间线（下） -->
         <main class="app-main">
           <StageView />
-          <template v-if="timelineVisible">
-            <PanelResizer side="bottom" @resize="layout.resizeTimeline" />
-            <TimelinePane :style="{ height: `${layout.timelineHeight}px` }" />
-          </template>
+          <Transition name="tl-dock">
+            <div
+              v-if="timelineVisible"
+              class="tl-dock"
+              :style="{ '--tl-h': `${layout.timelineHeight + 5}px` }"
+            >
+              <PanelResizer side="bottom" @resize="layout.resizeTimeline" />
+              <TimelinePane :style="{ height: `${layout.timelineHeight}px` }" />
+            </div>
+          </Transition>
         </main>
 
         <!-- 右：标签页面板（全高，标签栏在顶栏里） -->
@@ -171,5 +177,30 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
   min-height: 0;
   display: flex;
   overflow: hidden;
+}
+.tl-dock {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tl-dock-enter-active,
+.tl-dock-leave-active {
+  max-height: var(--tl-h);
+  transition:
+    max-height 260ms cubic-bezier(0.05, 0.7, 0.1, 1),
+    opacity 180ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: max-height, opacity;
+}
+.tl-dock-enter-from,
+.tl-dock-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tl-dock-enter-active,
+  .tl-dock-leave-active {
+    transition: none;
+  }
 }
 </style>

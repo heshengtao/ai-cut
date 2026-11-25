@@ -3,10 +3,10 @@
  * 主舞台：按顶栏视图切换「预览台 / 无限画布 / 剧集总览」。
  *
  * 只替换**预览台这一块**——右侧面板不受影响；时间线只属于预览界面，
- * 画布 / 剧集视图里由 AppShell 隐藏，切回预览时恢复原来的显示 / 隐藏状态。
+ * 画布 / 剧集视图里由 AppShell 平滑收起，切回预览时恢复原来的显示 / 隐藏状态。
  *
- * 切换动效采用 M3 Shared Axis X：按视图顺序（预览 0 → 画布 1 → 剧集 2）自动决定
- * 水平滑入方向，与顶栏 ViewSwitcher 滑动胶囊方向保持一致。
+ * 切换动效采用并行重叠的 M3 Shared Axis X（无 out-in 空白等待，不缩放重画布，
+ * 全程纯 GPU translate3d + opacity），与顶栏 ViewSwitcher 胶囊方向保持一致。
  */
 import { ref, watch } from "vue";
 import PreviewStage from "./PreviewStage.vue";
@@ -34,10 +34,10 @@ watch(
 
 <template>
   <div class="stage" :data-stage="view.view">
-    <Transition :name="transitionName" mode="out-in">
-      <PreviewStage v-if="view.view === 'preview'" key="preview" />
-      <BoardView v-else-if="view.view === 'board'" key="board" />
-      <SeriesView v-else key="series" />
+    <Transition :name="transitionName">
+      <PreviewStage v-if="view.view === 'preview'" key="preview" class="stage-view" />
+      <BoardView v-else-if="view.view === 'board'" key="board" class="stage-view" />
+      <SeriesView v-else key="series" class="stage-view" />
     </Transition>
   </div>
 </template>
@@ -51,41 +51,50 @@ watch(
   display: flex;
   overflow: hidden;
 }
-.stage > * {
+.stage-view {
   flex: 1;
   min-height: 0;
   min-width: 0;
 }
 
+/* 并行重叠过渡：退场层绝对定位留在底层，入场层同步滑入，零空白闪烁。 */
 .stage-fwd-enter-active,
 .stage-back-enter-active {
+  position: relative;
+  z-index: 2;
   transition:
-    opacity var(--md-dur-effects-default) var(--md-spring-effects-default),
-    transform var(--md-dur-spatial-fast) var(--md-spring-spatial-default);
+    opacity 220ms cubic-bezier(0.2, 0, 0, 1),
+    transform 300ms cubic-bezier(0.05, 0.7, 0.1, 1);
   will-change: opacity, transform;
 }
 .stage-fwd-leave-active,
 .stage-back-leave-active {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
   transition:
-    opacity 90ms var(--md-spring-effects-fast),
-    transform 90ms var(--md-spring-effects-fast);
+    opacity 160ms cubic-bezier(0.2, 0, 0, 1),
+    transform 240ms cubic-bezier(0.2, 0, 0, 1);
   will-change: opacity, transform;
 }
+
 .stage-fwd-enter-from {
   opacity: 0;
-  transform: translateX(22px) scale(0.988);
+  transform: translate3d(28px, 0, 0);
 }
 .stage-fwd-leave-to {
   opacity: 0;
-  transform: translateX(-14px) scale(0.992);
+  transform: translate3d(-20px, 0, 0);
 }
+
 .stage-back-enter-from {
   opacity: 0;
-  transform: translateX(-22px) scale(0.988);
+  transform: translate3d(-28px, 0, 0);
 }
 .stage-back-leave-to {
   opacity: 0;
-  transform: translateX(14px) scale(0.992);
+  transform: translate3d(20px, 0, 0);
 }
 
 @media (prefers-reduced-motion: reduce) {
