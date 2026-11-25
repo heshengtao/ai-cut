@@ -19,6 +19,7 @@ import {
 } from "@heroicons/vue/24/outline";
 import Md3Select, { type SelectOption } from "@/components/common/Md3Select.vue";
 import SegmentedControl from "@/components/common/SegmentedControl.vue";
+import Md3Chip from "@/components/common/Md3Chip.vue";
 import ToggleSwitch from "@/components/common/ToggleSwitch.vue";
 import EngineTag from "@/components/common/EngineTag.vue";
 import AiSetupDialog from "@/components/ai/AiSetupDialog.vue";
@@ -2116,16 +2117,15 @@ onMounted(() => {
     <component v-else-if="extPane" :is="extPane.component" />
     <template v-else>
     <div class="tags" role="group" :aria-label="i18n.t('ai.tagFilter')">
-      <button
+      <Md3Chip
         v-for="tag in TAG_FILTERS"
         :key="tag"
-        class="chip"
-        :class="{ on: activeTag === tag }"
-        :aria-pressed="activeTag === tag"
+        size="sm"
+        :selected="activeTag === tag"
         @click="activeTag = tag"
       >
         {{ i18n.t(`ai.tags.${tag}`) }}
-      </button>
+      </Md3Chip>
     </div>
 
     <!-- 「在后台下载」的进度：留在首页也能看见，不用来回切管理器 -->
@@ -2328,24 +2328,22 @@ onMounted(() => {
         <div class="param-field">
           <span class="param-name">{{ i18n.t("ai.voiceoverVoice") }}</span>
           <div class="voice-modes" role="group" :aria-label="i18n.t('ai.voiceoverVoice')">
-            <button
-              class="chip"
-              :class="{ on: voiceMode === 'builtin' }"
-              :aria-pressed="voiceMode === 'builtin'"
+            <Md3Chip
+              size="sm"
+              :selected="voiceMode === 'builtin'"
               :disabled="ttsBusy || ttsVoiceList.length === 0"
               @click="voiceMode = 'builtin'"
             >
               {{ i18n.t("ai.voiceoverVoiceBuiltin") }}
-            </button>
-            <button
-              class="chip"
-              :class="{ on: voiceMode === 'reference' }"
-              :aria-pressed="voiceMode === 'reference'"
+            </Md3Chip>
+            <Md3Chip
+              size="sm"
+              :selected="voiceMode === 'reference'"
               :disabled="ttsBusy || !!selectedCloudProvider"
               @click="chooseReferenceMode"
             >
               {{ i18n.t("ai.voiceoverVoiceReference") }}
-            </button>
+            </Md3Chip>
           </div>
         </div>
 
@@ -2548,16 +2546,16 @@ onMounted(() => {
         <div class="param-field">
           <span class="param-name">{{ i18n.t("videoAi.scale") }}</span>
           <div class="param-chips">
-            <button
+            <Md3Chip
               v-for="scale in [2, 4]"
               :key="scale"
-              class="chip"
-              :class="{ on: upscaleScale === scale }"
+              size="sm"
+              :selected="upscaleScale === scale"
               :disabled="videoAi.running"
               @click="upscaleScale = scale"
             >
               {{ scale }}x
-            </button>
+            </Md3Chip>
           </div>
         </div>
         <div class="item-row">
@@ -2605,16 +2603,16 @@ onMounted(() => {
         <div class="param-field">
           <span class="param-name">{{ i18n.t("videoAi.factor") }}</span>
           <div class="param-chips">
-            <button
+            <Md3Chip
               v-for="factor in [2, 4]"
               :key="factor"
-              class="chip"
-              :class="{ on: interpolateFactor === factor }"
+              size="sm"
+              :selected="interpolateFactor === factor"
               :disabled="videoAi.running"
               @click="interpolateFactor = factor"
             >
               {{ factor }}x
-            </button>
+            </Md3Chip>
           </div>
         </div>
         <div class="item-row">

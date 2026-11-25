@@ -17,6 +17,7 @@ import {
   UserIcon,
 } from "@heroicons/vue/24/outline";
 import { useI18n } from "@/i18n";
+import Md3Chip from "@/components/common/Md3Chip.vue";
 import { useProjectStore } from "@/stores/project";
 import type { HistoryEntry } from "@/types/events";
 
@@ -195,17 +196,16 @@ onMounted(() => scrollToNow(false));
 
     <div class="toolbar">
       <div class="filters" role="group" :aria-label="i18n.t('ops.title')">
-        <button
+        <Md3Chip
           v-for="item in filters"
           :key="item.id"
-          class="chip"
-          :class="{ on: filter === item.id }"
-          :aria-pressed="filter === item.id"
+          size="sm"
+          :selected="filter === item.id"
           @click="filter = item.id"
         >
           {{ i18n.t(item.labelKey) }}
           <span class="chip-count">{{ countOf(item.id) }}</span>
-        </button>
+        </Md3Chip>
       </div>
       <label class="search">
         <MagnifyingGlassIcon class="search-icon" />

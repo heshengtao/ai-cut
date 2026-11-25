@@ -22,6 +22,7 @@ import { usePluginsStore } from "@/stores/plugins";
 import { useI18n } from "@/i18n";
 import { toast } from "@/composables/useToast";
 import PluginList from "./PluginList.vue";
+import Md3Chip from "@/components/common/Md3Chip.vue";
 import type { PluginStatus } from "@/types/plugins";
 
 type Tab = "installed" | "external" | "available";
@@ -239,16 +240,15 @@ onUnmounted(() => {
           :aria-label="i18n.t('plugins.manager.searchInstalled')"
         />
         <div class="chips" role="group" :aria-label="i18n.t('plugins.manager.typeFilter')">
-          <button
+          <Md3Chip
             v-for="type in TYPE_FILTERS"
             :key="type"
-            class="chip"
-            :class="{ on: installedType === type }"
-            :aria-pressed="installedType === type"
+            size="sm"
+            :selected="installedType === type"
             @click="installedType = type"
           >
             {{ type === "all" ? i18n.t("plugins.filter.all") : typeLabel(type) }}
-          </button>
+          </Md3Chip>
         </div>
       </div>
 
@@ -286,24 +286,22 @@ onUnmounted(() => {
           :aria-label="i18n.t('plugins.manager.searchAvailable')"
         />
         <div class="chips" role="group" :aria-label="i18n.t('plugins.manager.typeFilter')">
-          <button
+          <Md3Chip
             v-for="type in TYPE_FILTERS"
             :key="type"
-            class="chip"
-            :class="{ on: availableType === type }"
-            :aria-pressed="availableType === type"
+            size="sm"
+            :selected="availableType === type"
             @click="availableType = type"
           >
             {{ type === "all" ? i18n.t("plugins.filter.all") : typeLabel(type) }}
-          </button>
-          <button
-            class="chip"
-            :class="{ on: compatibleOnly }"
-            :aria-pressed="compatibleOnly"
+          </Md3Chip>
+          <Md3Chip
+            size="sm"
+            :selected="compatibleOnly"
             @click="compatibleOnly = !compatibleOnly"
           >
             {{ i18n.t("plugins.manager.compatibleOnly") }}
-          </button>
+          </Md3Chip>
         </div>
         <span class="meta">
           {{

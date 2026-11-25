@@ -112,6 +112,11 @@ const emit = defineEmits<{ (e: "click", event: MouseEvent): void }>();
   height: 15px;
   flex: 0 0 auto;
 }
+.m3-chip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
 .m3-chip.selected {
   border-radius: 999px;
   border-color: transparent;

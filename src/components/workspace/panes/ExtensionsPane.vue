@@ -17,6 +17,7 @@ import { usePluginHostStore } from "@/stores/pluginHost";
 import { useLayoutStore } from "@/stores/layout";
 import { importPluginModule } from "@/core/plugins/importer";
 import { useI18n } from "@/i18n";
+import Md3Chip from "@/components/common/Md3Chip.vue";
 import type { MarketSearchHit } from "@/types/pluginMarket";
 
 const host = usePluginHostStore();
@@ -286,10 +287,14 @@ onMounted(() => {
                   : i18n.t("extensions.marketUnknown")
           }}
         </span>
-        <button class="chip source-chip" type="button" @click="layout.openSettings('network')">
+        <Md3Chip
+          size="sm"
+          variant="assist"
+          @click="layout.openSettings('network')"
+        >
           <AdjustmentsHorizontalIcon class="w-[13px] h-[13px]" />
           {{ i18n.t("extensions.marketSourceSettings") }}
-        </button>
+        </Md3Chip>
       </div>
 
       <p v-if="host.marketError" class="banner">

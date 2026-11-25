@@ -389,14 +389,15 @@ onUnmounted(() => {
       >
         {{ i18n.t(`models.kind.${item}`) }}
       </Md3Chip>
-      <button
-        class="chip source-chip"
+      <Md3Chip
+        size="sm"
+        variant="assist"
         :title="i18n.t('models.sourceSettingsHint')"
         @click="layout.openSettings('network')"
       >
         <AdjustmentsHorizontalIcon class="w-[13px] h-[13px]" />
         {{ i18n.t("models.sourceSettings") }}
-      </button>
+      </Md3Chip>
     </div>
 
     <!-- 运行时：本体 + CUDA/cuDNN 组件，都在这里下载。 -->
