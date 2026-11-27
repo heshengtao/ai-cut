@@ -110,6 +110,11 @@ ort = { version = "=2.0.0-rc.13", default-features = false, features = [
 [patch.crates-io]
 sherpa-onnx-sys = { path = "../sherpa-onnx-sys" }
 
+# 依赖只保留 line-tables-only 调试信息：aicutd 的依赖树很大（ort/ffmpeg/sherpa），
+# 完整 DWARF 会让 target/debug/deps 膨胀数倍。本 crate 自身仍是完整调试信息。
+[profile.dev.package."*"]
+debug = 1
+
 [dev-dependencies]
 tempfile = "3"
 tar = "0.4"

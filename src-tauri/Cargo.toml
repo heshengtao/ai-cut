@@ -116,6 +116,9 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 2
+# 依赖只保留 line-tables-only 调试信息（本 crate 仍完整）。完整 DWARF 让
+# target/debug/deps 膨胀数倍；要进依赖内部看变量时把这里改回 true 再重编。
+debug = 1
 
 # `lzma-rs` 0.3.0（zip 2.x 的 LZMA 解码器）在依赖统一 -O2、本 crate -O1 时，
 # 泛型 `decode_bit` 会引用一个被 LLVM 内部化掉的符号，Windows 链接报 LNK2019
