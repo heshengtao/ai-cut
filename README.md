@@ -10,8 +10,16 @@
 </p>
 
 <p align="center">
-  <a href="README_zh.md"><b>简体中文</b></a> ·
-  <a href="README.md"><b>English</b></a>
+  <a href="README_zh.md">简体中文</a> ·
+  <a href="README_zh-TW.md">繁體中文</a> ·
+  <a href="README.md"><b>English</b></a> ·
+  <a href="README_ja.md">日本語</a> ·
+  <a href="README_ko.md">한국어</a> ·
+  <a href="README_es.md">Español</a> ·
+  <a href="README_fr.md">Français</a> ·
+  <a href="README_de.md">Deutsch</a> ·
+  <a href="README_ru.md">Русский</a> ·
+  <a href="README_ar.md">العربية</a>
 </p>
 
 <p align="center">
@@ -23,12 +31,12 @@
 
 **AI Cut is a small, AI-native video editor for your desktop** — cut, caption, voice, mix, and export in one lightweight app, and let an AI agent work in the timeline alongside you.
 
-It is a real editor: a multi-track timeline, a media library, an inspector, text clips, captions, voiceover, audio and video AI tools, **OpenFX (OFX) effect plugins**, and export to MP4, ProRes, or GIF. It is also built to be **operated by a model** — a bundled Skill teaches any AI harness to drive the running app over MCP, so an agent can import media, add tracks, place and trim clips, rewrite text, and read the project back while you watch the UI update.
+It is a real editor: a multi-track timeline, **an infinite canvas for node-based workflows**, **a branching episode graph**, a media library, an inspector, text clips, captions, voiceover, audio and video AI tools, **OpenFX (OFX) effect plugins**, and export to MP4, ProRes, or GIF. The timeline, the canvas and the episode graph are three views of the same project. It is also built to be **operated by a model** — a bundled Skill teaches any AI harness to drive the running app over MCP, so an agent can import media, add tracks, place and trim clips, rewrite text, build a canvas or rewire a branch, and read the project back while you watch the UI update.
 
 Everything runs on your own machine. No account, no uploads, and no API key needed for the editor itself.
 
 <p align="center">
-  <img src="./assets/screenshots/00-editor.jpg" width="100%" alt="The AI Cut workspace with a three-scene launch film on the timeline, title and caption tracks, a music score, and the text inspector open on a title clip">
+  <img src="./assets/screenshots/00-editor.jpg" width="100%" alt="The AI Cut workspace with its Preview, Canvas and Episodes views; a three-scene launch film sits on the timeline with title, caption and music tracks, and the text inspector is open on a title clip">
 </p>
 
 ## Why this matters
@@ -50,7 +58,7 @@ Being small is a feature, not a compromise.
 - **A lightweight footprint** — no Electron, no cloud, no bundled model zoo. The app is a Tauri build, and ffmpeg / ffprobe ship as static sidecars, so users do not need ffmpeg installed.
 - **Fast to start** — nothing heavyweight loads at boot; AI models are pulled in only when you use them.
 - **Heavy AI stays where it belongs** — generation is deliberately external. Your AI harness can generate or source footage, then hand the files to AI Cut for editing, captioning, mixing, and export.
-- **Built to be extended** — every edit is a serializable command, so new editing operations do not need a new CLI or MCP tool.
+- **Built to be extended** — every edit is a serializable command, so new editing operations do not need a new CLI or MCP tool; the canvas runs on the same command model, and app extensions can add their own nodes, data types, panes and commands.
 - **OFX plugin manager** — the download manager handles installed / external / available OpenFX plugins, search, import, updates and removal; the OFX plugins pane opens the interface of an installed plugin. Free/open-source entries come from the [AI Cut OFX Registry](https://github.com/heshengtao/ai-cut-ofx-registry), with SHA-256 verification. GPL/AGPL entries may download from the author's upstream release, but the app never hosts or bundles their binaries. The native host (`crates/ofx-host`, CLI `ofx-host probe|render`) loads OFX 1.5.1 bundles at the input size and supports all six image-effect contexts: filter / general / generator / paint / retimer attach to a clip's `effects[]` chain, while transition attaches to a clip edge and is baked as a full-frame overlay. Parameters live in a dedicated Parameters pane. Mounting an effect starts a background pre-bake (with progress) so video and image previews keep the effect during playback; export bakes at final size (paint is parameter-driven; retimer asks the plugin for `SourceTime`).
 
 ## Drive it from any AI harness
@@ -107,7 +115,39 @@ Import a file and AI Cut probes it immediately: duration, resolution, frame rate
 - **Delivery helpers** — collect media into `<project>-media/` next to the project
 
 <p align="center">
-  <img src="./assets/screenshots/02-media.jpg" width="100%" alt="The media library with three video scenes, a poster and a music score, plus thumbnails, metadata and a text preset">
+  <img src="./assets/screenshots/02-media.jpg" width="100%" alt="The media library with three video scenes, two poster images and a music score, plus thumbnails and metadata">
+</p>
+
+### Canvas & workflows — Build the shot before you cut it
+
+The Canvas view is an infinite node canvas for the parts of a video that are easier to draw than to drag. Drop a poster, a reference clip or a line of copy on the canvas, wire it into a model or a display node, run the chain, and send the result to the current part.
+
+- **One project, many canvases** — every project can hold several named canvases; open, rename, duplicate or clear one without touching the edit.
+- **A node for every step** — image / video / audio / text / value inputs, displays and value readouts, local and cloud model nodes, workflow boundaries, loops and groups.
+- **One input, one output** — each card exposes a single wire in and out; the inspector chooses which logical value that wire carries, so a graph can be restructured without rewiring.
+- **Runs in the background** — manual, on-change or repeat runs with live status, progress and timing; outputs land in the media library and can be inserted into the current part in one click.
+- **Workflows are reusable** — declare a start/end signature, save it to the workflow library, publish it as an API, or call one canvas from another (nested up to 8 levels).
+- **Open to plugins** — app extensions register node types, data types, panes, controls and commands; the same graph is writable headlessly through the board MCP tools.
+
+Full design note: [`docs/canvas-workflow.md`](docs/canvas-workflow.md) · plugin guide: [`docs/plugins.md`](docs/plugins.md).
+
+<p align="center">
+  <img src="./assets/screenshots/07-canvas.jpg" width="100%" alt="The Canvas workspace: an infinite node graph with a poster input, a text input, a display node and a workflow boundary, with the node inspector open">
+</p>
+
+### Episodes & branching — One project, many cuts
+
+A project is not one cut. It holds many parts that share the same media library and canvases, and the series graph decides which part plays next. At the end of a branching part the preview holds on the last frame and turns the outgoing edges into buttons, so a choice is just another edit.
+
+- **Parts share everything else** — media, canvases and settings are project-wide; each part keeps its own tracks and markers.
+- **Two ways to see the story** — tile view for a storyboard grid, flow view for a free canvas with one card per part.
+- **Real branches, real labels** — connect one part to two, name each edge, and the names become the choice buttons on screen.
+- **Single part or series** — play one part and stop, or follow the graph through every branch until it ends.
+- **Fast part management** — rename, duplicate, delete, multi-select, copy / paste and drag to reorder; drag a handle into empty space to create the next part already connected.
+- **The timeline stays the timeline** — branches change what plays next, not how a part is edited, undone or exported.
+
+<p align="center">
+  <img src="./assets/screenshots/08-episodes.jpg" width="100%" alt="The Episodes workspace in flow view: four parts connected by labelled branches, each card showing its cover and duration">
 </p>
 
 ### OFX plugins — Bring your own effects
@@ -138,7 +178,7 @@ The AI features are built for real sessions, not demos. Point them at a clip and
 - **Offline by design** — the editor and its local models need no account and no upload
 
 <p align="center">
-  <img src="./assets/screenshots/04-ai.jpg" width="100%" alt="AI features: local caption generation, AI voiceover, and local image / video generation with their installed models">
+  <img src="./assets/screenshots/04-ai.jpg" width="100%" alt="AI features: caption generation, AI voiceover and local image / video generation, with model download and setup actions">
 </p>
 
 ### MCP server & clip agent — Let an AI agent work in your session
@@ -151,6 +191,7 @@ Flip one switch and your project becomes something an AI assistant can operate. 
 - **`aicut` CLI** — a thin client; new tools need no CLI changes
 - **`aicut start`** — auto-discovers the installed app and detaches it from the launcher's job (Windows included)
 - **Clip agent** — OpenAI-compatible endpoint, streaming answers, tool cards, session branches
+- **Canvas tools** — create canvases, apply board ops, and list or run published workflows over the same endpoint
 - **Skills** — editing and production docs loaded on demand by the agent
 
 <p align="center">
@@ -238,9 +279,7 @@ The desktop app embeds an HTTP server bound to loopback: **Settings → General 
 then open the address in a browser — it is the same editor. **No login, no token**: open the address and work. Access control is the deployment's job
 (LAN, container network, or a reverse proxy).
 
-It follows the desktop session **read-only** and updates live; choose "Edit a copy" in the
-top banner to make it independent. Enable "LAN access" and restart to open it from a tablet
-or a second machine on the same network.
+It shares the live session with the desktop app: both sides are read-write, and edits merge into the same project. Enable "LAN access" and restart to open it from a tablet or a second machine on the same network.
 
 ### Docker
 
@@ -354,6 +393,14 @@ Small models ship in the bundle so basic features work immediately. Larger model
 ### Do I need the app running to let an agent drive it?
 
 Yes. The Skill and the `aicut` CLI talk to a running AI Cut over MCP, so start the app first (`aicut status` will tell you if it is up).
+
+### Can I make a branching video?
+
+Yes. A project can hold several parts; the Episodes view connects them with labelled edges, and the preview's "Series" mode follows those edges. At the end of a part the outgoing labels appear as choice buttons, so the next part is picked on screen.
+
+### Do I need a model to use the canvas?
+
+No. Input, display, value, loop and workflow nodes work without any model. Model nodes need a local model or a configured cloud provider; until one is ready, the rest of the graph is still editable and saveable.
 
 ### Can an agent export the final video?
 
