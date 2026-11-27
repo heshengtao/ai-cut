@@ -104,7 +104,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 1px;
-  padding-right: 12px;
+  padding-inline-end: 12px;
 }
 .window-control-btn {
   width: 34px;

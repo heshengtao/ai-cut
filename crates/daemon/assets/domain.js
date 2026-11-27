@@ -3120,9 +3120,96 @@ var AICUT = (() => {
     "board.clear.saveAndClear": "Save & clear",
     "board.clear.clearWithoutSave": "Clear without saving",
     "board.clear.cleared": "Canvas cleared",
-    "board.run.stopped": "Cancelled"
+    "board.run.stopped": "Cancelled",
+    // ---- Hugging Face authorization / misc ----
+    "common.optional": "Optional",
+    "hf.title": "Hugging Face authorization required",
+    "hf.message": "{repo} is a gated repository: its license has to be accepted on the website first. Accept it there, then paste a read token here and the download continues.",
+    "hf.stepOpenNote": "Click \u201CAgree and access repository\u201D",
+    "hf.stepToken": "Create a read token",
+    "hf.stepTokenNote": "Create a token with read access and copy it",
+    "hf.tokenLabel": "Hugging Face read token",
+    "hf.hint": "The token is stored only in your local settings and sent only to huggingface.co; you can revoke it on Hugging Face at any time.",
+    "hf.retrying": "Retrying\u2026",
+    "hf.saveAndRetry": "Save and retry",
+    "shortcuts.scrollWheel": "Scroll wheel",
+    "aiVideo.refAudioTag": "Audio"
   };
   var en_default = en;
+
+  // src/i18n/locales.json
+  var locales_default = [
+    {
+      id: "zh",
+      label: "\u7B80\u4F53\u4E2D\u6587",
+      english: "Simplified Chinese",
+      dir: "ltr",
+      readme: "README_zh.md"
+    },
+    {
+      id: "zh-TW",
+      label: "\u7E41\u9AD4\u4E2D\u6587",
+      english: "Traditional Chinese",
+      dir: "ltr",
+      readme: "README_zh-TW.md"
+    },
+    {
+      id: "en",
+      label: "English",
+      english: "English",
+      dir: "ltr",
+      readme: "README.md"
+    },
+    {
+      id: "ja",
+      label: "\u65E5\u672C\u8A9E",
+      english: "Japanese",
+      dir: "ltr",
+      readme: "README_ja.md"
+    },
+    {
+      id: "ko",
+      label: "\uD55C\uAD6D\uC5B4",
+      english: "Korean",
+      dir: "ltr",
+      readme: "README_ko.md"
+    },
+    {
+      id: "es",
+      label: "Espa\xF1ol",
+      english: "Spanish",
+      dir: "ltr",
+      readme: "README_es.md"
+    },
+    {
+      id: "fr",
+      label: "Fran\xE7ais",
+      english: "French",
+      dir: "ltr",
+      readme: "README_fr.md"
+    },
+    {
+      id: "de",
+      label: "Deutsch",
+      english: "German",
+      dir: "ltr",
+      readme: "README_de.md"
+    },
+    {
+      id: "ru",
+      label: "\u0420\u0443\u0441\u0441\u043A\u0438\u0439",
+      english: "Russian",
+      dir: "ltr",
+      readme: "README_ru.md"
+    },
+    {
+      id: "ar",
+      label: "\u0627\u0644\u0639\u0631\u0628\u064A\u0629",
+      english: "Arabic",
+      dir: "rtl",
+      readme: "README_ar.md"
+    }
+  ];
 
   // src/i18n/zh.ts
   var zh = {
@@ -6154,17 +6241,35 @@ var AICUT = (() => {
     "board.clear.saveAndClear": "\u4FDD\u5B58\u5E76\u6E05\u7A7A",
     "board.clear.clearWithoutSave": "\u76F4\u63A5\u6E05\u7A7A",
     "board.clear.cleared": "\u753B\u5E03\u5DF2\u6E05\u7A7A",
-    "board.run.stopped": "\u5DF2\u53D6\u6D88"
+    "board.run.stopped": "\u5DF2\u53D6\u6D88",
+    // ---- Hugging Face 授权 / 零散 ----
+    "common.optional": "\u53EF\u9009",
+    "hf.title": "\u9700\u8981 Hugging Face \u6388\u6743",
+    "hf.message": "{repo} \u662F\u9700\u8981\u540C\u610F\u8BB8\u53EF\u624D\u80FD\u4E0B\u8F7D\u7684\u4ED3\u5E93\u3002\u5148\u53BB\u7F51\u9875\u4E0A\u540C\u610F\uFF0C\u518D\u628A read token \u7C98\u8FDB\u6765\uFF0C\u5C31\u4F1A\u63A5\u7740\u4E0B\u8F7D\u3002",
+    "hf.stepOpenNote": "\u70B9\u300CAgree and access repository\u300D",
+    "hf.stepToken": "\u521B\u5EFA read token",
+    "hf.stepTokenNote": "\u65B0\u5EFA\u4E00\u4E2A read \u6743\u9650\u7684 token \u5E76\u590D\u5236",
+    "hf.tokenLabel": "Hugging Face read token",
+    "hf.hint": "token \u53EA\u4FDD\u5B58\u5728\u672C\u673A\u8BBE\u7F6E\u91CC\uFF0C\u53EA\u53D1\u7ED9 huggingface.co\uFF1B\u968F\u65F6\u53EF\u5728 HF \u4E0A\u64A4\u9500\u3002",
+    "hf.retrying": "\u91CD\u8BD5\u4E2D\u2026",
+    "hf.saveAndRetry": "\u4FDD\u5B58\u5E76\u91CD\u8BD5",
+    "shortcuts.scrollWheel": "\u6EDA\u8F6E",
+    "aiVideo.refAudioTag": "\u97F3"
   };
   var zh_default = zh;
 
   // src/i18n/translate.ts
-  var LOCALES = [
-    { id: "zh", label: "\u7B80\u4F53\u4E2D\u6587" },
-    { id: "en", label: "English" }
-  ];
-  var FALLBACK = LOCALES[0].id;
+  var LOCALES = locales_default;
+  var FALLBACK = "zh";
+  var PIVOT = "en";
   var MESSAGES = { zh: zh_default, en: en_default };
+  function fallbackChain(locale) {
+    const order = [locale];
+    if (locale === "zh-TW") order.push("zh");
+    if (locale !== PIVOT) order.push(PIVOT);
+    if (locale !== FALLBACK && !order.includes(FALLBACK)) order.push(FALLBACK);
+    return order;
+  }
   function isKnownMessageKey(value) {
     const key = value?.trim();
     if (!key || key.length > 64) return false;
@@ -6174,7 +6279,7 @@ var AICUT = (() => {
     );
   }
   var PLUGIN_MESSAGES = /* @__PURE__ */ new Map();
-  function pluginMessage(key) {
+  function pluginMessage(key, order) {
     if (!key.startsWith("@")) return null;
     const dot = key.indexOf(".");
     if (dot <= 1) return null;
@@ -6182,15 +6287,27 @@ var AICUT = (() => {
     const inner = key.slice(dot + 1);
     const dicts = PLUGIN_MESSAGES.get(pluginId);
     if (!dicts) return null;
-    return dicts[current]?.[inner] ?? dicts.en?.[inner] ?? dicts[FALLBACK]?.[inner] ?? null;
+    for (const locale of order) {
+      const text = dicts[locale]?.[inner];
+      if (text) return text;
+    }
+    return null;
   }
   var current = FALLBACK;
   function setTranslateLocale(next) {
     current = next;
   }
   function t(key, vars) {
-    const dict = MESSAGES[current] ?? MESSAGES[FALLBACK];
-    let text = dict[key] ?? MESSAGES[FALLBACK][key] ?? pluginMessage(key) ?? key;
+    const order = fallbackChain(current);
+    let text;
+    for (const locale of order) {
+      const hit = MESSAGES[locale]?.[key];
+      if (hit != null) {
+        text = hit;
+        break;
+      }
+    }
+    if (text == null) text = pluginMessage(key, order) ?? key;
     if (vars) {
       for (const [name, value] of Object.entries(vars)) {
         text = text.replaceAll(`{${name}}`, String(value));

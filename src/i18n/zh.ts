@@ -3095,6 +3095,20 @@ const zh: Record<string, string> = {
   "board.clear.clearWithoutSave": "直接清空",
   "board.clear.cleared": "画布已清空",
   "board.run.stopped": "已取消",
+
+  // ---- Hugging Face 授权 / 零散 ----
+  "common.optional": "可选",
+  "hf.title": "需要 Hugging Face 授权",
+  "hf.message": "{repo} 是需要同意许可才能下载的仓库。先去网页上同意，再把 read token 粘进来，就会接着下载。",
+  "hf.stepOpenNote": "点「Agree and access repository」",
+  "hf.stepToken": "创建 read token",
+  "hf.stepTokenNote": "新建一个 read 权限的 token 并复制",
+  "hf.tokenLabel": "Hugging Face read token",
+  "hf.hint": "token 只保存在本机设置里，只发给 huggingface.co；随时可在 HF 上撤销。",
+  "hf.retrying": "重试中…",
+  "hf.saveAndRetry": "保存并重试",
+  "shortcuts.scrollWheel": "滚轮",
+  "aiVideo.refAudioTag": "音",
 };
 
 export default zh;

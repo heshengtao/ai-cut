@@ -194,8 +194,21 @@ const MODEL_SOURCE_PREFS: { id: ModelSourcePreference; labelKey: string }[] = [
   { id: "international", labelKey: "settings.store.sourceIntl" },
 ];
 
-const localeSegOptions = computed(() =>
-  i18n.locales.map((locale) => ({ value: locale.id, label: locale.label })),
+/** 供应商字段的占位文案：`placeholderKey` 走词条，`placeholder` 是字面示例值。 */
+function placeholderOf(field: {
+  placeholder?: string;
+  placeholderKey?: string;
+}): string | undefined {
+  return field.placeholderKey ? i18n.t(field.placeholderKey) : field.placeholder;
+}
+
+/** 语言下拉：母语名作主行，英文名作副行（10 门语言塞不进连接按钮组）。 */
+const localeOptions = computed<SelectOption[]>(() =>
+  i18n.locales.map((locale) => ({
+    id: locale.id,
+    label: locale.label,
+    hint: locale.id === "en" ? undefined : locale.english,
+  })),
 );
 const themeSegOptions = computed(() =>
   THEMES.map((theme) => ({ value: theme.id, label: i18n.t(theme.labelKey) })),
@@ -933,6 +946,8 @@ interface ProviderField {
   labelKey: string;
   hintKey?: string;
   placeholder?: string;
+  /** 需要翻译的占位文案（`placeholder` 是字面示例值）。 */
+  placeholderKey?: string;
   sensitive?: boolean;
   multiline?: boolean;
 }
@@ -1160,7 +1175,7 @@ const TTS_FIELDS: Record<CloudTtsKind, ProviderField[]> = {
       key: "api_key",
       labelKey: "settings.tts.apiKey",
       hintKey: "settings.tts.customKeyHint",
-      placeholder: "可选",
+      placeholderKey: "common.optional",
       sensitive: true,
     },
     {
@@ -2843,10 +2858,11 @@ onUnmounted(() => {
                   <span class="row-title">{{ i18n.t("settings.language.label") }}</span>
                   <span class="row-sub">{{ i18n.t("settings.language.hint") }}</span>
                 </div>
-                <SegmentedControl
+                <Md3Select
+                  class="locale-select"
                   :model-value="i18n.locale.value"
-                  :options="localeSegOptions"
-                  :aria-label="i18n.t('settings.language.label')"
+                  :options="localeOptions"
+                  :label="i18n.t('settings.language.label')"
                   @update:model-value="onLocalePick"
                 />
               </div>
@@ -3992,14 +4008,14 @@ onUnmounted(() => {
                   class="md3-field mirror-field"
                   rows="3"
                   spellcheck="false"
-                  :placeholder="field.placeholder"
+                  :placeholder="placeholderOf(field)"
                 />
                 <input
                   v-else
                   v-model="asrDraft[field.key]"
                   class="md3-field net-input"
                   :type="field.sensitive ? 'password' : 'text'"
-                  :placeholder="field.placeholder"
+                  :placeholder="placeholderOf(field)"
                   spellcheck="false"
                 />
               </div>
@@ -4180,7 +4196,7 @@ onUnmounted(() => {
                     v-model="ttsDraft.voice"
                     :options="ttsVoiceIds"
                     :label="i18n.t(field.labelKey)"
-                    :placeholder="field.placeholder"
+                    :placeholder="placeholderOf(field)"
                     :empty="i18n.t('settings.tts.voicesEmpty')"
                   />
                 </div>
@@ -4190,14 +4206,14 @@ onUnmounted(() => {
                   class="md3-field mirror-field"
                   rows="3"
                   spellcheck="false"
-                  :placeholder="field.placeholder"
+                  :placeholder="placeholderOf(field)"
                 />
                 <input
                   v-else
                   v-model="ttsDraft[field.key]"
                   class="md3-field net-input"
                   :type="field.sensitive ? 'password' : 'text'"
-                  :placeholder="field.placeholder"
+                  :placeholder="placeholderOf(field)"
                   spellcheck="false"
                 />
               </div>
@@ -5014,6 +5030,10 @@ onUnmounted(() => {
 }
 .output-select {
   width: 150px;
+}
+/* 语言下拉：母语名 + 英文名两行，宽度够 10 门语言里最长的「繁體中文」。 */
+.locale-select {
+  width: 220px;
 }
 .output-times {
   font-size: 12px;

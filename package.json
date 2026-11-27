@@ -14,6 +14,7 @@
     "build": "vue-tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "i18n:check": "node scripts/i18n.mjs check && node scripts/readme-nav.mjs --check",
     "tauri": "tauri",
     "fetch:sidecars": "bash scripts/fetch-sidecars.sh",
     "fetch:ort": "node tools/fetch-ort-runtime.mjs",

@@ -1,0 +1,72 @@
+[
+  {
+    "id": "zh",
+    "label": "简体中文",
+    "english": "Simplified Chinese",
+    "dir": "ltr",
+    "readme": "README_zh.md"
+  },
+  {
+    "id": "zh-TW",
+    "label": "繁體中文",
+    "english": "Traditional Chinese",
+    "dir": "ltr",
+    "readme": "README_zh-TW.md"
+  },
+  {
+    "id": "en",
+    "label": "English",
+    "english": "English",
+    "dir": "ltr",
+    "readme": "README.md"
+  },
+  {
+    "id": "ja",
+    "label": "日本語",
+    "english": "Japanese",
+    "dir": "ltr",
+    "readme": "README_ja.md"
+  },
+  {
+    "id": "ko",
+    "label": "한국어",
+    "english": "Korean",
+    "dir": "ltr",
+    "readme": "README_ko.md"
+  },
+  {
+    "id": "es",
+    "label": "Español",
+    "english": "Spanish",
+    "dir": "ltr",
+    "readme": "README_es.md"
+  },
+  {
+    "id": "fr",
+    "label": "Français",
+    "english": "French",
+    "dir": "ltr",
+    "readme": "README_fr.md"
+  },
+  {
+    "id": "de",
+    "label": "Deutsch",
+    "english": "German",
+    "dir": "ltr",
+    "readme": "README_de.md"
+  },
+  {
+    "id": "ru",
+    "label": "Русский",
+    "english": "Russian",
+    "dir": "ltr",
+    "readme": "README_ru.md"
+  },
+  {
+    "id": "ar",
+    "label": "العربية",
+    "english": "Arabic",
+    "dir": "rtl",
+    "readme": "README_ar.md"
+  }
+]

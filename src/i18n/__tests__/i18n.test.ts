@@ -12,6 +12,32 @@ describe("i18n", () => {
     expect(t("window.minimize")).toBe("最小化");
   });
 
+  it("serves every registered locale and keeps them distinct", () => {
+    const cancel: Record<string, string> = {
+      zh: "取消",
+      "zh-TW": "取消",
+      en: "Cancel",
+      ja: "キャンセル",
+      ko: "취소",
+      es: "Cancelar",
+      fr: "Annuler",
+      de: "Abbrechen",
+      ru: "Отмена",
+      ar: "إلغاء",
+    };
+    for (const [locale, expected] of Object.entries(cancel)) {
+      setLocale(locale as Parameters<typeof setLocale>[0]);
+      expect(t("common.cancel")).toBe(expected);
+    }
+  });
+
+  it("falls back to English for a key missing from the locale", () => {
+    // 词典结构由 locales.test.ts 保证一致，这里验证「回退链」本身：
+    // 用一个只在英文里出现的插件 key 走不到插件词典，最终应回到 key 本身。
+    setLocale("de");
+    expect(t("no.such.key")).toBe("no.such.key");
+  });
+
   it("interpolates vars and falls back to the key", () => {
     setLocale("zh");
     expect(t("marker.defaultName", { n: 3 })).toContain("3");

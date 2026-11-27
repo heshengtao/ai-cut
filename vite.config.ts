@@ -38,6 +38,12 @@ export default defineConfig({
     // 只预热入口，别把整棵组件树都塞进来（会拖慢 dev server 起来）。
     warmup: { clientFiles: ["./src/main.ts", "./src/App.vue"] },
   },
+  build: {
+    // 十门语言的词典是同步查表（`t()` 不能是 async，无头引擎也复用同一份代码），
+    // 所以都打进主 chunk：约 3.4 MB / gzip 960 KB。桌面应用和局域网 Web 都能接受；
+    // 拆成动态 import 会让切语言先闪一帧英文，取舍见 docs/i18n.md「已知边界」。
+    chunkSizeWarningLimit: 4096,
+  },
   envPrefix: ["VITE_", "TAURI_"],
   test: {
     environment: "node",

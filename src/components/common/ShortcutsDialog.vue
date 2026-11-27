@@ -12,7 +12,10 @@ const i18n = useI18n();
 
 const mod = isMacOS() ? "⌘" : "Ctrl";
 const shift = isMacOS() ? "⇧" : "Shift";
-const wheel = isMacOS() ? "⌘ + 滚轮" : "Ctrl + 滚轮";
+/** 滚轮缩放：修饰键按平台，词条按语言（`groups` 是 computed，切语言会重算）。 */
+function wheelLabel(): string {
+  return `${mod} + ${i18n.t("shortcuts.scrollWheel")}`;
+}
 
 interface Item {
   keys: string[];
@@ -58,7 +61,7 @@ const groups = computed<Group[]>(() => [
     items: [
       { keys: [mod, "\\"], labelKey: "shortcuts.togglePanel" },
       { keys: [mod, ","], labelKey: "shortcuts.settings" },
-      { keys: [wheel], labelKey: "shortcuts.zoom" },
+      { keys: [wheelLabel()], labelKey: "shortcuts.zoom" },
       { keys: ["Esc"], labelKey: "shortcuts.deselect" },
     ],
   },

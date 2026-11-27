@@ -11,6 +11,9 @@
  * - 关闭后把焦点还给打开前的那个元素，键盘用户不会掉到页面顶上。
  */
 import { nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useI18n } from "@/i18n";
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -83,7 +86,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown, true));
               v-if="dismissible"
               class="icon-btn"
               type="button"
-              aria-label="关闭"
+              :aria-label="t('common.close')"
               @click="close"
             >
               <svg viewBox="0 0 20 20" class="icon" aria-hidden="true">

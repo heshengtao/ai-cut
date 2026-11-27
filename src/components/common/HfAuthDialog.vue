@@ -12,8 +12,12 @@
  */
 import { computed, ref, watch } from "vue";
 import ModalShell from "@/components/common/ModalShell.vue";
+import { useI18n } from "@/i18n";
 import { useModelsStore } from "@/stores/models";
 import { openExternal } from "@/platform/tauri";
+
+const i18n = useI18n();
+const t = i18n.t;
 
 const models = useModelsStore();
 const token = ref("");
@@ -22,6 +26,9 @@ const failure = ref<string | null>(null);
 
 const open = computed(() => models.pendingAuth !== null);
 const auth = computed(() => models.pendingAuth?.auth ?? null);
+
+/** 文案里 `{repo}` 的位置由翻译决定：拆开渲染，仓库名保持加粗。 */
+const messageParts = computed(() => t("hf.message").split("{repo}"));
 
 /** 打开就清空上一次的输入 / 报错，避免「上次粘错的 token」留在框里。 */
 watch(open, (value) => {
@@ -71,25 +78,27 @@ function onKey(e: KeyboardEvent): void {
 </script>
 
 <template>
-  <ModalShell :open="open" title="需要 Hugging Face 授权" width="480px" @update:open="close">
+  <ModalShell :open="open" :title="t('hf.title')" width="480px" @update:open="close">
     <p class="message">
-      <strong>{{ auth?.repo }}</strong> 是需要同意许可才能下载的仓库。先去网页上同意，再把
-      read token 粘进来，就会接着下载。
+      <template v-for="(part, index) in messageParts" :key="index">
+        <strong v-if="index === 1">{{ auth?.repo }}</strong>
+        <template v-else>{{ part }}</template>
+      </template>
     </p>
 
     <ol class="steps">
       <li>
         <button type="button" class="link" @click="openPage">{{ auth?.page_url }}</button>
-        <span class="note">点「Agree and access repository」</span>
+        <span class="note">{{ t("hf.stepOpenNote") }}</span>
       </li>
       <li>
-        <button type="button" class="link" @click="openTokenPage">创建 read token</button>
-        <span class="note">新建一个 read 权限的 token 并复制</span>
+        <button type="button" class="link" @click="openTokenPage">{{ t("hf.stepToken") }}</button>
+        <span class="note">{{ t("hf.stepTokenNote") }}</span>
       </li>
     </ol>
 
     <label class="field">
-      <span class="label">Hugging Face read token</span>
+      <span class="label">{{ t("hf.tokenLabel") }}</span>
       <input
         v-model="token"
         class="input"
@@ -102,17 +111,17 @@ function onKey(e: KeyboardEvent): void {
     </label>
 
     <p v-if="failure" class="failure">{{ failure }}</p>
-    <p class="hint">token 只保存在本机设置里，只发给 huggingface.co；随时可在 HF 上撤销。</p>
+    <p class="hint">{{ t("hf.hint") }}</p>
 
     <template #foot>
-      <button type="button" class="btn-text" @click="close">取消</button>
+      <button type="button" class="btn-text" @click="close">{{ t("common.cancel") }}</button>
       <button
         type="button"
         class="btn-filled"
         :disabled="!token.trim() || saving"
         @click="submit"
       >
-        {{ saving ? "重试中…" : "保存并重试" }}
+        {{ saving ? t("hf.retrying") : t("hf.saveAndRetry") }}
       </button>
     </template>
   </ModalShell>

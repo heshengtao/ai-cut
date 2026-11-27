@@ -768,7 +768,8 @@ function onLaneDrop(event: DragEvent): void {
 </script>
 
 <template>
-  <section class="timeline" data-tour="timeline">
+  <!-- 时间轴固定从左到右：阿拉伯语界面里也不翻转（时间方向是剪辑的肌肉记忆）。 -->
+  <section class="timeline" dir="ltr" data-tour="timeline">
     <header class="tl-head">
       <span class="tl-title">{{ i18n.t("timeline.title") }}</span>
 

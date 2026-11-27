@@ -1854,9 +1854,11 @@ watch(
 </script>
 
 <template>
+  <!-- 画面坐标（拖拽 / 吸附线 / 缩放）固定 LTR，不随界面语言翻转。 -->
   <section
     ref="previewEl"
     class="preview"
+    dir="ltr"
     data-tour="preview"
     :class="{ portrait: layout.layoutMode === 'portrait' }"
   >

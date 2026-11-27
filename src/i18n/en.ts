@@ -3094,6 +3094,20 @@ const en: Record<string, string> = {
   "board.clear.clearWithoutSave": "Clear without saving",
   "board.clear.cleared": "Canvas cleared",
   "board.run.stopped": "Cancelled",
+
+  // ---- Hugging Face authorization / misc ----
+  "common.optional": "Optional",
+  "hf.title": "Hugging Face authorization required",
+  "hf.message": "{repo} is a gated repository: its license has to be accepted on the website first. Accept it there, then paste a read token here and the download continues.",
+  "hf.stepOpenNote": "Click “Agree and access repository”",
+  "hf.stepToken": "Create a read token",
+  "hf.stepTokenNote": "Create a token with read access and copy it",
+  "hf.tokenLabel": "Hugging Face read token",
+  "hf.hint": "The token is stored only in your local settings and sent only to huggingface.co; you can revoke it on Hugging Face at any time.",
+  "hf.retrying": "Retrying…",
+  "hf.saveAndRetry": "Save and retry",
+  "shortcuts.scrollWheel": "Scroll wheel",
+  "aiVideo.refAudioTag": "Audio",
 };
 
 export default en;

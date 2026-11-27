@@ -127,7 +127,8 @@ const showWindowControls = isTauri() && (isWindows() || isLinux());
 .win-layer {
   position: absolute;
   top: 0;
-  right: 0;
+  /* 逻辑方向：阿拉伯语（dir=rtl）时窗口按钮跟着翻到左上角。 */
+  inset-inline-end: 0;
   height: 52px;
   z-index: 60;
 }
